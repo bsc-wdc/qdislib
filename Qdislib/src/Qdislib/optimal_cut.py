@@ -254,7 +254,7 @@ def gate_selector(digraph,circuit, max_qubits=None,num_subcirucits=None,draw=Fal
         print("Choosing the smallest number")
     
     print("Gate where to cut for balanced subgraphs: ",gate_cut)
-    print("Computational cost of cutting these gates: ",gate_cost)
+    print("Computational cost of cutting these gates: ",min_gate)
     return_list = [gate_cut,min_gate]
     return return_list
 
@@ -391,14 +391,15 @@ def optimal_cut(circuit,
     if gate_cut: return_list = gate_selector(digraph2,circuit,max_qubits,num_subcircuits,True)
     if wire_cut: return_list2 = wire_selector(digraph2,circuit,max_qubits,True)
 
-    return_list = compss_wait_on(return_list)
-    return_list2 = compss_wait_on(return_list2)
+    if gate_cut: return_list = compss_wait_on(return_list)
+    if wire_cut: return_list2 = compss_wait_on(return_list2)
     
     if gate_cut: gate_cut2,min_gate2 = return_list
     if wire_cut: wire_cut2,min_wire2 = return_list2
     
+    
     print("\n")
-    if gate_cut2 and wire_cut2:
+    if gate_cut and wire_cut:
         print("Minimum computational cost of gate cutting: ", min_gate2)
         print("Minimum computational cost of wire cutting: ", min_wire2)
         if min_gate2 > min_wire2:
