@@ -102,40 +102,7 @@ def split(circuit, edge_remove, draw=False, verbose=False):
         :return: circuit1, circuit2.
         """
 
-
-    '''sub_circuit_1_dimension = circuit.queue[numgates-1].target_qubits[0] + 1
-
-    sub_circuit_1 = models.Circuit(sub_circuit_1_dimension)
-
-    for i in range(0, numgates):
-        sub_circuit_1.add(circuit.queue[i])
-    
-    sub_circuit_2 = models.Circuit(circuit.nqubits - sub_circuit_1_dimension + 1)
-
-    for j in range(numgates, len(circuit.queue)):
-        circuit_copy = circuit.copy(True)
-        temp = circuit_copy.queue[j]
-
-        if len(temp.qubits) > 1:
-            control = temp.qubits[0] - sub_circuit_1_dimension + 1
-            temp._set_control_qubits((control,))
-            target = temp.qubits[1] - sub_circuit_1_dimension + 1
-            temp._set_target_qubits((target,))
-        else:
-            target = temp.qubits[0] - sub_circuit_1_dimension + 1
-            temp._set_target_qubits((target,))
-        sub_circuit_2.add(temp)
-    
-    if draw:
-        print("Subcircuit 1: ")
-        print(sub_circuit_1.draw())
-        print("\n")
-        print("Subcircuit 2: ")
-        print(sub_circuit_2.draw())
-        print("\n")
-    
-    return sub_circuit_1, sub_circuit_2'''
-
+    circuit = circuit.copy()
     qubits_first_gate = circuit.queue[edge_remove[0]-1].qubits
     qubits_second_gate = circuit.queue[edge_remove[1]-1].qubits
     #print(circuit.queue[edge_remove[0]-1].qubits > circuit.queue[edge_remove[1]-1].qubits)
@@ -172,9 +139,9 @@ def split(circuit, edge_remove, draw=False, verbose=False):
 
         non_empty_qubits = del_empty_qubits(circuit_copy)
         non_empty_qubits.sort()
-        #print(non_empty_qubits)
+        #print("Non empty qubits!: ",non_empty_qubits)
         difference_list = [value - index for index, value in enumerate(non_empty_qubits)]
-        #print("Non empty qubit ",difference_list)
+        #print("Different list: ",difference_list)
         non_empty_list.append(difference_list)
         subtracted_list = [x - y for x, y in zip(non_empty_qubits, difference_list)]
         #print("Substracted list: ", subtracted_list)
@@ -191,8 +158,8 @@ def split(circuit, edge_remove, draw=False, verbose=False):
         circuit_copy.nqubits = len(non_empty_qubits)
         circuit_copy.queue.nmeasurements = 0
         list_subcircuits.append(circuit_copy)
-    qubit = [qubit-non_empty_list[0][qubit],0]
-    if qubits_first_gate > qubits_second_gate:
+    qubit = [non_empty_list[1][-1],non_empty_list[0][-1]]
+    if qubits_first_gate < qubits_second_gate:
         list_subcircuits.reverse()
         qubit.reverse()
     if draw:

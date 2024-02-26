@@ -230,7 +230,7 @@ def gate_selector(digraph,circuit, max_qubits=None,num_subcirucits=None,draw=Fal
         
     #-------------------------------------------------------DECIDE WHAT GATE TO CUT------------------------------------------------------------#
     print(temp)
-    gate_cut=right_subgrafs
+    gate_cut=right_subgrafs[0]
     min_gate = min(computational_cost)
     if len(right_subgrafs) > 1:
         print("Options where to cut: ",right_subgrafs)
@@ -380,6 +380,7 @@ def optimal_cut(circuit,
                 max_cuts=None, 
                 gate_cut=True, 
                 wire_cut=True,
+                draw=False
                 #max_subcircuit_size=None
                ):
     digraph2 = nx.Graph()
@@ -388,8 +389,8 @@ def optimal_cut(circuit,
     build_dag(circuit,dag2)
     create_graph(dag2,digraph2)
 
-    if gate_cut: return_list = gate_selector(digraph2,circuit,max_qubits,num_subcircuits,True)
-    if wire_cut: return_list2 = wire_selector(digraph2,circuit,max_qubits,True)
+    if gate_cut: return_list = gate_selector(digraph2,circuit,max_qubits,num_subcircuits,draw)
+    if wire_cut: return_list2 = wire_selector(digraph2,circuit,max_qubits,draw)
 
     if gate_cut: return_list = compss_wait_on(return_list)
     if wire_cut: return_list2 = compss_wait_on(return_list2)
