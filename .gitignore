@@ -9,6 +9,7 @@ dist/*
 # Ignore other folders
 .qibo_configuration/
 .ipynb_checkpoints/
+Qdislib/src/Qdislib.egg-info/
 
 
 # ========== Python ignores =================
