@@ -6,6 +6,10 @@
 builders/packages/*
 dist/*
 
+# Ignore other folders
+.qibo_configuration/
+.ipynb_checkpoints/
+
 
 # ========== Python ignores =================
 
@@ -66,5 +70,3 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-
-
