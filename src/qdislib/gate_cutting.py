@@ -1,3 +1,22 @@
+#!/usr/bin/python
+#
+#  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#
+
+# -*- coding: utf-8 -*-
+
 from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
 from pycompss.api.parameter import *
@@ -35,7 +54,7 @@ class DAGgraph:
 
     def add_edge2(self, gate1, gate2):
         self.edges2.append((gate1, gate2))
-        
+
     def print_nodes(self):
         print("Nodes: ",self.nodes)
 
@@ -77,17 +96,17 @@ def create_graph(dag,digraph):
     labels = {i: index+1 for index, i in enumerate(dag.nodes)}  # Start numbering from 0
     new_edges = [(labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges]
     new_edges2 = [(labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges2]
-    
+
     digraph.add_nodes_from(new_nodes)
     digraph.add_edges_from(new_edges, color='blue')
     digraph.add_edges_from(new_edges2, color='red')
-    
+
     #print("Numeric nodes ",new_nodes)
     #print("Numeric edges ",digraph.edges(data=True))
-    
+
     articulation_points = list(nx.articulation_points(digraph))
     #print("Articulation points ", articulation_points)
-    
+
     #print_graph(digraph)
     return digraph
 
@@ -104,24 +123,24 @@ def gates_dict(circuit):
                     double_gates[tuple].append(index+1)
                 else:
                     double_gates[tuple].append(index+1)
-    
+
     #print(double_gates)
     return double_gates
 
 def print_graph(graph):
     pos = nx.spring_layout(graph)  # Define layout for the nodes
-    
+
     # Draw edges for the first group with blue color
     edges_first_group = [(edge[0], edge[1]) for edge in graph.edges.data('color') if edge[2] == 'blue']
     nx.draw_networkx_edges(graph, pos, edgelist=edges_first_group, edge_color='blue', width=2.0, alpha=0.7)
 
     edges_second_group = [(edge[0], edge[1]) for edge in graph.edges.data('color') if edge[2] == 'red']
     nx.draw_networkx_edges(graph, pos, edgelist=edges_second_group, edge_color='red', width=2.0, alpha=0.7,style='dotted')
-    
+
     # Draw nodes and labels
     nx.draw_networkx_nodes(graph, pos, node_color='skyblue', node_size=500)
     nx.draw_networkx_labels(graph, pos, font_weight='bold', font_size=12)
-    
+
     #plt.title("Directed Graph with Two Edge Groups (Red edges in dotted line)")
     plt.show()
 
@@ -137,7 +156,7 @@ def del_empty_qubits(circuit):
 @task(returns=list)
 def gen_graph_circuit(new_circuit):
     list_subcircuits = []
-    #convert to DAG and DIGRPAPH 
+    #convert to DAG and DIGRPAPH
     digraph = nx.Graph()
     dag = DAGgraph()
 
@@ -147,14 +166,14 @@ def gen_graph_circuit(new_circuit):
     subgraphs = list(nx.connected_components(digraph))
     print(subgraphs)
 
-    
+
     for subgraph in subgraphs:
         subgraph = sorted(subgraph)
         selected_elements = [dag.nodes[i-1] for i in subgraph]
         #circuit_copy = copy.deepcopy(new_circuit)
-        
+
         #remove specific qubit
-        
+
 
         circuit_copy = models.Circuit(new_circuit.nqubits)
         circuit_copy.add(selected_elements)
@@ -186,7 +205,7 @@ def split_gates(gates_cut,circuit, draw = False):
     type_gates = type(circuit.queue[gates_cut[0]-1])
     combinations_list = generate_combinations(len(gates_cut), type_gates)
     generated_circuits = []
-    for index2, combination in enumerate(combinations_list):  
+    for index2, combination in enumerate(combinations_list):
         circuit1 = circuit.copy(True)
         target_gates = []
         for gate in gates_cut:
@@ -195,9 +214,9 @@ def split_gates(gates_cut,circuit, draw = False):
         if any(type(element) != type(target_gates[0]) for element in target_gates):
             print("All the gates to cut have to be the same type")
             return
-            
+
         target_qubit = target_gates[0].control_qubits[0]
-    
+
         for index, gate in enumerate(circuit1.queue):
             if gate in target_gates:
                 if type(gate) == gates.CNOT:
@@ -221,7 +240,7 @@ def split_gates(gates_cut,circuit, draw = False):
                     circuit1.queue[index] = combination[idx][0](control_qubit)
                     circuit1.queue.insert(index+1,combination[idx][1](target_qubit))
                     #changed_gates.append((circuit1.queue[index],circuit1.queue[index+1]))
-        
+
         if draw:
             print("\n Circuit " + str(index2+1))
             print(circuit1.draw())
@@ -229,12 +248,12 @@ def split_gates(gates_cut,circuit, draw = False):
 
     list_subcircuits=[]
     for new_circuit in generated_circuits:
-        new_list = gen_graph_circuit(new_circuit)     
+        new_list = gen_graph_circuit(new_circuit)
         list_subcircuits.append(new_list)
-    
+
     list_subcircuits = compss_wait_on(list_subcircuits)
     list_subcircuits = concatenate_lists(list_subcircuits)
-    
+
     if draw:
         for index, sub in enumerate(list_subcircuits):
             print("\n Subcircuit " + str(index+1))
@@ -265,7 +284,7 @@ def gate_expectation_value(freq, shots=30000):
     expec = 0
     for key, value in freq.items():
         ones = key.count('1')
-        if ones%2 == 0: 
+        if ones%2 == 0:
             expec += float(value)/shots
         else:
             expec -= float(value)/shots
@@ -275,7 +294,7 @@ def gate_reconstruction(type_gates, gates_cut, exp_values):
     #--------------------------------------RECONSTRUCTION------------------------------------------#
     num_generated = int(len(exp_values)/2**len(gates_cut))
     result = [eval('*'.join(map(str, exp_values[i:i+num_generated]))) for i in range(0, len(exp_values), num_generated)]
-    
+
     #result = [exp_values[i] * exp_values[i + 1] for i in range(0, len(exp_values), 2)]
     result1 = [x * 1j if i % 2 == 0 else x for i, x in enumerate(result)]
     result2 = [x * 1j if i % 2 != 0 else x for i, x in enumerate(result)]
@@ -304,7 +323,7 @@ def generate_combinations(n,gate_type):
         objects = [(gates.RZ,gates.RX), (gates.RZ, gates.Z,gates.RX, gates.X)]
     all_combinations = list(product(objects, repeat=n))
     return all_combinations
-	
+
 
 def gate_cutting(gates_cut,circuit,shots=30000,chunk=1,draw = False):
     type_gates = type(circuit.queue[gates_cut[0]-1])

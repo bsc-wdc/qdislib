@@ -1,3 +1,22 @@
+#!/usr/bin/python
+#
+#  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#
+
+# -*- coding: utf-8 -*-
+
 import numpy as np
 import qibo
 from qibo import models, gates, hamiltonians  # , callbacks
@@ -18,8 +37,8 @@ from pycompss.api.api import compss_wait_on
 
 
 def circuit_cutting(observables, circuit, numgates, shots=30000, verbose=False):
-    
-    """Implements the algorithm of circuit cutting in one function. 
+
+    """Implements the algorithm of circuit cutting in one function.
        Cuts the circuit in 2 after the specified gate, and calculates the
        expected value of the reconstruction.
 
@@ -40,7 +59,7 @@ def circuit_cutting(observables, circuit, numgates, shots=30000, verbose=False):
     states = ["0", "1", "+", "-", "+i", "-i"]
 
     if verbose: print("Gate where to cut: ", numgates)
-    
+
     sub_circuit_1_dimension = circuit.queue[numgates-1].target_qubits[0] + 1
     if verbose: print("Sub circuit 1 num qubits: ", sub_circuit_1_dimension)
 
@@ -92,7 +111,7 @@ def circuit_cutting(observables, circuit, numgates, shots=30000, verbose=False):
 
 def split(circuit, edge_remove, draw=False, verbose=False):
 
-    """Splits a circuit in two subcircuits. Cuts 
+    """Splits a circuit in two subcircuits. Cuts
        after the gate we pass as the parameter.
 
         :param ciruit: Circuit.
@@ -108,16 +127,16 @@ def split(circuit, edge_remove, draw=False, verbose=False):
     #print(circuit.queue[edge_remove[0]-1].qubits > circuit.queue[edge_remove[1]-1].qubits)
     qubit = list(set(circuit.queue[edge_remove[0]-1].qubits).intersection(set(circuit.queue[edge_remove[1]-1].qubits)))
     qubit = qubit[0]
-    #convert to DAG and DIGRPAPH 
+    #convert to DAG and DIGRPAPH
     digraph = nx.Graph()
     dag = DAGgraph()
 
     build_dag(circuit,dag)
     create_graph(dag,digraph)
-    
+
     red_edges = [(edge[0], edge[1]) for edge in digraph.edges.data('color') if edge[2] == 'red']
     digraph.remove_edges_from(red_edges)
-    
+
     digraph.remove_edge(edge_remove[0],edge_remove[1])
 
     subgraphs = list(nx.connected_components(digraph))
@@ -130,9 +149,9 @@ def split(circuit, edge_remove, draw=False, verbose=False):
         subgraph = sorted(subgraph)
         selected_elements = [dag.nodes[i-1] for i in subgraph]
         #circuit_copy = copy.deepcopy(new_circuit)
-        
+
     #remove specific qubit
-        
+
 
         circuit_copy = models.Circuit(circuit.nqubits)
         circuit_copy.add(selected_elements)
@@ -172,7 +191,7 @@ def simulation(observables,qubit, circuit_1, circuit_2=None, shots=30000, verbos
 
     """Performs the execution of a cirucuit to calculate the expected value.
        It accepts one or two circuits. With 1 circuit it calculates the expected
-       value straight forward, with 2 it performs a reeconstruction in order 
+       value straight forward, with 2 it performs a reeconstruction in order
        to provie the expected value.
 
         :param observables: string.
@@ -182,7 +201,7 @@ def simulation(observables,qubit, circuit_1, circuit_2=None, shots=30000, verbos
         :param verbose: bool.
         :return: reeconstruction value.
         """
-    
+
     if verbose: print(f"qibo version: {qibo.__version__}")
 
     if circuit_2 != None:
@@ -245,7 +264,7 @@ def simulation(observables,qubit, circuit_1, circuit_2=None, shots=30000, verbos
         expec = 0
         for key, value in freq.items():
             ones = key.count('1')
-            if ones%2 == 0: 
+            if ones%2 == 0:
                 expec += float(value)/shots
             else:
                 expec -= float(value)/shots
@@ -255,7 +274,7 @@ def simulation(observables,qubit, circuit_1, circuit_2=None, shots=30000, verbos
 
 
 def quantum_computer( observables, circuit1, circuit2, connection, shots=30000, verbose=False):
-    
+
     """Sends the execution to the quantum computer to calculate the expected value,
        instead of performing a simulation. (in process).
 
@@ -266,7 +285,7 @@ def quantum_computer( observables, circuit1, circuit2, connection, shots=30000, 
         :param verbose: bool.
         :return: reeconstruction value.
         """
-        
+
     if verbose: print(f"qibo version: {qibo.__version__}")
 
     basis = ["X", "Y", "Z", "I"]
@@ -281,7 +300,7 @@ def quantum_computer( observables, circuit1, circuit2, connection, shots=30000, 
     # first subcircuit:
     exp_value_1 = {}
     for b in basis:
-        if verbose: print("Basis: ", b)                                         
+        if verbose: print("Basis: ", b)
         #circuit_copy = circuit_1.copy(True)
         circuit1 = first_subcircuit_basis(circuit1, b)
         result = circuit1.execute_qc_COMPSs(connection, nshots=shots)

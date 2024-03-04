@@ -1,19 +1,44 @@
+#!/usr/bin/python
+#
+#  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+#
+
+# -*- coding: utf-8 -*-
+
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = [
+    "setuptools>=61.0",
+    "wheel"
+]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "Qdislib"
-version = "0.0.1"
+name = "qdislib"
+dynamic = ["version"]
 authors = [
   { name="Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email="support-compss@bsc.es" },
 ]
-description = "A small example package"
+maintainers = [
+  { name="Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email="support-compss@bsc.es" },
+]
+description = "The quantum distributed computing library on top of PyCOMPSs"
 # url="https://qdislib.bsc.es",
 readme = "README.md"
 requires-python = ">=3.7"
-# license="Apache 2.0",
-# license_files=["LICENSE.txt"],
+license = { file = "LICENSE" }
+keywords = ["quantum", "distributed computing", "PyCOMPSs", "COMPSs"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: Apache Software License",
@@ -36,3 +61,30 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "qdislib.__version__"}
+
+[project.urls]
+Homepage = "https://qdislib.bsc.es"
+Documentation = "https://qdislib.readthedocs.io"
+# Repository = "https://github.com/me/spam.git"
+# Issues = "https://github.com/me/spam/issues"
+# Changelog = "https://github.com/me/spam/blob/master/CHANGELOG.md"
+
+# [project.scripts]
+# qdislib-cli = "qdislib:main_cli"
+
+# [tool.bandit]
+# exclude_dirs = ["notebooks/"]
+# tests = []
+# skips = [
+#     "B301",  # skips pickle
+#     "B403",  # skips import_pickle
+#     "B404",  # skips import_subprocess
+#     "B603",  # skips subprocess_without_shell_equals_true
+#     "B311",  # skips random
+# ]
+
+# [tool.bandit.assert_used]
+# skips = ["*/test_*.py"]  # skips assertions in unittest files

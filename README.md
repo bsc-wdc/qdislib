@@ -8,4 +8,4 @@ This library provides a distributed computing version of the quantum circuit cut
 
 ### Requirements
 
-- Python >= 3.10
+- Python >= 3.6
