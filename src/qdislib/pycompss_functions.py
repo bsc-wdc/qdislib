@@ -27,6 +27,7 @@ from qibo.symbols import Z, X, Y, I
 
 from Qdislib.circuit_classes import NewCircuit
 
+
 # Now we define the two subcircuits of the above example
 @task(returns=NewCircuit)
 def first_subcircuit(circuit, basis, numgates, sub_circuit_1_dimension):
@@ -98,7 +99,6 @@ def second_subcircuit(circuit, initial, numgates, sub_circuit_1_dimension):
         sub_circuit_2.add(gates.H(0))
         sub_circuit_2.add(gates.S(0))
 
-
     for j in range(numgates, len(circuit.queue)):
         circuit_copy = circuit.copy(True)
         temp = circuit_copy.queue[j]
@@ -159,6 +159,7 @@ def compute_expectation_value(freq, basis, shots):
 
     return expectation_value
 
+
 @task(returns=NewCircuit)
 def first_subcircuit_basis(circuit1, basis, qubit):
     """
@@ -192,6 +193,7 @@ def first_subcircuit_basis(circuit1, basis, qubit):
 
     return new_circuit
 
+
 @task(returns=NewCircuit)
 def second_subcircuit_states(circuit2, initial, qubit):
     """
@@ -208,31 +210,31 @@ def second_subcircuit_states(circuit2, initial, qubit):
 
     # We prepare the different initial states
     if initial == "1":
-        circuit2.queue.insert(0,gates.X(qubit))
-        #circuit2.add(gates.X(0))
+        circuit2.queue.insert(0, gates.X(qubit))
+        # circuit2.add(gates.X(0))
     elif initial == "+":
-        #circuit2.add(gates.H(0))
-        circuit2.queue.insert(0,gates.H(qubit))
+        # circuit2.add(gates.H(0))
+        circuit2.queue.insert(0, gates.H(qubit))
 
     elif initial == "-":
-        circuit2.queue.insert(0,gates.H(qubit))
-        circuit2.queue.insert(0,gates.X(qubit))
-        #circuit2.add(gates.X(0))
-        #circuit2.add(gates.H(0))
+        circuit2.queue.insert(0, gates.H(qubit))
+        circuit2.queue.insert(0, gates.X(qubit))
+        # circuit2.add(gates.X(0))
+        # circuit2.add(gates.H(0))
 
     elif initial == "+i":
-        circuit2.queue.insert(0,gates.S(qubit))
-        circuit2.queue.insert(0,gates.H(qubit))
-        #circuit2.add(gates.H(0))
-        #circuit2.add(gates.S(0))
+        circuit2.queue.insert(0, gates.S(qubit))
+        circuit2.queue.insert(0, gates.H(qubit))
+        # circuit2.add(gates.H(0))
+        # circuit2.add(gates.S(0))
 
     elif initial == "-i":
-        circuit2.queue.insert(0,gates.S(qubit))
-        circuit2.queue.insert(0,gates.H(qubit))
-        circuit2.queue.insert(0,gates.X(qubit))
-        #circuit2.add(gates.X(0))
-        #circuit2.add(gates.H(0))
-        #circuit2.add(gates.S(0))
+        circuit2.queue.insert(0, gates.S(qubit))
+        circuit2.queue.insert(0, gates.H(qubit))
+        circuit2.queue.insert(0, gates.X(qubit))
+        # circuit2.add(gates.X(0))
+        # circuit2.add(gates.H(0))
+        # circuit2.add(gates.S(0))
 
     circuit2.add(gates.M(*range(dimension)))
 
