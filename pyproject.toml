@@ -74,10 +74,12 @@ ci = ["black",
 ]
 notebooks = ["jupyter"]
 qchip = ["qiboconnection==0.12.0"]
-pycompss = ["pycompss"]
+pycompss = ["pycompss",
+            "qiboconnection==0.12.0"
+]
 
 [tool.setuptools.dynamic]
-version = {attr = "qdislib.__version__"}
+version = { attr = "qdislib.__version__" }
 
 [project.urls]
 Homepage = "https://qdislib.bsc.es"
@@ -89,8 +91,8 @@ Documentation = "https://qdislib.readthedocs.io"
 # [project.scripts]
 # qdislib-cli = "qdislib:main_cli"
 
-# [tool.bandit]
-# exclude_dirs = ["notebooks/"]
+[tool.bandit]
+exclude_dirs = ["notebooks/"]
 # tests = []
 # skips = [
 #     "B301",  # skips pickle
@@ -100,5 +102,5 @@ Documentation = "https://qdislib.readthedocs.io"
 #     "B311",  # skips random
 # ]
 
-# [tool.bandit.assert_used]
-# skips = ["*/test_*.py"]  # skips assertions in unittest files
+[tool.bandit.assert_used]
+skips = ["*/test_*.py"]  # skips assertions in unittest files
