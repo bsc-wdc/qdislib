@@ -94,7 +94,8 @@ Documentation = "https://qdislib.readthedocs.io"
 # qdislib-cli = "qdislib:main_cli"
 
 [tool.bandit]
-exclude_dirs = ["notebooks/"]
+exclude_dirs = ["notebooks/",
+                "scripts/"]
 # tests = []
 # skips = [
 #     "B301",  # skips pickle
