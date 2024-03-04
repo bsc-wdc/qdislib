@@ -67,6 +67,8 @@ classifiers = [
 ci = ["black",
       "flake8",
       "bandit",
+      "pylint",
+      "prospector",
       "pytest",
       "pytest-cov[all]"
 ]
