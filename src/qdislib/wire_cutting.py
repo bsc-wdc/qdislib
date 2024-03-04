@@ -36,7 +36,9 @@ from Qdislib.graph import *
 from pycompss.api.api import compss_wait_on
 
 
-def circuit_cutting(observables, circuit, numgates, shots=30000, verbose=False):
+def circuit_cutting(
+    observables, circuit, numgates, shots=30000, verbose=False
+):
     """Implements the algorithm of circuit cutting in one function.
     Cuts the circuit in 2 after the specified gate, and calculates the
     expected value of the reconstruction.
@@ -79,23 +81,31 @@ def circuit_cutting(observables, circuit, numgates, shots=30000, verbose=False):
     # first subcircuit:
     exp_value_1 = {}
     for b in basis:
-        circuit1 = first_subcircuit(circuit, b, numgates, sub_circuit_1_dimension)
+        circuit1 = first_subcircuit(
+            circuit, b, numgates, sub_circuit_1_dimension
+        )
         result = circuit1.execute_COMPSs(nshots=shots)
         # obtain probability distribution
         freq = result.frequencies_COMPSs(binary=True)
         # we call the function that computes the expectation value
-        exp_value_1[b] = compute_expectation_value(freq, num_z_sub1 + b, shots=shots)
+        exp_value_1[b] = compute_expectation_value(
+            freq, num_z_sub1 + b, shots=shots
+        )
 
     # second subcircuit:
     exp_value_2 = {}
 
     for s in states:
-        circuit2 = second_subcircuit(circuit, s, numgates, sub_circuit_1_dimension)
+        circuit2 = second_subcircuit(
+            circuit, s, numgates, sub_circuit_1_dimension
+        )
         result = circuit2.execute_COMPSs(nshots=shots)
         # obtain probability distribution
         freq = result.frequencies_COMPSs(binary=True)
         # we call the function that computes the expectation value
-        exp_value_2[s] = compute_expectation_value(freq, num_z_sub2 + b, shots=shots)
+        exp_value_2[s] = compute_expectation_value(
+            freq, num_z_sub2 + b, shots=shots
+        )
 
     exp_value_1 = compss_wait_on(exp_value_1)
     exp_value_2 = compss_wait_on(exp_value_2)
@@ -111,7 +121,10 @@ def circuit_cutting(observables, circuit, numgates, shots=30000, verbose=False):
         )
     )
 
-    print("Expectation value after circuit cutting and reconstruction:", reconstruction)
+    print(
+        "Expectation value after circuit cutting and reconstruction:",
+        reconstruction,
+    )
     return reconstruction
 
 
@@ -144,7 +157,9 @@ def split(circuit, edge_remove, draw=False, verbose=False):
     create_graph(dag, digraph)
 
     red_edges = [
-        (edge[0], edge[1]) for edge in digraph.edges.data("color") if edge[2] == "red"
+        (edge[0], edge[1])
+        for edge in digraph.edges.data("color")
+        if edge[2] == "red"
     ]
     digraph.remove_edges_from(red_edges)
 
@@ -174,17 +189,25 @@ def split(circuit, edge_remove, draw=False, verbose=False):
         ]
         # print("Different list: ",difference_list)
         non_empty_list.append(difference_list)
-        subtracted_list = [x - y for x, y in zip(non_empty_qubits, difference_list)]
+        subtracted_list = [
+            x - y for x, y in zip(non_empty_qubits, difference_list)
+        ]
         # print("Substracted list: ", subtracted_list)
 
         for gate in circuit_copy.queue:
             if len(gate.qubits) > 1:
-                control = subtracted_list[non_empty_qubits.index(gate.qubits[0])]
+                control = subtracted_list[
+                    non_empty_qubits.index(gate.qubits[0])
+                ]
                 gate._set_control_qubits((control,))
-                target = subtracted_list[non_empty_qubits.index(gate.qubits[1])]
+                target = subtracted_list[
+                    non_empty_qubits.index(gate.qubits[1])
+                ]
                 gate._set_target_qubits((target,))
             else:
-                target = subtracted_list[non_empty_qubits.index(gate.qubits[0])]
+                target = subtracted_list[
+                    non_empty_qubits.index(gate.qubits[0])
+                ]
                 gate._set_target_qubits((target,))
         circuit_copy.nqubits = len(non_empty_qubits)
         circuit_copy.queue.nmeasurements = 0
@@ -334,7 +357,9 @@ def quantum_computer(
         # obtain probability distribution
         freq = result.frequencies_COMPSs(binary=True)
         # we call the function that computes the expectation value
-        exp_value_1[b] = compute_expectation_value(freq, num_z_sub1 + b, shots=shots)
+        exp_value_1[b] = compute_expectation_value(
+            freq, num_z_sub1 + b, shots=shots
+        )
         if verbose:
             print(exp_value_1[b])
 
@@ -349,7 +374,9 @@ def quantum_computer(
         # obtain probability distribution
         freq = result.frequencies_COMPSs(binary=True)
         # we call the function that computes the expectation value
-        exp_value_2[s] = compute_expectation_value(freq, num_z_sub2 + b, shots=shots)
+        exp_value_2[s] = compute_expectation_value(
+            freq, num_z_sub2 + b, shots=shots
+        )
         if verbose:
             print(exp_value_2[s])
 
@@ -366,7 +393,10 @@ def quantum_computer(
             + exp_value_1["Z"] * (exp_value_2["0"] - exp_value_2["1"])
         )
     )
-    print("Expectation value after circuit cutting and reconstruction:", reconstruction)
+    print(
+        "Expectation value after circuit cutting and reconstruction:",
+        reconstruction,
+    )
     return reconstruction
 
 
@@ -401,7 +431,9 @@ def analytical_solution(observables, circuit, verbose=False):
     new_expectation_value = hamiltonians.SymbolicHamiltonian(expectation_value)
     # Finally we compute the expectation value
     exp_full_circuit = float(
-        new_expectation_value.expectation(state.state(numpy=True), normalize=False)
+        new_expectation_value.expectation(
+            state.state(numpy=True), normalize=False
+        )
     )
 
     print(

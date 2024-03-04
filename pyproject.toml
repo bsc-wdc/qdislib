@@ -64,7 +64,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-ci = ["black",
+ci = ["pycodestyle",
+      "pydocstyle",
+      "black",
       "flake8",
       "bandit",
       "pylint",

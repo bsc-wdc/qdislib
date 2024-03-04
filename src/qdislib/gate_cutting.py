@@ -70,7 +70,9 @@ def build_dag(circuit, dag):
             for node in reversed(
                 dag.nodes[:-1]
             ):  # Skip the last node since it is the current gate being added
-                if qubit in node.qubits:  # Check if the qubit is in the node's qubits
+                if (
+                    qubit in node.qubits
+                ):  # Check if the qubit is in the node's qubits
                     dag.add_edge(node, gate)
                     break
     for gate in circuit.queue:
@@ -79,7 +81,9 @@ def build_dag(circuit, dag):
             for node in reversed(
                 dag.nodes[:-1]
             ):  # Skip the last node since it is the current gate being added
-                if qubit in node.qubits:  # Check if the qubit is in the node's qubits
+                if (
+                    qubit in node.qubits
+                ):  # Check if the qubit is in the node's qubits
                     if (node, gate) in dag.edges or (gate, node) in dag.edges:
                         pass
                     else:
@@ -104,7 +108,9 @@ def create_graph(dag, digraph):
         i: index + 1 for index, i in enumerate(dag.nodes)
     }  # Start numbering from 0
     new_edges = [(labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges]
-    new_edges2 = [(labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges2]
+    new_edges2 = [
+        (labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges2
+    ]
 
     digraph.add_nodes_from(new_nodes)
     digraph.add_edges_from(new_edges, color="blue")
@@ -143,14 +149,23 @@ def print_graph(graph):
 
     # Draw edges for the first group with blue color
     edges_first_group = [
-        (edge[0], edge[1]) for edge in graph.edges.data("color") if edge[2] == "blue"
+        (edge[0], edge[1])
+        for edge in graph.edges.data("color")
+        if edge[2] == "blue"
     ]
     nx.draw_networkx_edges(
-        graph, pos, edgelist=edges_first_group, edge_color="blue", width=2.0, alpha=0.7
+        graph,
+        pos,
+        edgelist=edges_first_group,
+        edge_color="blue",
+        width=2.0,
+        alpha=0.7,
     )
 
     edges_second_group = [
-        (edge[0], edge[1]) for edge in graph.edges.data("color") if edge[2] == "red"
+        (edge[0], edge[1])
+        for edge in graph.edges.data("color")
+        if edge[2] == "red"
     ]
     nx.draw_networkx_edges(
         graph,
@@ -210,17 +225,25 @@ def gen_graph_circuit(new_circuit):
             value - index for index, value in enumerate(non_empty_qubits)
         ]
         # print("Non empty qubit ",difference_list)
-        subtracted_list = [x - y for x, y in zip(non_empty_qubits, difference_list)]
+        subtracted_list = [
+            x - y for x, y in zip(non_empty_qubits, difference_list)
+        ]
         # print("Substracted list: ", subtracted_list)
 
         for gate in circuit_copy.queue:
             if len(gate.qubits) > 1:
-                control = subtracted_list[non_empty_qubits.index(gate.qubits[0])]
+                control = subtracted_list[
+                    non_empty_qubits.index(gate.qubits[0])
+                ]
                 gate._set_control_qubits((control,))
-                target = subtracted_list[non_empty_qubits.index(gate.qubits[1])]
+                target = subtracted_list[
+                    non_empty_qubits.index(gate.qubits[1])
+                ]
                 gate._set_target_qubits((target,))
             else:
-                target = subtracted_list[non_empty_qubits.index(gate.qubits[0])]
+                target = subtracted_list[
+                    non_empty_qubits.index(gate.qubits[0])
+                ]
                 gate._set_target_qubits((target,))
         circuit_copy.nqubits = len(non_empty_qubits)
         circuit_copy.queue.nmeasurements = 0
@@ -239,7 +262,9 @@ def split_gates(gates_cut, circuit, draw=False):
         for gate in gates_cut:
             target_gates.append(circuit1.queue[gate - 1])
 
-        if any(type(element) != type(target_gates[0]) for element in target_gates):
+        if any(
+            type(element) != type(target_gates[0]) for element in target_gates
+        ):
             print("All the gates to cut have to be the same type")
             return
 
@@ -260,7 +285,8 @@ def split_gates(gates_cut, circuit, draw=False):
                             index + 1, combination[idx][1](control_qubit)
                         )
                         circuit1.queue.insert(
-                            index + 2, combination[idx][2](target_qubit, np.pi / 2)
+                            index + 2,
+                            combination[idx][2](target_qubit, np.pi / 2),
                         )
                         circuit1.queue.insert(
                             index + 3, combination[idx][3](target_qubit)
@@ -270,7 +296,8 @@ def split_gates(gates_cut, circuit, draw=False):
                             control_qubit, np.pi / 2
                         )
                         circuit1.queue.insert(
-                            index + 1, combination[idx][1](target_qubit, np.pi / 2)
+                            index + 1,
+                            combination[idx][1](target_qubit, np.pi / 2),
                         )
                 elif type(gate) == gates.CZ:
                     # print("CZ")
@@ -278,7 +305,9 @@ def split_gates(gates_cut, circuit, draw=False):
                     control_qubit = gate.control_qubits[0]
                     target_qubit = gate.target_qubits[0]
                     circuit1.queue[index] = combination[idx][0](control_qubit)
-                    circuit1.queue.insert(index + 1, combination[idx][1](target_qubit))
+                    circuit1.queue.insert(
+                        index + 1, combination[idx][1](target_qubit)
+                    )
                     # changed_gates.append((circuit1.queue[index],circuit1.queue[index+1]))
 
         if draw:
@@ -348,7 +377,9 @@ def gate_reconstruction(type_gates, gates_cut, exp_values):
     result2 = [x * 1j if i % 2 != 0 else x for i, x in enumerate(result)]
     if type_gates == gates.CZ:
         reconstruction = (
-            (1 / (1j + 1)) * (sum(result1) + sum(result2)) / 2 ** len(gates_cut)
+            (1 / (1j + 1))
+            * (sum(result1) + sum(result2))
+            / 2 ** len(gates_cut)
         )
     elif type_gates == gates.CNOT:
         reconstruction = (
@@ -378,7 +409,10 @@ def generate_combinations(n, gate_type):
     if gate_type == gates.CZ:
         objects = [(gates.S, gates.S), (gates.SDG, gates.SDG)]
     elif gate_type == gates.CNOT:
-        objects = [(gates.RZ, gates.RX), (gates.RZ, gates.Z, gates.RX, gates.X)]
+        objects = [
+            (gates.RZ, gates.RX),
+            (gates.RZ, gates.Z, gates.RX, gates.X),
+        ]
     all_combinations = list(product(objects, repeat=n))
     return all_combinations
 

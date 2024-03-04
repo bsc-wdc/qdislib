@@ -52,7 +52,9 @@ def build_dag(circuit, dag):
             for node in reversed(
                 dag.nodes[:-1]
             ):  # Skip the last node since it is the current gate being added
-                if qubit in node.qubits:  # Check if the qubit is in the node's qubits
+                if (
+                    qubit in node.qubits
+                ):  # Check if the qubit is in the node's qubits
                     dag.add_edge(node, gate)
                     break
     for gate in circuit.queue:
@@ -61,7 +63,9 @@ def build_dag(circuit, dag):
             for node in reversed(
                 dag.nodes[:-1]
             ):  # Skip the last node since it is the current gate being added
-                if qubit in node.qubits:  # Check if the qubit is in the node's qubits
+                if (
+                    qubit in node.qubits
+                ):  # Check if the qubit is in the node's qubits
                     if (node, gate) in dag.edges or (gate, node) in dag.edges:
                         pass
                     else:
@@ -75,14 +79,23 @@ def print_graph(graph):
 
     # Draw edges for the first group with blue color
     edges_first_group = [
-        (edge[0], edge[1]) for edge in graph.edges.data("color") if edge[2] == "blue"
+        (edge[0], edge[1])
+        for edge in graph.edges.data("color")
+        if edge[2] == "blue"
     ]
     nx.draw_networkx_edges(
-        graph, pos, edgelist=edges_first_group, edge_color="blue", width=2.0, alpha=0.7
+        graph,
+        pos,
+        edgelist=edges_first_group,
+        edge_color="blue",
+        width=2.0,
+        alpha=0.7,
     )
 
     edges_second_group = [
-        (edge[0], edge[1]) for edge in graph.edges.data("color") if edge[2] == "red"
+        (edge[0], edge[1])
+        for edge in graph.edges.data("color")
+        if edge[2] == "red"
     ]
     nx.draw_networkx_edges(
         graph,
@@ -108,7 +121,9 @@ def create_graph(dag, digraph):
         i: index + 1 for index, i in enumerate(dag.nodes)
     }  # Start numbering from 0
     new_edges = [(labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges]
-    new_edges2 = [(labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges2]
+    new_edges2 = [
+        (labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges2
+    ]
 
     digraph.add_nodes_from(new_nodes)
     digraph.add_edges_from(new_edges, color="blue")

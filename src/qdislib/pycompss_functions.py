@@ -52,7 +52,9 @@ def first_subcircuit(circuit, basis, numgates, sub_circuit_1_dimension):
         sub_circuit_1.add(gates.H(sub_circuit_1_dimension - 1))
     elif basis == "Y":
         sub_circuit_1.add(gates.H(sub_circuit_1_dimension - 1))
-        sub_circuit_1.add(gates.Unitary(S_dagger, (sub_circuit_1_dimension - 1)))
+        sub_circuit_1.add(
+            gates.Unitary(S_dagger, (sub_circuit_1_dimension - 1))
+        )
     elif basis in ["Z", "I"]:
         pass
     else:
@@ -78,7 +80,9 @@ def second_subcircuit(circuit, initial, numgates, sub_circuit_1_dimension):
 
     """
 
-    sub_circuit_2 = models.Circuit(circuit.nqubits - sub_circuit_1_dimension + 1)
+    sub_circuit_2 = models.Circuit(
+        circuit.nqubits - sub_circuit_1_dimension + 1
+    )
 
     # We prepare the different initial states
     if initial == "1":
@@ -113,7 +117,9 @@ def second_subcircuit(circuit, initial, numgates, sub_circuit_1_dimension):
             temp._set_target_qubits((target,))
         sub_circuit_2.add(temp)
 
-    sub_circuit_2.add(gates.M(*range(circuit.nqubits - sub_circuit_1_dimension + 1)))
+    sub_circuit_2.add(
+        gates.M(*range(circuit.nqubits - sub_circuit_1_dimension + 1))
+    )
 
     new_circuit_2 = NewCircuit(sub_circuit_2)
 
