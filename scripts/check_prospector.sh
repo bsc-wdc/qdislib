@@ -1,4 +1,4 @@
 #!/bin/bash -e
 
-# Runs prospector to check the qdislib code.
+# Runs prospector to check the Qdislib code.
 prospector ../src/

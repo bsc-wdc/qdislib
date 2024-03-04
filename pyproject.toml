@@ -26,7 +26,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "qdislib"
+name = "Qdislib"
 dynamic = ["version"]
 authors = [
   { name="Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email="support-compss@bsc.es" },
@@ -35,7 +35,7 @@ maintainers = [
   { name="Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email="support-compss@bsc.es" },
 ]
 description = "The quantum distributed computing library on top of PyCOMPSs"
-# url="https://qdislib.bsc.es",
+# url="https://Qdislib.bsc.es",
 readme = "README.md"
 requires-python = ">=3.7"
 license = { file = "LICENSE" }
@@ -81,17 +81,17 @@ pycompss = ["pycompss",
 ]
 
 [tool.setuptools.dynamic]
-version = { attr = "qdislib.__version__" }
+version = { attr = "Qdislib.__version__" }
 
 [project.urls]
-Homepage = "https://qdislib.bsc.es"
-Documentation = "https://qdislib.readthedocs.io"
+Homepage = "https://Qdislib.bsc.es"
+Documentation = "https://Qdislib.readthedocs.io"
 # Repository = "https://github.com/me/spam.git"
 # Issues = "https://github.com/me/spam/issues"
 # Changelog = "https://github.com/me/spam/blob/master/CHANGELOG.md"
 
 # [project.scripts]
-# qdislib-cli = "qdislib:main_cli"
+# Qdislib-cli = "Qdislib:main_cli"
 
 [tool.bandit]
 exclude_dirs = ["notebooks/",

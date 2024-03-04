@@ -1,11 +1,11 @@
 FROM compss/compss-tutorial:3.3
 MAINTAINER COMPSs Support <support-compss@bsc.es>
 
-COPY . qdislib/
+COPY . Qdislib/
 
-ENV PYTHONPATH=$PYTHONPATH:/qdislib:/opt/COMPSs/Bindings/python/3/
+ENV PYTHONPATH=$PYTHONPATH:/Qdislib:/opt/COMPSs/Bindings/python/3/
 ENV LC_ALL=C.UTF-8
-RUN python3 -m pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --upgrade /qdislib/
+RUN python3 -m pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --upgrade /Qdislib/
 
 ENV COMPSS_LOAD_SOURCE false
 
