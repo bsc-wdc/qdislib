@@ -142,7 +142,11 @@ def split(circuit, edge_remove, draw=False, verbose=False):
     circuit = circuit.copy()
     qubits_first_gate = circuit.queue[edge_remove[0] - 1].qubits
     qubits_second_gate = circuit.queue[edge_remove[1] - 1].qubits
-    # print(circuit.queue[edge_remove[0]-1].qubits > circuit.queue[edge_remove[1]-1].qubits)
+    # print(
+    #     circuit.queue[
+    #         edge_remove[0]-1].qubits > circuit.queue[edge_remove[1]-1
+    #     ].qubits
+    # )
     qubit = list(
         set(circuit.queue[edge_remove[0] - 1].qubits).intersection(
             set(circuit.queue[edge_remove[1] - 1].qubits)
@@ -322,8 +326,8 @@ def simulation(
 def quantum_computer(
     observables, circuit1, circuit2, connection, shots=30000, verbose=False
 ):
-    """Sends the execution to the quantum computer to calculate the expected value,
-    instead of performing a simulation. (in process).
+    """Sends the execution to the quantum computer to calculate the expected
+    value, instead of performing a simulation. (in process).
 
      :param observables: string.
      :param ciruit1: Circuit.

@@ -135,7 +135,9 @@ def print_graph(graph):
     nx.draw_networkx_nodes(graph, pos, node_color="skyblue", node_size=500)
     nx.draw_networkx_labels(graph, pos, font_weight="bold", font_size=12)
 
-    # plt.title("Directed Graph with Two Edge Groups (Red edges in dotted line)")
+    # plt.title(
+    #     "Directed Graph with Two Edge Groups (Red edges in dotted line)"
+    # )
     plt.show()
 
 
@@ -214,7 +216,9 @@ def del_empty_qubits(circuit):
 def gate_selector(
     digraph, circuit, max_qubits=None, num_subcirucits=None, draw=False
 ):
-    # -------------------------------------------------------LOOP THROUGH DOUBLE GATES POINTS----------------------------------------------------#
+    # ----------------------------------------------------
+    # LOOP THROUGH DOUBLE GATES POINTS
+    # ----------------------------------------------------
     # num_nodes_in_subgraphs = []
     temp = {}
     right_subgrafs = []
@@ -249,7 +253,9 @@ def gate_selector(
             non_empty_qubits = del_empty_qubits(circuit_copy)
             non_empty_qubits.sort()
             # print(non_empty_qubits)
-            # difference_list = [value - index for index, value in enumerate(non_empty_qubits)]
+            # difference_list = [
+            #     value - index for index, value in enumerate(non_empty_qubits)
+            # ]
             result_list.append(len(non_empty_qubits))
             # --------------------------------------------------------------
             num_nodes.append(len(subgraph))
@@ -290,7 +296,9 @@ def gate_selector(
                 if draw:
                     print_graph(copy_dag)
 
-    # -------------------------------------------------------DECIDE WHAT GATE TO CUT------------------------------------------------------------#
+    # -------------------------------------------------------
+    # DECIDE WHAT GATE TO CUT
+    # -------------------------------------------------------
     print(temp)
     gate_cut = right_subgrafs[0]
     min_gate = min(computational_cost)
@@ -337,7 +345,8 @@ def find_edge_to_split_graph(graph):
         if edge[2] == "red"
     ]
     for edge in blue_edges:
-        # Remove an edge and check if it splits the graph into disconnected components
+        # Remove an edge and check if it splits the graph
+        # into disconnected components
         temp_graph = graph.copy()
         temp_graph.remove_edges_from(red_edges)
         temp_graph.remove_edge(*edge)
@@ -388,7 +397,9 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
             non_empty_qubits = del_empty_qubits(circuit_copy)
             non_empty_qubits.sort()
             # print(non_empty_qubits)
-            # difference_list = [value - index for index, value in enumerate(non_empty_qubits)]
+            # difference_list = [
+            #     value - index for index, value in enumerate(non_empty_qubits)
+            # ]
             result_list.append(len(non_empty_qubits))
             # ---------------------------------------------------------------
             for i in subgraph:
@@ -411,7 +422,8 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
             computational_cost.append(comp_cost)
             if draw:
                 print(
-                    f"Edge {edge} splits the graph into two disconnected components."
+                    f"Edge {edge} splits the graph into two \
+                    disconnected components."
                 )
             if draw:
                 print("Number of qubits per subcircuit: ", result_list)

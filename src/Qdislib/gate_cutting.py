@@ -99,7 +99,9 @@ def has_number_or_less(lst, number):
     return False
 
 
-# -------------------------------------------------------Create and set DAG and nx.Graph()---------------------------------------------------#
+# ---------------------------------------------------
+# Create and set DAG and nx.Graph()
+# ---------------------------------------------------
 
 
 def create_graph(dag, digraph):
@@ -181,7 +183,9 @@ def print_graph(graph):
     nx.draw_networkx_nodes(graph, pos, node_color="skyblue", node_size=500)
     nx.draw_networkx_labels(graph, pos, font_weight="bold", font_size=12)
 
-    # plt.title("Directed Graph with Two Edge Groups (Red edges in dotted line)")
+    # plt.title(
+    #    "Directed Graph with Two Edge Groups (Red edges in dotted line)"
+    # )
     plt.show()
 
 
@@ -252,7 +256,9 @@ def gen_graph_circuit(new_circuit):
 
 
 def split_gates(gates_cut, circuit, draw=False):
-    # ------------------------------------SPLIT IN 4 SUBCIRCUITS---------------------------------------------------#
+    # ------------------------------------
+    # SPLIT IN 4 SUBCIRCUITS
+    # ------------------------------------
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     combinations_list = generate_combinations(len(gates_cut), type_gates)
     generated_circuits = []
@@ -308,7 +314,9 @@ def split_gates(gates_cut, circuit, draw=False):
                     circuit1.queue.insert(
                         index + 1, combination[idx][1](target_qubit)
                     )
-                    # changed_gates.append((circuit1.queue[index],circuit1.queue[index+1]))
+                    # changed_gates.append(
+                    #     (circuit1.queue[index],circuit1.queue[index+1])
+                    # )
 
         if draw:
             print("\n Circuit " + str(index2 + 1))
@@ -339,21 +347,27 @@ def concatenate_lists(lst):
 
 @task(returns=qibo.states.CircuitResult)
 def gate_simulation(i, shots=30000):
-    # ------------------------------------SIMULATION-----------------------------------------------#
+    # ------------------------------------
+    # SIMULATION
+    # ------------------------------------
     result = i(nshots=shots)
     return result
 
 
 @task(returns=list)
 def gate_frequencies(result):
-    # ------------------------------------FREQUENCIES-----------------------------------------------#
+    # ------------------------------------
+    # FREQUENCIES
+    # ------------------------------------
     freq = dict(result.frequencies(binary=True))
     return freq
 
 
 @task(returns=float)
 def gate_expectation_value(freq, shots=30000):
-    # ------------------------------------EXPECTATION VALUE------------------------------------------#
+    # ------------------------------------
+    # EXPECTATION VALUE
+    # ------------------------------------
     expec = 0
     for key, value in freq.items():
         ones = key.count("1")
@@ -365,14 +379,17 @@ def gate_expectation_value(freq, shots=30000):
 
 
 def gate_reconstruction(type_gates, gates_cut, exp_values):
-    # --------------------------------------RECONSTRUCTION------------------------------------------#
+    # --------------------------------------
+    # RECONSTRUCTION
+    # --------------------------------------
     num_generated = int(len(exp_values) / 2 ** len(gates_cut))
     result = [
         eval("*".join(map(str, exp_values[i : i + num_generated])))
         for i in range(0, len(exp_values), num_generated)
     ]
 
-    # result = [exp_values[i] * exp_values[i + 1] for i in range(0, len(exp_values), 2)]
+    # result = [exp_values[i] * exp_values[i + 1]
+    #               for i in range(0, len(exp_values), 2)]
     result1 = [x * 1j if i % 2 == 0 else x for i, x in enumerate(result)]
     result2 = [x * 1j if i % 2 != 0 else x for i, x in enumerate(result)]
     if type_gates == gates.CZ:

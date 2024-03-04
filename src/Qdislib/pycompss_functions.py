@@ -33,14 +33,18 @@ from Qdislib.circuit_classes import NewCircuit
 def first_subcircuit(circuit, basis, numgates, sub_circuit_1_dimension):
     """
     Input:
-    - basis (str): ['X', 'Y' or 'Z']. Basis in which we will measure the cut qubit
-    - shots (int): Number of times that we obtain a state for doing stadistics
+    - basis (str): ['X', 'Y' or 'Z'].
+                   Basis in which we will measure the cut qubit.
+    - shots (int): Number of times that we obtain a state for doing stadistics.
 
     Output:
-    - expectation_value (float): expectation value of the three qubits when we measure ZxZxO_i, being O_i the 'basis' selected
+    - expectation_value (float): expectation value of the three qubits when
+                                 we measure ZxZxO_i, being O_i the 'basis'
+                                 selected.
     """
 
-    # We introduce a quantum gate that is not inherently supported by the qibo framework.
+    # We introduce a quantum gate that is not inherently supported by
+    # the qibo framework.
     S_dagger = np.array([[1, 0], [0, -1j]])
 
     sub_circuit_1 = models.Circuit(sub_circuit_1_dimension)
@@ -72,11 +76,14 @@ def first_subcircuit(circuit, basis, numgates, sub_circuit_1_dimension):
 def second_subcircuit(circuit, initial, numgates, sub_circuit_1_dimension):
     """
     Input:
-    - initial (str): initial state that the first qubit will be initialized in. ['0', '1', '+', '-', '+i', '-i']
-    - shots (int): Number of times that we obtain a state for doing stadistics
+    - initial (str): initial state that the first qubit will be initialized in.
+                     ['0', '1', '+', '-', '+i', '-i']
+    - shots (int): Number of times that we obtain a state for doing stadistics.
 
     Output:
-    - expectation_value (float): expectation value of the three qubits when we measure ZxZ when we initialize the first qubit in 'initial'
+    - expectation_value (float): expectation value of the three qubits when
+                                 we measure ZxZ when we initialize the first
+                                 qubit in 'initial'.
 
     """
 
@@ -128,18 +135,26 @@ def second_subcircuit(circuit, initial, numgates, sub_circuit_1_dimension):
 
 @task(returns=int)
 def compute_expectation_value(freq, basis, shots):
-    """This function computes the expectation value given a probability distribution (the output of the quantum computer)
-    in a given basis that we choose.
+    """This function computes the expectation value given a probability
+    distribution (the output of the quantum computer) in a given basis that
+    we choose.
+
      INPUT:
       - freq (dict): frequency distribution coming from the quantum computer.
-      - basis (str):   we aim to compute the expectation value of this set of operators.  For example, "XYY" indicates that we
-        calculate the expectation value of X over the first qubit, and the expectation value of Y over the second and third qubits.
-      - shots (int): Numer of times that we have runed the quantum computer, needed to compute the probability in the probability distribution.
+      - basis (str): we aim to compute the expectation value of this set of
+                     operators.  For example, "XYY" indicates that we
+                     calculate the expectation value of X over the first qubit,
+                     and the expectation value of Y over the second and
+                     third qubits.
+      - shots (int): Numer of times that we have runed the quantum computer,
+                     needed to compute the probability in the probability
+                     distribution.
 
       OUTPUT:
        - expectation_value (float): Final expectation value.
 
-       This function assumes that for computing the 'X' and the 'Y' expectation value, the qubit state it is in the appropiate diagonal basis.
+       This function assumes that for computing the 'X' and the 'Y' expectation
+       value, the qubit state it is in the appropiate diagonal basis.
 
        For the moment, we only implement two types of cases for the basis:
        1) Only combinations of X, Y or/and Z. For example: 'XXYYXZ'
@@ -170,14 +185,18 @@ def compute_expectation_value(freq, basis, shots):
 def first_subcircuit_basis(circuit1, basis, qubit):
     """
     Input:
-    - basis (str): ['X', 'Y' or 'Z']. Basis in which we will measure the cut qubit
-    - shots (int): Number of times that we obtain a state for doing stadistics
+    - basis (str): ['X', 'Y' or 'Z']. Basis in which we will measure the
+                   cut qubit.
+    - shots (int): Number of times that we obtain a state for doing stadistics.
 
     Output:
-    - expectation_value (float): expectation value of the three qubits when we measure ZxZxO_i, being O_i the 'basis' selected
+    - expectation_value (float): expectation value of the three qubits when we
+                                 measure ZxZxO_i, being O_i the 'basis'
+                                 selected.
     """
 
-    # We introduce a quantum gate that is not inherently supported by the qibo framework.
+    # We introduce a quantum gate that is not inherently supported by
+    # the qibo framework.
     S_dagger = np.array([[1, 0], [0, -1j]])
 
     dimension = circuit1.nqubits
@@ -204,12 +223,14 @@ def first_subcircuit_basis(circuit1, basis, qubit):
 def second_subcircuit_states(circuit2, initial, qubit):
     """
     Input:
-    - initial (str): initial state that the first qubit will be initialized in. ['0', '1', '+', '-', '+i', '-i']
-    - shots (int): Number of times that we obtain a state for doing stadistics
+    - initial (str): initial state that the first qubit will be initialized in.
+                     ['0', '1', '+', '-', '+i', '-i']
+    - shots (int): Number of times that we obtain a state for doing stadistics.
 
     Output:
-    - expectation_value (float): expectation value of the three qubits when we measure ZxZ when we initialize the first qubit in 'initial'
-
+    - expectation_value (float): expectation value of the three qubits when we
+                                 measure ZxZ when we initialize the first qubit
+                                 in 'initial'.
     """
 
     dimension = circuit2.nqubits

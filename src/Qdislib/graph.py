@@ -111,7 +111,9 @@ def print_graph(graph):
     nx.draw_networkx_nodes(graph, pos, node_color="skyblue", node_size=500)
     nx.draw_networkx_labels(graph, pos, font_weight="bold", font_size=12)
 
-    # plt.title("Directed Graph with Two Edge Groups (Red edges in dotted line)")
+    # plt.title(
+    #    "Directed Graph with Two Edge Groups (Red edges in dotted line)"
+    # )
     plt.show()
 
 

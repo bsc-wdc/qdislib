@@ -29,7 +29,8 @@ from pycompss.api.task import task
 class NewCircuitResult:
     """CircuitResult (qibo.states.CircuitResult) class wrapper.
 
-    Contains an internal CircuitResult object instead of extending the CircuitResult class.
+    Contains an internal CircuitResult object instead of extending the
+    CircuitResult class.
     """
 
     __slots__ = ["result"]
