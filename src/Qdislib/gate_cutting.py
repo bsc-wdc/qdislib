@@ -19,7 +19,7 @@
 
 from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
-from pycompss.api.parameter import *
+from pycompss.api.parameter import COLLECTION_IN
 
 import numpy as np
 import qibo

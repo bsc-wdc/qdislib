@@ -75,7 +75,8 @@ ci = ["pycodestyle",
       "pylint",
       "prospector",
       "pytest",
-      "pytest-cov[all]"
+      "pytest-cov[all]",
+      "sphinx-material"
 ]
 notebooks = ["jupyter"]
 qchip = ["qiboconnection==0.12.0"]
