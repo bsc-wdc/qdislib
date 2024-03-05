@@ -17,10 +17,8 @@
 
 # -*- coding: utf-8 -*-
 
-"""Main Quantum Distributed Library package."""
+"""Quantum Distributed Library API."""
 
-
-__version__ = "0.0.1"
-
-
-from Qdislib.api import *
+from Qdislib.core.gate_cutting.gate_cutting import *
+from Qdislib.core.gate_cutting.wire_cutting import *
+from Qdislib.core.gate_cutting.optimal_cut import *

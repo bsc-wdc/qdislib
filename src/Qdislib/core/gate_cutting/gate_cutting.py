@@ -28,8 +28,8 @@ from qibo.models import Circuit
 from qibo.symbols import X, Y, Z, I
 
 # for connecting with the quantum computer
-from qiboconnection.connection import ConnectionConfiguration
-from qiboconnection.api import API
+# from qiboconnection.connection import ConnectionConfiguration
+# from qiboconnection.api import API
 
 from collections import Counter
 from functools import reduce

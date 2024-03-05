@@ -27,11 +27,11 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 # for connecting with the quantum computer
-from qiboconnection.connection import ConnectionConfiguration
-from qiboconnection.api import API
+# from qiboconnection.connection import ConnectionConfiguration
+# from qiboconnection.api import API
 
-from Qdislib.pycompss_functions import *
-from Qdislib.graph import *
+from Qdislib.core.gate_cutting.pycompss_functions import *
+from Qdislib.utils.graph import *
 
 from pycompss.api.api import compss_wait_on
 

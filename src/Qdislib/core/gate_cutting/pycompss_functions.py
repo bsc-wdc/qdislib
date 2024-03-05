@@ -25,7 +25,7 @@ from qibo import models, gates, hamiltonians  # , callbacks
 from qibo.symbols import Z, X, Y, I
 
 
-from Qdislib.circuit_classes import NewCircuit
+from Qdislib.classes.circuit_classes import NewCircuit
 
 
 # Now we define the two subcircuits of the above example

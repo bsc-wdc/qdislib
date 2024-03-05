@@ -17,10 +17,4 @@
 
 # -*- coding: utf-8 -*-
 
-"""Main Quantum Distributed Library package."""
-
-
-__version__ = "0.0.1"
-
-
-from Qdislib.api import *
+"""Quantum Distributed Library classes."""

@@ -28,8 +28,8 @@ from qibo.models import Circuit
 from qibo.symbols import X, Y, Z, I
 
 # for connecting with the quantum computer
-from qiboconnection.connection import ConnectionConfiguration
-from qiboconnection.api import API
+# from qiboconnection.connection import ConnectionConfiguration
+# from qiboconnection.api import API
 
 from collections import Counter
 from functools import reduce
@@ -62,9 +62,6 @@ class DAGgraph:
         print("Edges: ", self.edges)
 
 
-# In[7]:
-
-
 def build_dag(circuit, dag):
     for gate in circuit.queue:
         dag.add_node(gate)
@@ -93,9 +90,6 @@ def build_dag(circuit, dag):
                         if node != gate:
                             dag.add_edge2(node, gate)
     return dag
-
-
-# In[8]:
 
 
 def print_graph(graph):
@@ -141,9 +135,6 @@ def print_graph(graph):
     plt.show()
 
 
-# In[9]:
-
-
 def gates_dict(circuit):
     double_gates = {}
     for index, gate in enumerate(circuit.queue):
@@ -159,17 +150,11 @@ def gates_dict(circuit):
     return double_gates
 
 
-# In[10]:
-
-
 def has_number(lst, number):
     for num in lst:
         if num == number:
             return True
     return False
-
-
-# In[11]:
 
 
 def create_graph(dag, digraph):
@@ -196,9 +181,6 @@ def create_graph(dag, digraph):
     return digraph
 
 
-# In[12]:
-
-
 def del_empty_qubits(circuit):
     empty_qubits = []
     for gate in circuit.queue:
@@ -207,9 +189,6 @@ def del_empty_qubits(circuit):
                 empty_qubits.append(i)
         gate.qubits
     return empty_qubits
-
-
-# In[13]:
 
 
 @task(returns=list)
@@ -329,9 +308,6 @@ def gate_selector(
     return return_list
 
 
-# In[14]:
-
-
 def find_edge_to_split_graph(graph):
     edges_cut = []
     blue_edges = [
@@ -353,9 +329,6 @@ def find_edge_to_split_graph(graph):
         if nx.number_connected_components(temp_graph) > 1:
             edges_cut.append(edge)
     return edges_cut
-
-
-# In[15]:
 
 
 @task(returns=list)
@@ -462,9 +435,6 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
     print("Computational cost of cutting this wire: ", wire_cost)
     return_list = [wire_cut, min_wire]
     return return_list
-
-
-# In[16]:
 
 
 def optimal_cut(

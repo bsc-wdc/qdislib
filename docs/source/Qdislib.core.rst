@@ -1,5 +1,5 @@
-Qdislib package
-===============
+Qdislib.core package
+====================
 
 Subpackages
 -----------
@@ -7,15 +7,12 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
-   Qdislib.api
-   Qdislib.classes
-   Qdislib.core
-   Qdislib.utils
+   Qdislib.core.gate_cutting
 
 Module contents
 ---------------
 
-.. automodule:: Qdislib
+.. automodule:: Qdislib.core
    :members:
    :undoc-members:
    :show-inheritance:
