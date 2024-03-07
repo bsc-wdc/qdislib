@@ -6,3 +6,11 @@
 {# Call the parent block #}
 {{ super() }}
 {%- endblock %}
+
+{% block extrafooter %}
+      <center>
+      <a href="http://www.bsc.es">
+      <img src="{{ pathto('_static/bsc_logo.jpg', 1) }}" alt="Barcelona Supercomputing Center (BSC)" width="300">
+      </a>
+      </center>
+{% endblock %}
