@@ -33,16 +33,16 @@ from Qdislib.classes.circuit_classes import NewCircuit
 def first_subcircuit(circuit, basis, numgates, sub_circuit_1_dimension):
     """First subcircuit.
 
-     INPUT:
-      - basis (str): ['X', 'Y' or 'Z']
-                     Basis in which we will measure the cut qubit.
-      - shots (int): Number of times that we obtain a state for doing
-                     stadistics.
+    INPUT:
+     - basis (str): ['X', 'Y' or 'Z']
+                    Basis in which we will measure the cut qubit.
+     - shots (int): Number of times that we obtain a state for doing
+                    stadistics.
 
-     OUTPUT:
-      - expectation_value (float): expectation value of the three qubits when
-                                   we measure ZxZxO_i, being O_i the 'basis'
-                                   selected.
+    OUTPUT:
+     - expectation_value (float): expectation value of the three qubits when
+                                  we measure ZxZxO_i, being O_i the 'basis'
+                                  selected.
 
     """
 
@@ -79,16 +79,16 @@ def first_subcircuit(circuit, basis, numgates, sub_circuit_1_dimension):
 def second_subcircuit(circuit, initial, numgates, sub_circuit_1_dimension):
     """Second subcircuit.
 
-     INPUT:
-      - initial (str): initial state that the first qubit will be initialized
-                       in ['0', '1', '+', '-', '+i', '-i'].
-      - shots (int): Number of times that we obtain a state for doing
-                     stadistics.
+    INPUT:
+     - initial (str): initial state that the first qubit will be initialized
+                      in ['0', '1', '+', '-', '+i', '-i'].
+     - shots (int): Number of times that we obtain a state for doing
+                    stadistics.
 
-     OUTPUT:
-      - expectation_value (float): expectation value of the three qubits when
-                                   we measure ZxZ when we initialize the first
-                                   qubit in 'initial'.
+    OUTPUT:
+     - expectation_value (float): expectation value of the three qubits when
+                                  we measure ZxZ when we initialize the first
+                                  qubit in 'initial'.
 
     """
 
@@ -190,16 +190,16 @@ def compute_expectation_value(freq, basis, shots):
 def first_subcircuit_basis(circuit1, basis, qubit):
     """First subcircuit basis.
 
-     INPUT:
-      - basis (str): ['X', 'Y' or 'Z']. Basis in which we will measure the
-                     cut qubit.
-      - shots (int): Number of times that we obtain a state for doing
-                     stadistics.
+    INPUT:
+     - basis (str): ['X', 'Y' or 'Z']. Basis in which we will measure the
+                    cut qubit.
+     - shots (int): Number of times that we obtain a state for doing
+                    stadistics.
 
-     OUTPUT:
-      - expectation_value (float): expectation value of the three qubits when
-                                   we measure ZxZxO_i, being O_i the 'basis'
-                                   selected.
+    OUTPUT:
+     - expectation_value (float): expectation value of the three qubits when
+                                  we measure ZxZxO_i, being O_i the 'basis'
+                                  selected.
 
     """
 
@@ -231,16 +231,16 @@ def first_subcircuit_basis(circuit1, basis, qubit):
 def second_subcircuit_states(circuit2, initial, qubit):
     """Second subcircuit states.
 
-     INPUT:
-      - initial (str): initial state that the first qubit will be initialized
-                       in ['0', '1', '+', '-', '+i', '-i'].
-      - shots (int): Number of times that we obtain a state for doing
-                     stadistics.
+    INPUT:
+     - initial (str): initial state that the first qubit will be initialized
+                      in ['0', '1', '+', '-', '+i', '-i'].
+     - shots (int): Number of times that we obtain a state for doing
+                    stadistics.
 
-     OUTPUT:
-      - expectation_value (float): expectation value of the three qubits when
-                                   we measure ZxZ when we initialize the first
-                                   qubit in 'initial'.
+    OUTPUT:
+     - expectation_value (float): expectation value of the three qubits when
+                                  we measure ZxZ when we initialize the first
+                                  qubit in 'initial'.
 
     """
 
