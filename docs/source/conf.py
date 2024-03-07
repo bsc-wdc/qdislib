@@ -13,6 +13,7 @@
 import os
 import sys
 sys.path.insert(0, os.path.abspath('../../src/'))
+sys.path.insert(0, os.path.abspath('../../notebooks/'))
 
 
 # -- Project information -----------------------------------------------------
@@ -62,7 +63,11 @@ extensions = [
     'sphinx.ext.intersphinx',
     # 'sphinx.ext.linkcode',  # take a look
     'sphinx.ext.autosummary',
+    'nbsphinx',
+    'nbsphinx_link',
 ]
+
+nbsphinx_execute = 'never'
 
 napoleon_google_docstring = False
 napoleon_use_param = False
