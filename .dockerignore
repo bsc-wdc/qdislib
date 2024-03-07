@@ -1,0 +1,6 @@
+# ignore .cache folders
+.cache
+
+# python files
+**/*.pyc
+**/*.pyo
