@@ -17,12 +17,22 @@
 
 # -*- coding: utf-8 -*-
 
-import copy
+"""
+Qdislib graph utils.
+
+This file contains all auxiliary graph classes and functions.
+"""
+
 import networkx as nx
 import matplotlib.pyplot as plt
 
 
 class DAGgraph:
+    """Direct Aciclyc Graph class.
+
+    Representation of a direct aciclyc graph.
+    """
+
     def __init__(self):
         self.nodes = []
         self.edges = []

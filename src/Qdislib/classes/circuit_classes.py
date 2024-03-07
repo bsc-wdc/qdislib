@@ -43,7 +43,7 @@ class NewCircuitResult:
         self.result = result
 
     @task(returns=dict)
-    def frequencies_COMPSs(self, binary=True, registers=False):
+    def frequencies_compss(self, binary=True, registers=False):
         """Calculate the frequencies function task wrapper.
 
         :param binary: Binary.
@@ -69,7 +69,7 @@ class NewCircuit:
         self.circuit = circuit
 
     @task(returns=NewCircuitResult)
-    def execute_COMPSs(self, initial_state=None, nshots=None):
+    def execute_compss(self, initial_state=None, nshots=None):
         """Execute function task wrapper.
 
         :param initial_state: Initial state.
@@ -81,7 +81,7 @@ class NewCircuit:
         return new_result
 
     @task(returns=NewCircuitResult)
-    def execute_qc_COMPSs(self, connection, initial_state=None, nshots=None):
+    def execute_qc_compss(self, connection, initial_state=None, nshots=None):
         """Execute function task wrapper.
 
         :param initial_state: Initial state.

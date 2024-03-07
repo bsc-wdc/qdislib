@@ -84,9 +84,9 @@ def circuit_cutting(
         circuit1 = first_subcircuit(
             circuit, b, numgates, sub_circuit_1_dimension
         )
-        result = circuit1.execute_COMPSs(nshots=shots)
+        result = circuit1.execute_compss(nshots=shots)
         # obtain probability distribution
-        freq = result.frequencies_COMPSs(binary=True)
+        freq = result.frequencies_compss(binary=True)
         # we call the function that computes the expectation value
         exp_value_1[b] = compute_expectation_value(
             freq, num_z_sub1 + b, shots=shots
@@ -99,9 +99,9 @@ def circuit_cutting(
         circuit2 = second_subcircuit(
             circuit, s, numgates, sub_circuit_1_dimension
         )
-        result = circuit2.execute_COMPSs(nshots=shots)
+        result = circuit2.execute_compss(nshots=shots)
         # obtain probability distribution
-        freq = result.frequencies_COMPSs(binary=True)
+        freq = result.frequencies_compss(binary=True)
         # we call the function that computes the expectation value
         exp_value_2[s] = compute_expectation_value(
             freq, num_z_sub2 + b, shots=shots
@@ -264,9 +264,9 @@ def simulation(
                 print("Basis: ", b)
             copy_circuit1 = circuit_1.copy(True)
             circuit1 = first_subcircuit_basis(copy_circuit1, b, qubit[0])
-            result = circuit1.execute_COMPSs(nshots=shots)
+            result = circuit1.execute_compss(nshots=shots)
             # obtain probability distribution
-            freq = result.frequencies_COMPSs(binary=True)
+            freq = result.frequencies_compss(binary=True)
             # we call the function that computes the expectation value
             exp_value_1[b] = compute_expectation_value(
                 freq, num_z_sub1 + b, shots=shots
@@ -280,9 +280,9 @@ def simulation(
                 print("States: ", s)
             copy_circuit2 = circuit_2.copy(True)
             circuit2 = second_subcircuit_states(copy_circuit2, s, qubit[1])
-            result = circuit2.execute_COMPSs(nshots=shots)
+            result = circuit2.execute_compss(nshots=shots)
             # obtain probability distribution
-            freq = result.frequencies_COMPSs(binary=True)
+            freq = result.frequencies_compss(binary=True)
             # we call the function that computes the expectation value
             exp_value_2[s] = compute_expectation_value(
                 freq, num_z_sub2 + b, shots=shots
@@ -357,9 +357,9 @@ def quantum_computer(
             print("Basis: ", b)
         # circuit_copy = circuit_1.copy(True)
         circuit1 = first_subcircuit_basis(circuit1, b)
-        result = circuit1.execute_qc_COMPSs(connection, nshots=shots)
+        result = circuit1.execute_qc_compss(connection, nshots=shots)
         # obtain probability distribution
-        freq = result.frequencies_COMPSs(binary=True)
+        freq = result.frequencies_compss(binary=True)
         # we call the function that computes the expectation value
         exp_value_1[b] = compute_expectation_value(
             freq, num_z_sub1 + b, shots=shots
@@ -374,9 +374,9 @@ def quantum_computer(
         if verbose:
             print("States: ", s)
         circuit2 = second_subcircuit_states(circuit2, s)
-        result = circuit2.execute_qc_COMPSs(connection, nshots=shots)
+        result = circuit2.execute_qc_compss(connection, nshots=shots)
         # obtain probability distribution
-        freq = result.frequencies_COMPSs(binary=True)
+        freq = result.frequencies_compss(binary=True)
         # we call the function that computes the expectation value
         exp_value_2[s] = compute_expectation_value(
             freq, num_z_sub2 + b, shots=shots
