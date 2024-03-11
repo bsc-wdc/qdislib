@@ -152,7 +152,7 @@ html_theme_options = {
     'base_url': 'https://project.github.io/project',
 
     # Set the color and the accent color
-    'color_primary': 'blue',
+    'color_primary': 'purple',
     'color_accent': 'light-blue',
 
     # Set the repo location to get a badge with stats
