@@ -208,7 +208,7 @@ def simulation(lst_observables,qubit, circuit_1, circuit_2=None, shots=30000, ve
         # SIMULATION
 
         basis = ["X", "Y", "Z", "I"]
-        states = ["0", "1", "+", "-", "+i", "-i"]
+        states = ["0", "1", "+", "+i"]
 
         observables_1 = lst_observables[0]
         observables_2 = lst_observables[1]
@@ -238,7 +238,7 @@ def simulation(lst_observables,qubit, circuit_1, circuit_2=None, shots=30000, ve
 
         # second subcircuit:
         exp_value_2 = {}
-        print("SECOND ONE")
+        if verbose: print("SECOND ONE")
         for s in states:
             if verbose:print("States: ", s)
             copy_circuit2 = models.Circuit(circuit_2.nqubits)
@@ -260,10 +260,10 @@ def simulation(lst_observables,qubit, circuit_1, circuit_2=None, shots=30000, ve
             1
             / 2
             * (
-                exp_value_1["I"] * (exp_value_2["0"] + exp_value_2["1"])
-                + exp_value_1["X"] * (exp_value_2["+"] - exp_value_2["-"])
-                + exp_value_1["Y"] * (exp_value_2["+i"] - exp_value_2["-i"])
-                + exp_value_1["Z"] * (exp_value_2["0"] - exp_value_2["1"])
+                (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
+                + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
+                + exp_value_1["X"] * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
+                + exp_value_1["Y"] * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
             )
         )
 
