@@ -200,7 +200,7 @@ def del_empty_qubits(circuit):
 
 
 @task(returns=list)
-def gen_graph_circuit(new_circuit):
+def gen_graph_circuit(new_circuit, new_obs):
     list_subcircuits = []
     # convert to DAG and DIGRPAPH
     digraph = nx.Graph()
@@ -363,19 +363,52 @@ def gate_frequencies(result):
     return freq
 
 
-@task(returns=float)
-def gate_expectation_value(freq, shots=30000):
-    # ------------------------------------
-    # EXPECTATION VALUE
-    # ------------------------------------
-    expec = 0
+@task(returns=int)
+def gate_expectation_value(freq, basis, shots):
+    """This function computes the expectation value given a probability
+    distribution (the output of the quantum computer) in a given basis that
+    we choose.
+
+     INPUT:
+      - freq (dict): frequency distribution coming from the quantum computer.
+      - basis (str): we aim to compute the expectation value of this set of
+                     operators.  For example, "XYY" indicates that we
+                     calculate the expectation value of X over the first qubit,
+                     and the expectation value of Y over the second and
+                     third qubits.
+      - shots (int): Numer of times that we have runed the quantum computer,
+                     needed to compute the probability in the probability
+                     distribution.
+
+      OUTPUT:
+       - expectation_value (float): Final expectation value.
+
+       This function assumes that for computing the 'X' and the 'Y' expectation
+       value, the qubit state it is in the appropiate diagonal basis.
+
+       For the moment, we only implement two types of cases for the basis:
+       1) Only combinations of X, Y or/and Z. For example: 'XXYYXZ'
+       2) Only a single I operator in the last position. For example 'ZYXXYI'.
+
+    """
+
+    expectation_value = 0
     for key, value in freq.items():
-        ones = key.count("1")
-        if ones % 2 == 0:
-            expec += float(value) / shots
-        else:
-            expec -= float(value) / shots
-    return expec
+        if basis.count("I") == 0:
+            ones = key.count("1")
+            if ones % 2 == 0:
+                expectation_value += float(value) / shots
+            else:
+                expectation_value -= float(value) / shots
+
+        if basis[-1] == "I":
+            ones = key[:2].count(("1"))
+            if ones % 2 == 0:
+                expectation_value += float(value) / shots
+            else:
+                expectation_value -= float(value) / shots
+
+    return expectation_value
 
 
 def gate_reconstruction(type_gates, gates_cut, exp_values):
@@ -434,7 +467,7 @@ def generate_combinations(n, gate_type):
     return all_combinations
 
 
-def gate_cutting(gates_cut, circuit, shots=30000, chunk=1, draw=False):
+def gate_cutting(observables, gates_cut, circuit, shots=30000, chunk=1, draw=False):
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     subcircuits = split_gates(gates_cut, circuit, draw)
     exp_value = []
@@ -448,7 +481,7 @@ def gate_cutting(gates_cut, circuit, shots=30000, chunk=1, draw=False):
             list_freq.append(freq)
         # task per sumar dicts COLLECTIONS
         total_freq = sum_dicts(list_freq)
-        exp_value.append(gate_expectation_value(total_freq, shots))
+        exp_value.append(gate_expectation_value(total_freq,observables, shots))
 
     exp_value = compss_wait_on(exp_value)
     # print("Expected values list: ",exp_value)
