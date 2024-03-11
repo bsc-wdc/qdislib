@@ -394,19 +394,15 @@ def gate_expectation_value(freq, basis, shots):
 
     expectation_value = 0
     for key, value in freq.items():
-        if basis.count("I") == 0:
-            ones = key.count("1")
-            if ones % 2 == 0:
-                expectation_value += float(value) / shots
-            else:
-                expectation_value -= float(value) / shots
-
-        if basis[-1] == "I":
-            ones = key[:2].count(("1"))
-            if ones % 2 == 0:
-                expectation_value += float(value) / shots
-            else:
-                expectation_value -= float(value) / shots
+        if len(basis) != len(key):
+            print("Not enough basis")
+            return
+        result = ''.join(char for char, bit in zip(basis, key) if bit == '1')
+        not_I = len(result) - result.count('I')     
+        if not_I % 2 == 0:
+            expectation_value += float(value)/shots
+        else:
+            expectation_value -= float(value)/shots
 
     return expectation_value
 
