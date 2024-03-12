@@ -200,7 +200,7 @@ def del_empty_qubits(circuit):
 
 
 @task(returns=list)
-def gen_graph_circuit(new_circuit, new_obs):
+def gen_graph_circuit(new_circuit,observable_dict = None):
     list_subcircuits = []
     # convert to DAG and DIGRPAPH
     digraph = nx.Graph()
@@ -211,14 +211,14 @@ def gen_graph_circuit(new_circuit, new_obs):
 
     subgraphs = list(nx.connected_components(digraph))
     print(subgraphs)
-
+    diff_list = []
     for subgraph in subgraphs:
         subgraph = sorted(subgraph)
         selected_elements = [dag.nodes[i - 1] for i in subgraph]
         # circuit_copy = copy.deepcopy(new_circuit)
 
         # remove specific qubit
-
+        
         circuit_copy = models.Circuit(new_circuit.nqubits)
         circuit_copy.add(selected_elements)
 
@@ -232,8 +232,8 @@ def gen_graph_circuit(new_circuit, new_obs):
         subtracted_list = [
             x - y for x, y in zip(non_empty_qubits, difference_list)
         ]
-        # print("Substracted list: ", subtracted_list)
-
+        print("Substracted list: ", subtracted_list)
+        diff_list.append(non_empty_qubits)
         for gate in circuit_copy.queue:
             if len(gate.qubits) > 1:
                 control = subtracted_list[
@@ -252,15 +252,38 @@ def gen_graph_circuit(new_circuit, new_obs):
         circuit_copy.nqubits = len(non_empty_qubits)
         circuit_copy.queue.nmeasurements = 0
         list_subcircuits.append(circuit_copy)
-    return list_subcircuits
+
+    print(non_empty_qubits)
+    print(diff_list)
+    if observable_dict != None:
+        list_obs = []
+        for p in diff_list:
+            new_obs = {}
+            for index, x in enumerate(p):
+                print(x)
+                print(observable_dict)
+                
+                new_obs[index] = observable_dict[x]
+                print(new_obs)
+            list_obs.append(new_obs)
+        print(list_obs)
+
+            
+    return list_subcircuits, list_obs
 
 
-def split_gates(gates_cut, circuit, draw=False):
+def split_gates(observables, gates_cut, circuit, draw=False):
     # ------------------------------------
     # SPLIT IN 4 SUBCIRCUITS
     # ------------------------------------
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     combinations_list = generate_combinations(len(gates_cut), type_gates)
+
+    observable_dict = {}
+    for num_qubit in range(0, circuit.nqubits):
+        observable_dict[num_qubit] = observables[num_qubit]
+    print(observable_dict)
+
     generated_circuits = []
     for index2, combination in enumerate(combinations_list):
         circuit1 = circuit.copy(True)
@@ -324,18 +347,23 @@ def split_gates(gates_cut, circuit, draw=False):
         generated_circuits.append(circuit1)
 
     list_subcircuits = []
+    list_observables = []
     for new_circuit in generated_circuits:
-        new_list = gen_graph_circuit(new_circuit)
+        new_list, list_obs = gen_graph_circuit(new_circuit,observable_dict)
+        print("OBS", list_obs)
         list_subcircuits.append(new_list)
+        list_observables.append(list_obs)
 
     list_subcircuits = compss_wait_on(list_subcircuits)
+    list_observables = compss_wait_on(list_observables)
     list_subcircuits = concatenate_lists(list_subcircuits)
+    list_observables = concatenate_lists(list_observables)
 
     if draw:
         for index, sub in enumerate(list_subcircuits):
             print("\n Subcircuit " + str(index + 1))
             print(sub.draw())
-    return list_subcircuits
+    return list_subcircuits, list_observables
 
 
 def concatenate_lists(lst):
@@ -407,6 +435,7 @@ def gate_expectation_value(freq, basis, shots):
     return expectation_value
 
 
+
 def gate_reconstruction(type_gates, gates_cut, exp_values):
     # --------------------------------------
     # RECONSTRUCTION
@@ -465,9 +494,9 @@ def generate_combinations(n, gate_type):
 
 def gate_cutting(observables, gates_cut, circuit, shots=30000, chunk=1, draw=False):
     type_gates = type(circuit.queue[gates_cut[0] - 1])
-    subcircuits = split_gates(gates_cut, circuit, draw)
+    subcircuits, list_observables = split_gates(observables, gates_cut, circuit, draw)
     exp_value = []
-    for i in subcircuits:
+    for index, i in enumerate(subcircuits):
         list_freq = []
         i.add(gates.M(*range(i.nqubits)))
         for p in range(0, chunk):
@@ -477,7 +506,11 @@ def gate_cutting(observables, gates_cut, circuit, shots=30000, chunk=1, draw=Fal
             list_freq.append(freq)
         # task per sumar dicts COLLECTIONS
         total_freq = sum_dicts(list_freq)
-        exp_value.append(gate_expectation_value(total_freq,observables, shots))
+        print(list_observables)
+        obs = list_observables[index]
+        print(obs)
+        new_obs = ''.join([value for key, value in sorted(obs.items())])
+        exp_value.append(gate_expectation_value(total_freq,new_obs, shots))
 
     exp_value = compss_wait_on(exp_value)
     # print("Expected values list: ",exp_value)
