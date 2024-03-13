@@ -30,13 +30,13 @@ import matplotlib.pyplot as plt
 # from qiboconnection.connection import ConnectionConfiguration
 # from qiboconnection.api import API
 
-from Qdislib.core.gate_cutting.pycompss_functions import *
+from Qdislib.core.wire_cutting.pycompss_functions import *
 from Qdislib.utils.graph import *
 
 from pycompss.api.api import compss_wait_on
 
 
-def circuit_cutting(
+def wire_cutting(
     observables, circuit, gate_tuple, shots=30000, draw=False, verbose=False
 ):
     """Implements the algorithm of circuit cutting in one function.
