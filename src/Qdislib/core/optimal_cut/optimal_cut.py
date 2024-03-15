@@ -21,20 +21,6 @@ from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
 from pycompss.api.parameter import *
 
-import numpy as np
-import qibo
-from qibo import models, gates, hamiltonians, callbacks
-from qibo.models import Circuit
-from qibo.symbols import X, Y, Z, I
-
-# for connecting with the quantum computer
-# from qiboconnection.connection import ConnectionConfiguration
-# from qiboconnection.api import API
-
-from collections import Counter
-from functools import reduce
-from itertools import product
-
 import networkx as nx
 import matplotlib.pyplot as plt
 import copy
@@ -217,11 +203,9 @@ def gate_selector(
         subgraphs = list(nx.connected_components(copy_dag))
 
         # Store number of nodes in each subgraph
-        max_qubit = []
         result_list = []
         for subgraph in subgraphs:
             subgraph = sorted(subgraph)
-            numqubits = 0
             # if draw: print("Subgraph: ",subgraph)
             # --------------------------------------------------------------
             selected_elements = [circuit.queue[i - 1] for i in subgraph]
@@ -245,8 +229,8 @@ def gate_selector(
         #    result_list.append(abs(element - previous_sum))
         #    previous_sum += element
 
-        if max_qubits == None or has_number(result_list, max_qubits):
-            if num_subcirucits == None or num_components == num_subcirucits:
+        if max_qubits is None or has_number(result_list, max_qubits):
+            if num_subcirucits is None or num_components == num_subcirucits:
                 right_subgrafs.append(array)
                 str_array = str(array)
                 temp[str_array] = {}
@@ -299,7 +283,6 @@ def gate_selector(
         min_gate = min(computational_cost)
         index_of_smallest = computational_cost.index(min_gate)
         gate_cut = right_subgrafs[index_of_smallest]
-        gate_cost = computational_cost[index_of_smallest]
         print("Choosing the smallest number")
 
     print("Gate where to cut for balanced subgraphs: ", gate_cut)
@@ -355,11 +338,9 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
         # Calculate connected components (subgraphs) after removing the point
         subgraphs = list(nx.connected_components(temp_graph))
 
-        max_qubit = []
         result_list = []
         for subgraph in subgraphs:
             subgraph = sorted(subgraph)
-            numqubits = 0
             # if draw: print("Subgraph: ",subgraph)
             # --------------------------------------------------------------
             selected_elements = [circuit.queue[i - 1] for i in subgraph]
@@ -375,9 +356,6 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
             # ]
             result_list.append(len(non_empty_qubits))
             # ---------------------------------------------------------------
-            for i in subgraph:
-                numqubits = max(max(circuit.queue[i - 1].qubits), numqubits)
-            max_qubit.append(numqubits + 1)
             num_nodes.append(len(subgraph))
 
         # result_list = []
@@ -386,7 +364,7 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
         #    result_list.append(abs(element - previous_sum))
         #    previous_sum += element
 
-        if max_qubits == None or has_number(result_list, max_qubits):
+        if max_qubits is None or has_number(result_list, max_qubits):
             # num_nodes_in_subgraphs.append(num_nodes)
             right_subgraph.append(edge)
             comp_cost = (

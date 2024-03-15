@@ -140,14 +140,6 @@ def create_graph(dag, digraph):
     digraph.add_nodes_from(new_nodes)
     digraph.add_edges_from(new_edges, color="blue")
     digraph.add_edges_from(new_edges2, color="red")
-
-    # print("Numeric nodes ",new_nodes)
-    # print("Numeric edges ",digraph.edges(data=True))
-
-    articulation_points = list(nx.articulation_points(digraph))
-    # print("Articulation points ", articulation_points)
-
-    # print_graph(digraph)
     return digraph
 
 

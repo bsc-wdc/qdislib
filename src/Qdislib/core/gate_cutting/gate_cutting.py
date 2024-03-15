@@ -23,13 +23,7 @@ from pycompss.api.parameter import COLLECTION_IN
 
 import numpy as np
 import qibo
-from qibo import models, gates, hamiltonians, callbacks
-from qibo.models import Circuit
-from qibo.symbols import X, Y, Z, I
-
-# for connecting with the quantum computer
-# from qiboconnection.connection import ConnectionConfiguration
-# from qiboconnection.api import API
+from qibo import models, gates
 
 from collections import Counter
 from functools import reduce
@@ -37,7 +31,6 @@ from itertools import product
 
 import networkx as nx
 import matplotlib.pyplot as plt
-import copy
 
 
 class DAGgraph:
@@ -118,13 +111,7 @@ def create_graph(dag, digraph):
     digraph.add_edges_from(new_edges, color="blue")
     digraph.add_edges_from(new_edges2, color="red")
 
-    # print("Numeric nodes ",new_nodes)
-    # print("Numeric edges ",digraph.edges(data=True))
 
-    articulation_points = list(nx.articulation_points(digraph))
-    # print("Articulation points ", articulation_points)
-
-    # print_graph(digraph)
     return digraph
 
 
@@ -255,7 +242,7 @@ def gen_graph_circuit(new_circuit, observable_dict=None):
 
     print(non_empty_qubits)
     print(diff_list)
-    if observable_dict != None:
+    if observable_dict is not None:
         list_obs = []
         for p in diff_list:
             new_obs = {}
@@ -425,8 +412,8 @@ def gate_expectation_value(freq, basis, shots):
             print("Not enough basis")
             return
         result = "".join(char for char, bit in zip(basis, key) if bit == "1")
-        not_I = len(result) - result.count("I")
-        if not_I % 2 == 0:
+        not_i = len(result) - result.count("I")
+        if not_i % 2 == 0:
             expectation_value += float(value) / shots
         else:
             expectation_value -= float(value) / shots
@@ -447,9 +434,6 @@ def gate_reconstruction(type_gates, gates_cut, exp_values):
             product *= int(element)
         result.append(product)
 
-
-    # result = [exp_values[i] * exp_values[i + 1]
-    #               for i in range(0, len(exp_values), 2)]
     result1 = [x * 1j if i % 2 == 0 else x for i, x in enumerate(result)]
     result2 = [x * 1j if i % 2 != 0 else x for i, x in enumerate(result)]
     if type_gates == gates.CZ:

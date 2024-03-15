@@ -20,11 +20,7 @@
 import numpy as np
 import qibo
 from qibo import models, gates, hamiltonians  # , callbacks
-from qibo.symbols import Z, X, Y, I
-
-import copy
 import networkx as nx
-import matplotlib.pyplot as plt
 
 # for connecting with the quantum computer
 # from qiboconnection.connection import ConnectionConfiguration
@@ -82,7 +78,6 @@ def split(observables, circuit, edge_remove, draw=False, verbose=False):
     second_gate = circuit.queue[edge_remove[1] - 1]
     if verbose:
         print(first_gate, second_gate)
-    # print(circuit.queue[edge_remove[0]-1].qubits > circuit.queue[edge_remove[1]-1].qubits)
     qubit = list(
         set(circuit.queue[edge_remove[0] - 1].qubits).intersection(
             set(circuit.queue[edge_remove[1] - 1].qubits)
@@ -242,7 +237,7 @@ def simulation(
     if verbose:
         print(f"qibo version: {qibo.__version__}")
 
-    if circuit_2 != None:
+    if circuit_2 is not None:
         # SIMULATION
 
         basis = ["X", "Y", "Z", "I"]
@@ -366,7 +361,7 @@ def quantum_computer(
         print("Sub circuit 1 dimension: ", sub_circuit_1_dimension)
 
     num_z_sub1 = observables[: (sub_circuit_1_dimension - 1)]
-    num_z_sub2 = observables[(sub_circuit_1_dimension - 1) :]
+    num_z_sub2 = observables[(sub_circuit_1_dimension - 1):]
 
     # first subcircuit:
     exp_value_1 = {}

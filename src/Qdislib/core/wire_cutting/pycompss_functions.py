@@ -20,10 +20,7 @@
 from pycompss.api.task import task
 
 import numpy as np
-import qibo
-from qibo import models, gates, hamiltonians  # , callbacks
-from qibo.symbols import Z, X, Y, I
-
+from qibo import models, gates  # , callbacks
 
 from Qdislib.classes.circuit_classes import NewCircuit
 
@@ -48,7 +45,7 @@ def first_subcircuit(circuit, basis, numgates, sub_circuit_1_dimension):
 
     # We introduce a quantum gate that is not inherently supported by
     # the qibo framework.
-    S_dagger = np.array([[1, 0], [0, -1j]])
+    s_dagger = np.array([[1, 0], [0, -1j]])
 
     sub_circuit_1 = models.Circuit(sub_circuit_1_dimension)
 
@@ -60,7 +57,7 @@ def first_subcircuit(circuit, basis, numgates, sub_circuit_1_dimension):
     elif basis == "Y":
         sub_circuit_1.add(gates.H(sub_circuit_1_dimension - 1))
         sub_circuit_1.add(
-            gates.Unitary(S_dagger, (sub_circuit_1_dimension - 1))
+            gates.Unitary(s_dagger, (sub_circuit_1_dimension - 1))
         )
     elif basis in ["Z", "I"]:
         pass
@@ -173,8 +170,8 @@ def compute_expectation_value(freq, basis, shots):
             print("Not enough basis")
             return
         result = "".join(char for char, bit in zip(basis, key) if bit == "1")
-        not_I = len(result) - result.count("I")
-        if not_I % 2 == 0:
+        not_i = len(result) - result.count("I")
+        if not_i % 2 == 0:
             expectation_value += float(value) / shots
         else:
             expectation_value -= float(value) / shots
@@ -201,7 +198,7 @@ def first_subcircuit_basis(circuit1, basis, qubit):
 
     # We introduce a quantum gate that is not inherently supported by
     # the qibo framework.
-    S_dagger = np.array([[1, 0], [0, -1j]])
+    s_dagger = np.array([[1, 0], [0, -1j]])
 
     dimension = circuit1.nqubits
 
@@ -209,7 +206,7 @@ def first_subcircuit_basis(circuit1, basis, qubit):
         circuit1.add(gates.H(qubit))
     elif basis == "Y":
         circuit1.add(gates.H(qubit))
-        circuit1.add(gates.Unitary(S_dagger, (qubit)))
+        circuit1.add(gates.Unitary(s_dagger, (qubit)))
     elif basis in ["Z", "I"]:
         pass
     else:
