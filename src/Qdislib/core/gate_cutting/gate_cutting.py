@@ -110,8 +110,6 @@ def create_graph(dag, digraph):
     digraph.add_nodes_from(new_nodes)
     digraph.add_edges_from(new_edges, color="blue")
     digraph.add_edges_from(new_edges2, color="red")
-
-
     return digraph
 
 
@@ -122,12 +120,12 @@ def gates_dict(circuit):
             start, end = gate.qubits
             new_tuple = [(i, i + 1) for i in range(start, end)]
             # print(new_tuple)
-            for tuple in new_tuple:
-                if tuple not in double_gates:
-                    double_gates[tuple] = []
-                    double_gates[tuple].append(index + 1)
+            for tupl in new_tuple:
+                if tupl not in double_gates:
+                    double_gates[tupl] = []
+                    double_gates[tupl].append(index + 1)
                 else:
-                    double_gates[tuple].append(index + 1)
+                    double_gates[tupl].append(index + 1)
 
     # print(double_gates)
     return double_gates
@@ -182,7 +180,6 @@ def del_empty_qubits(circuit):
         for i in gate.qubits:
             if i not in empty_qubits:
                 empty_qubits.append(i)
-        gate.qubits
     return empty_qubits
 
 
@@ -281,7 +278,7 @@ def split_gates(observables, gates_cut, circuit, draw=False):
             type(element) != type(target_gates[0]) for element in target_gates
         ):
             print("All the gates to cut have to be the same type")
-            return
+            return None, None
 
         target_qubit = target_gates[0].control_qubits[0]
 

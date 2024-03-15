@@ -127,12 +127,12 @@ def gates_dict(circuit):
         if len(gate.qubits) > 1:
             start, end = gate.qubits
             new_tuple = [(i, i + 1) for i in range(start, end)]
-            for tuple in new_tuple:
-                if tuple not in double_gates:
-                    double_gates[tuple] = []
-                    double_gates[tuple].append(index + 1)
+            for tupl in new_tuple:
+                if tupl not in double_gates:
+                    double_gates[tupl] = []
+                    double_gates[tupl].append(index + 1)
                 else:
-                    double_gates[tuple].append(index + 1)
+                    double_gates[tupl].append(index + 1)
     return double_gates
 
 
@@ -173,7 +173,6 @@ def del_empty_qubits(circuit):
         for i in gate.qubits:
             if i not in empty_qubits:
                 empty_qubits.append(i)
-        gate.qubits
     return empty_qubits
 
 
@@ -391,15 +390,6 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
     if len(right_subgraph) > 1:
         print("Options where to cut: ", right_subgraph)
         # print("Num nodes each subgraph: ",num_nodes_in_subgraphs)
-
-        """results = []
-        for option in num_nodes_in_subgraphs:
-            result = option[0]
-            # Subtract each subsequent element from the result
-            for num in option[1:]:
-                result -= num
-            results.append(abs(result))
-        print("Node difference between subgraphs: ",results)"""
         print("Costs: ", computational_cost)
 
         # min_wire = min(results)
