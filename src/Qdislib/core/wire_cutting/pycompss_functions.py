@@ -172,12 +172,12 @@ def compute_expectation_value(freq, basis, shots):
         if len(basis) != len(key):
             print("Not enough basis")
             return
-        result = ''.join(char for char, bit in zip(basis, key) if bit == '1')
-        not_I = len(result) - result.count('I')     
+        result = "".join(char for char, bit in zip(basis, key) if bit == "1")
+        not_I = len(result) - result.count("I")
         if not_I % 2 == 0:
-            expectation_value += float(value)/shots
+            expectation_value += float(value) / shots
         else:
-            expectation_value -= float(value)/shots
+            expectation_value -= float(value) / shots
 
     return expectation_value
 

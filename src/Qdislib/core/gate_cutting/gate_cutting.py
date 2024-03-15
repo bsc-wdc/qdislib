@@ -200,7 +200,7 @@ def del_empty_qubits(circuit):
 
 
 @task(returns=list)
-def gen_graph_circuit(new_circuit,observable_dict = None):
+def gen_graph_circuit(new_circuit, observable_dict=None):
     list_subcircuits = []
     # convert to DAG and DIGRPAPH
     digraph = nx.Graph()
@@ -218,7 +218,7 @@ def gen_graph_circuit(new_circuit,observable_dict = None):
         # circuit_copy = copy.deepcopy(new_circuit)
 
         # remove specific qubit
-        
+
         circuit_copy = models.Circuit(new_circuit.nqubits)
         circuit_copy.add(selected_elements)
 
@@ -262,13 +262,12 @@ def gen_graph_circuit(new_circuit,observable_dict = None):
             for index, x in enumerate(p):
                 print(x)
                 print(observable_dict)
-                
+
                 new_obs[index] = observable_dict[x]
                 print(new_obs)
             list_obs.append(new_obs)
         print(list_obs)
 
-            
     return list_subcircuits, list_obs
 
 
@@ -349,7 +348,7 @@ def split_gates(observables, gates_cut, circuit, draw=False):
     list_subcircuits = []
     list_observables = []
     for new_circuit in generated_circuits:
-        new_list, list_obs = gen_graph_circuit(new_circuit,observable_dict)
+        new_list, list_obs = gen_graph_circuit(new_circuit, observable_dict)
         print("OBS", list_obs)
         list_subcircuits.append(new_list)
         list_observables.append(list_obs)
@@ -425,15 +424,14 @@ def gate_expectation_value(freq, basis, shots):
         if len(basis) != len(key):
             print("Not enough basis")
             return
-        result = ''.join(char for char, bit in zip(basis, key) if bit == '1')
-        not_I = len(result) - result.count('I')     
+        result = "".join(char for char, bit in zip(basis, key) if bit == "1")
+        not_I = len(result) - result.count("I")
         if not_I % 2 == 0:
-            expectation_value += float(value)/shots
+            expectation_value += float(value) / shots
         else:
-            expectation_value -= float(value)/shots
+            expectation_value -= float(value) / shots
 
     return expectation_value
-
 
 
 def gate_reconstruction(type_gates, gates_cut, exp_values):
@@ -441,10 +439,14 @@ def gate_reconstruction(type_gates, gates_cut, exp_values):
     # RECONSTRUCTION
     # --------------------------------------
     num_generated = int(len(exp_values) / 2 ** len(gates_cut))
-    result = [
-        eval("*".join(map(str, exp_values[i : i + num_generated])))
-        for i in range(0, len(exp_values), num_generated)
-    ]
+    result = []
+    for i in range(0, len(exp_values), num_generated):
+        chunk = exp_values[i:i+num_generated]
+        product = 1
+        for element in chunk:
+            product *= int(element)
+        result.append(product)
+
 
     # result = [exp_values[i] * exp_values[i + 1]
     #               for i in range(0, len(exp_values), 2)]
@@ -492,9 +494,13 @@ def generate_combinations(n, gate_type):
     return all_combinations
 
 
-def gate_cutting(observables, gates_cut, circuit, shots=30000, chunk=1, draw=False):
+def gate_cutting(
+    observables, gates_cut, circuit, shots=30000, chunk=1, draw=False
+):
     type_gates = type(circuit.queue[gates_cut[0] - 1])
-    subcircuits, list_observables = split_gates(observables, gates_cut, circuit, draw)
+    subcircuits, list_observables = split_gates(
+        observables, gates_cut, circuit, draw
+    )
     exp_value = []
     for index, i in enumerate(subcircuits):
         list_freq = []
@@ -509,8 +515,8 @@ def gate_cutting(observables, gates_cut, circuit, shots=30000, chunk=1, draw=Fal
         print(list_observables)
         obs = list_observables[index]
         print(obs)
-        new_obs = ''.join([value for key, value in sorted(obs.items())])
-        exp_value.append(gate_expectation_value(total_freq,new_obs, shots))
+        new_obs = "".join([value for key, value in sorted(obs.items())])
+        exp_value.append(gate_expectation_value(total_freq, new_obs, shots))
 
     exp_value = compss_wait_on(exp_value)
     # print("Expected values list: ",exp_value)
