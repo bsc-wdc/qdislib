@@ -347,7 +347,7 @@ def quantum_computer(
         print(f"qibo version: {qibo.__version__}")
 
     basis = ["X", "Y", "Z", "I"]
-    states = ["0", "1", "+", "-", "+i", "-i"]
+    states = ["0", "1", "+", "+i"]
 
     sub_circuit_1_dimension = circuit1.nqubits
     if verbose:
@@ -394,15 +394,17 @@ def quantum_computer(
     exp_value_2 = compss_wait_on(exp_value_2)
 
     reconstruction = (
-        1
-        / 2
-        * (
-            exp_value_1["I"] * (exp_value_2["0"] + exp_value_2["1"])
-            + exp_value_1["X"] * (exp_value_2["+"] - exp_value_2["-"])
-            + exp_value_1["Y"] * (exp_value_2["+i"] - exp_value_2["-i"])
-            + exp_value_1["Z"] * (exp_value_2["0"] - exp_value_2["1"])
+            1
+            / 2
+            * (
+                (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
+                + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
+                + exp_value_1["X"]
+                * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
+                + exp_value_1["Y"]
+                * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
+            )
         )
-    )
     print(
         "Expectation value after circuit cutting and reconstruction:",
         reconstruction,

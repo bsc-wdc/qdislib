@@ -68,6 +68,10 @@ def build_dag(circuit, dag):
                 ):  # Check if the qubit is in the node's qubits
                     dag.add_edge(node, gate)
                     break
+    dag = create_dag(circuit,dag)
+    return dag
+
+def create_dag(circuit,dag):
     for gate in circuit.queue:
         # Connect gates based on qubit dependencies
         for qubit in gate.qubits:
@@ -83,7 +87,6 @@ def build_dag(circuit, dag):
                         if node != gate:
                             dag.add_edge2(node, gate)
     return dag
-
 
 def has_number_or_less(lst, number):
     for num in lst:
@@ -438,13 +441,16 @@ def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
     # RECONSTRUCTION
     # --------------------------------------
     num_generated = int(len(exp_values) / 2 ** len(gates_cut))
-    if verbose: print(num_generated)
+    if verbose:
+        print(num_generated)
     result = [
-        eval("*".join(map(str, exp_values[i : i + num_generated])))
+        eval("*".join(map(str, exp_values[i: i + num_generated])))
         for i in range(0, len(exp_values), num_generated)
     ]
-    if verbose: print(exp_values)
-    if verbose: print(result)
+    if verbose:
+        print(exp_values)
+    if verbose:
+        print(result)
     result1 = [x * 1j if i % 2 == 0 else x for i, x in enumerate(result)]
     result2 = [x * 1j if i % 2 != 0 else x for i, x in enumerate(result)]
     if type_gates == gates.CZ:
@@ -461,10 +467,14 @@ def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
             * (sum(result1) + sum(result2))
             / 2 ** len(gates_cut)
         )
-    if verbose: print("\n")
-    if verbose: print("Reconstructed expected value: ", reconstruction)
-    if verbose: print("Absolute value of reconstruction ", np.absolute(reconstruction))
-    if verbose: print("Reconstruction value: ", reconstruction.real)
+    if verbose:
+        print("\n")
+    if verbose:
+        print("Reconstructed expected value: ", reconstruction)
+    if verbose:
+        print("Absolute value of reconstruction ", np.absolute(reconstruction))
+    if verbose:
+        print("Reconstruction value: ", reconstruction.real)
     return reconstruction.real
 
 
@@ -511,7 +521,8 @@ def gate_cutting(
             list_freq.append(freq)
         # task per sumar dicts COLLECTIONS
         total_freq = sum_dicts(list_freq)
-        if verbose:print(total_freq)
+        if verbose:
+            print(total_freq)
         if verbose:
             print(list_observables)
         obs = list_observables[index]
@@ -521,5 +532,5 @@ def gate_cutting(
         exp_value.append(gate_expectation_value(total_freq, new_obs, shots))
 
     exp_value = compss_wait_on(exp_value)
-    result = gate_reconstruction(type_gates, gates_cut, exp_value,verbose)
+    result = gate_reconstruction(type_gates, gates_cut, exp_value, verbose)
     return result
