@@ -257,9 +257,9 @@ def simulation(
             copy_circuit = circuit_1.copy(True)
             copy_circuit1.queue = copy_circuit.queue
             circuit1 = first_subcircuit_basis(copy_circuit1, b, qubit[0])
-            result = circuit1.execute_COMPSs(nshots=shots)
+            result = circuit1.execute_compss(nshots=shots)
             # obtain probability distribution
-            freq = result.frequencies_COMPSs(binary=True)
+            freq = result.frequencies_compss(binary=True)
             # we call the function that computes the e
             # new_obs = num_z_sub1[:qubit[0]] + b + num_z_sub1[qubit[0]:]
             # print(new_obs)
@@ -286,9 +286,9 @@ def simulation(
             copy_circuit = circuit_2.copy(True)
             copy_circuit2.queue = copy_circuit.queue
             circuit2 = second_subcircuit_states(copy_circuit2, s, qubit[1])
-            result = circuit2.execute_COMPSs(nshots=shots)
+            result = circuit2.execute_compss(nshots=shots)
             # obtain probability distribution
-            freq = result.frequencies_COMPSs(binary=True)
+            freq = result.frequencies_compss(binary=True)
             new_obs2 = "".join(
                 [value for key, value in sorted(observables_2.items())]
             )
