@@ -329,6 +329,55 @@ def simulation(
         return expec
 
 
+def execute_qc(
+    connection,
+    qubit,
+    circuit_1,
+    circuit_2=None,
+    shots=30000,
+    verbose=False,):
+
+    connection.select_device_ids(device_ids=[9])
+    connection.list_devices()
+
+    if circuit_2 is not None:
+        # SIMULATION
+
+        basis = ["X", "Y", "Z", "I"]
+        states = ["0", "1", "+", "+i"]
+
+        job_ids1 = []
+        for b in basis:
+            if verbose:
+                print("Basis: ", b)
+            copy_circuit1 = models.Circuit(circuit_1.nqubits)
+            copy_circuit = circuit_1.copy(True)
+            copy_circuit1.queue = copy_circuit.queue
+            #circuit_1 = first_subcircuit_basis(copy_circuit1, b, qubit[0])
+            #job_ids = circuit_1.execute_qc_compss(connection,nshots=shots)
+            job_ids = connection.execute(circuit=circuit_1, nshots=1000)
+            job_ids1.append(job_ids[0])
+            
+
+        # second subcircuit:
+        job_ids2 = []
+        for s in states:
+            if verbose:
+                print("States: ", s)
+            copy_circuit2 = models.Circuit(circuit_2.nqubits)
+            copy_circuit = circuit_2.copy(True)
+            copy_circuit2.queue = copy_circuit.queue
+            #circuit_2 = second_subcircuit_states(copy_circuit2, s, qubit[1])
+            #job_ids = circuit_2.execute_qc_compss(connection,nshots=shots)
+            job_ids = connection.execute(circuit=circuit_2, nshots=1000)
+            job_ids2.append(job_ids[0])
+            
+
+        job_ids1 = compss_wait_on(job_ids1)
+        job_ids2 = compss_wait_on(job_ids2)
+    return job_ids1,job_ids2
+
+
 def quantum_computer(
     observables, circuit1, circuit2, connection, shots=30000, verbose=False
 ):
@@ -448,7 +497,7 @@ def analytical_solution(observables, circuit, verbose=False):
         )
     )
 
-    print(
+    if verbose: print(
         "The expectation value of",
         expectation_value,
         "in the entire circuit is ",

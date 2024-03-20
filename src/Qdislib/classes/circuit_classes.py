@@ -80,7 +80,7 @@ class NewCircuit:
         new_result = NewCircuitResult(result)
         return new_result
 
-    @task(returns=NewCircuitResult)
+    @task(returns=int)
     def execute_qc_compss(self, connection, initial_state=None, nshots=None):
         """Execute function task wrapper.
 
@@ -89,6 +89,6 @@ class NewCircuit:
         :return: Circuit results.
         """
         job_ids = connection.execute(self, initial_state, nshots)
-        result = connection.get_results(job_ids=job_ids)
-        new_result = NewCircuitResult(result)
-        return new_result
+        #result = connection.get_results(job_ids=job_ids)
+        #new_result = NewCircuitResult(result)
+        return job_ids
