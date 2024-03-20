@@ -431,13 +431,11 @@ def gate_reconstruction(type_gates, gates_cut, exp_values):
     # RECONSTRUCTION
     # --------------------------------------
     num_generated = int(len(exp_values) / 2 ** len(gates_cut))
-    result = []
-    for i in range(0, len(exp_values), num_generated):
-        chunk = exp_values[i:i+num_generated]
-        product = 1
-        for element in chunk:
-            product *= int(element)
-        result.append(product)
+    result = [
+        eval("*".join(map(str, exp_values[i : i + num_generated])))
+        for i in range(0, len(exp_values), num_generated)
+    ]
+
 
     result1 = [x * 1j if i % 2 == 0 else x for i, x in enumerate(result)]
     result2 = [x * 1j if i % 2 != 0 else x for i, x in enumerate(result)]
