@@ -332,6 +332,8 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
     list_observables = []
     for new_circuit in generated_circuits:
         new_list, list_obs = gen_graph_circuit(new_circuit, observable_dict)
+        new_list = compss_wait_on(new_list)
+        list_obs = compss_wait_on(list_obs)
         if verbose: print("OBS", list_obs)
         list_subcircuits.append(new_list)
         list_observables.append(list_obs)
