@@ -250,8 +250,11 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
                 if verbose: print(new_obs)
             list_obs.append(new_obs)
         if verbose: print(list_obs)
+        list_subcircuits_obs = [list_subcircuits,list_obs]
+    else:
+        list_subcircuits_obs = list_subcircuits
 
-    return list_subcircuits, list_obs
+    return list_subcircuits_obs
 
 
 def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
@@ -330,16 +333,20 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
 
     list_subcircuits = []
     list_observables = []
+    list_unpack = []
     for new_circuit in generated_circuits:
-        new_list, list_obs = gen_graph_circuit(new_circuit, observable_dict)
-        new_list = compss_wait_on(new_list)
-        list_obs = compss_wait_on(list_obs)
-        if verbose: print("OBS", list_obs)
-        list_subcircuits.append(new_list)
-        list_observables.append(list_obs)
+        new_list = gen_graph_circuit(new_circuit, observable_dict)
+        list_unpack.append(new_list)
 
-    list_subcircuits = compss_wait_on(list_subcircuits)
-    list_observables = compss_wait_on(list_observables)
+    list_unpack = compss_wait_on(list_unpack)
+
+    for x in list_unpack:
+        if len(x) > 1:
+            list_subcircuits.append(x[0])
+            list_observables.append(x[1])
+        else:
+            list_subcircuits.append(x[0])
+
     list_subcircuits = concatenate_lists(list_subcircuits)
     list_observables = concatenate_lists(list_observables)
 
