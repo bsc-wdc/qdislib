@@ -483,7 +483,7 @@ def generate_combinations(n, gate_type):
 
 
 def gate_cutting(
-    observables, gates_cut, circuit, shots=30000, chunk=1, draw=False, verbose=False
+    observables, circuit, gates_cut, shots=30000, chunk=1, draw=False, verbose=False
 ):
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     subcircuits, list_observables = split_gates(
