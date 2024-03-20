@@ -32,89 +32,13 @@ from itertools import product
 import networkx as nx
 import matplotlib.pyplot as plt
 
-
-class DAGgraph:
-    def __init__(self):
-        self.nodes = []
-        self.edges = []
-        self.edges2 = []
-
-    def add_node(self, gate):
-        self.nodes.append(gate)
-
-    def add_edge(self, gate1, gate2):
-        self.edges.append((gate1, gate2))
-
-    def add_edge2(self, gate1, gate2):
-        self.edges2.append((gate1, gate2))
-
-    def print_nodes(self):
-        print("Nodes: ", self.nodes)
-
-    def print_edges(self):
-        print("Edges: ", self.edges)
-
-
-def build_dag(circuit, dag):
-    for gate in circuit.queue:
-        dag.add_node(gate)
-        # Connect gates based on qubit dependencies
-        for qubit in gate.qubits:
-            for node in reversed(
-                dag.nodes[:-1]
-            ):  # Skip the last node since it is the current gate being added
-                if (
-                    qubit in node.qubits
-                ):  # Check if the qubit is in the node's qubits
-                    dag.add_edge(node, gate)
-                    break
-    dag = create_dag(circuit,dag)
-    return dag
-
-def create_dag(circuit,dag):
-    for gate in circuit.queue:
-        # Connect gates based on qubit dependencies
-        for qubit in gate.qubits:
-            for node in reversed(
-                dag.nodes[:-1]
-            ):  # Skip the last node since it is the current gate being added
-                if (
-                    qubit in node.qubits
-                ):  # Check if the qubit is in the node's qubits
-                    if (node, gate) in dag.edges or (gate, node) in dag.edges:
-                        pass
-                    else:
-                        if node != gate:
-                            dag.add_edge2(node, gate)
-    return dag
+from Qdislib.api.api import *
 
 def has_number_or_less(lst, number):
     for num in lst:
         if num <= number:
             return True
     return False
-
-
-# ---------------------------------------------------
-# Create and set DAG and nx.Graph()
-# ---------------------------------------------------
-
-
-def create_graph(dag, digraph):
-    new_nodes = [index + 1 for index, i in enumerate(dag.nodes)]
-    labels = {
-        i: index + 1 for index, i in enumerate(dag.nodes)
-    }  # Start numbering from 0
-    new_edges = [(labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges]
-    new_edges2 = [
-        (labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges2
-    ]
-
-    digraph.add_nodes_from(new_nodes)
-    digraph.add_edges_from(new_edges, color="blue")
-    digraph.add_edges_from(new_edges2, color="red")
-    return digraph
-
 
 def gates_dict(circuit):
     double_gates = {}
@@ -266,20 +190,7 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
 
     return list_subcircuits_obs
 
-
-def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
-    # ------------------------------------
-    # SPLIT IN 4 SUBCIRCUITS
-    # ------------------------------------
-    type_gates = type(circuit.queue[gates_cut[0] - 1])
-    combinations_list = generate_combinations(len(gates_cut), type_gates)
-
-    observable_dict = {}
-    for num_qubit in range(0, circuit.nqubits):
-        observable_dict[num_qubit] = observables[num_qubit]
-    if verbose:
-        print(observable_dict)
-
+def generate_circuits(combinations_list,circuit,gates_cut,draw):
     generated_circuits = []
     for index2, combination in enumerate(combinations_list):
         circuit1 = circuit.copy(True)
@@ -340,6 +251,22 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
             print("\n Circuit " + str(index2 + 1))
             print(circuit1.draw())
         generated_circuits.append(circuit1)
+    return generated_circuits
+
+def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
+    # ------------------------------------
+    # SPLIT IN 4 SUBCIRCUITS
+    # ------------------------------------
+    type_gates = type(circuit.queue[gates_cut[0] - 1])
+    combinations_list = generate_combinations(len(gates_cut), type_gates)
+
+    observable_dict = {}
+    for num_qubit in range(0, circuit.nqubits):
+        observable_dict[num_qubit] = observables[num_qubit]
+    if verbose:
+        print(observable_dict)
+
+    generated_circuits = generate_circuits(combinations_list,circuit,gates_cut,draw)
 
     list_subcircuits = []
     list_observables = []
@@ -425,7 +352,7 @@ def gate_expectation_value(freq, basis, shots):
     for key, value in freq.items():
         if len(basis) != len(key):
             print("Not enough basis")
-            return
+            return None
         result = "".join(char for char, bit in zip(basis, key) if bit == "1")
         not_i = len(result) - result.count("I")
         if not_i % 2 == 0:

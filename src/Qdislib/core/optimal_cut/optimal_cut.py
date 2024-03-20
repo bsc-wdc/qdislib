@@ -168,10 +168,7 @@ def del_empty_qubits(circuit):
     return empty_qubits
 
 
-@task(returns=list)
-def gate_selector(
-    digraph, circuit, max_qubits=None, num_subcirucits=None, draw=False
-):
+def double_gates(circuit, digraph, max_qubits,num_subcirucits,draw):
     # ----------------------------------------------------
     # LOOP THROUGH DOUBLE GATES POINTS
     # ----------------------------------------------------
@@ -237,6 +234,13 @@ def gate_selector(
                     print("Computational Cost: ", comp_cost)
                 if draw:
                     print_graph(copy_dag)
+    return right_subgrafs, computational_cost
+
+@task(returns=list)
+def gate_selector(
+    digraph, circuit, max_qubits=None, num_subcirucits=None, draw=False
+):
+    right_subgrafs, computational_cost = double_gates(circuit, digraph, max_qubits,num_subcirucits,draw)
 
     # -------------------------------------------------------
     # DECIDE WHAT GATE TO CUT
@@ -356,14 +360,14 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
         min_wire = min(computational_cost)
         index_of_smallest_wire = computational_cost.index(min_wire)
         wire_cut = [right_subgraph[index_of_smallest_wire]]
-        wire_cost = computational_cost[index_of_smallest_wire]
+        min_wire = computational_cost[index_of_smallest_wire]
         if draw:
             print("Choosing the smallest number")
 
     if draw:
         print("Wire where to cut for balanced subgraphs: ", wire_cut)
     if draw:
-        print("Computational cost of cutting this wire: ", wire_cost)
+        print("Computational cost of cutting this wire: ", min_wire)
     return_list = [wire_cut, min_wire]
     return return_list
 
