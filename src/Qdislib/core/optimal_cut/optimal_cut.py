@@ -156,14 +156,6 @@ def create_graph(dag, digraph):
     digraph.add_nodes_from(new_nodes)
     digraph.add_edges_from(new_edges, color="blue")
     digraph.add_edges_from(new_edges2, color="red")
-
-    # print("Numeric nodes ",new_nodes)
-    # print("Numeric edges ",digraph.edges(data=True))
-
-    # articulation_points = list(nx.articulation_points(digraph))
-    # print("Articulation points ", articulation_points)
-    # print("CIRCUIT")
-    # print_graph(digraph)
     return digraph
 
 
@@ -205,29 +197,16 @@ def gate_selector(
         result_list = []
         for subgraph in subgraphs:
             subgraph = sorted(subgraph)
-            # if draw: print("Subgraph: ",subgraph)
+            if draw: print("Subgraph: ",subgraph)
             # --------------------------------------------------------------
             selected_elements = [circuit.queue[i - 1] for i in subgraph]
-            # print(selected_elements)
             circuit_copy = copy.deepcopy(circuit)
             circuit_copy.queue = selected_elements
-            # print(circuit_copy.draw())
             non_empty_qubits = del_empty_qubits(circuit_copy)
             non_empty_qubits.sort()
-            # print(non_empty_qubits)
-            # difference_list = [
-            #     value - index for index, value in enumerate(non_empty_qubits)
-            # ]
             result_list.append(len(non_empty_qubits))
             # --------------------------------------------------------------
             num_nodes.append(len(subgraph))
-
-        # result_list = []
-        # previous_sum = 0
-        # for element in max_qubit:
-        #    result_list.append(abs(element - previous_sum))
-        #    previous_sum += element
-
         if max_qubits is None or has_number(result_list, max_qubits):
             if num_subcirucits is None or num_components == num_subcirucits:
                 right_subgrafs.append(array)
@@ -261,31 +240,20 @@ def gate_selector(
     # -------------------------------------------------------
     # DECIDE WHAT GATE TO CUT
     # -------------------------------------------------------
-    print(temp)
     gate_cut = right_subgrafs[0]
     min_gate = min(computational_cost)
     if len(right_subgrafs) > 1:
-        print("Options where to cut: ", right_subgrafs)
-        # print("Num nodes each subgraph: ",num_nodes_in_subgraphs)
-
-        # results = []
-        # for option in num_nodes_in_subgraphs:
-        # result = option[0]
-        # Subtract each subsequent element from the result
-        # for num in option[1:]:
-        #    result -= num
-        # results.append(max(option)-min(option))
-        # print("Node difference between subgraphs: ",results)
-        print("Costs: ", computational_cost)
+        if draw: print("Options where to cut: ", right_subgrafs)
+        if draw: print("Costs: ", computational_cost)
 
         # min_gate = min(results)
         min_gate = min(computational_cost)
         index_of_smallest = computational_cost.index(min_gate)
         gate_cut = right_subgrafs[index_of_smallest]
-        print("Choosing the smallest number")
+        if draw: print("Choosing the smallest number")
 
-    print("Gate where to cut for balanced subgraphs: ", gate_cut)
-    print("Computational cost of cutting these gates: ", min_gate)
+    if draw: print("Gate where to cut for balanced subgraphs: ", gate_cut)
+    if draw: print("Computational cost of cutting these gates: ", min_gate)
     return_list = [gate_cut, min_gate]
     return return_list
 
@@ -317,8 +285,6 @@ def find_edge_to_split_graph(graph):
 def wire_selector(digraph, circuit, max_qubits, draw=False):
     # Finding an edge that splits the graph
     edge_to_remove = find_edge_to_split_graph(digraph)
-    # print(edge_to_remove)
-    print("\n")
     red_edges = [
         (edge[0], edge[1])
         for edge in digraph.edges.data("color")
@@ -340,29 +306,15 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
         result_list = []
         for subgraph in subgraphs:
             subgraph = sorted(subgraph)
-            # if draw: print("Subgraph: ",subgraph)
             # --------------------------------------------------------------
             selected_elements = [circuit.queue[i - 1] for i in subgraph]
-            # print(selected_elements)
             circuit_copy = copy.deepcopy(circuit)
             circuit_copy.queue = selected_elements
-            # print(circuit_copy.draw())
             non_empty_qubits = del_empty_qubits(circuit_copy)
             non_empty_qubits.sort()
-            # print(non_empty_qubits)
-            # difference_list = [
-            #     value - index for index, value in enumerate(non_empty_qubits)
-            # ]
             result_list.append(len(non_empty_qubits))
             # ---------------------------------------------------------------
             num_nodes.append(len(subgraph))
-
-        # result_list = []
-        # previous_sum = 0
-        # for element in max_qubit:
-        #    result_list.append(abs(element - previous_sum))
-        #    previous_sum += element
-
         if max_qubits is None or has_number(result_list, max_qubits):
             # num_nodes_in_subgraphs.append(num_nodes)
             right_subgraph.append(edge)
@@ -388,19 +340,19 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
     min_wire = min(computational_cost)
 
     if len(right_subgraph) > 1:
-        print("Options where to cut: ", right_subgraph)
+        if draw: print("Options where to cut: ", right_subgraph)
         # print("Num nodes each subgraph: ",num_nodes_in_subgraphs)
-        print("Costs: ", computational_cost)
+        if draw: print("Costs: ", computational_cost)
 
         # min_wire = min(results)
         min_wire = min(computational_cost)
         index_of_smallest_wire = computational_cost.index(min_wire)
         wire_cut = [right_subgraph[index_of_smallest_wire]]
         wire_cost = computational_cost[index_of_smallest_wire]
-        print("Choosing the smallest number")
+        if draw: print("Choosing the smallest number")
 
-    print("Wire where to cut for balanced subgraphs: ", wire_cut)
-    print("Computational cost of cutting this wire: ", wire_cost)
+    if draw: print("Wire where to cut for balanced subgraphs: ", wire_cut)
+    if draw: print("Computational cost of cutting this wire: ", wire_cost)
     return_list = [wire_cut, min_wire]
     return return_list
 
@@ -438,22 +390,21 @@ def optimal_cut(
     if wire_cut:
         wire_cut2, min_wire2 = return_list2
 
-    print("\n")
     if gate_cut and wire_cut:
-        print("Minimum computational cost of gate cutting: ", min_gate2)
-        print("Minimum computational cost of wire cutting: ", min_wire2)
+        if draw: print("Minimum computational cost of gate cutting: ", min_gate2)
+        if draw: print("Minimum computational cost of wire cutting: ", min_wire2)
         if min_gate2 > min_wire2:
-            print("BEST OPTION WIRE: ", wire_cut2)
+            if draw: print("BEST OPTION WIRE: ", wire_cut2)
             return wire_cut2
         elif min_gate2 < min_wire2:
-            print("BEST OPTION GATE: ", gate_cut2)
+            if draw: print("BEST OPTION GATE: ", gate_cut2)
             return gate_cut2
         else:
-            print("WIRE AND GATE SAME OPTION")
+            if draw: print("WIRE AND GATE SAME OPTION")
             return gate_cut2
     elif gate_cut:
-        print("BEST GATE: ", gate_cut2)
+        if draw: print("BEST GATE: ", gate_cut2)
         return gate_cut2
     elif wire_cut:
-        print("BEST WIRE: ", wire_cut2)
+        if draw: print("BEST WIRE: ", wire_cut2)
         return wire_cut2
