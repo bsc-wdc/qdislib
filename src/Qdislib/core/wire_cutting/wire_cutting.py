@@ -51,6 +51,7 @@ def wire_cutting(
     if verbose:
         print(f"qibo version: {qibo.__version__}")
 
+    gate_tuple = gate_tuple[0]
     qubit, list_subcircuits, lst_observables = split(
         observables, circuit, gate_tuple, draw, verbose
     )
@@ -113,33 +114,25 @@ def split(observables, circuit, edge_remove, draw=False, verbose=False):
     if len(subgraphs) > 2:
         print("MORE THAN 2 SUBGRAPH")
         return None, None
-    # print(subgraphs)
 
-    # print_graph(digraph)
     list_subcircuits = []
     non_empty_list = []
     for subgraph in subgraphs:
         subgraph = sorted(subgraph)
         selected_elements = [dag.nodes[i - 1] for i in subgraph]
-        # circuit_copy = copy.deepcopy(new_circuit)
-
-        # remove specific qubit
 
         circuit_copy = models.Circuit(circuit.nqubits)
         circuit_copy.add(selected_elements)
 
         non_empty_qubits = del_empty_qubits(circuit_copy)
         non_empty_qubits.sort()
-        # print("Non empty qubits!: ",non_empty_qubits)
         difference_list = [
             value - index for index, value in enumerate(non_empty_qubits)
         ]
-        # print("Different list: ",difference_list)
         non_empty_list.append(difference_list)
         subtracted_list = [
             x - y for x, y in zip(non_empty_qubits, difference_list)
         ]
-        # print("Substracted list: ", subtracted_list)
 
         for gate in circuit_copy.queue:
             if len(gate.qubits) > 1:
@@ -361,7 +354,7 @@ def quantum_computer(
         print("Sub circuit 1 dimension: ", sub_circuit_1_dimension)
 
     num_z_sub1 = observables[: (sub_circuit_1_dimension - 1)]
-    num_z_sub2 = observables[(sub_circuit_1_dimension - 1):]
+    num_z_sub2 = observables[(sub_circuit_1_dimension - 1) :]
 
     # first subcircuit:
     exp_value_1 = {}

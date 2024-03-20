@@ -197,7 +197,8 @@ def gate_selector(
         result_list = []
         for subgraph in subgraphs:
             subgraph = sorted(subgraph)
-            if draw: print("Subgraph: ",subgraph)
+            if draw:
+                print("Subgraph: ", subgraph)
             # --------------------------------------------------------------
             selected_elements = [circuit.queue[i - 1] for i in subgraph]
             circuit_copy = copy.deepcopy(circuit)
@@ -243,17 +244,22 @@ def gate_selector(
     gate_cut = right_subgrafs[0]
     min_gate = min(computational_cost)
     if len(right_subgrafs) > 1:
-        if draw: print("Options where to cut: ", right_subgrafs)
-        if draw: print("Costs: ", computational_cost)
+        if draw:
+            print("Options where to cut: ", right_subgrafs)
+        if draw:
+            print("Costs: ", computational_cost)
 
         # min_gate = min(results)
         min_gate = min(computational_cost)
         index_of_smallest = computational_cost.index(min_gate)
         gate_cut = right_subgrafs[index_of_smallest]
-        if draw: print("Choosing the smallest number")
+        if draw:
+            print("Choosing the smallest number")
 
-    if draw: print("Gate where to cut for balanced subgraphs: ", gate_cut)
-    if draw: print("Computational cost of cutting these gates: ", min_gate)
+    if draw:
+        print("Gate where to cut for balanced subgraphs: ", gate_cut)
+    if draw:
+        print("Computational cost of cutting these gates: ", min_gate)
     return_list = [gate_cut, min_gate]
     return return_list
 
@@ -340,19 +346,24 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
     min_wire = min(computational_cost)
 
     if len(right_subgraph) > 1:
-        if draw: print("Options where to cut: ", right_subgraph)
+        if draw:
+            print("Options where to cut: ", right_subgraph)
         # print("Num nodes each subgraph: ",num_nodes_in_subgraphs)
-        if draw: print("Costs: ", computational_cost)
+        if draw:
+            print("Costs: ", computational_cost)
 
         # min_wire = min(results)
         min_wire = min(computational_cost)
         index_of_smallest_wire = computational_cost.index(min_wire)
         wire_cut = [right_subgraph[index_of_smallest_wire]]
         wire_cost = computational_cost[index_of_smallest_wire]
-        if draw: print("Choosing the smallest number")
+        if draw:
+            print("Choosing the smallest number")
 
-    if draw: print("Wire where to cut for balanced subgraphs: ", wire_cut)
-    if draw: print("Computational cost of cutting this wire: ", wire_cost)
+    if draw:
+        print("Wire where to cut for balanced subgraphs: ", wire_cut)
+    if draw:
+        print("Computational cost of cutting this wire: ", wire_cost)
     return_list = [wire_cut, min_wire]
     return return_list
 
@@ -391,20 +402,27 @@ def optimal_cut(
         wire_cut2, min_wire2 = return_list2
 
     if gate_cut and wire_cut:
-        if draw: print("Minimum computational cost of gate cutting: ", min_gate2)
-        if draw: print("Minimum computational cost of wire cutting: ", min_wire2)
+        if draw:
+            print("Minimum computational cost of gate cutting: ", min_gate2)
+        if draw:
+            print("Minimum computational cost of wire cutting: ", min_wire2)
         if min_gate2 > min_wire2:
-            if draw: print("BEST OPTION WIRE: ", wire_cut2)
+            if draw:
+                print("BEST OPTION WIRE: ", wire_cut2)
             return wire_cut2
         elif min_gate2 < min_wire2:
-            if draw: print("BEST OPTION GATE: ", gate_cut2)
+            if draw:
+                print("BEST OPTION GATE: ", gate_cut2)
             return gate_cut2
         else:
-            if draw: print("WIRE AND GATE SAME OPTION")
+            if draw:
+                print("WIRE AND GATE SAME OPTION")
             return gate_cut2
     elif gate_cut:
-        if draw: print("BEST GATE: ", gate_cut2)
+        if draw:
+            print("BEST GATE: ", gate_cut2)
         return gate_cut2
     elif wire_cut:
-        if draw: print("BEST WIRE: ", wire_cut2)
+        if draw:
+            print("BEST WIRE: ", wire_cut2)
         return wire_cut2
