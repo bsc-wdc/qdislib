@@ -22,10 +22,6 @@ import qibo
 from qibo import models, gates, hamiltonians  # , callbacks
 import networkx as nx
 
-# for connecting with the quantum computer
-# from qiboconnection.connection import ConnectionConfiguration
-# from qiboconnection.api import API
-
 from Qdislib.core.wire_cutting.pycompss_functions import *
 from Qdislib.utils.graph import *
 
@@ -39,9 +35,9 @@ def wire_cutting(
     Cuts the circuit in 2 after the specified gate, and calculates the
     expected value of the reconstruction.
 
+     :param observable: str.
      :param ciruit: Circuit.
      :param gate_tuple: int tuple.
-     :param observable: str.
      :param shots: int.
      :param verbose: bool.
      :return: reconstruction value.
@@ -65,11 +61,12 @@ def split(observables, circuit, edge_remove, draw=False, verbose=False):
     """Splits a circuit in two subcircuits. Cuts
     after the gate we pass as the parameter.
 
+     :param observables: string
      :param ciruit: Circuit.
-     :param numgates: int.
+     :param edge_remove: int tuple.
      :param draw: bool.
      :param verbose: bool.
-     :return: circuit1, circuit2.
+     :return: qubit, list_subcircuits, list_observables
     """
 
     circuit = circuit.copy()
@@ -219,7 +216,8 @@ def simulation(
     value straight forward, with 2 it performs a reeconstruction in order
     to provie the expected value.
 
-     :param observables: string.
+     :param lst_observables: strings list.
+     :param qubit: int.
      :param ciruit1: Circuit.
      :param ciruit2: Circuit.
      :param shots: int.
@@ -331,11 +329,28 @@ def simulation(
 
 def execute_qc(
     connection,
+    lst_observables,
     qubit,
     circuit_1,
     circuit_2=None,
     shots=30000,
-    verbose=False,):
+    verbose=False):
+
+    """Performs the execution of a cirucuit sending it to the Quantum Computer 
+    to calculate the expected value. It accepts one or two circuits. With 1 circuit it
+    calculates the expected value straight forward, with 2 it performs a reeconstruction
+    in order to provie the expected value.
+
+     :param connection: API configuration.
+     :param lst_observables: strings list.
+     :param qubit: int.
+     :param ciruit1: Circuit.
+     :param ciruit2: Circuit.
+     :param shots: int.
+     :param verbose: bool.
+     :return: jobIds.
+    """
+    
 
     connection.select_device_ids(device_ids=[9])
     connection.list_devices()
