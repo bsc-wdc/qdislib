@@ -1,5 +1,6 @@
 import networkx as nx
 import matplotlib.pyplot as plt
+from qibo import models
 
 def qubit_arch(circuit):
     G1 = nx.Graph()
