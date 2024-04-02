@@ -26,6 +26,7 @@ from Qdislib.core.wire_cutting.pycompss_functions import *
 from Qdislib.utils.graph import *
 
 from pycompss.api.api import compss_wait_on
+import time
 
 
 def wire_cutting(
@@ -368,9 +369,11 @@ def execute_qc(
             copy_circuit1 = models.Circuit(circuit_1.nqubits)
             copy_circuit = circuit_1.copy(True)
             copy_circuit1.queue = copy_circuit.queue
-            #circuit_1 = first_subcircuit_basis(copy_circuit1, b, qubit[0])
-            #job_ids = circuit_1.execute_qc_compss(connection,nshots=shots)
-            job_ids = connection.execute(circuit=circuit_1, nshots=1000)
+            final_circuit = first_subcircuit_basis(copy_circuit1, b, qubit[0])
+            print(type(final_circuit))
+            job_ids = final_circuit.execute_qc_compss(connection,nshots=shots)
+            #job_ids = connection.execute(circuit=circuit_1, nshots=1000)
+            print(job_ids)
             job_ids1.append(job_ids[0])
             
 
@@ -382,19 +385,127 @@ def execute_qc(
             copy_circuit2 = models.Circuit(circuit_2.nqubits)
             copy_circuit = circuit_2.copy(True)
             copy_circuit2.queue = copy_circuit.queue
-            #circuit_2 = second_subcircuit_states(copy_circuit2, s, qubit[1])
-            #job_ids = circuit_2.execute_qc_compss(connection,nshots=shots)
-            job_ids = connection.execute(circuit=circuit_2, nshots=1000)
+            final_circuit = second_subcircuit_states(copy_circuit2, s, qubit[1])
+            job_ids = final_circuit.execute_qc_compss(connection,nshots=shots)
+            #job_ids = connection.execute(circuit=final_circuit, nshots=1000)
             job_ids2.append(job_ids[0])
             
 
         job_ids1 = compss_wait_on(job_ids1)
         job_ids2 = compss_wait_on(job_ids2)
+    else:
+        print("Missing subcircuit2")
+        job_ids1, job_ids2 = None
     return job_ids1,job_ids2
 
 
+
+def reconstruction_qc(
+    connection,
+    job_ids1,
+    job_ids2,
+    lst_observables,
+    shots=30000,
+    verbose=False):
+
+    """Performs the execution of a cirucuit sending it to the Quantum Computer 
+    to calculate the expected value. It accepts one or two circuits. With 1 circuit it
+    calculates the expected value straight forward, with 2 it performs a reeconstruction
+    in order to provie the expected value.
+
+     :param connection: API configuration.
+     :param lst_observables: strings list.
+     :param qubit: int.
+     :param ciruit1: Circuit.
+     :param ciruit2: Circuit.
+     :param shots: int.
+     :param verbose: bool.
+     :return: jobIds.
+    """
+    connection.select_device_ids(device_ids=[9])
+    connection.list_devices()
+
+    results1 = connection.get_results(job_ids=job_ids1)
+    results2 = connection.get_results(job_ids=job_ids2)
+
+    while any(x is None for x in results1) or any(x is None for x in results2):
+        print("RETRIVEING RESULTS...")
+        results1 = connection.get_results(job_ids=job_ids1)
+        results2 = connection.get_results(job_ids=job_ids2)
+        time.sleep(1)
+        
+
+    basis = ["X", "Y", "Z", "I"]
+    states = ["0", "1", "+", "+i"]
+
+    observables_1 = lst_observables[0]
+    observables_2 = lst_observables[1]
+
+    # first subcircuit:
+    exp_value_1 = {}
+    for index,b in enumerate(basis):
+        if verbose:
+            print("Basis: ", b)
+        result = results1[index]
+        # obtain probability distribution
+        freq = result.frequencies_compss(binary=True)
+        # we call the function that computes the expectation value
+        for key, value in observables_1.items():
+            if value == "-":
+                observables_1[key] = b
+        new_obs = "".join(
+            [value for key, value in sorted(observables_1.items())]
+        )
+        if verbose:
+            print("OBSERVABLES: ", new_obs)
+        exp_value_1[b] = compute_expectation_value(
+            freq, new_obs, shots=shots
+        )
+    
+    # second subcircuit:
+    exp_value_2 = {}
+    if verbose:
+        print("SECOND ONE")
+    for index, s in enumerate(states):
+        if verbose:
+            print("States: ", s)
+        result = results2[index]
+        # obtain probability distribution
+        freq = result.frequencies_compss(binary=True)
+        new_obs2 = "".join(
+            [value for key, value in sorted(observables_2.items())]
+        )
+        # we call the function that computes the expectation value
+        if verbose:
+            print("OBSERVABLES: ", new_obs2)
+        exp_value_2[s] = compute_expectation_value(
+            freq, new_obs2, shots=shots
+        )
+
+    exp_value_1 = compss_wait_on(exp_value_1)
+    exp_value_2 = compss_wait_on(exp_value_2)
+    reconstruction = (
+                1
+                / 2
+                * (
+                    (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
+                    + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
+                    + exp_value_1["X"]
+                    * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
+                    + exp_value_1["Y"]
+                    * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
+                )
+            )
+
+    print(
+        "Expectation value after circuit cutting and reconstruction:",
+        reconstruction,
+    )
+    return reconstruction
+
+
 def quantum_computer(
-    observables, circuit1, circuit2, connection, shots=30000, verbose=False
+    connection,lst_observables,qubit, circuit1,circuit2,shots=10, verbose=False
 ):
     """Sends the execution to the quantum computer to calculate the expected
     value, instead of performing a simulation. (in process).
@@ -410,65 +521,8 @@ def quantum_computer(
     if verbose:
         print(f"qibo version: {qibo.__version__}")
 
-    basis = ["X", "Y", "Z", "I"]
-    states = ["0", "1", "+", "+i"]
-
-    sub_circuit_1_dimension = circuit1.nqubits
-    if verbose:
-        print("Sub circuit 1 dimension: ", sub_circuit_1_dimension)
-
-    num_z_sub1 = observables[: (sub_circuit_1_dimension - 1)]
-    num_z_sub2 = observables[(sub_circuit_1_dimension - 1) :]
-
-    # first subcircuit:
-    exp_value_1 = {}
-    for b in basis:
-        if verbose:
-            print("Basis: ", b)
-        # circuit_copy = circuit_1.copy(True)
-        circuit1 = first_subcircuit_basis(circuit1, b)
-        result = circuit1.execute_qc_compss(connection, nshots=shots)
-        # obtain probability distribution
-        freq = result.frequencies_compss(binary=True)
-        # we call the function that computes the expectation value
-        exp_value_1[b] = compute_expectation_value(
-            freq, num_z_sub1 + b, shots=shots
-        )
-        if verbose:
-            print(exp_value_1[b])
-
-    # second subcircuit:
-    exp_value_2 = {}
-
-    for s in states:
-        if verbose:
-            print("States: ", s)
-        circuit2 = second_subcircuit_states(circuit2, s)
-        result = circuit2.execute_qc_compss(connection, nshots=shots)
-        # obtain probability distribution
-        freq = result.frequencies_compss(binary=True)
-        # we call the function that computes the expectation value
-        exp_value_2[s] = compute_expectation_value(
-            freq, num_z_sub2 + b, shots=shots
-        )
-        if verbose:
-            print(exp_value_2[s])
-
-    exp_value_1 = compss_wait_on(exp_value_1)
-    exp_value_2 = compss_wait_on(exp_value_2)
-
-    reconstruction = (
-            1
-            / 2
-            * (
-                (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
-                + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
-                + exp_value_1["X"]
-                * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
-                + exp_value_1["Y"]
-                * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
-            )
-        )
+    job_ids1, job_ids2 = execute_qc(connection,lst_observables,qubit,circuit1,circuit2,shots)
+    reconstruction = reconstruction_qc(connection,job_ids1,job_ids2,lst_observables,shots)
     print(
         "Expectation value after circuit cutting and reconstruction:",
         reconstruction,

@@ -88,7 +88,7 @@ class NewCircuit:
         :param nshots: Number of shots.
         :return: Circuit results.
         """
-        job_ids = connection.execute(self, initial_state, nshots)
+        job_ids = connection.execute(self.circuit, initial_state, nshots)
         #result = connection.get_results(job_ids=job_ids)
         #new_result = NewCircuitResult(result)
         return job_ids

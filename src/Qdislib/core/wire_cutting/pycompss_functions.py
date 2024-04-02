@@ -198,7 +198,7 @@ def first_subcircuit_basis(circuit1, basis, qubit):
 
     # We introduce a quantum gate that is not inherently supported by
     # the qibo framework.
-    s_dagger = np.array([[1, 0], [0, -1j]])
+    #s_dagger = np.array([[1, 0], [0, -1j]])
 
     dimension = circuit1.nqubits
 
@@ -206,7 +206,7 @@ def first_subcircuit_basis(circuit1, basis, qubit):
         circuit1.add(gates.H(qubit))
     elif basis == "Y":
         circuit1.add(gates.H(qubit))
-        circuit1.add(gates.Unitary(s_dagger, (qubit)))
+        circuit1.add(gates.SDG(qubit))
     elif basis in ["Z", "I"]:
         pass
     else:

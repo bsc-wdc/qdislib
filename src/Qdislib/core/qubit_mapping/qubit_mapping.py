@@ -80,8 +80,8 @@ def mapping_order(target, pattern, order):
     print('Best architecture mapping: ',best_architecture)
     return best_architecture
 
-def rename_qubits(subcirc, qubit_middle, best_arch):
-    target_qubit = best_arch['B']
+def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
+    target_qubit = best_arch[middle_arch_qubit]
     new_circuit = models.Circuit(subcirc.nqubits)
     new_circuit.queue = subcirc.queue
     for index, element in enumerate(subcirc.queue):
