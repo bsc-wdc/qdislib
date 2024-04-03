@@ -8,6 +8,7 @@ Subpackages
    :maxdepth: 4
 
    Qdislib.core.gate_cutting
+   Qdislib.core.wire_cutting
 
 Module contents
 ---------------
