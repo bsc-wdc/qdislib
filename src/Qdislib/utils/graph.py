@@ -275,3 +275,10 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
         list_subcircuits_obs = list_subcircuits
 
     return list_subcircuits_obs
+
+def architecture_X():
+    G = nx.Graph()
+    G.add_nodes_from(['A','B', 'C', 'D','E'])
+    # Add edges
+    G.add_edges_from([('A','B'),('B', 'C'), ('B', 'D'), ('B', 'E')])
+    return G

@@ -24,6 +24,7 @@ import networkx as nx
 
 from Qdislib.core.wire_cutting.pycompss_functions import *
 from Qdislib.utils.graph import *
+from Qdislib.core.qubit_mapping.qubit_mapping import *
 
 from pycompss.api.api import compss_wait_on
 import time
@@ -307,7 +308,7 @@ def simulation(
             )
         )
 
-        print(
+        if verbose: print(
             "Expectation value after circuit cutting and reconstruction:",
             reconstruction,
         )
@@ -370,10 +371,14 @@ def execute_qc(
             copy_circuit = circuit_1.copy(True)
             copy_circuit1.queue = copy_circuit.queue
             final_circuit = first_subcircuit_basis(copy_circuit1, b, qubit[0])
-            print(type(final_circuit))
+            '''G = architecture_X()
+            G1 = qubit_arch(final_circuit.circuit)
+            dict_arch = subgraph_matcher(G,G1)
+            print(dict_arch)
+            mapped_circuit = rename_qubits(final_circuit,2,dict_arch[0],'B')
+            print(mapped_circuit.circuit.draw())'''
             job_ids = final_circuit.execute_qc_compss(connection,nshots=shots)
             #job_ids = connection.execute(circuit=circuit_1, nshots=1000)
-            print(job_ids)
             job_ids1.append(job_ids[0])
             
 
@@ -433,7 +438,6 @@ def reconstruction_qc(
         results1 = connection.get_results(job_ids=job_ids1)
         results2 = connection.get_results(job_ids=job_ids2)
         time.sleep(1)
-        
 
     basis = ["X", "Y", "Z", "I"]
     states = ["0", "1", "+", "+i"]

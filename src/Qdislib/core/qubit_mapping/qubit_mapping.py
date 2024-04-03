@@ -20,8 +20,9 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 from qibo import models
+from Qdislib.classes.circuit_classes import NewCircuit
 
-def qubit_arch(circuit):
+def qubit_arch(circuit,draw=False):
     G1 = nx.Graph()
     lst = []
     for gate in circuit.queue:
@@ -30,25 +31,28 @@ def qubit_arch(circuit):
             G1.add_edge(gate.qubits[0], gate.qubits[1])
             
     pos = nx.spring_layout(G1)  # positions for all nodes
-    nx.draw(G1, pos, with_labels=True, font_weight='bold', node_size=700, node_color='skyblue', font_color='black', font_size=10)
-    plt.show()
+    if draw:
+        nx.draw(G1, pos, with_labels=True, font_weight='bold', node_size=700, node_color='skyblue', font_color='black', font_size=10)
+        plt.show()
     return G1
 
 
-def subgraph_matcher(architecture,circuit_graph):
+def subgraph_matcher(architecture,circuit_graph,draw=False):
     # Create an example target graph
     target_graph = architecture
     
     pos = nx.spring_layout(target_graph)  # positions for all nodes
-    nx.draw(target_graph, pos, with_labels=True, font_weight='bold', node_size=700, node_color='skyblue', font_color='black', font_size=10)
-    plt.show()
+    if draw:
+        nx.draw(target_graph, pos, with_labels=True, font_weight='bold', node_size=700, node_color='skyblue', font_color='black', font_size=10)
+        plt.show()
     
     # Create an example pattern graph
     pattern_graph = circuit_graph
     
     pos = nx.spring_layout(pattern_graph)  # positions for all nodes
-    nx.draw(pattern_graph, pos, with_labels=True, font_weight='bold', node_size=700, node_color='skyblue', font_color='black', font_size=10)
-    plt.show()
+    if draw:
+        nx.draw(pattern_graph, pos, with_labels=True, font_weight='bold', node_size=700, node_color='skyblue', font_color='black', font_size=10)
+        plt.show()
     
     # Initialize GraphMatcher with the target and pattern graphs
     matcher = nx.algorithms.isomorphism.GraphMatcher(target_graph, pattern_graph)
@@ -101,8 +105,15 @@ def mapping_order(target, pattern, order):
 
 def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
     target_qubit = best_arch[middle_arch_qubit]
-    new_circuit = models.Circuit(subcirc.nqubits)
-    new_circuit.queue = subcirc.queue
+    print(type(subcirc))
+    if isinstance(subcirc, NewCircuit):
+        newcircuit_class = True
+        new_circuit = models.Circuit(subcirc.circuit.nqubits)
+        new_circuit.queue = subcirc.circuit.queue
+        subcirc = subcirc.circuit
+    else:
+        new_circuit = models.Circuit(subcirc.nqubits)
+        new_circuit.queue = subcirc.queue
     for index, element in enumerate(subcirc.queue):
         qubit = element.qubits
         if len(qubit) < 2:
@@ -122,4 +133,6 @@ def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
                 element._set_control_qubits((target_qubit,))
             elif qubit_1 == qubit_middle:   
                 element._set_target_qubits((target_qubit,))
+    if newcircuit_class:
+        new_circuit = NewCircuit(new_circuit)
     return new_circuit
