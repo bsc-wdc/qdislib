@@ -25,6 +25,9 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import copy
 
+from Qdislib.core.wire_cutting.wire_cutting import *
+from Qdislib.core.gate_cutting.gate_cutting import *
+
 
 class DAGgraph:
     def __init__(self):
@@ -430,3 +433,12 @@ def optimal_cut(
         if draw:
             print("BEST WIRE: ", wire_cut2)
         return wire_cut2
+    
+def execute_optimal_cut(circuit,cut, verbose=False):
+    if isinstance(cut[0], tuple):
+        reconstruction = wire_cutting('ZZZZZZZZZZ',circuit, cut)
+        if verbose: print("RECONSTRUCTION WIRE CUTTING: ", reconstruction)
+    else:
+        reconstruction = gate_cutting('ZZZZZZZZZZ',circuit, cut)
+        if verbose: print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
+    return reconstruction
