@@ -22,7 +22,7 @@ import qibo
 from qibo import models, gates, hamiltonians  # , callbacks
 import networkx as nx
 
-from Qdislib.core.wire_cutting.pycompss_functions import *
+from Qdislib.core.wire_cutting.pycompss_functions import _first_subcircuit_basis, _second_subcircuit_states, _compute_expectation_value
 from Qdislib.utils.graph import *
 from Qdislib.core.qubit_mapping.qubit_mapping import *
 
@@ -34,15 +34,16 @@ def wire_cutting(
     observables, circuit, gate_tuple, shots=30000, draw=False, verbose=False
 ):
     """Implements the algorithm of circuit cutting in one function.
-    Cuts the circuit in 2 after the specified gate, and calculates the
+    Cuts the circuit in 2 between two sepcified gates, and calculates the
     expected value of the reconstruction.
 
-     :param observable: str.
-     :param ciruit: Circuit.
-     :param gate_tuple: int tuple.
-     :param shots: int.
-     :param verbose: bool.
-     :return: reconstruction value.
+    :param observable: str.
+    :param ciruit: Circuit.
+    :param gate_tuple: int tuple.
+    :param shots: int.
+    :param draw: bool.
+    :param verbose: bool.
+    :return: reconstruction value.
     """
 
     # Show qibo version
@@ -59,28 +60,28 @@ def wire_cutting(
     return reconstruction
 
 
-def split(observables, circuit, edge_remove, draw=False, verbose=False):
-    """Splits a circuit in two subcircuits. Cuts
-    after the gate we pass as the parameter.
+def split(observables, circuit, gate_tuple, draw=False, verbose=False):
+    """Splits a circuit in two subcircuits. Cuts the qubit
+    between the gates we pass as the parameter.
 
-     :param observables: string
-     :param ciruit: Circuit.
-     :param edge_remove: int tuple.
-     :param draw: bool.
-     :param verbose: bool.
-     :return: qubit, list_subcircuits, list_observables
+    :param observables: string
+    :param ciruit: Circuit.
+    :param gate_tuple: int tuple.
+    :param draw: bool.
+    :param verbose: bool.
+    :return: qubit, list_subcircuits, list_observables
     """
 
     circuit = circuit.copy()
-    qubits_first_gate = circuit.queue[edge_remove[0] - 1].qubits
-    qubits_second_gate = circuit.queue[edge_remove[1] - 1].qubits
-    first_gate = circuit.queue[edge_remove[0] - 1]
-    second_gate = circuit.queue[edge_remove[1] - 1]
+    qubits_first_gate = circuit.queue[gate_tuple[0] - 1].qubits
+    qubits_second_gate = circuit.queue[gate_tuple[1] - 1].qubits
+    first_gate = circuit.queue[gate_tuple[0] - 1]
+    second_gate = circuit.queue[gate_tuple[1] - 1]
     if verbose:
         print(first_gate, second_gate)
     qubit = list(
-        set(circuit.queue[edge_remove[0] - 1].qubits).intersection(
-            set(circuit.queue[edge_remove[1] - 1].qubits)
+        set(circuit.queue[gate_tuple[0] - 1].qubits).intersection(
+            set(circuit.queue[gate_tuple[1] - 1].qubits)
         )
     )
     qubit = qubit[0]
@@ -107,7 +108,7 @@ def split(observables, circuit, edge_remove, draw=False, verbose=False):
     ]
     digraph.remove_edges_from(red_edges)
 
-    digraph.remove_edge(edge_remove[0], edge_remove[1])
+    digraph.remove_edge(gate_tuple[0], gate_tuple[1])
 
     subgraphs = list(nx.connected_components(digraph))
     if len(subgraphs) > 2:
@@ -206,7 +207,7 @@ def split(observables, circuit, edge_remove, draw=False, verbose=False):
 
 
 def simulation(
-    lst_observables,
+    list_observables,
     qubit,
     circuit_1,
     circuit_2=None,
@@ -218,13 +219,13 @@ def simulation(
     value straight forward, with 2 it performs a reeconstruction in order
     to provie the expected value.
 
-     :param lst_observables: strings list.
-     :param qubit: int.
-     :param ciruit1: Circuit.
-     :param ciruit2: Circuit.
-     :param shots: int.
-     :param verbose: bool.
-     :return: reeconstruction value.
+    :param list_observables: dict list.
+    :param qubit: int.
+    :param ciruit1: Circuit.
+    :param ciruit2: Circuit.
+    :param shots: int.
+    :param verbose: bool.
+    :return: reeconstruction value.
     """
 
     if verbose:
@@ -236,8 +237,8 @@ def simulation(
         basis = ["X", "Y", "Z", "I"]
         states = ["0", "1", "+", "+i"]
 
-        observables_1 = lst_observables[0]
-        observables_2 = lst_observables[1]
+        observables_1 = list_observables[0]
+        observables_2 = list_observables[1]
         # num_z_sub1 = observables[:(sub_circuit_1_dimension - 1)]
         # num_z_sub2 = observables[(sub_circuit_1_dimension - 1):]
 
@@ -249,7 +250,7 @@ def simulation(
             copy_circuit1 = models.Circuit(circuit_1.nqubits)
             copy_circuit = circuit_1.copy(True)
             copy_circuit1.queue = copy_circuit.queue
-            circuit1 = first_subcircuit_basis(copy_circuit1, b, qubit[0])
+            circuit1 = _first_subcircuit_basis(copy_circuit1, b, qubit[0])
             result = circuit1.execute_compss(nshots=shots)
             # obtain probability distribution
             freq = result.frequencies_compss(binary=True)
@@ -264,7 +265,7 @@ def simulation(
             )
             if verbose:
                 print("OBSERVABLES: ", new_obs)
-            exp_value_1[b] = compute_expectation_value(
+            exp_value_1[b] = _compute_expectation_value(
                 freq, new_obs, shots=shots
             )
 
@@ -278,7 +279,7 @@ def simulation(
             copy_circuit2 = models.Circuit(circuit_2.nqubits)
             copy_circuit = circuit_2.copy(True)
             copy_circuit2.queue = copy_circuit.queue
-            circuit2 = second_subcircuit_states(copy_circuit2, s, qubit[1])
+            circuit2 = _second_subcircuit_states(copy_circuit2, s, qubit[1])
             result = circuit2.execute_compss(nshots=shots)
             # obtain probability distribution
             freq = result.frequencies_compss(binary=True)
@@ -288,7 +289,7 @@ def simulation(
             # we call the function that computes the expectation value
             if verbose:
                 print("OBSERVABLES: ", new_obs2)
-            exp_value_2[s] = compute_expectation_value(
+            exp_value_2[s] = _compute_expectation_value(
                 freq, new_obs2, shots=shots
             )
 
@@ -331,26 +332,22 @@ def simulation(
 
 def execute_qc(
     connection,
-    lst_observables,
     qubit,
     circuit_1,
     circuit_2=None,
     shots=30000,
     verbose=False):
 
-    """Performs the execution of a cirucuit sending it to the Quantum Computer 
-    to calculate the expected value. It accepts one or two circuits. With 1 circuit it
-    calculates the expected value straight forward, with 2 it performs a reeconstruction
-    in order to provie the expected value.
+    """Performs the execution of a cirucuit sending it to the Quantum Computer
+    and obtaining the jobs ids.
 
-     :param connection: API configuration.
-     :param lst_observables: strings list.
-     :param qubit: int.
-     :param ciruit1: Circuit.
-     :param ciruit2: Circuit.
-     :param shots: int.
-     :param verbose: bool.
-     :return: jobIds.
+    :param connection: API configuration.
+    :param qubit: int.
+    :param ciruit1: Circuit.
+    :param ciruit2: Circuit.
+    :param shots: int.
+    :param verbose: bool.
+    :return: job_ids1, job_ids2.
     """
     
 
@@ -370,7 +367,7 @@ def execute_qc(
             copy_circuit1 = models.Circuit(circuit_1.nqubits)
             copy_circuit = circuit_1.copy(True)
             copy_circuit1.queue = copy_circuit.queue
-            final_circuit = first_subcircuit_basis(copy_circuit1, b, qubit[0])
+            final_circuit = _first_subcircuit_basis(copy_circuit1, b, qubit[0])
             '''G = architecture_X()
             G1 = qubit_arch(final_circuit.circuit)
             dict_arch = subgraph_matcher(G,G1)
@@ -390,7 +387,7 @@ def execute_qc(
             copy_circuit2 = models.Circuit(circuit_2.nqubits)
             copy_circuit = circuit_2.copy(True)
             copy_circuit2.queue = copy_circuit.queue
-            final_circuit = second_subcircuit_states(copy_circuit2, s, qubit[1])
+            final_circuit = _second_subcircuit_states(copy_circuit2, s, qubit[1])
             job_ids = final_circuit.execute_qc_compss(connection,nshots=shots)
             #job_ids = connection.execute(circuit=final_circuit, nshots=1000)
             job_ids2.append(job_ids[0])
@@ -409,23 +406,20 @@ def reconstruction_qc(
     connection,
     job_ids1,
     job_ids2,
-    lst_observables,
+    list_observables,
     shots=30000,
     verbose=False):
 
-    """Performs the execution of a cirucuit sending it to the Quantum Computer 
-    to calculate the expected value. It accepts one or two circuits. With 1 circuit it
-    calculates the expected value straight forward, with 2 it performs a reeconstruction
-    in order to provie the expected value.
+    """Performs the reconstruction of a cirucuit after sending it to the Quantum Computer 
+    and retriveing the job ids.
 
-     :param connection: API configuration.
-     :param lst_observables: strings list.
-     :param qubit: int.
-     :param ciruit1: Circuit.
-     :param ciruit2: Circuit.
-     :param shots: int.
-     :param verbose: bool.
-     :return: jobIds.
+    :param connection: API configuration.
+    :param job_ids1: int list.
+    :param job_ids2: int list.
+    :param list_observables: dict list.
+    :param shots: int.
+    :param verbose: bool.
+    :return: reconstruction.
     """
     connection.select_device_ids(device_ids=[9])
     connection.list_devices()
@@ -442,8 +436,8 @@ def reconstruction_qc(
     basis = ["X", "Y", "Z", "I"]
     states = ["0", "1", "+", "+i"]
 
-    observables_1 = lst_observables[0]
-    observables_2 = lst_observables[1]
+    observables_1 = list_observables[0]
+    observables_2 = list_observables[1]
 
     # first subcircuit:
     exp_value_1 = {}
@@ -462,7 +456,7 @@ def reconstruction_qc(
         )
         if verbose:
             print("OBSERVABLES: ", new_obs)
-        exp_value_1[b] = compute_expectation_value(
+        exp_value_1[b] = _compute_expectation_value(
             freq, new_obs, shots=shots
         )
     
@@ -482,7 +476,7 @@ def reconstruction_qc(
         # we call the function that computes the expectation value
         if verbose:
             print("OBSERVABLES: ", new_obs2)
-        exp_value_2[s] = compute_expectation_value(
+        exp_value_2[s] = _compute_expectation_value(
             freq, new_obs2, shots=shots
         )
 
@@ -509,24 +503,26 @@ def reconstruction_qc(
 
 
 def quantum_computer(
-    connection,lst_observables,qubit, circuit1,circuit2,shots=10, verbose=False
+    connection,list_observables,qubit, circuit1,circuit2,shots=10, verbose=False
 ):
-    """Sends the execution to the quantum computer to calculate the expected
-    value, instead of performing a simulation. (in process).
+    """Send the circuits to the Quantum Computer in order to be executed and retrieve the
+    information to calculate the reconstruction value.
 
-     :param observables: string.
-     :param ciruit1: Circuit.
-     :param ciruit2: Circuit.
-     :param shots: int.
-     :param verbose: bool.
-     :return: reeconstruction value.
+    :param connection: string.
+    :param list_observables: dict list.
+    :param qubit: int.
+    :param ciruit1: Circuit.
+    :param ciruit2: Circuit.
+    :param shots: int.
+    :param verbose: bool.
+    :return: reconstruction value.
     """
 
     if verbose:
         print(f"qibo version: {qibo.__version__}")
 
-    job_ids1, job_ids2 = execute_qc(connection,lst_observables,qubit,circuit1,circuit2,shots)
-    reconstruction = reconstruction_qc(connection,job_ids1,job_ids2,lst_observables,shots)
+    job_ids1, job_ids2 = execute_qc(connection,qubit,circuit1,circuit2,shots)
+    reconstruction = reconstruction_qc(connection,job_ids1,job_ids2,list_observables,shots)
     print(
         "Expectation value after circuit cutting and reconstruction:",
         reconstruction,

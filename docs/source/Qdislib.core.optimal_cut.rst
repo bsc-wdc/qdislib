@@ -1,11 +1,11 @@
 Qdislib.core.optimal\_cut package
-==================================
+=================================
 
 Submodules
 ----------
 
-Qdislib.core.optimal\_cut.gate\_cutting module
------------------------------------------------
+Qdislib.core.optimal\_cut.optimal\_cut module
+---------------------------------------------
 
 .. automodule:: Qdislib.core.optimal_cut.optimal_cut
    :members:

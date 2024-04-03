@@ -20,7 +20,13 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 from qibo import models
-from Qdislib.classes.circuit_classes import NewCircuit
+from Qdislib.classes.circuit_classes import _NewCircuit
+
+def architecture_X():
+    G = nx.Graph()
+    G.add_nodes_from(['A','B', 'C', 'D','E'])
+    G.add_edges_from([('A','B'),('B', 'C'), ('B', 'D'), ('B', 'E')])
+    return G
 
 def qubit_arch(circuit,draw=False):
     G1 = nx.Graph()
@@ -106,8 +112,8 @@ def mapping_order(target, pattern, order):
 def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
     target_qubit = best_arch[middle_arch_qubit]
     print(type(subcirc))
-    if isinstance(subcirc, NewCircuit):
-        newcircuit_class = True
+    if isinstance(subcirc, _NewCircuit):
+        _NewCircuit_class = True
         new_circuit = models.Circuit(subcirc.circuit.nqubits)
         new_circuit.queue = subcirc.circuit.queue
         subcirc = subcirc.circuit
@@ -133,6 +139,6 @@ def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
                 element._set_control_qubits((target_qubit,))
             elif qubit_1 == qubit_middle:   
                 element._set_target_qubits((target_qubit,))
-    if newcircuit_class:
-        new_circuit = NewCircuit(new_circuit)
+    if _NewCircuit_class:
+        new_circuit = _NewCircuit(new_circuit)
     return new_circuit

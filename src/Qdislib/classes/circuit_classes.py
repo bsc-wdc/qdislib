@@ -26,7 +26,7 @@ This file contains all auxiliary classes that wrap the qibo Circuit objects.
 from pycompss.api.task import task
 
 
-class NewCircuitResult:
+class _NewCircuitResult:
     """CircuitResult (qibo.states.CircuitResult) class wrapper.
 
     Contains an internal CircuitResult object instead of extending the
@@ -53,7 +53,7 @@ class NewCircuitResult:
         return dict(self.result.frequencies(binary, registers))
 
 
-class NewCircuit:
+class _NewCircuit:
     """Circuit class wrapper.
 
     Contains an internal Circuit object instead of extending the Circuit class.
@@ -68,7 +68,7 @@ class NewCircuit:
         """
         self.circuit = circuit
 
-    @task(returns=NewCircuitResult)
+    @task(returns=_NewCircuitResult)
     def execute_compss(self, initial_state=None, nshots=None):
         """Execute function task wrapper.
 
@@ -77,7 +77,7 @@ class NewCircuit:
         :return: Circuit results.
         """
         result = self.circuit.execute(initial_state, nshots)
-        new_result = NewCircuitResult(result)
+        new_result = _NewCircuitResult(result)
         return new_result
 
     @task(returns=int)
@@ -90,5 +90,5 @@ class NewCircuit:
         """
         job_ids = connection.execute(self.circuit, initial_state, nshots)
         #result = connection.get_results(job_ids=job_ids)
-        #new_result = NewCircuitResult(result)
+        #new_result = _NewCircuitResult(result)
         return job_ids

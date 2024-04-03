@@ -4,6 +4,14 @@ Qdislib.core.wire\_cutting package
 Submodules
 ----------
 
+Qdislib.core.wire\_cutting.pycompss\_functions module
+-----------------------------------------------------
+
+.. automodule:: Qdislib.core.wire_cutting.pycompss_functions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Qdislib.core.wire\_cutting.wire\_cutting module
 -----------------------------------------------
 

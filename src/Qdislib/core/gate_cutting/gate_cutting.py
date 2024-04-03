@@ -29,35 +29,64 @@ from collections import Counter
 from functools import reduce
 from itertools import product
 
-import networkx as nx
-import matplotlib.pyplot as plt
+from Qdislib.core.wire_cutting.pycompss_functions import _compute_expectation_value
+from Qdislib.utils.graph import gen_graph_circuit
 
-from Qdislib.api.api import *
+def _has_number_or_less(lst, number):
+    """Checks if a list contains a specific number or a smaller one.
 
-def has_number_or_less(lst, number):
+    :param lst: list.
+    :param number: int.
+    :return: bool.
+    """
     for num in lst:
         if num <= number:
             return True
     return False
 
-def gates_dict(circuit):
+def _has_number(lst, number):
+    """Checks if a list contains a specific number.
+
+    :param lst: list.
+    :param number: int.
+    :return: bool.
+    """
+    for num in lst:
+        if num == number:
+            return True
+    return False
+
+def _gates_dict(circuit):
+    """Converts the circuit queue gates to a dictionary
+    depending on what qubits apply.
+
+    :param circuit: Circuit.
+    :return: double_gates.
+    """
     double_gates = {}
     for index, gate in enumerate(circuit.queue):
         if len(gate.qubits) > 1:
             start, end = gate.qubits
             new_tuple = [(i, i + 1) for i in range(start, end)]
-            # print(new_tuple)
             for tupl in new_tuple:
                 if tupl not in double_gates:
                     double_gates[tupl] = []
                     double_gates[tupl].append(index + 1)
                 else:
                     double_gates[tupl].append(index + 1)
-
-    # print(double_gates)
     return double_gates
 
-def generate_circuits(combinations_list,circuit,gates_cut,draw):
+def _generate_circuits(combinations_list,circuit,gates_cut,draw):
+    """Substitutes the gates being cut for the equivalencies (only CZ right now) and
+    generates all the combinations. After it checks subcircuits created being derivated
+    from the cut.The return is a list with all the independent subcircuits.
+
+    :param combinations_list: list.
+    :param circuit: Circuit.
+    :param gates_cut: int list.
+    :param draw: bool
+    :return: generated_circuits.
+    """
     generated_circuits = []
     for index2, combination in enumerate(combinations_list):
         circuit1 = circuit.copy(True)
@@ -121,11 +150,38 @@ def generate_circuits(combinations_list,circuit,gates_cut,draw):
     return generated_circuits
 
 def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
-    # ------------------------------------
-    # SPLIT IN 4 SUBCIRCUITS
-    # ------------------------------------
+    """
+
+    Description
+    -----------
+    This function splits a circuit into four subcircuits based on the provided gates' cut points.
+
+    Parameters
+    ----------
+    observables: list
+        List of observables.
+    gates_cut: list
+        List of integers indicating the cut points.
+    circuit: object
+        Circuit object.
+    draw: bool, optional
+        Whether to draw the subcircuits. Defaults to False.
+    verbose: bool, optional
+        Whether to print verbose output. Defaults to False.
+
+    Returns
+    -------
+    list_subcircuits: list
+        List of subcircuits generated after splitting.
+    list_observables: list
+        List of observables associated with the subcircuits.
+
+    Example
+    -------
+    >>> split_gates("ZZZZZ", [2, 5, 8], circuit, draw=True, verbose=True)
+    """
     type_gates = type(circuit.queue[gates_cut[0] - 1])
-    combinations_list = generate_combinations(len(gates_cut), type_gates)
+    combinations_list = _generate_combinations(len(gates_cut), type_gates)
 
     observable_dict = {}
     for num_qubit in range(0, circuit.nqubits):
@@ -133,7 +189,7 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
     if verbose:
         print(observable_dict)
 
-    generated_circuits = generate_circuits(combinations_list,circuit,gates_cut,draw)
+    generated_circuits = _generate_circuits(combinations_list,circuit,gates_cut,draw)
 
     list_subcircuits = []
     list_observables = []
@@ -151,8 +207,8 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
         else:
             list_subcircuits.append(x[0])
 
-    list_subcircuits = concatenate_lists(list_subcircuits)
-    list_observables = concatenate_lists(list_observables)
+    list_subcircuits = _concatenate_lists(list_subcircuits)
+    list_observables = _concatenate_lists(list_observables)
 
     if draw:
         for index, sub in enumerate(list_subcircuits):
@@ -161,7 +217,13 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
     return list_subcircuits, list_observables
 
 
-def concatenate_lists(lst):
+def _concatenate_lists(lst):
+    """Concatenate all list inside the list converting
+    it to a 1D array.
+
+    :param lst: 2D list.
+    :return: concatenated_list.
+    """
     conc_list = []
     for el in lst:
         conc_list = conc_list + el
@@ -169,71 +231,37 @@ def concatenate_lists(lst):
 
 
 @task(returns=qibo.states.CircuitResult)
-def gate_simulation(i, shots=30000):
-    # ------------------------------------
-    # SIMULATION
-    # ------------------------------------
-    result = i(nshots=shots)
+def _gate_simulation(circuit, shots=30000):
+    """Execute a circuit.
+
+    :param circuit: Circuit.
+    :param shots: int.
+    :return: result.
+    """
+    result = circuit(nshots=shots)
     return result
 
 
 @task(returns=list)
-def gate_frequencies(result):
-    # ------------------------------------
-    # FREQUENCIES
-    # ------------------------------------
+def _gate_frequencies(result):
+    """Calculates frequencies from a result.
+
+    :param result: CircuitResult.
+    :return: frequencies.
+    """
     freq = dict(result.frequencies(binary=True))
     return freq
 
 
-@task(returns=int)
-def gate_expectation_value(freq, basis, shots):
-    """This function computes the expectation value given a probability
-    distribution (the output of the quantum computer) in a given basis that
-    we choose.
+def _gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
+    """Calculates circuit reconstruction after cutting a set of gates
+    and execution of the subcircuits.
 
-     INPUT:
-      - freq (dict): frequency distribution coming from the quantum computer.
-      - basis (str): we aim to compute the expectation value of this set of
-                     operators.  For example, "XYY" indicates that we
-                     calculate the expectation value of X over the first qubit,
-                     and the expectation value of Y over the second and
-                     third qubits.
-      - shots (int): Numer of times that we have runed the quantum computer,
-                     needed to compute the probability in the probability
-                     distribution.
-
-      OUTPUT:
-       - expectation_value (float): Final expectation value.
-
-       This function assumes that for computing the 'X' and the 'Y' expectation
-       value, the qubit state it is in the appropiate diagonal basis.
-
-       For the moment, we only implement two types of cases for the basis:
-       1) Only combinations of X, Y or/and Z. For example: 'XXYYXZ'
-       2) Only a single I operator in the last position. For example 'ZYXXYI'.
-
+    :param type_gates: string.
+    :param gates_cut: list int.
+    :param expected_values: list.
+    :return: reconstruction.
     """
-
-    expectation_value = 0
-    for key, value in freq.items():
-        if len(basis) != len(key):
-            print("Not enough basis")
-            return None
-        result = "".join(char for char, bit in zip(basis, key) if bit == "1")
-        not_i = len(result) - result.count("I")
-        if not_i % 2 == 0:
-            expectation_value += float(value) / shots
-        else:
-            expectation_value -= float(value) / shots
-
-    return expectation_value
-
-
-def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
-    # --------------------------------------
-    # RECONSTRUCTION
-    # --------------------------------------
     num_generated = int(len(exp_values) / 2 ** len(gates_cut))
     if verbose:
         print(num_generated)
@@ -273,12 +301,26 @@ def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
 
 
 @task(returns=dict, dicts=COLLECTION_IN)
-def sum_dicts(dicts):
+def _sum_dicts(dicts):
+    """Sum all dictionaries by key resulting in only one
+    dictionary.
+
+    :param dics: dict list.
+    :return: summed_dict.
+    """
     summed_dict = reduce(lambda a, b: a + Counter(b), dicts, Counter())
     return dict(summed_dict)
 
 
-def generate_combinations(n, gate_type):
+def _generate_combinations(n, gate_type):
+    """Generate combinations for gate cutting
+    depending on the type of the gate and the
+    number of gates being cut.
+
+    :param n: int.
+    :param gate_type: string
+    :return: all_combinations.
+    """
     objects = []
     if gate_type == gates.CZ:
         objects = [(gates.S, gates.S), (gates.SDG, gates.SDG)]
@@ -300,6 +342,37 @@ def gate_cutting(
     draw=False,
     verbose=False,
 ):
+    """
+    Description
+    -----------
+    This function cuts a circuit by removing a set of gates, executes each resulting subcircuit, and reconstructs the expected value.
+
+    Parameters
+    ----------
+    observables: string
+        Observables.
+    circuit: Circuit
+        Circuit object.
+    gates_cut: list of int
+        List of integers indicating the cut points.
+    shots: int, optional
+        Number of shots for simulation. Defaults to 30000.
+    chunk: int, optional
+        Chunk size for simulation. Defaults to 1.
+    draw: bool, optional
+        Whether to draw the subcircuits. Defaults to False.
+    verbose: bool, optional
+        Whether to print verbose output. Defaults to False.
+
+    Returns
+    -------
+    reconstruction: float
+        Reconstruction of the expected value.
+
+    Example
+    -------
+    >>> gate_cutting("ZZZZZ", circuit, [2, 5, 8], shots=30000, chunk=1, draw=True, verbose=True)
+    """
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     subcircuits, list_observables = split_gates(
         observables, gates_cut, circuit, draw
@@ -309,12 +382,12 @@ def gate_cutting(
         list_freq = []
         i.add(gates.M(*range(i.nqubits)))
         for p in range(0, chunk):
-            result = gate_simulation(i, int(shots / chunk))
-            freq = gate_frequencies(result)
+            result = _gate_simulation(i, int(shots / chunk))
+            freq = _gate_frequencies(result)
             # frq in a list COLLECTION
             list_freq.append(freq)
         # task per sumar dicts COLLECTIONS
-        total_freq = sum_dicts(list_freq)
+        total_freq = _sum_dicts(list_freq)
         if verbose:
             print(total_freq)
         if verbose:
@@ -323,8 +396,8 @@ def gate_cutting(
         if verbose:
             print(obs)
         new_obs = "".join([value for key, value in sorted(obs.items())])
-        exp_value.append(gate_expectation_value(total_freq, new_obs, shots))
+        exp_value.append(_compute_expectation_value(total_freq, new_obs, shots))
 
     exp_value = compss_wait_on(exp_value)
-    result = gate_reconstruction(type_gates, gates_cut, exp_value, verbose)
-    return result
+    reconstruction = _gate_reconstruction(type_gates, gates_cut, exp_value, verbose)
+    return reconstruction
