@@ -22,7 +22,7 @@ import qibo
 from qibo import models, gates, hamiltonians  # , callbacks
 import networkx as nx
 
-from Qdislib.core.wire_cutting.pycompss_functions import _first_subcircuit_basis, _second_subcircuit_states, _compute_expectation_value
+from Qdislib.core.cutting_algorithms.pycompss_functions import _first_subcircuit_basis, _second_subcircuit_states, _compute_expectation_value
 from Qdislib.utils.graph import *
 from Qdislib.core.qubit_mapping.qubit_mapping import *
 
@@ -33,17 +33,35 @@ import time
 def wire_cutting(
     observables, circuit, gate_tuple, shots=30000, draw=False, verbose=False
 ):
-    """Implements the algorithm of circuit cutting in one function.
-    Cuts the circuit in 2 between two sepcified gates, and calculates the
-    expected value of the reconstruction.
+    """Description
+    -----------
+    Implements the algorithm of circuit cutting in one function. Cuts the circuit in 2 between two specified gates, and calculates the expected value of the reconstruction.
 
-    :param observable: str.
-    :param ciruit: Circuit.
-    :param gate_tuple: int tuple.
-    :param shots: int.
-    :param draw: bool.
-    :param verbose: bool.
-    :return: reconstruction value.
+    Parameters
+    ----------
+    observables: str
+        Observable.
+    circuit: Circuit
+        Circuit object.
+    gate_tuple: tuple of int
+        Tuple containing two integers specifying the gates between which the circuit will be cut.
+    shots: int, optional
+        Number of shots for simulation. Defaults to 30000.
+    draw: bool, optional
+        Whether to draw the subcircuits. Defaults to False.
+    verbose: bool, optional
+        Whether to print verbose output. Defaults to False.
+
+    Returns
+    -------
+    reconstruction: float
+        Reconstruction value.
+
+    Example
+    -------
+    >>> reconstruction = wire_cutting(observables="ZZZZZ", circuit=circuit, gate_tuple=(2, 5),
+    >>>                               shots=30000, draw=True, verbose=True)
+
     """
 
     # Show qibo version
@@ -61,15 +79,37 @@ def wire_cutting(
 
 
 def split(observables, circuit, gate_tuple, draw=False, verbose=False):
-    """Splits a circuit in two subcircuits. Cuts the qubit
-    between the gates we pass as the parameter.
+    """Description
+    -----------
+    Splits a circuit into two subcircuits by cutting a qubit between the specified gates.
 
-    :param observables: string
-    :param ciruit: Circuit.
-    :param gate_tuple: int tuple.
-    :param draw: bool.
-    :param verbose: bool.
-    :return: qubit, list_subcircuits, list_observables
+    Parameters
+    ----------
+    observables: str
+        String containing observables.
+    circuit: Circuit
+        Circuit object.
+    gate_tuple: tuple of int
+        Tuple containing two integers specifying the gates between which the circuit will be cut.
+    draw: bool, optional
+        Whether to draw the subcircuits. Defaults to False.
+    verbose: bool, optional
+        Whether to print verbose output. Defaults to False.
+
+    Returns
+    -------
+    qubit: list
+        List containing the qubits between which the circuit was cut.
+    list_subcircuits: list of Circuit
+        List of subcircuits generated after splitting.
+    list_observables: list
+        List of dictionaries containing observables associated with each subcircuit.
+
+    Example
+    -------
+    >>> qubit, list_subcricuits, list_observables = split(observables="ZZZZZ", circuit=circuit,
+    >>>                                                   gate_tuple)=(2, 5), draw=True, verbose=True)
+
     """
 
     circuit = circuit.copy()
@@ -214,18 +254,35 @@ def simulation(
     shots=30000,
     verbose=False,
 ):
-    """Performs the execution of a cirucuit to calculate the expected value.
-    It accepts one or two circuits. With 1 circuit it calculates the expected
-    value straight forward, with 2 it performs a reeconstruction in order
-    to provie the expected value.
+    """Description
+    -----------
+    Performs the execution of a circuit to calculate the expected value. It accepts one or two circuits. With one circuit, it calculates the expected value straightforwardly. With two circuits, it performs a reconstruction in order to provide the expected value.
 
-    :param list_observables: dict list.
-    :param qubit: int.
-    :param ciruit1: Circuit.
-    :param ciruit2: Circuit.
-    :param shots: int.
-    :param verbose: bool.
-    :return: reeconstruction value.
+    Parameters
+    ----------
+    list_observables: list of dict
+        List of dictionaries containing observables.
+    qubits: list
+        List of qubits where the cut was performed.
+    circuit_1: Circuit
+        First circuit object.
+    circuit_2: Circuit, optional
+        Second circuit object. Defaults to None.
+    shots: int, optional
+        Number of shots for simulation. Defaults to 30000.
+    verbose: bool, optional
+        Whether to print verbose output. Defaults to False.
+
+    Returns
+    -------
+    reconstruction value: float.
+        Reconstruction value.
+
+    Example
+    -------
+    >>> reconstrution = simulation(list_obervables=[observables1, observables2], qubits=[0,2], 
+    >>>                            circuit1, circuit2, shots=30000, verbose=True)
+
     """
 
     if verbose:
@@ -338,17 +395,36 @@ def execute_qc(
     shots=30000,
     verbose=False):
 
-    """Performs the execution of a cirucuit sending it to the Quantum Computer
-    and obtaining the jobs ids.
+    """Description
+    -----------
+    Performs the execution of a circuit by sending it to the Quantum Computer and obtaining the job IDs. Accepts one or two circuits. With one circuit, it executes it straightforwardly. With two circuits, it executes them separately and returns the job IDs for each.
 
-    :param connection: API configuration.
-    :param qubit: int.
-    :param ciruit1: Circuit.
-    :param ciruit2: Circuit.
-    :param shots: int.
-    :param verbose: bool.
-    :return: job_ids1, job_ids2.
-    """
+    Parameters
+    ----------
+    connection: object
+        API configuration.
+    qubit: list
+        List of qubits where the cut was performed.
+    circuit_1: Circuit
+        First circuit object.
+    circuit_2: Circuit, optional
+        Second circuit object. Defaults to None.
+    shots: int, optional
+        Number of shots for simulation. Defaults to 30000.
+    verbose: bool, optional
+        Whether to print verbose output. Defaults to False.
+
+    Returns
+    -------
+    job_ids1: list
+        List of job IDs for the first circuit.
+    job_ids2: list
+        List of job IDs for the second circuit, if provided. Otherwise, None.
+
+    Example
+    -------
+    >>> job_ids1, job_ids2 = execute_qc(connection, qubits=[0,2], circuit1, circuit2, shots=30000, verbose=True)
+        """
     
 
     connection.select_device_ids(device_ids=[9])
@@ -397,8 +473,10 @@ def execute_qc(
         job_ids2 = compss_wait_on(job_ids2)
     else:
         print("Missing subcircuit2")
+        print("NOT YET IMPLEMENTED!")
         job_ids1, job_ids2 = None
     return job_ids1,job_ids2
+
 
 
 
@@ -410,16 +488,35 @@ def reconstruction_qc(
     shots=30000,
     verbose=False):
 
-    """Performs the reconstruction of a cirucuit after sending it to the Quantum Computer 
-    and retriveing the job ids.
+    """Description
+    -----------
+    Performs the reconstruction of a circuit after sending it to the Quantum Computer and retrieving the job IDs. Accepts job IDs for one or two circuits and the list of observables associated with each subcircuit. Calculates the expectation value of the reconstructed circuit.
 
-    :param connection: API configuration.
-    :param job_ids1: int list.
-    :param job_ids2: int list.
-    :param list_observables: dict list.
-    :param shots: int.
-    :param verbose: bool.
-    :return: reconstruction.
+    Parameters
+    ----------
+    connection: object
+        API configuration.
+    job_ids1: list
+        List of job IDs for the first circuit.
+    job_ids2: list
+        List of job IDs for the second circuit, if provided. Otherwise, None.
+    list_observables: list of dict
+        List of dictionaries containing observables for each subcircuit.
+    shots: int, optional
+        Number of shots for simulation. Defaults to 30000.
+    verbose: bool, optional
+        Whether to print verbose output. Defaults to False.
+
+    Returns
+    -------
+    reconstruction: float
+        Reconstruction value.
+
+    Example
+    -------
+    >>> reconstruction = reconstruction_qc(connection, job_ids1, job_ids2,
+    >>>                                    list_observables=[observables1, observables2],
+    >>>                                    shots=30000, verbose=True)
     """
     connection.select_device_ids(device_ids=[9])
     connection.list_devices()
@@ -505,17 +602,36 @@ def reconstruction_qc(
 def quantum_computer(
     connection,list_observables,qubit, circuit1,circuit2,shots=10, verbose=False
 ):
-    """Send the circuits to the Quantum Computer in order to be executed and retrieve the
-    information to calculate the reconstruction value.
+    """Description
+    -----------
+    Sends the circuits to the Quantum Computer in order to be executed and retrieves the information to calculate the reconstruction value.
 
-    :param connection: string.
-    :param list_observables: dict list.
-    :param qubit: int.
-    :param ciruit1: Circuit.
-    :param ciruit2: Circuit.
-    :param shots: int.
-    :param verbose: bool.
-    :return: reconstruction value.
+    Parameters
+    ----------
+    connection: string
+        Connection string.
+    list_observables: list of dict
+        List of dictionaries containing observables.
+    qubit: list
+        List of qubits where the cut was performed.
+    circuit1: Circuit
+        First circuit object.
+    circuit2: Circuit
+        Second circuit object.
+    shots: int, optional
+        Number of shots for simulation. Defaults to 10.
+    verbose: bool, optional
+        Whether to print verbose output. Defaults to False.
+
+    Returns
+    -------
+    reconstruction value: float
+        Reconstruction value.
+
+    Example
+    -------
+    >>> reconstruction = quantum_computer(connection, list_observables=[observables1, observables2], qubit=[0,2],
+    >>>                                   circuit1, circuit2, shots=10, verbose=True)
     """
 
     if verbose:
@@ -531,12 +647,27 @@ def quantum_computer(
 
 
 def analytical_solution(observables, circuit, verbose=False):
-    """Calculate the analytical expected value of a whole circuit.
+    """Description
+    -----------
+    Calculates the analytical expected value of a whole circuit.
 
-    :param observables: string.
-    :param ciruit: Circuit.
-    :param verbose: bool.
-    :return: analytical expected value.
+    Parameters
+    ----------
+    observables: string
+        String containing observables.
+    circuit: Circuit
+        Circuit object.
+    verbose: bool, optional
+        Whether to print verbose output. Defaults to False.
+
+    Returns
+    -------
+    analytical expected value: float
+        Analytical expected value.
+
+    Example
+    -------
+    >>> analytical_value = analytical_solution(observables="ZXYI", circuit=circuit, verbose=True)
     """
 
     state = circuit()

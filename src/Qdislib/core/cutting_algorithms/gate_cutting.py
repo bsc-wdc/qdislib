@@ -29,7 +29,7 @@ from collections import Counter
 from functools import reduce
 from itertools import product
 
-from Qdislib.core.wire_cutting.pycompss_functions import _compute_expectation_value
+from Qdislib.core.cutting_algorithms.pycompss_functions import _compute_expectation_value
 from Qdislib.utils.graph import gen_graph_circuit
 
 def _has_number_or_less(lst, number):
@@ -178,7 +178,8 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
 
     Example
     -------
-    >>> split_gates("ZZZZZ", [2, 5, 8], circuit, draw=True, verbose=True)
+    >>> list_subcircuits, list_observables = split_gates(observables="ZZZZZ", gates_cut=[2, 5, 8],
+    >>>                                                  circuit=circuit, draw=True, verbose=True)
     """
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     combinations_list = _generate_combinations(len(gates_cut), type_gates)
@@ -371,7 +372,8 @@ def gate_cutting(
 
     Example
     -------
-    >>> gate_cutting("ZZZZZ", circuit, [2, 5, 8], shots=30000, chunk=1, draw=True, verbose=True)
+    >>> reconstruction = gate_cutting(observables="ZZZZZ", circuit=circuit, gates_cut=[2, 5, 8], 
+    >>>                               shots=30000, chunk=1, draw=True, verbose=True)
     """
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     subcircuits, list_observables = split_gates(

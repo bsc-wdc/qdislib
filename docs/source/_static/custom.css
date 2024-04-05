@@ -1,8 +1,10 @@
 /* Apply styles to <dt> elements with class "sig-object" */
 dt.sig-object {
-    font-size: 100%; /* Adjust the percentage as needed */
-    color: rgb(22, 84, 135);  /* Change color to purple or any other preferred color */
-    border: 2px solid purple; /* Add a border around the element */
-    padding: 5px; /* Add some padding to make the border more visible */
-    display: inline-block; /* Ensure the border only wraps around the content */
+    font-size: 100%;
+    color: rgb(6, 56, 98);
+    background-color: rgb(248, 211, 255); /* Light purple background color */
+    /*border: 2px solid purple;*/
+    padding: 5px;
+    margin: 10px;
+    display: inline-block;
 }

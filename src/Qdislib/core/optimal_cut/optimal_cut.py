@@ -25,8 +25,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import copy
 
-from Qdislib.core.wire_cutting.wire_cutting import wire_cutting
-from Qdislib.core.gate_cutting.gate_cutting import gate_cutting, _gates_dict, _has_number
+from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting, _gates_dict, _has_number
 from Qdislib.utils.graph import build_dag, create_graph, del_empty_qubits, print_graph, DAGgraph
 
 def double_gates(circuit, digraph, max_qubits,num_subcirucits,draw):
