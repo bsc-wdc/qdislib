@@ -17,4 +17,4 @@
 
 # -*- coding: utf-8 -*-
 
-"""Quantum Distributed Library wire cutting functionalities."""
+"""Quantum Distributed Library cutting functionalities."""

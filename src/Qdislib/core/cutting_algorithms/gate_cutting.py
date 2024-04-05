@@ -29,7 +29,7 @@ from collections import Counter
 from functools import reduce
 from itertools import product
 
-from Qdislib.core.cutting_algorithms.pycompss_functions import _compute_expectation_value
+from Qdislib.core.cutting_algorithms._pycompss_functions import _compute_expectation_value
 from Qdislib.utils.graph import gen_graph_circuit
 
 def _has_number_or_less(lst, number):

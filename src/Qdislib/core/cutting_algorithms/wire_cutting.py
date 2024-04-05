@@ -22,7 +22,7 @@ import qibo
 from qibo import models, gates, hamiltonians  # , callbacks
 import networkx as nx
 
-from Qdislib.core.cutting_algorithms.pycompss_functions import _first_subcircuit_basis, _second_subcircuit_states, _compute_expectation_value
+from Qdislib.core.cutting_algorithms._pycompss_functions import _first_subcircuit_basis, _second_subcircuit_states, _compute_expectation_value
 from Qdislib.utils.graph import *
 from Qdislib.core.qubit_mapping.qubit_mapping import *
 
