@@ -57,7 +57,7 @@ def _compute_expectation_value(freq, basis, shots):
     for key, value in freq.items():
         if len(basis) != len(key):
             print("Not enough basis")
-            return
+            return None
         result = "".join(char for char, bit in zip(basis, key) if bit == "1")
         not_i = len(result) - result.count("I")
         if not_i % 2 == 0:
@@ -99,7 +99,7 @@ def _first_subcircuit_basis(circuit1, basis, qubit):
     elif basis in ["Z", "I"]:
         pass
     else:
-        raise Exception("Error - Unsupported Basis")
+        raise ValueError("Error - Unsupported Basis")
 
     # measurement gates
     circuit1.add(gates.M(*range(dimension)))

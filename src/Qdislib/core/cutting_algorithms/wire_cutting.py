@@ -132,13 +132,8 @@ def split(observables, circuit, gate_tuple, draw=False, verbose=False):
     pos1 = qubits_first_gate.index(qubit)
     pos2 = qubits_second_gate.index(qubit)
 
-    observable_dict = {}
-    for num_qubit in range(0, circuit.nqubits):
-        observable_dict[num_qubit] = observables[num_qubit]
-    if verbose:
-        print(observable_dict)
+    observable_dict = separate_observables(circuit, observables, verbose)
 
-    # convert to DAG and DIGRPAPH
     digraph = nx.Graph()
     dag = DAGgraph()
 
@@ -159,54 +154,12 @@ def split(observables, circuit, gate_tuple, draw=False, verbose=False):
         print("MORE THAN 2 SUBGRAPH")
         return None, None
 
-    list_subcircuits = []
     non_empty_list = []
-    for subgraph in subgraphs:
-        subgraph = sorted(subgraph)
-        selected_elements = [dag.nodes[i - 1] for i in subgraph]
 
-        circuit_copy = models.Circuit(circuit.nqubits)
-        circuit_copy.add(selected_elements)
-
-        non_empty_qubits = del_empty_qubits(circuit_copy)
-        non_empty_qubits.sort()
-        difference_list = [
-            value - index for index, value in enumerate(non_empty_qubits)
-        ]
-        non_empty_list.append(difference_list)
-        subtracted_list = [
-            x - y for x, y in zip(non_empty_qubits, difference_list)
-        ]
-
-        for gate in circuit_copy.queue:
-            if len(gate.qubits) > 1:
-                control = subtracted_list[
-                    non_empty_qubits.index(gate.qubits[0])
-                ]
-                gate._set_control_qubits((control,))
-                target = subtracted_list[
-                    non_empty_qubits.index(gate.qubits[1])
-                ]
-                gate._set_target_qubits((target,))
-            else:
-                target = subtracted_list[
-                    non_empty_qubits.index(gate.qubits[0])
-                ]
-                gate._set_target_qubits((target,))
-        circuit_copy.nqubits = len(non_empty_qubits)
-        circuit_copy.queue.nmeasurements = 0
-        list_subcircuits.append(circuit_copy)
+    list_subcircuits = partition_circuit(subgraphs,dag,circuit, non_empty_list ,verbose=False)
 
     if verbose:
         print(qubits_first_gate, qubits_second_gate)
-    if verbose:
-        print(non_empty_list)
-    if verbose:
-        print(non_empty_qubits)
-    if verbose:
-        print(difference_list)
-    if verbose:
-        print(subtracted_list)
     new_qubit = [first_gate.qubits[pos1], second_gate.qubits[pos2]]
     if verbose:
         print(new_qubit)
@@ -473,7 +426,7 @@ def execute_qc(
     else:
         print("Missing subcircuit2")
         print("NOT YET IMPLEMENTED!")
-        job_ids1, job_ids2 = None
+        job_ids1, job_ids2 = None, None
     return job_ids1, job_ids2
 
 

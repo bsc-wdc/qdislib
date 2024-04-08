@@ -130,7 +130,6 @@ def mapping_order(target, pattern, order):
 
     results = []
     for element in all_subgraph_isomorphisms:
-        keys_list = list(element.keys())
         result = 0
         for index, x in enumerate(desired_order):
             if x in element:
@@ -154,7 +153,7 @@ def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
     else:
         new_circuit = models.Circuit(subcirc.nqubits)
         new_circuit.queue = subcirc.queue
-    for index, element in enumerate(subcirc.queue):
+    for element in subcirc.queue:
         qubit = element.qubits
         if len(qubit) < 2:
             qubit = qubit[0]

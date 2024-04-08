@@ -9,12 +9,11 @@ dt.sig-object {
     display: inline-block;
 }
 
-h2[id^="module-"] {
-    font-size: 150%;
+/*h2[id^="module-"]*/
+h2 {
+    font-size: 120%;
     color: rgb(244, 246, 248);
     background-color:  rgba(17, 46, 69, 0.713); /* Light purple background color */
     /*border: 2px solid purple;*/
     padding: 20px;
-    margin: 5px;
-    display: inline-block;
 }

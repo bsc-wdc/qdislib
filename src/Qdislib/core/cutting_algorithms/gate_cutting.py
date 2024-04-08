@@ -32,7 +32,7 @@ from itertools import product
 from Qdislib.core.cutting_algorithms._pycompss_functions import (
     _compute_expectation_value,
 )
-from Qdislib.utils.graph import gen_graph_circuit
+from Qdislib.utils.graph import gen_graph_circuit, separate_observables
 
 
 def _has_number_or_less(lst, number):
@@ -100,9 +100,7 @@ def _generate_circuits(combinations_list, circuit, gates_cut, draw):
         for gate in gates_cut:
             target_gates.append(circuit1.queue[gate - 1])
 
-        if any(
-            type(element) != type(target_gates[0]) for element in target_gates
-        ):
+        if any(not isinstance(element, type(target_gates[0])) for element in target_gates):
             print("All the gates to cut have to be the same type")
             return None, None
 
@@ -110,7 +108,7 @@ def _generate_circuits(combinations_list, circuit, gates_cut, draw):
 
         for index, gate in enumerate(circuit1.queue):
             if gate in target_gates:
-                if type(gate) == gates.CNOT:
+                if isinstance(gate, gates.CNOT):
                     idx = target_gates.index(gate)
                     control_qubit = gate.control_qubits[0]
                     target_qubit = gate.target_qubits[0]
@@ -136,7 +134,7 @@ def _generate_circuits(combinations_list, circuit, gates_cut, draw):
                             index + 1,
                             combination[idx][1](target_qubit, np.pi / 2),
                         )
-                elif type(gate) == gates.CZ:
+                elif isinstance(gate,gates.CZ):
                     # print("CZ")
                     idx = target_gates.index(gate)
                     control_qubit = gate.control_qubits[0]
@@ -191,11 +189,7 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     combinations_list = _generate_combinations(len(gates_cut), type_gates)
 
-    observable_dict = {}
-    for num_qubit in range(0, circuit.nqubits):
-        observable_dict[num_qubit] = observables[num_qubit]
-    if verbose:
-        print(observable_dict)
+    observable_dict = separate_observables(circuit, observables, verbose)
 
     generated_circuits = _generate_circuits(
         combinations_list, circuit, gates_cut, draw
@@ -209,6 +203,7 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
         list_unpack.append(new_list)
 
     list_unpack = compss_wait_on(list_unpack)
+    print(list_unpack)
 
     for x in list_unpack:
         if len(x) > 1:
@@ -217,6 +212,7 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
         else:
             list_subcircuits.append(x[0])
 
+    print(list_subcircuits)
     list_subcircuits = _concatenate_lists(list_subcircuits)
     list_observables = _concatenate_lists(list_observables)
 
@@ -276,7 +272,7 @@ def _gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
     if verbose:
         print(num_generated)
     result = [
-        eval("*".join(map(str, exp_values[i : i + num_generated])))
+        eval("*".join(map(str, exp_values[i: i + num_generated])))
         for i in range(0, len(exp_values), num_generated)
     ]
     if verbose:
@@ -392,7 +388,7 @@ def gate_cutting(
     for index, i in enumerate(subcircuits):
         list_freq = []
         i.add(gates.M(*range(i.nqubits)))
-        for p in range(0, chunk):
+        for _ in range(0, chunk):
             result = _gate_simulation(i, int(shots / chunk))
             freq = _gate_frequencies(result)
             # frq in a list COLLECTION

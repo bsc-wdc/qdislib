@@ -87,49 +87,6 @@ def build_dag(circuit, dag):
     return dag
 
 
-def print_graph(graph):
-    pos = nx.spring_layout(graph)  # Define layout for the nodes
-
-    # Draw edges for the first group with blue color
-    edges_first_group = [
-        (edge[0], edge[1])
-        for edge in graph.edges.data("color")
-        if edge[2] == "blue"
-    ]
-    nx.draw_networkx_edges(
-        graph,
-        pos,
-        edgelist=edges_first_group,
-        edge_color="blue",
-        width=2.0,
-        alpha=0.7,
-    )
-
-    edges_second_group = [
-        (edge[0], edge[1])
-        for edge in graph.edges.data("color")
-        if edge[2] == "red"
-    ]
-    nx.draw_networkx_edges(
-        graph,
-        pos,
-        edgelist=edges_second_group,
-        edge_color="red",
-        width=2.0,
-        alpha=0.7,
-        style="dotted",
-    )
-
-    # Draw nodes and labels
-    nx.draw_networkx_nodes(graph, pos, node_color="skyblue", node_size=500)
-    nx.draw_networkx_labels(graph, pos, font_weight="bold", font_size=12)
-
-    # plt.title(
-    #    "Directed Graph with Two Edge Groups (Red edges in dotted line)"
-    # )
-    plt.show()
-
-
 def create_graph(dag, digraph):
     new_nodes = [index + 1 for index, i in enumerate(dag.nodes)]
     labels = {
@@ -152,7 +109,6 @@ def del_empty_qubits(circuit):
         for i in gate.qubits:
             if i not in empty_qubits:
                 empty_qubits.append(i)
-        gate.qubits
     return empty_qubits
 
 
@@ -201,7 +157,6 @@ def print_graph(graph):
 
 @task(returns=list)
 def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
-    list_subcircuits = []
     # convert to DAG and DIGRPAPH
     digraph = nx.Graph()
     dag = DAGgraph()
@@ -212,7 +167,33 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
     subgraphs = list(nx.connected_components(digraph))
     if verbose:
         print(subgraphs)
+    
     diff_list = []
+    list_subcircuits = partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False)
+    print(list_subcircuits)
+
+    if observable_dict is not None:
+        list_obs = []
+        for p in diff_list:
+            new_obs = {}
+            for index, x in enumerate(p):
+                if verbose:
+                    print(observable_dict)
+
+                new_obs[index] = observable_dict[x]
+                if verbose:
+                    print(new_obs)
+            list_obs.append(new_obs)
+        if verbose:
+            print(list_obs)
+        list_subcircuits_obs = [list_subcircuits, list_obs]
+    else:
+        list_subcircuits_obs = list_subcircuits
+
+    return list_subcircuits_obs
+
+def partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False):
+    list_subcircuits = []
     for subgraph in subgraphs:
         subgraph = sorted(subgraph)
         selected_elements = [dag.nodes[i - 1] for i in subgraph]
@@ -254,27 +235,13 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
         circuit_copy.nqubits = len(non_empty_qubits)
         circuit_copy.queue.nmeasurements = 0
         list_subcircuits.append(circuit_copy)
+    return list_subcircuits
 
+def separate_observables(circuit, observables, verbose=False):
+    observable_dict = {}
+    for num_qubit in range(0, circuit.nqubits):
+        observable_dict[num_qubit] = observables[num_qubit]
     if verbose:
-        print(non_empty_qubits)
-    if verbose:
-        print(diff_list)
-    if observable_dict is not None:
-        list_obs = []
-        for p in diff_list:
-            new_obs = {}
-            for index, x in enumerate(p):
-                if verbose:
-                    print(observable_dict)
+        print(observable_dict)
+    return observable_dict
 
-                new_obs[index] = observable_dict[x]
-                if verbose:
-                    print(new_obs)
-            list_obs.append(new_obs)
-        if verbose:
-            print(list_obs)
-        list_subcircuits_obs = [list_subcircuits, list_obs]
-    else:
-        list_subcircuits_obs = list_subcircuits
-
-    return list_subcircuits_obs
