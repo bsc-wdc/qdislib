@@ -89,6 +89,6 @@ class _NewCircuit:
         :return: Circuit results.
         """
         job_ids = connection.execute(self.circuit, initial_state, nshots)
-        #result = connection.get_results(job_ids=job_ids)
-        #new_result = _NewCircuitResult(result)
+        # result = connection.get_results(job_ids=job_ids)
+        # new_result = _NewCircuitResult(result)
         return job_ids

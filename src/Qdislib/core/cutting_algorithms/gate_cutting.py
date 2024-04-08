@@ -29,8 +29,11 @@ from collections import Counter
 from functools import reduce
 from itertools import product
 
-from Qdislib.core.cutting_algorithms._pycompss_functions import _compute_expectation_value
+from Qdislib.core.cutting_algorithms._pycompss_functions import (
+    _compute_expectation_value,
+)
 from Qdislib.utils.graph import gen_graph_circuit
+
 
 def _has_number_or_less(lst, number):
     """Checks if a list contains a specific number or a smaller one.
@@ -44,6 +47,7 @@ def _has_number_or_less(lst, number):
             return True
     return False
 
+
 def _has_number(lst, number):
     """Checks if a list contains a specific number.
 
@@ -55,6 +59,7 @@ def _has_number(lst, number):
         if num == number:
             return True
     return False
+
 
 def _gates_dict(circuit):
     """Converts the circuit queue gates to a dictionary
@@ -76,7 +81,8 @@ def _gates_dict(circuit):
                     double_gates[tupl].append(index + 1)
     return double_gates
 
-def _generate_circuits(combinations_list,circuit,gates_cut,draw):
+
+def _generate_circuits(combinations_list, circuit, gates_cut, draw):
     """Substitutes the gates being cut for the equivalencies (only CZ right now) and
     generates all the combinations. After it checks subcircuits created being derivated
     from the cut.The return is a list with all the independent subcircuits.
@@ -149,6 +155,7 @@ def _generate_circuits(combinations_list,circuit,gates_cut,draw):
         generated_circuits.append(circuit1)
     return generated_circuits
 
+
 def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
     """
 
@@ -190,7 +197,9 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
     if verbose:
         print(observable_dict)
 
-    generated_circuits = _generate_circuits(combinations_list,circuit,gates_cut,draw)
+    generated_circuits = _generate_circuits(
+        combinations_list, circuit, gates_cut, draw
+    )
 
     list_subcircuits = []
     list_observables = []
@@ -267,7 +276,7 @@ def _gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
     if verbose:
         print(num_generated)
     result = [
-        eval("*".join(map(str, exp_values[i: i + num_generated])))
+        eval("*".join(map(str, exp_values[i : i + num_generated])))
         for i in range(0, len(exp_values), num_generated)
     ]
     if verbose:
@@ -372,7 +381,7 @@ def gate_cutting(
 
     Example
     -------
-    >>> reconstruction = gate_cutting(observables="ZZZZZ", circuit=circuit, gates_cut=[2, 5, 8], 
+    >>> reconstruction = gate_cutting(observables="ZZZZZ", circuit=circuit, gates_cut=[2, 5, 8],
     >>>                               shots=30000, chunk=1, draw=True, verbose=True)
     """
     type_gates = type(circuit.queue[gates_cut[0] - 1])
@@ -398,8 +407,12 @@ def gate_cutting(
         if verbose:
             print(obs)
         new_obs = "".join([value for key, value in sorted(obs.items())])
-        exp_value.append(_compute_expectation_value(total_freq, new_obs, shots))
+        exp_value.append(
+            _compute_expectation_value(total_freq, new_obs, shots)
+        )
 
     exp_value = compss_wait_on(exp_value)
-    reconstruction = _gate_reconstruction(type_gates, gates_cut, exp_value, verbose)
+    reconstruction = _gate_reconstruction(
+        type_gates, gates_cut, exp_value, verbose
+    )
     return reconstruction

@@ -26,10 +26,21 @@ import matplotlib.pyplot as plt
 import copy
 
 from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
-from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting, _gates_dict, _has_number
-from Qdislib.utils.graph import build_dag, create_graph, del_empty_qubits, print_graph, DAGgraph
+from Qdislib.core.cutting_algorithms.gate_cutting import (
+    gate_cutting,
+    _gates_dict,
+    _has_number,
+)
+from Qdislib.utils.graph import (
+    build_dag,
+    create_graph,
+    del_empty_qubits,
+    print_graph,
+    DAGgraph,
+)
 
-def double_gates(circuit, digraph, max_qubits,num_subcirucits,draw):
+
+def double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
     # ----------------------------------------------------
     # LOOP THROUGH DOUBLE GATES POINTS
     # ----------------------------------------------------
@@ -97,11 +108,14 @@ def double_gates(circuit, digraph, max_qubits,num_subcirucits,draw):
                     print_graph(copy_dag)
     return right_subgrafs, computational_cost
 
+
 @task(returns=list)
 def gate_selector(
     digraph, circuit, max_qubits=None, num_subcirucits=None, draw=False
 ):
-    right_subgrafs, computational_cost = double_gates(circuit, digraph, max_qubits,num_subcirucits,draw)
+    right_subgrafs, computational_cost = double_gates(
+        circuit, digraph, max_qubits, num_subcirucits, draw
+    )
 
     # -------------------------------------------------------
     # DECIDE WHAT GATE TO CUT
@@ -291,12 +305,15 @@ def optimal_cut(
         if draw:
             print("BEST WIRE: ", wire_cut2)
         return wire_cut2
-    
-def execute_optimal_cut(circuit,cut, verbose=False):
+
+
+def execute_optimal_cut(circuit, cut, verbose=False):
     if isinstance(cut[0], tuple):
-        reconstruction = wire_cutting('ZZZZZZZZZZ',circuit, cut)
-        if verbose: print("RECONSTRUCTION WIRE CUTTING: ", reconstruction)
+        reconstruction = wire_cutting("ZZZZZZZZZZ", circuit, cut)
+        if verbose:
+            print("RECONSTRUCTION WIRE CUTTING: ", reconstruction)
     else:
-        reconstruction = gate_cutting('ZZZZZZZZZZ',circuit, cut)
-        if verbose: print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
+        reconstruction = gate_cutting("ZZZZZZZZZZ", circuit, cut)
+        if verbose:
+            print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
     return reconstruction

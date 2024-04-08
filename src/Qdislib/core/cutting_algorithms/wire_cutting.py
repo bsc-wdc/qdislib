@@ -22,7 +22,11 @@ import qibo
 from qibo import models, gates, hamiltonians  # , callbacks
 import networkx as nx
 
-from Qdislib.core.cutting_algorithms._pycompss_functions import _first_subcircuit_basis, _second_subcircuit_states, _compute_expectation_value
+from Qdislib.core.cutting_algorithms._pycompss_functions import (
+    _first_subcircuit_basis,
+    _second_subcircuit_states,
+    _compute_expectation_value,
+)
 from Qdislib.utils.graph import *
 from Qdislib.core.qubit_mapping.qubit_mapping import *
 
@@ -280,7 +284,7 @@ def simulation(
 
     Example
     -------
-    >>> reconstrution = simulation(list_obervables=[observables1, observables2], qubits=[0,2], 
+    >>> reconstrution = simulation(list_obervables=[observables1, observables2], qubits=[0,2],
     >>>                            circuit1, circuit2, shots=30000, verbose=True)
 
     """
@@ -366,10 +370,11 @@ def simulation(
             )
         )
 
-        if verbose: print(
-            "Expectation value after circuit cutting and reconstruction:",
-            reconstruction,
-        )
+        if verbose:
+            print(
+                "Expectation value after circuit cutting and reconstruction:",
+                reconstruction,
+            )
         return reconstruction
     else:
         circuit_1.add(gates.M(*range(circuit_1.nqubits)))
@@ -388,13 +393,8 @@ def simulation(
 
 
 def execute_qc(
-    connection,
-    qubit,
-    circuit_1,
-    circuit_2=None,
-    shots=30000,
-    verbose=False):
-
+    connection, qubit, circuit_1, circuit_2=None, shots=30000, verbose=False
+):
     """Description
     -----------
     Performs the execution of a circuit by sending it to the Quantum Computer and obtaining the job IDs. Accepts one or two circuits. With one circuit, it executes it straightforwardly. With two circuits, it executes them separately and returns the job IDs for each.
@@ -424,8 +424,7 @@ def execute_qc(
     Example
     -------
     >>> job_ids1, job_ids2 = execute_qc(connection, qubits=[0,2], circuit1, circuit2, shots=30000, verbose=True)
-        """
-    
+    """
 
     connection.select_device_ids(device_ids=[9])
     connection.list_devices()
@@ -444,16 +443,15 @@ def execute_qc(
             copy_circuit = circuit_1.copy(True)
             copy_circuit1.queue = copy_circuit.queue
             final_circuit = _first_subcircuit_basis(copy_circuit1, b, qubit[0])
-            '''G = architecture_X()
+            """G = architecture_X()
             G1 = qubit_arch(final_circuit.circuit)
             dict_arch = subgraph_matcher(G,G1)
             print(dict_arch)
             mapped_circuit = rename_qubits(final_circuit,2,dict_arch[0],'B')
-            print(mapped_circuit.circuit.draw())'''
-            job_ids = final_circuit.execute_qc_compss(connection,nshots=shots)
-            #job_ids = connection.execute(circuit=circuit_1, nshots=1000)
+            print(mapped_circuit.circuit.draw())"""
+            job_ids = final_circuit.execute_qc_compss(connection, nshots=shots)
+            # job_ids = connection.execute(circuit=circuit_1, nshots=1000)
             job_ids1.append(job_ids[0])
-            
 
         # second subcircuit:
         job_ids2 = []
@@ -463,11 +461,12 @@ def execute_qc(
             copy_circuit2 = models.Circuit(circuit_2.nqubits)
             copy_circuit = circuit_2.copy(True)
             copy_circuit2.queue = copy_circuit.queue
-            final_circuit = _second_subcircuit_states(copy_circuit2, s, qubit[1])
-            job_ids = final_circuit.execute_qc_compss(connection,nshots=shots)
-            #job_ids = connection.execute(circuit=final_circuit, nshots=1000)
+            final_circuit = _second_subcircuit_states(
+                copy_circuit2, s, qubit[1]
+            )
+            job_ids = final_circuit.execute_qc_compss(connection, nshots=shots)
+            # job_ids = connection.execute(circuit=final_circuit, nshots=1000)
             job_ids2.append(job_ids[0])
-            
 
         job_ids1 = compss_wait_on(job_ids1)
         job_ids2 = compss_wait_on(job_ids2)
@@ -475,9 +474,7 @@ def execute_qc(
         print("Missing subcircuit2")
         print("NOT YET IMPLEMENTED!")
         job_ids1, job_ids2 = None
-    return job_ids1,job_ids2
-
-
+    return job_ids1, job_ids2
 
 
 def reconstruction_qc(
@@ -486,8 +483,8 @@ def reconstruction_qc(
     job_ids2,
     list_observables,
     shots=30000,
-    verbose=False):
-
+    verbose=False,
+):
     """Description
     -----------
     Performs the reconstruction of a circuit after sending it to the Quantum Computer and retrieving the job IDs. Accepts job IDs for one or two circuits and the list of observables associated with each subcircuit. Calculates the expectation value of the reconstructed circuit.
@@ -538,7 +535,7 @@ def reconstruction_qc(
 
     # first subcircuit:
     exp_value_1 = {}
-    for index,b in enumerate(basis):
+    for index, b in enumerate(basis):
         if verbose:
             print("Basis: ", b)
         result = results1[index]
@@ -553,10 +550,8 @@ def reconstruction_qc(
         )
         if verbose:
             print("OBSERVABLES: ", new_obs)
-        exp_value_1[b] = _compute_expectation_value(
-            freq, new_obs, shots=shots
-        )
-    
+        exp_value_1[b] = _compute_expectation_value(freq, new_obs, shots=shots)
+
     # second subcircuit:
     exp_value_2 = {}
     if verbose:
@@ -580,17 +575,17 @@ def reconstruction_qc(
     exp_value_1 = compss_wait_on(exp_value_1)
     exp_value_2 = compss_wait_on(exp_value_2)
     reconstruction = (
-                1
-                / 2
-                * (
-                    (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
-                    + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
-                    + exp_value_1["X"]
-                    * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
-                    + exp_value_1["Y"]
-                    * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
-                )
-            )
+        1
+        / 2
+        * (
+            (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
+            + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
+            + exp_value_1["X"]
+            * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
+            + exp_value_1["Y"]
+            * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
+        )
+    )
 
     print(
         "Expectation value after circuit cutting and reconstruction:",
@@ -600,7 +595,13 @@ def reconstruction_qc(
 
 
 def quantum_computer(
-    connection,list_observables,qubit, circuit1,circuit2,shots=10, verbose=False
+    connection,
+    list_observables,
+    qubit,
+    circuit1,
+    circuit2,
+    shots=10,
+    verbose=False,
 ):
     """Description
     -----------
@@ -637,8 +638,12 @@ def quantum_computer(
     if verbose:
         print(f"qibo version: {qibo.__version__}")
 
-    job_ids1, job_ids2 = execute_qc(connection,qubit,circuit1,circuit2,shots)
-    reconstruction = reconstruction_qc(connection,job_ids1,job_ids2,list_observables,shots)
+    job_ids1, job_ids2 = execute_qc(
+        connection, qubit, circuit1, circuit2, shots
+    )
+    reconstruction = reconstruction_qc(
+        connection, job_ids1, job_ids2, list_observables, shots
+    )
     print(
         "Expectation value after circuit cutting and reconstruction:",
         reconstruction,
@@ -697,10 +702,11 @@ def analytical_solution(observables, circuit, verbose=False):
         )
     )
 
-    if verbose: print(
-        "The expectation value of",
-        expectation_value,
-        "in the entire circuit is ",
-        exp_full_circuit,
-    )
+    if verbose:
+        print(
+            "The expectation value of",
+            expectation_value,
+            "in the entire circuit is ",
+            exp_full_circuit,
+        )
     return exp_full_circuit

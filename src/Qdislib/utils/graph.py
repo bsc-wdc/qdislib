@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt
 from pycompss.api.task import task
 from qibo import models
 
+
 class DAGgraph:
     """Direct Aciclyc Graph class.
 
@@ -154,6 +155,7 @@ def del_empty_qubits(circuit):
         gate.qubits
     return empty_qubits
 
+
 def print_graph(graph):
     pos = nx.spring_layout(graph)  # Define layout for the nodes
 
@@ -195,6 +197,7 @@ def print_graph(graph):
     #    "Directed Graph with Two Edge Groups (Red edges in dotted line)"
     # )
     plt.show()
+
 
 @task(returns=list)
 def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
@@ -275,4 +278,3 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
         list_subcircuits_obs = list_subcircuits
 
     return list_subcircuits_obs
-

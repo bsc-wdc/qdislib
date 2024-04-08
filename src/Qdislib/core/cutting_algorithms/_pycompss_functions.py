@@ -23,6 +23,7 @@ from qibo import gates
 
 from Qdislib.classes.circuit_classes import _NewCircuit
 
+
 @task(returns=int)
 def _compute_expectation_value(freq, basis, shots):
     """This function computes the expectation value given a probability
@@ -86,7 +87,7 @@ def _first_subcircuit_basis(circuit1, basis, qubit):
 
     # We introduce a quantum gate that is not inherently supported by
     # the qibo framework.
-    #s_dagger = np.array([[1, 0], [0, -1j]])
+    # s_dagger = np.array([[1, 0], [0, -1j]])
 
     dimension = circuit1.nqubits
 
