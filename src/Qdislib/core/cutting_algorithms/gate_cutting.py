@@ -66,20 +66,20 @@ def _gates_dict(circuit):
     depending on what qubits apply.
 
     :param circuit: Circuit.
-    :return: double_gates.
+    :return: _double_gates.
     """
-    double_gates = {}
+    _double_gates = {}
     for index, gate in enumerate(circuit.queue):
         if len(gate.qubits) > 1:
             start, end = gate.qubits
             new_tuple = [(i, i + 1) for i in range(start, end)]
             for tupl in new_tuple:
-                if tupl not in double_gates:
-                    double_gates[tupl] = []
-                    double_gates[tupl].append(index + 1)
+                if tupl not in _double_gates:
+                    _double_gates[tupl] = []
+                    _double_gates[tupl].append(index + 1)
                 else:
-                    double_gates[tupl].append(index + 1)
-    return double_gates
+                    _double_gates[tupl].append(index + 1)
+    return _double_gates
 
 
 def _generate_circuits(combinations_list, circuit, gates_cut, draw):

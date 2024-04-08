@@ -39,7 +39,7 @@ from Qdislib.utils.graph import (
 )
 
 
-def double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
+def _double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
     """
     This function analyzes a circuit and its corresponding DAG to identify points
     where double gates can be applied. It calculates the computational cost and
@@ -56,8 +56,8 @@ def double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
     temp = {}
     right_subgrafs = []
     computational_cost = []
-    double_gates = _gates_dict(circuit)
-    for _, array in double_gates.items():
+    _double_gates = _gates_dict(circuit)
+    for _, array in _double_gates.items():
         num_nodes = []
 
         copy_dag = copy.deepcopy(digraph)
@@ -118,13 +118,13 @@ def double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
 
 
 @task(returns=list)
-def gate_selector(
+def _gate_selector(
     digraph, circuit, max_qubits=None, num_subcirucits=None, draw=False
 ):
     """
     This function selects the appropriate gates to cut in order to split
     the circuit into balanced subcircuits based on the provided DAG and
-    circuit information. It utilizes the `double_gates` function to
+    circuit information. It utilizes the `_double_gates` function to
     identify candidate points for gate cutting and then selects the
     optimal gate based on computational cost.
     
@@ -135,7 +135,7 @@ def gate_selector(
     :param draw: bool.
     :return: gate_list
     """
-    right_subgrafs, computational_cost = double_gates(
+    right_subgrafs, computational_cost = _double_gates(
         circuit, digraph, max_qubits, num_subcirucits, draw
     )
     gate_cut = right_subgrafs[0]
@@ -161,7 +161,7 @@ def gate_selector(
     return gate_list
 
 
-def find_edge_to_split_graph(graph):
+def _find_edge_to_split_graph(graph):
     """
     This function identifies edges in a directed acyclic graph (DAG) that can be
     cut to split the graph into multiple connected components. It specifically
@@ -192,7 +192,7 @@ def find_edge_to_split_graph(graph):
 
 
 @task(returns=list)
-def wire_selector(digraph, circuit, max_qubits, draw=False):
+def _wire_selector(digraph, circuit, max_qubits, draw=False):
     """
     This function selects wires in a directed acyclic graph (DAG) to split the
     graph into multiple connected components. It identifies edges that, when
@@ -205,7 +205,7 @@ def wire_selector(digraph, circuit, max_qubits, draw=False):
     :param draw: bool.
     :return: wire_list
     """
-    edge_to_remove = find_edge_to_split_graph(digraph)
+    edge_to_remove = _find_edge_to_split_graph(digraph)
     red_edges = [
         (edge[0], edge[1])
         for edge in digraph.edges.data("color")
@@ -318,7 +318,7 @@ def optimal_cut(
 
     Returns
     -------
-    best_cut: list.
+    best_cut: list
         The optimal cutting strategy, either gate cut or wire cut, with the lowest computational cost.
 
     Raises
@@ -327,7 +327,8 @@ def optimal_cut(
 
     Example
     -------
-    >>> best_cut = optimal_cut(circuit, max_qubits=5, num_subcircuits=3, gate_cut=True, wire_cut=True, draw=True)
+    >>> best_cut = optimal_cut(circuit, max_qubits=5, num_subcircuits=3,
+    >>>                        gate_cut=True, wire_cut=True, draw=True)
     """
     digraph2 = nx.Graph()
     dag2 = DAGgraph()
@@ -336,11 +337,11 @@ def optimal_cut(
     create_graph(dag2, digraph2)
 
     if gate_cut:
-        return_list = gate_selector(
+        return_list = _gate_selector(
             digraph2, circuit, max_qubits, num_subcircuits, draw
         )
     if wire_cut:
-        return_list2 = wire_selector(digraph2, circuit, max_qubits, draw)
+        return_list2 = _wire_selector(digraph2, circuit, max_qubits, draw)
 
     if gate_cut:
         return_list = compss_wait_on(return_list)
@@ -393,13 +394,13 @@ def execute_optimal_cut(circuit, cut, verbose=False):
     circuit: Circuit.
         The circuit object to be modified.
     cut: list.
-        The optimal cutting strategy determined by the `optimal_cut` function. It can be a list of gates or a list of wires.
+        The optimal cutting strategy determined by the `optimal_cut` function. It can be a list of gates or a tuple of gates for cutting the wire in the middle.
     verbose: bool, optional.
         Whether to print additional information during execution. Defaults to False.
 
     Returns
     -------
-    reconstruction: float.
+    reconstruction: float
         The reconstructed circuit after applying the optimal cutting strategy.
 
     Example
