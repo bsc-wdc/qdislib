@@ -27,7 +27,13 @@ from Qdislib.core.cutting_algorithms._pycompss_functions import (
     _second_subcircuit_states,
     _compute_expectation_value,
 )
-from Qdislib.utils.graph import *
+from Qdislib.utils.graph import (
+    _DAGgraph,
+    _build_dag,
+    _separate_observables,
+    _create_graph,
+    _partition_circuit,
+)
 from Qdislib.core.qubit_mapping.qubit_mapping import *
 
 from pycompss.api.api import compss_wait_on
@@ -39,7 +45,7 @@ def wire_cutting(
 ):
     """Description
     -----------
-    Implements the algorithm of circuit cutting in one function. Cuts the circuit in 2 between two specified gates, and calculates the expected value of the reconstruction.
+    Implement the algorithm of circuit cutting in one function. Cuts the circuit in 2 between two specified gates, and calculates the expected value of the reconstruction.
 
     Parameters
     ----------
@@ -85,7 +91,7 @@ def wire_cutting(
 def split(observables, circuit, gate_tuple, draw=False, verbose=False):
     """Description
     -----------
-    Splits a circuit into two subcircuits by cutting a qubit between the specified gates.
+    Split a circuit into two subcircuits by cutting a qubit between the specified gates.
 
     Parameters
     ----------
@@ -156,7 +162,9 @@ def split(observables, circuit, gate_tuple, draw=False, verbose=False):
 
     non_empty_list = []
 
-    list_subcircuits = _partition_circuit(subgraphs,dag,circuit, non_empty_list ,verbose=False)
+    list_subcircuits = _partition_circuit(
+        subgraphs, dag, circuit, non_empty_list, verbose=False
+    )
 
     if verbose:
         print(qubits_first_gate, qubits_second_gate)
@@ -213,7 +221,7 @@ def simulation(
 ):
     """Description
     -----------
-    Performs the execution of a circuit to calculate the expected value. It accepts one or two circuits. With one circuit, it calculates the expected value straightforwardly. With two circuits, it performs a reconstruction in order to provide the expected value.
+    Perform the execution of a circuit to calculate the expected value. It accepts one or two circuits. With one circuit, it calculates the expected value straightforwardly. With two circuits, it performs a reconstruction in order to provide the expected value.
 
     Parameters
     ----------
@@ -350,7 +358,7 @@ def execute_qc(
 ):
     """Description
     -----------
-    Performs the execution of a circuit by sending it to the Quantum Computer and obtaining the job IDs. Accepts one or two circuits. With one circuit, it executes it straightforwardly. With two circuits, it executes them separately and returns the job IDs for each.
+    Perform the execution of a circuit by sending it to the Quantum Computer and obtaining the job IDs. Accepts one or two circuits. With one circuit, it executes it straightforwardly. With two circuits, it executes them separately and returns the job IDs for each.
 
     Parameters
     ----------
@@ -396,8 +404,8 @@ def execute_qc(
             copy_circuit = circuit_1.copy(True)
             copy_circuit1.queue = copy_circuit.queue
             final_circuit = _first_subcircuit_basis(copy_circuit1, b, qubit[0])
-            """G = architecture_X()
-            G1 = qubit_arch(final_circuit.circuit)
+            """G = architecture_x()
+            G1 = _qubit_arch(final_circuit.circuit)
             dict_arch = subgraph_matcher(G,G1)
             print(dict_arch)
             mapped_circuit = rename_qubits(final_circuit,2,dict_arch[0],'B')
@@ -440,7 +448,7 @@ def reconstruction_qc(
 ):
     """Description
     -----------
-    Performs the reconstruction of a circuit after sending it to the Quantum Computer and retrieving the job IDs. Accepts job IDs for one or two circuits and the list of observables associated with each subcircuit. Calculates the expectation value of the reconstructed circuit.
+    Perform the reconstruction of a circuit after sending it to the Quantum Computer and retrieving the job IDs. Accepts job IDs for one or two circuits and the list of observables associated with each subcircuit. Calculates the expectation value of the reconstructed circuit.
 
     Parameters
     ----------
@@ -558,7 +566,7 @@ def quantum_computer(
 ):
     """Description
     -----------
-    Sends the circuits to the Quantum Computer in order to be executed and retrieves the information to calculate the reconstruction value.
+    Send the circuits to the Quantum Computer in order to be executed and retrieves the information to calculate the reconstruction value.
 
     Parameters
     ----------
@@ -607,7 +615,7 @@ def quantum_computer(
 def analytical_solution(observables, circuit, verbose=False):
     """Description
     -----------
-    Calculates the analytical expected value of a whole circuit.
+    Calculate the analytical expected value of a whole circuit.
 
     Parameters
     ----------

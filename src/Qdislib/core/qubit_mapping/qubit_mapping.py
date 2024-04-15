@@ -23,25 +23,50 @@ from qibo import models
 from Qdislib.classes.circuit_classes import _NewCircuit
 
 
-def architecture_X():
-    G = nx.Graph()
-    G.add_nodes_from(["A", "B", "C", "D", "E"])
-    G.add_edges_from([("A", "B"), ("B", "C"), ("B", "D"), ("B", "E")])
-    return G
+def architecture_x():
+    """
+    Description
+    -----------
+    Generate a graph representing the architecture of a quantum device with an 'X' shape topology. The graph consists of nodes representing qubits and edges representing connections between qubits.
+
+    Returns
+    -------
+    graph: NetworkX graph
+        A graph representing the 'X' shape topology architecture.
+
+    Example
+    -------
+    >>> from networkx import draw
+    >>> G = architecture_X()
+    >>> draw(G, with_labels=True)
+    """
+    x_graph = nx.Graph()
+    x_graph.add_nodes_from(["A", "B", "C", "D", "E"])
+    x_graph.add_edges_from([("A", "B"), ("B", "C"), ("B", "D"), ("B", "E")])
+    return x_graph
 
 
-def qubit_arch(circuit, draw=False):
-    G1 = nx.Graph()
+def _qubit_arch(circuit, draw=False):
+    """
+    Extract qubit connections from a quantum circuit and generates
+    a graph representing the architecture based on these connections. Each edge
+    in the graph represents a connection between two qubits.
+
+    :param circuit: Circuit.
+    :param drwa: bool.
+    :return: graph
+    """
+    graph = nx.Graph()
     lst = []
     for gate in circuit.queue:
         if len(gate.qubits) > 1:
             lst.append(gate)
-            G1.add_edge(gate.qubits[0], gate.qubits[1])
+            graph.add_edge(gate.qubits[0], gate.qubits[1])
 
-    pos = nx.spring_layout(G1)  # positions for all nodes
+    pos = nx.spring_layout(graph)  # positions for all nodes
     if draw:
         nx.draw(
-            G1,
+            graph,
             pos,
             with_labels=True,
             font_weight="bold",
@@ -51,10 +76,38 @@ def qubit_arch(circuit, draw=False):
             font_size=10,
         )
         plt.show()
-    return G1
+    return graph
 
 
 def subgraph_matcher(architecture, circuit_graph, draw=False):
+    """
+
+    Description
+    -----------
+    Check if a given circuit graph (pattern graph) is a subgraph of another graph representing the architecture (target graph). It uses NetworkX's GraphMatcher to perform subgraph isomorphism checks.
+
+    Parameters
+    ----------
+    architecture: NetworkX graph
+        The target graph representing the architecture.
+    circuit_graph: NetworkX graph
+        The pattern graph representing the circuit.
+    draw: bool, optional
+        If True, the function will visualize the target and pattern graphs. Default is False.
+
+    Returns
+    -------
+    all_subgraph_isomorphisms: list
+        A list of all subgraph isomorphisms found between the pattern graph and the target graph. Each isomorphism is represented as a dictionary mapping nodes from the pattern graph to nodes in the target graph.
+
+    Example
+    -------
+    >>> target_graph = nx.Graph()
+    >>> target_graph.add_edges_from([(1, 2), (1, 3), (2, 3)])
+    >>> pattern_graph = nx.Graph()
+    >>> pattern_graph.add_edges_from([(1, 2), (2, 3)])
+    >>> all_subgraph_isomorphisms = subgraph_matcher(target_graph, pattern_graph, draw=True)
+    """
     # Create an example target graph
     target_graph = architecture
 
@@ -111,6 +164,35 @@ def subgraph_matcher(architecture, circuit_graph, draw=False):
 
 
 def mapping_order(target, pattern, order):
+    """
+    Description
+    -----------
+    Find the best mapping between nodes in a pattern graph and nodes in a target graph based on a desired order of nodes. It uses NetworkX's GraphMatcher to perform subgraph isomorphism checks and calculates the best mapping based on the specified order.
+
+    Parameters
+    ----------
+    target: NetworkX graph
+        The target graph.
+    pattern: NetworkX graph
+        The pattern graph.
+    order: list
+        A list specifying the desired order of nodes. Nodes present in the order list will be prioritized in the mapping process.
+
+    Returns
+    -------
+    best_architecture: dict
+        The best mapping found between nodes in the pattern graph and nodes in the target graph, based on the desired order.
+
+    Example
+    -------
+    >>> target_graph = nx.Graph()
+    >>> target_graph.add_edges_from([(1, 2), (1, 3), (2, 3)])
+    >>> pattern_graph = nx.Graph()
+    >>> pattern_graph.add_edges_from([(1, 2), (2, 3)])
+    >>> order = [3, 1, 2]
+    >>> best_architecture = mapping_order(target_graph, pattern_graph, order)
+    """
+
     # Create an example target graph
     target_graph = target
 
@@ -143,6 +225,35 @@ def mapping_order(target, pattern, order):
 
 
 def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
+    """
+    Description
+    -----------
+    Rename the qubits in a given circuit according to a specified mapping provided by the ``best_arch`` dictionary. It updates the qubit labels based on the provided mapping, where the ``middle_arch_qubit`` represents the qubit to be renamed, and the ``qubit_middle`` represents its new label.
+
+    Parameters
+    ----------
+    subcirc: Circuit.
+        The circuit whose qubits need to be renamed.
+    qubit_middle: int
+        The new label for the qubit to be renamed.
+    best_arch: dict
+        A dictionary representing the best mapping between qubits in the original circuit and the target circuit.
+    middle_arch_qubit: int
+        The qubit in the target architecture that corresponds to the qubit to be renamed.
+
+    Returns
+    -------
+    new_circuit: Circuit.
+        The modified circuit with renamed qubits.
+
+    Example
+    -------
+    >>> subcirc = models.Circuit(3)
+    >>> subcirc.add(models.H(0))
+    >>> subcirc.add(models.CNOT(0, 1))
+    >>> best_arch = {0: 2, 1: 1, 2: 0}
+    >>> new_circuit = rename_qubits(subcirc, 1, best_arch, 0)
+    """
     target_qubit = best_arch[middle_arch_qubit]
     print(type(subcirc))
     if isinstance(subcirc, _NewCircuit):

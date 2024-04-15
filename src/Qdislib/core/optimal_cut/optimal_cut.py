@@ -41,7 +41,7 @@ from Qdislib.utils.graph import (
 
 def _double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
     """
-    This function analyzes a circuit and its corresponding DAG to identify points
+    Analyze a circuit and its corresponding DAG to identify points
     where double gates can be applied. It calculates the computational cost and
     identifies suitable subcircuits based on the specified criteria.
 
@@ -51,7 +51,7 @@ def _double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
     :param num_subcircuits: int.
     :param draw: bool.
     :return: right_subgraphs, computational_cost
-    
+
     """
     temp = {}
     right_subgrafs = []
@@ -122,12 +122,12 @@ def _gate_selector(
     digraph, circuit, max_qubits=None, num_subcirucits=None, draw=False
 ):
     """
-    This function selects the appropriate gates to cut in order to split
+    Select the appropriate gates to cut in order to split
     the circuit into balanced subcircuits based on the provided DAG and
     circuit information. It utilizes the `_double_gates` function to
     identify candidate points for gate cutting and then selects the
     optimal gate based on computational cost.
-    
+
     :param digraph: Object DAG.
     :param circuit: Circuit.
     :param max_qubits: int.
@@ -163,7 +163,7 @@ def _gate_selector(
 
 def _find_edge_to_split_graph(graph):
     """
-    This function identifies edges in a directed acyclic graph (DAG) that can be
+    Identify edges in a directed acyclic graph (DAG) that can be
     cut to split the graph into multiple connected components. It specifically
     looks for edges marked as "blue" (interconected gates) and ensures that
     cutting them would result in more than one connected component.
@@ -194,11 +194,11 @@ def _find_edge_to_split_graph(graph):
 @task(returns=list)
 def _wire_selector(digraph, circuit, max_qubits, draw=False):
     """
-    This function selects wires in a directed acyclic graph (DAG) to split the
+    Select wires in a directed acyclic graph (DAG) to split the
     graph into multiple connected components. It identifies edges that, when
     removed, result in the graph being split into disconnected components, and
     selects the wire that minimizes computational cost.
-    
+
     :param digraph: Object DAG.
     :param circuit: Circuit.
     :param max_qubits: int.
@@ -297,7 +297,7 @@ def optimal_cut(
 
     Description
     -----------
-    This function determines the optimal cut strategy for a given circuit, considering gate cutting and wire cutting options. It evaluates the computational cost of each cutting strategy and returns the one with the lowest cost.
+    Determine the optimal cut strategy for a given circuit, considering gate cutting and wire cutting options. It evaluates the computational cost of each cutting strategy and returns the one with the lowest cost.
 
     Parameters
     ----------
@@ -387,7 +387,7 @@ def execute_optimal_cut(circuit, cut, verbose=False):
 
     Description
     -----------
-    This function executes the optimal cut strategy determined by the `optimal_cut` function. It applies either gate cutting or wire cutting to the circuit based on the specified cutting strategy.
+    Execute the optimal cut strategy determined by the `optimal_cut` function. It applies either gate cutting or wire cutting to the circuit based on the specified cutting strategy.
 
     Parameters
     ----------

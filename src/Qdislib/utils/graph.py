@@ -81,6 +81,16 @@ class _DAGgraph:
 
 
 def _build_dag(circuit, dag):
+    """
+    Build a directed acyclic graph (DAG) representation of the
+    given circuit. It iterates through the gates of the circuit and adds them as
+    nodes to the DAG. Then, it connects the gates based on qubit dependencies,
+    ensuring that gates are executed in the correct order.
+
+    :param circuit: Circuit.
+    :param dag: empty DAGgraph.
+    :return: DAGgraph.
+    """
     for gate in circuit.queue:
         dag.add_node(gate)
         # Connect gates based on qubit dependencies
@@ -111,6 +121,17 @@ def _build_dag(circuit, dag):
 
 
 def _create_graph(dag, digraph):
+    """
+    Create a directed graph (digraph) based on the given directed acyclic
+    graph (DAG). It assigns numerical labels to the nodes of the DAG and adds corresponding
+    nodes to the digraph. Then, it adds edges to the digraph based on the edges of the DAG,
+    distinguishing between regular edges (blue) and additional edges (red).
+
+    :param dag: DAGgraph.
+    :param digraph: DiGraph.
+    :return: DiGraph.
+    """
+
     new_nodes = [index + 1 for index, i in enumerate(dag.nodes)]
     labels = {
         i: index + 1 for index, i in enumerate(dag.nodes)
@@ -127,6 +148,14 @@ def _create_graph(dag, digraph):
 
 
 def _del_empty_qubits(circuit):
+    """
+    Identify and remove empty qubits from a given
+    circuit. Empty qubits are those that are not targeted by any
+    gate in the circuit.
+
+    :param circuit: Circuit.
+    :return: int list.
+    """
     empty_qubits = []
     for gate in circuit.queue:
         for i in gate.qubits:
@@ -136,6 +165,30 @@ def _del_empty_qubits(circuit):
 
 
 def print_graph(graph):
+    """
+    Description
+    -----------
+    Visualize a directed graph with two types of edges, distinguished by color. It draws the graph using the Spring layout algorithm for node positioning.
+
+    Parameters
+    ----------
+    graph: object
+        The directed graph to be visualized.
+
+    Returns
+    -------
+    This function does not return any value. It displays the graph visualization.
+
+    Example
+    -------
+    >>> import networkx as nx
+    >>> import matplotlib.pyplot as plt
+    >>> graph = nx.DiGraph()
+    >>> graph.add_edge(1, 2, color="blue")
+    >>> graph.add_edge(2, 3, color="red")
+    >>> print_graph(graph)
+    """
+
     pos = nx.spring_layout(graph)  # Define layout for the nodes
 
     # Draw edges for the first group with blue color
@@ -180,6 +233,30 @@ def print_graph(graph):
 
 @task(returns=list)
 def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
+    """
+    Description
+    -----------
+    Generate a graph representation of a given circuit and partitions it into subcircuits. It also associates observables with the subcircuits if provided.
+
+    Parameters
+    ----------
+    new_circuit: Circuit
+        The circuit to be represented and partitioned.
+    observable_dict: dict, optional
+        A dictionary mapping nodes to observables. Defaults to None.
+    verbose: bool, optional
+        If True, prints additional information during execution. Defaults to False.
+
+    Returns
+    -------
+    list_subcircuits_obs: list
+        A list containing information about the subcircuits. If ``observable_dict`` is provided, it contains both the subcircuits and their associated observables.
+
+    Example
+    -------
+    >>> list_subcircuits = gen_graph_circuit(circuit, observable_dict, verbose=True)
+
+    """
     # convert to DAG and DIGRPAPH
     digraph = nx.Graph()
     dag = _DAGgraph()
@@ -190,9 +267,11 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
     subgraphs = list(nx.connected_components(digraph))
     if verbose:
         print(subgraphs)
-    
+
     diff_list = []
-    list_subcircuits = _partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False)
+    list_subcircuits = _partition_circuit(
+        subgraphs, dag, new_circuit, diff_list, verbose=False
+    )
     print(list_subcircuits)
 
     if observable_dict is not None:
@@ -215,7 +294,20 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
 
     return list_subcircuits_obs
 
-def _partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False):
+
+def _partition_circuit(subgraphs, dag, new_circuit, diff_list, verbose=False):
+
+    """
+    Cut a circuit represented by subgraphs into individual
+    subcircuits and adjusts the qubit indices accordingly.
+
+    :param subgraphs: list of circuit.
+    :param dag: DAGgraph.
+    :param circuit: Circuit.
+    :param diff_list: list.
+    :param verbose: bool.
+    :return: list_subcircuits
+    """
     list_subcircuits = []
     for subgraph in subgraphs:
         subgraph = sorted(subgraph)
@@ -260,11 +352,19 @@ def _partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False):
         list_subcircuits.append(circuit_copy)
     return list_subcircuits
 
+
 def _separate_observables(circuit, observables, verbose=False):
+    """
+    Separate the observables specified for each qubit in the circuit.
+
+    :param circuit: Circuit.
+    :param observables: dict.
+    :param verbose: bool.
+    :return: observables_dict
+    """
     observable_dict = {}
     for num_qubit in range(0, circuit.nqubits):
         observable_dict[num_qubit] = observables[num_qubit]
     if verbose:
         print(observable_dict)
     return observable_dict
-

@@ -36,7 +36,8 @@ from Qdislib.utils.graph import gen_graph_circuit, _separate_observables
 
 
 def _has_number_or_less(lst, number):
-    """Checks if a list contains a specific number or a smaller one.
+    """
+    Check if a list contains a specific number or a smaller one.
 
     :param lst: list.
     :param number: int.
@@ -49,7 +50,8 @@ def _has_number_or_less(lst, number):
 
 
 def _has_number(lst, number):
-    """Checks if a list contains a specific number.
+    """
+    Check if a list contains a specific number.
 
     :param lst: list.
     :param number: int.
@@ -62,7 +64,8 @@ def _has_number(lst, number):
 
 
 def _gates_dict(circuit):
-    """Converts the circuit queue gates to a dictionary
+    """
+    Convert the circuit queue gates to a dictionary
     depending on what qubits apply.
 
     :param circuit: Circuit.
@@ -83,7 +86,8 @@ def _gates_dict(circuit):
 
 
 def _generate_circuits(combinations_list, circuit, gates_cut, draw):
-    """Substitutes the gates being cut for the equivalencies (only CZ right now) and
+    """
+    Substitute the gates being cut for the equivalencies (only CZ right now) and
     generates all the combinations. After it checks subcircuits created being derivated
     from the cut.The return is a list with all the independent subcircuits.
 
@@ -100,7 +104,10 @@ def _generate_circuits(combinations_list, circuit, gates_cut, draw):
         for gate in gates_cut:
             target_gates.append(circuit1.queue[gate - 1])
 
-        if any(not isinstance(element, type(target_gates[0])) for element in target_gates):
+        if any(
+            not isinstance(element, type(target_gates[0]))
+            for element in target_gates
+        ):
             print("All the gates to cut have to be the same type")
             return None, None
 
@@ -134,7 +141,7 @@ def _generate_circuits(combinations_list, circuit, gates_cut, draw):
                             index + 1,
                             combination[idx][1](target_qubit, np.pi / 2),
                         )
-                elif isinstance(gate,gates.CZ):
+                elif isinstance(gate, gates.CZ):
                     # print("CZ")
                     idx = target_gates.index(gate)
                     control_qubit = gate.control_qubits[0]
@@ -156,10 +163,9 @@ def _generate_circuits(combinations_list, circuit, gates_cut, draw):
 
 def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
     """
-
     Description
     -----------
-    This function splits a circuit into four subcircuits based on the provided gates' cut points.
+    Split a circuit into four subcircuits based on the provided gates' cut points.
 
     Parameters
     ----------
@@ -224,7 +230,8 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
 
 
 def _concatenate_lists(lst):
-    """Concatenate all list inside the list converting
+    """
+    Concatenate all list inside the list converting
     it to a 1D array.
 
     :param lst: 2D list.
@@ -238,7 +245,8 @@ def _concatenate_lists(lst):
 
 @task(returns=qibo.states.CircuitResult)
 def _gate_simulation(circuit, shots=30000):
-    """Execute a circuit.
+    """
+    Execute a circuit.
 
     :param circuit: Circuit.
     :param shots: int.
@@ -250,7 +258,8 @@ def _gate_simulation(circuit, shots=30000):
 
 @task(returns=list)
 def _gate_frequencies(result):
-    """Calculates frequencies from a result.
+    """
+    Calculate frequencies from a result.
 
     :param result: CircuitResult.
     :return: frequencies.
@@ -260,7 +269,8 @@ def _gate_frequencies(result):
 
 
 def _gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
-    """Calculates circuit reconstruction after cutting a set of gates
+    """
+    Calculate circuit reconstruction after cutting a set of gates
     and execution of the subcircuits.
 
     :param type_gates: string.
@@ -272,7 +282,7 @@ def _gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
     if verbose:
         print(num_generated)
     result = [
-        eval("*".join(map(str, exp_values[i: i + num_generated])))
+        eval("*".join(map(str, exp_values[i : i + num_generated])))
         for i in range(0, len(exp_values), num_generated)
     ]
     if verbose:
@@ -308,7 +318,8 @@ def _gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
 
 @task(returns=dict, dicts=COLLECTION_IN)
 def _sum_dicts(dicts):
-    """Sum all dictionaries by key resulting in only one
+    """
+    Sum all dictionaries by key resulting in only one
     dictionary.
 
     :param dics: dict list.
@@ -319,7 +330,8 @@ def _sum_dicts(dicts):
 
 
 def _generate_combinations(n, gate_type):
-    """Generate combinations for gate cutting
+    """
+    Generate combinations for gate cutting
     depending on the type of the gate and the
     number of gates being cut.
 
@@ -351,7 +363,7 @@ def gate_cutting(
     """
     Description
     -----------
-    This function cuts a circuit by removing a set of gates, executes each resulting subcircuit, and reconstructs the expected value.
+    Cut a circuit by removing a set of gates, executes each resulting subcircuit, and reconstructs the expected value.
 
     Parameters
     ----------

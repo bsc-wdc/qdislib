@@ -26,7 +26,8 @@ from Qdislib.classes.circuit_classes import _NewCircuit
 
 @task(returns=int)
 def _compute_expectation_value(freq, basis, shots):
-    """This function computes the expectation value given a probability
+    """
+    Compute the expectation value given a probability
     distribution (the output of the quantum computer) in a given basis that
     we choose.
 
@@ -70,7 +71,8 @@ def _compute_expectation_value(freq, basis, shots):
 
 @task(returns=_NewCircuit)
 def _first_subcircuit_basis(circuit1, basis, qubit):
-    """First subcircuit basis.
+    """
+    First subcircuit basis.
 
     INPUT:
      - basis (str): ['X', 'Y' or 'Z']. Basis in which we will measure the
@@ -111,7 +113,8 @@ def _first_subcircuit_basis(circuit1, basis, qubit):
 
 @task(returns=_NewCircuit)
 def _second_subcircuit_states(circuit2, initial, qubit):
-    """Second subcircuit states.
+    """
+    Second subcircuit states.
 
     INPUT:
      - initial (str): initial state that the first qubit will be initialized
