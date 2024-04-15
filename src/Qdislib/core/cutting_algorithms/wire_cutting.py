@@ -132,13 +132,13 @@ def split(observables, circuit, gate_tuple, draw=False, verbose=False):
     pos1 = qubits_first_gate.index(qubit)
     pos2 = qubits_second_gate.index(qubit)
 
-    observable_dict = separate_observables(circuit, observables, verbose)
+    observable_dict = _separate_observables(circuit, observables, verbose)
 
     digraph = nx.Graph()
-    dag = DAGgraph()
+    dag = _DAGgraph()
 
-    build_dag(circuit, dag)
-    create_graph(dag, digraph)
+    _build_dag(circuit, dag)
+    _create_graph(dag, digraph)
 
     red_edges = [
         (edge[0], edge[1])
@@ -156,7 +156,7 @@ def split(observables, circuit, gate_tuple, draw=False, verbose=False):
 
     non_empty_list = []
 
-    list_subcircuits = partition_circuit(subgraphs,dag,circuit, non_empty_list ,verbose=False)
+    list_subcircuits = _partition_circuit(subgraphs,dag,circuit, non_empty_list ,verbose=False)
 
     if verbose:
         print(qubits_first_gate, qubits_second_gate)

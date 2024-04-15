@@ -31,11 +31,11 @@ from Qdislib.core.cutting_algorithms.gate_cutting import (
     _has_number,
 )
 from Qdislib.utils.graph import (
-    build_dag,
-    create_graph,
-    del_empty_qubits,
+    _build_dag,
+    _create_graph,
+    _del_empty_qubits,
     print_graph,
-    DAGgraph,
+    _DAGgraph,
 )
 
 
@@ -80,7 +80,7 @@ def _double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
             selected_elements = [circuit.queue[i - 1] for i in subgraph]
             circuit_copy = copy.deepcopy(circuit)
             circuit_copy.queue = selected_elements
-            non_empty_qubits = del_empty_qubits(circuit_copy)
+            non_empty_qubits = _del_empty_qubits(circuit_copy)
             non_empty_qubits.sort()
             result_list.append(len(non_empty_qubits))
             # --------------------------------------------------------------
@@ -231,7 +231,7 @@ def _wire_selector(digraph, circuit, max_qubits, draw=False):
             selected_elements = [circuit.queue[i - 1] for i in subgraph]
             circuit_copy = copy.deepcopy(circuit)
             circuit_copy.queue = selected_elements
-            non_empty_qubits = del_empty_qubits(circuit_copy)
+            non_empty_qubits = _del_empty_qubits(circuit_copy)
             non_empty_qubits.sort()
             result_list.append(len(non_empty_qubits))
             # ---------------------------------------------------------------
@@ -331,10 +331,10 @@ def optimal_cut(
     >>>                        gate_cut=True, wire_cut=True, draw=True)
     """
     digraph2 = nx.Graph()
-    dag2 = DAGgraph()
+    dag2 = _DAGgraph()
 
-    build_dag(circuit, dag2)
-    create_graph(dag2, digraph2)
+    _build_dag(circuit, dag2)
+    _create_graph(dag2, digraph2)
 
     if gate_cut:
         return_list = _gate_selector(

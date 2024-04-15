@@ -30,7 +30,7 @@ from pycompss.api.task import task
 from qibo import models
 
 
-class DAGgraph:
+class _DAGgraph:
     """Direct Aciclyc Graph class.
 
     Representation of a direct aciclyc graph.
@@ -42,22 +42,45 @@ class DAGgraph:
         self.edges2 = []
 
     def add_node(self, gate):
+        """
+        Add a gate as a graph node.
+
+        :param gate: Gate.
+        """
         self.nodes.append(gate)
 
     def add_edge(self, gate1, gate2):
+        """
+        Add the edge between two gates.
+
+        :param gate1: Gate.
+        :param gate2: Gate.
+        """
         self.edges.append((gate1, gate2))
 
     def add_edge2(self, gate1, gate2):
+        """
+        Add the edge between two gates.
+
+        :param gate1: Gate.
+        :param gate2: Gate.
+        """
         self.edges2.append((gate1, gate2))
 
     def print_nodes(self):
+        """
+        Print graph nodes.
+        """
         print("Nodes :", self.nodes)
 
     def print_edges(self):
+        """
+        Print graph edges.
+        """
         print("Edges: ", self.edges)
 
 
-def build_dag(circuit, dag):
+def _build_dag(circuit, dag):
     for gate in circuit.queue:
         dag.add_node(gate)
         # Connect gates based on qubit dependencies
@@ -87,7 +110,7 @@ def build_dag(circuit, dag):
     return dag
 
 
-def create_graph(dag, digraph):
+def _create_graph(dag, digraph):
     new_nodes = [index + 1 for index, i in enumerate(dag.nodes)]
     labels = {
         i: index + 1 for index, i in enumerate(dag.nodes)
@@ -103,7 +126,7 @@ def create_graph(dag, digraph):
     return digraph
 
 
-def del_empty_qubits(circuit):
+def _del_empty_qubits(circuit):
     empty_qubits = []
     for gate in circuit.queue:
         for i in gate.qubits:
@@ -159,17 +182,17 @@ def print_graph(graph):
 def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
     # convert to DAG and DIGRPAPH
     digraph = nx.Graph()
-    dag = DAGgraph()
+    dag = _DAGgraph()
 
-    build_dag(new_circuit, dag)
-    create_graph(dag, digraph)
+    _build_dag(new_circuit, dag)
+    _create_graph(dag, digraph)
 
     subgraphs = list(nx.connected_components(digraph))
     if verbose:
         print(subgraphs)
     
     diff_list = []
-    list_subcircuits = partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False)
+    list_subcircuits = _partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False)
     print(list_subcircuits)
 
     if observable_dict is not None:
@@ -192,7 +215,7 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
 
     return list_subcircuits_obs
 
-def partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False):
+def _partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False):
     list_subcircuits = []
     for subgraph in subgraphs:
         subgraph = sorted(subgraph)
@@ -204,7 +227,7 @@ def partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False):
         circuit_copy = models.Circuit(new_circuit.nqubits)
         circuit_copy.add(selected_elements)
 
-        non_empty_qubits = del_empty_qubits(circuit_copy)
+        non_empty_qubits = _del_empty_qubits(circuit_copy)
         non_empty_qubits.sort()
         # print(non_empty_qubits)
         difference_list = [
@@ -237,7 +260,7 @@ def partition_circuit(subgraphs,dag,new_circuit, diff_list,verbose=False):
         list_subcircuits.append(circuit_copy)
     return list_subcircuits
 
-def separate_observables(circuit, observables, verbose=False):
+def _separate_observables(circuit, observables, verbose=False):
     observable_dict = {}
     for num_qubit in range(0, circuit.nqubits):
         observable_dict[num_qubit] = observables[num_qubit]

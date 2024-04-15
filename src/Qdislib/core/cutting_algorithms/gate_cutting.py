@@ -32,7 +32,7 @@ from itertools import product
 from Qdislib.core.cutting_algorithms._pycompss_functions import (
     _compute_expectation_value,
 )
-from Qdislib.utils.graph import gen_graph_circuit, separate_observables
+from Qdislib.utils.graph import gen_graph_circuit, _separate_observables
 
 
 def _has_number_or_less(lst, number):
@@ -189,7 +189,7 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     combinations_list = _generate_combinations(len(gates_cut), type_gates)
 
-    observable_dict = separate_observables(circuit, observables, verbose)
+    observable_dict = _separate_observables(circuit, observables, verbose)
 
     generated_circuits = _generate_circuits(
         combinations_list, circuit, gates_cut, draw
