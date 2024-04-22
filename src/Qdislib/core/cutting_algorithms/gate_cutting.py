@@ -270,13 +270,32 @@ def _gate_frequencies(result):
 
 def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
     """
-    Calculate circuit reconstruction after cutting a set of gates
-    and execution of the subcircuits.
+    Description
+    -----------
+    This function calculates the reconstruction of a circuit after cutting a set of gates and executing the subcircuits. It computes the expected value based on the provided gate type, the list of cut gates, and the list of expected values.
 
-    :param type_gates: string.
-    :param gates_cut: list int.
-    :param expected_values: list.
-    :return: reconstruction.
+    Parameters
+    ----------
+    type_gates: gates
+        The type of gates that were cut from the circuit (e.g., "CZ", "CNOT").
+    gates_cut: list of int
+        A list containing the indices of the gates that were cut from the circuit.
+    exp_values: list of float
+        A list of expected values obtained from executing the subcircuits.
+    verbose: bool, optional
+        If True, additional information will be printed during the computation. Defaults to False.
+
+    Returns
+    -------
+    reconstruction: float
+        The reconstructed expected value of the circuit after gate cutting.
+
+    Example
+    -------
+    >>> type_gates = gates.CZ
+    >>> gates_cut = [2, 4]
+    >>> exp_values = [0.5, 0.3, 0.6, 0.4, 0.7, 0.1, 0.8, 0.2]
+    >>> reconstruction = gate_reconstruction(type_gates, gates_cut, exp_values, verbose=True)
     """
     num_generated = int(len(exp_values) / 2 ** len(gates_cut))
     if verbose:
