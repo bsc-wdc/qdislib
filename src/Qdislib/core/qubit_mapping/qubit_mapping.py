@@ -79,7 +79,7 @@ def _qubit_arch(circuit, draw=False):
     return graph
 
 
-def subgraph_matcher(architecture, circuit_graph, draw=False):
+def subgraph_matcher(architecture, circuit, draw=False):
     """
 
     Description
@@ -109,6 +109,8 @@ def subgraph_matcher(architecture, circuit_graph, draw=False):
     >>> all_subgraph_isomorphisms = subgraph_matcher(target_graph, pattern_graph, draw=True)
     """
     # Create an example target graph
+    circuit_graph = _qubit_arch(circuit)
+
     target_graph = architecture
 
     pos = nx.spring_layout(target_graph)  # positions for all nodes
@@ -262,6 +264,7 @@ def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
         new_circuit.queue = subcirc.circuit.queue
         subcirc = subcirc.circuit
     else:
+        _NewCircuit_class = False
         new_circuit = models.Circuit(subcirc.nqubits)
         new_circuit.queue = subcirc.queue
     for element in subcirc.queue:

@@ -268,7 +268,7 @@ def _gate_frequencies(result):
     return freq
 
 
-def _gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
+def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
     """
     Calculate circuit reconstruction after cutting a set of gates
     and execution of the subcircuits.
@@ -420,7 +420,7 @@ def gate_cutting(
         )
 
     exp_value = compss_wait_on(exp_value)
-    reconstruction = _gate_reconstruction(
+    reconstruction = gate_reconstruction(
         type_gates, gates_cut, exp_value, verbose
     )
     return reconstruction

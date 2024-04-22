@@ -182,18 +182,18 @@ def split(observables, circuit, gate_tuple, draw=False, verbose=False):
             if index == new_qubit[0]:
                 obs1[index] = "-"
             else:
-                obs1[index] = observable_dict[index + x]
+                obs1[index] = observable_dict[x]
         else:
-            obs1[index] = observable_dict[index + x]
+            obs1[index] = observable_dict[x]
 
     for index, x in enumerate(non_empty_list[1]):
         if first_gate not in list_subcircuits[0].queue:
             if index == new_qubit[0]:
                 obs2[index] = "-"
             else:
-                obs2[index] = observable_dict[index + x]
+                obs2[index] = observable_dict[x]
         else:
-            obs2[index] = observable_dict[index + x]
+            obs2[index] = observable_dict[x]
 
     if verbose:
         print(obs1)
