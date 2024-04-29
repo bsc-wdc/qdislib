@@ -209,7 +209,6 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
         list_unpack.append(new_list)
 
     list_unpack = compss_wait_on(list_unpack)
-    print(list_unpack)
 
     for x in list_unpack:
         if len(x) > 1:
@@ -218,7 +217,6 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
         else:
             list_subcircuits.append(x[0])
 
-    print(list_subcircuits)
     list_subcircuits = _concatenate_lists(list_subcircuits)
     list_observables = _concatenate_lists(list_observables)
 
