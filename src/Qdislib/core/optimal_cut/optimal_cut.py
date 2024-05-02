@@ -382,7 +382,7 @@ def optimal_cut(
         ValueError("Error on returning best option")
 
 
-def execute_optimal_cut(observables,circuit, cut, verbose=False):
+def execute_optimal_cut(observables,circuit, cut, shots=30000, verbose=False):
     """
 
     Description
@@ -395,6 +395,8 @@ def execute_optimal_cut(observables,circuit, cut, verbose=False):
         The circuit object to be modified.
     cut: list.
         The optimal cutting strategy determined by the `optimal_cut` function. It can be a list of gates or a tuple of gates for cutting the wire in the middle.
+    shots: int.
+        Number of shots that will be executed the circuit for the simulation.
     verbose: bool, optional.
         Whether to print additional information during execution. Defaults to False.
 
@@ -408,11 +410,11 @@ def execute_optimal_cut(observables,circuit, cut, verbose=False):
     >>> reconstruction = execute_optimal_cut(circuit, cut=[2,14], verbose=True)
     """
     if isinstance(cut[0], tuple):
-        reconstruction = wire_cutting(observables, circuit, cut)
+        reconstruction = wire_cutting(observables, circuit, cut, shots, verbose=verbose)
         if verbose:
             print("RECONSTRUCTION WIRE CUTTING: ", reconstruction)
     else:
-        reconstruction = gate_cutting(observables, circuit, cut)
+        reconstruction = gate_cutting(observables, circuit, cut, shots, verbose=verbose)
         if verbose:
             print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
     return reconstruction
