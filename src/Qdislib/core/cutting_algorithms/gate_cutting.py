@@ -24,6 +24,7 @@ from pycompss.api.parameter import COLLECTION_IN
 import numpy as np
 import qibo
 from qibo import gates
+from qibo.result import CircuitResult
 
 from collections import Counter
 from functools import reduce
@@ -241,7 +242,7 @@ def _concatenate_lists(lst):
     return conc_list
 
 
-@task(returns=qibo.states.CircuitResult)
+@task(returns=CircuitResult)
 def _gate_simulation(circuit, shots=30000):
     """
     Execute a circuit.

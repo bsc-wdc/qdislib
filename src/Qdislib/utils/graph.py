@@ -348,7 +348,7 @@ def _partition_circuit(subgraphs, dag, new_circuit, diff_list, verbose=False):
                 ]
                 gate._set_target_qubits((target,))
         circuit_copy.nqubits = len(non_empty_qubits)
-        circuit_copy.queue.nmeasurements = 0
+        #circuit_copy.queue.nmeasurements = 0
         list_subcircuits.append(circuit_copy)
     return list_subcircuits
 
