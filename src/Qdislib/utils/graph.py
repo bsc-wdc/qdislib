@@ -272,7 +272,7 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
     list_subcircuits = _partition_circuit(
         subgraphs, dag, new_circuit, diff_list, verbose=False
     )
-    print(list_subcircuits)
+    if verbose: print(list_subcircuits)
 
     if observable_dict is not None:
         list_obs = []

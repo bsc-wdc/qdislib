@@ -19,7 +19,7 @@
 
 import networkx as nx
 import matplotlib.pyplot as plt
-from qibo import models
+from qibo import models, gates
 from Qdislib.classes.circuit_classes import _NewCircuit
 
 
@@ -256,6 +256,11 @@ def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
     >>> best_arch = {0: 2, 1: 1, 2: 0}
     >>> new_circuit = rename_qubits(subcirc, 1, best_arch, 0)
     """
+    if subcirc.nqubits <= 2:
+        new_subcirc = models.Circuit(subcirc.nqubits + 1)
+        new_subcirc.queue = subcirc.queue
+        subcirc = new_subcirc
+    print(subcirc.draw())
     target_qubit = best_arch[middle_arch_qubit]
     print(type(subcirc))
     if isinstance(subcirc, _NewCircuit):

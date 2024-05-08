@@ -34,6 +34,7 @@ from Qdislib.core.cutting_algorithms._pycompss_functions import (
     _compute_expectation_value,
 )
 from Qdislib.utils.graph import gen_graph_circuit, _separate_observables
+from Qdislib.core.qubit_mapping.qubit_mapping import architecture_x, subgraph_matcher, rename_qubits
 
 
 def _has_number_or_less(lst, number):
@@ -412,7 +413,7 @@ def gate_cutting(
     """
     type_gates = type(circuit.queue[gates_cut[0] - 1])
     subcircuits, list_observables = split_gates(
-        observables, gates_cut, circuit, draw
+        observables, gates_cut, circuit, draw, verbose
     )
     exp_value = []
     for index, i in enumerate(subcircuits):
@@ -441,4 +442,63 @@ def gate_cutting(
     reconstruction = gate_reconstruction(
         type_gates, gates_cut, exp_value, verbose
     )
+    return reconstruction
+
+def gate_cutting_QC(
+    connection,
+    observables,
+    circuit,
+    gates_cut,
+    shots=3000,
+    draw=False,
+    verbose=False, ):
+
+    gate_type = circuit.queue[gates_cut[0]-1]
+    list_sub, list_obs = split_gates(observables,gates_cut,circuit)
+    
+    lst = []
+    for index, circuit in enumerate(list_sub):
+
+        arch = architecture_x()
+        best_arch = subgraph_matcher(arch, circuit)
+
+        new_circuit = rename_qubits(circuit, 2, best_arch[0], 'B')
+
+        print(new_circuit.draw())
+        new_circuit.add(gates.M(*range(new_circuit.nqubits)))
+
+        for i in new_circuit.queue:
+            print(i)
+            print(i.qubits)
+        job_ids = connection.execute(new_circuit, nshots=shots)
+        print(job_ids)
+        tmp = connection._get_job(job_id = job_ids[0])
+        
+        while tmp.status != "running" and tmp.status != "completed":
+            print("ON QUEUE...")
+            print(tmp.status)
+            tmp = connection._get_job(job_id = job_ids[0])
+
+        results = connection.get_results(job_ids=job_ids)
+        
+        while any(x is None for x in results):
+            results = connection.get_results(job_ids=job_ids)
+
+        #print(results)
+        freq = results[0][0]['probabilities']
+        expectation_value = 0
+        obs = list_obs[index]
+        new_obs = "".join([value for key, value in sorted(obs.items())])
+        for key, value in freq.items():
+            result = "".join(char for char, bit in zip(new_obs, key) if bit == "1")
+            not_i = len(result) - result.count("I")
+            if not_i % 2 == 0:
+                expectation_value += float(value)
+            else:
+                expectation_value -= float(value)
+        print(expectation_value)
+        lst.append(abs(expectation_value))
+    
+    reconstruction = gate_reconstruction(gate_type,gates_cut,lst)
+    print("REconstruction expectation value: ", reconstruction)
     return reconstruction

@@ -83,7 +83,7 @@ def wire_cutting(
         observables, circuit, gate_tuple, draw, verbose
     )
     reconstruction = simulation(
-        lst_observables, qubit, list_subcircuits[0], list_subcircuits[1], shots
+        lst_observables, qubit, list_subcircuits[0], list_subcircuits[1], shots, verbose
     )
     return reconstruction
 
@@ -555,7 +555,7 @@ def reconstruction_qc(
     return reconstruction
 
 
-def quantum_computer(
+def wire_cutting_QC(
     connection,
     list_observables,
     qubit,

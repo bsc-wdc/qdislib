@@ -24,11 +24,12 @@ from pycompss.api.parameter import *
 import networkx as nx
 import copy
 
-from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting, wire_cutting_QC
 from Qdislib.core.cutting_algorithms.gate_cutting import (
     gate_cutting,
     _gates_dict,
     _has_number,
+    gate_cutting_QC
 )
 from Qdislib.utils.graph import (
     _build_dag,
@@ -415,6 +416,46 @@ def execute_optimal_cut(observables,circuit, cut, shots=30000, verbose=False):
             print("RECONSTRUCTION WIRE CUTTING: ", reconstruction)
     else:
         reconstruction = gate_cutting(observables, circuit, cut, shots, verbose=verbose)
+        if verbose:
+            print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
+    return reconstruction
+
+def execute_optimal_cut_QC(connection,observables,circuit, cut, shots=30000, verbose=False):
+    """
+
+    Description
+    -----------
+    Execute the optimal cut strategy determined by the `optimal_cut` function. It applies either gate cutting or wire cutting to the circuit based on the specified cutting strategy.
+
+    Parameters
+    ----------
+    circuit: Circuit.
+        The circuit object to be modified.
+    cut: list.
+        The optimal cutting strategy determined by the `optimal_cut` function. It can be a list of gates or a tuple of gates for cutting the wire in the middle.
+    shots: int.
+        Number of shots that will be executed the circuit for the simulation.
+    verbose: bool, optional.
+        Whether to print additional information during execution. Defaults to False.
+
+    Returns
+    -------
+    reconstruction: float
+        The reconstructed circuit after applying the optimal cutting strategy.
+
+    Example
+    -------
+    >>> reconstruction = execute_optimal_cut(circuit, cut=[2,14], verbose=True)
+    """
+
+
+
+    if isinstance(cut[0], tuple):
+        reconstruction = wire_cutting_QC(connection, observables, circuit, cut, shots, verbose=verbose)
+        if verbose:
+            print("RECONSTRUCTION WIRE CUTTING: ", reconstruction)
+    else:
+        reconstruction = gate_cutting_QC(connection, observables, circuit, cut, shots, verbose=verbose)
         if verbose:
             print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
     return reconstruction
