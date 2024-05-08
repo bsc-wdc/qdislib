@@ -21,7 +21,7 @@
 requires = [
     "setuptools>=61.0",
     "wheel",
-    "qibo==0.1.12",
+    "qibo>=0.1.12",
     "numpy",
     "networkx",
     "matplotlib"
@@ -40,7 +40,7 @@ maintainers = [
 description = "The quantum distributed computing library on top of PyCOMPSs"
 # url="https://Qdislib.bsc.es",
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 license = { file = "LICENSE" }
 keywords = ["quantum", "distributed computing", "PyCOMPSs", "COMPSs"]
 classifiers = [
@@ -81,9 +81,9 @@ ci = ["pycodestyle",
       "sphinx-material",
 ]
 notebooks = ["jupyter"]
-qchip = ["qiboconnection==0.12.0"]
+qchip = ["qiboconnection>=0.12.0"]
 pycompss = ["pycompss",
-            "qiboconnection==0.12.0"
+            "qiboconnection>=0.12.0"
 ]
 
 [tool.setuptools.dynamic]
