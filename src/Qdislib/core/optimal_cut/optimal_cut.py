@@ -383,7 +383,7 @@ def optimal_cut(
         ValueError("Error on returning best option")
 
 
-def execute_optimal_cut(observables,circuit, cut, shots=30000, verbose=False):
+def execute_optimal_cut(observables,circuit, cut, shots=30000, verbose=False, sync=True):
     """
 
     Description
@@ -415,7 +415,7 @@ def execute_optimal_cut(observables,circuit, cut, shots=30000, verbose=False):
         if verbose:
             print("RECONSTRUCTION WIRE CUTTING: ", reconstruction)
     else:
-        reconstruction = gate_cutting(observables, circuit, cut, shots, verbose=verbose)
+        reconstruction = gate_cutting(observables, circuit, cut, shots, verbose=verbose, sync=sync)
         if verbose:
             print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
     return reconstruction

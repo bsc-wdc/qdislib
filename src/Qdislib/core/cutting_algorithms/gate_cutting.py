@@ -267,7 +267,7 @@ def _gate_frequencies(result):
     freq = dict(result.frequencies(binary=True))
     return freq
 
-
+@task(exp_values=COLLECTION_IN, returns=1)
 def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
     """
     Description
@@ -378,6 +378,7 @@ def gate_cutting(
     chunk=1,
     draw=False,
     verbose=False,
+    sync=True
 ):
     """
     Description
@@ -438,10 +439,12 @@ def gate_cutting(
             _compute_expectation_value(total_freq, new_obs, shots)
         )
 
-    exp_value = compss_wait_on(exp_value)
+    #exp_value = compss_wait_on(exp_value)
     reconstruction = gate_reconstruction(
         type_gates, gates_cut, exp_value, verbose
     )
+    if sync: 
+        reconstruction = compss_wait_on(reconstruction)
     return reconstruction
 
 def gate_cutting_QC(
