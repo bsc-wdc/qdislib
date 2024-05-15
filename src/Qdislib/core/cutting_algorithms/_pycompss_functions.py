@@ -25,7 +25,9 @@ from Qdislib.classes.circuit_classes import _NewCircuit
 
 
 @task(returns=int)
-def _compute_expectation_value(freq, basis, shots):
+def _compute_expectation_value(
+    freq, basis, shots, wire_observables=False, b=None
+):
     """
     Compute the expectation value given a probability
     distribution (the output of the quantum computer) in a given basis that
@@ -53,7 +55,12 @@ def _compute_expectation_value(freq, basis, shots):
        2) Only a single I operator in the last position. For example 'ZYXXYI'.
 
     """
+    if wire_observables:
+        for key, value in basis.items():
+            if value == "-":
+                basis[key] = b
 
+    basis = "".join([value for key, value in sorted(basis.items())])
     expectation_value = 0
     for key, value in freq.items():
         if len(basis) != len(key):

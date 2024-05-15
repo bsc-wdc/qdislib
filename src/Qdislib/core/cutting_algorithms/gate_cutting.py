@@ -19,7 +19,7 @@
 
 from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
-from pycompss.api.parameter import COLLECTION_IN
+from pycompss.api.parameter import COLLECTION_IN, INOUT
 
 import numpy as np
 import qibo
@@ -34,7 +34,11 @@ from Qdislib.core.cutting_algorithms._pycompss_functions import (
     _compute_expectation_value,
 )
 from Qdislib.utils.graph import gen_graph_circuit, _separate_observables
-from Qdislib.core.qubit_mapping.qubit_mapping import architecture_x, subgraph_matcher, rename_qubits
+from Qdislib.core.qubit_mapping.qubit_mapping import (
+    architecture_x,
+    subgraph_matcher,
+    rename_qubits,
+)
 
 
 def _has_number_or_less(lst, number):
@@ -207,28 +211,31 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
     list_observables = []
     list_unpack = []
     for new_circuit in generated_circuits:
-        new_list = gen_graph_circuit(new_circuit, observable_dict)
-        list_unpack.append(new_list)
+        new_subcirc, new_obs = gen_graph_circuit(new_circuit, observable_dict)
+        list_subcircuits.extend(new_subcirc)
+        list_observables.extend(new_obs)
 
-    list_unpack = compss_wait_on(list_unpack)
+    # list_unpack = compss_wait_on(list_unpack)
 
-    for x in list_unpack:
+    """for x in list_unpack:
         if len(x) > 1:
             list_subcircuits.append(x[0])
             list_observables.append(x[1])
         else:
-            list_subcircuits.append(x[0])
+            list_subcircuits.append(x[0])"""
 
-    list_subcircuits = _concatenate_lists(list_subcircuits)
-    list_observables = _concatenate_lists(list_observables)
+    # list_subcircuits = _concatenate_lists(list_subcircuits)
+    # list_observables = _concatenate_lists(list_observables)
 
     if draw:
+        list_subcircuits = compss_wait_on(list_subcircuits)
         for index, sub in enumerate(list_subcircuits):
             print("\n Subcircuit " + str(index + 1))
             print(sub.draw())
     return list_subcircuits, list_observables
 
 
+# @task(returns=1, lst=COLLECTION_IN)
 def _concatenate_lists(lst):
     """
     Concatenate all list inside the list converting
@@ -266,6 +273,7 @@ def _gate_frequencies(result):
     """
     freq = dict(result.frequencies(binary=True))
     return freq
+
 
 @task(exp_values=COLLECTION_IN, returns=1)
 def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
@@ -378,7 +386,7 @@ def gate_cutting(
     chunk=1,
     draw=False,
     verbose=False,
-    sync=True
+    sync=True,
 ):
     """
     Description
@@ -416,10 +424,13 @@ def gate_cutting(
     subcircuits, list_observables = split_gates(
         observables, gates_cut, circuit, draw, verbose
     )
+    # subcircuits = compss_wait_on(subcircuits)
+    # list_observables = compss_wait_on(list_observables)
+
     exp_value = []
     for index, i in enumerate(subcircuits):
         list_freq = []
-        i.add(gates.M(*range(i.nqubits)))
+        _add_M_gate(i)
         for _ in range(0, chunk):
             result = _gate_simulation(i, int(shots / chunk))
             freq = _gate_frequencies(result)
@@ -434,18 +445,22 @@ def gate_cutting(
         obs = list_observables[index]
         if verbose:
             print(obs)
-        new_obs = "".join([value for key, value in sorted(obs.items())])
-        exp_value.append(
-            _compute_expectation_value(total_freq, new_obs, shots)
-        )
 
-    #exp_value = compss_wait_on(exp_value)
+        exp_value.append(_compute_expectation_value(total_freq, obs, shots))
+
+    # exp_value = compss_wait_on(exp_value)
     reconstruction = gate_reconstruction(
         type_gates, gates_cut, exp_value, verbose
     )
-    if sync: 
+    if sync:
         reconstruction = compss_wait_on(reconstruction)
     return reconstruction
+
+
+@task(i=INOUT)
+def _add_M_gate(i):
+    i.add(gates.M(*range(i.nqubits)))
+
 
 def gate_cutting_QC(
     connection,
@@ -454,18 +469,17 @@ def gate_cutting_QC(
     gates_cut,
     shots=3000,
     draw=False,
-    verbose=False, ):
+    verbose=False,
+):
+    gate_type = circuit.queue[gates_cut[0] - 1]
+    list_sub, list_obs = split_gates(observables, gates_cut, circuit)
 
-    gate_type = circuit.queue[gates_cut[0]-1]
-    list_sub, list_obs = split_gates(observables,gates_cut,circuit)
-    
     lst = []
     for index, circuit in enumerate(list_sub):
-
         arch = architecture_x()
         best_arch = subgraph_matcher(arch, circuit)
 
-        new_circuit = rename_qubits(circuit, 2, best_arch[0], 'B')
+        new_circuit = rename_qubits(circuit, 2, best_arch[0], "B")
 
         print(new_circuit.draw())
         new_circuit.add(gates.M(*range(new_circuit.nqubits)))
@@ -475,25 +489,27 @@ def gate_cutting_QC(
             print(i.qubits)
         job_ids = connection.execute(new_circuit, nshots=shots)
         print(job_ids)
-        tmp = connection._get_job(job_id = job_ids[0])
-        
+        tmp = connection._get_job(job_id=job_ids[0])
+
         while tmp.status != "running" and tmp.status != "completed":
             print("ON QUEUE...")
             print(tmp.status)
-            tmp = connection._get_job(job_id = job_ids[0])
+            tmp = connection._get_job(job_id=job_ids[0])
 
         results = connection.get_results(job_ids=job_ids)
-        
+
         while any(x is None for x in results):
             results = connection.get_results(job_ids=job_ids)
 
-        #print(results)
-        freq = results[0][0]['probabilities']
+        # print(results)
+        freq = results[0][0]["probabilities"]
         expectation_value = 0
         obs = list_obs[index]
         new_obs = "".join([value for key, value in sorted(obs.items())])
         for key, value in freq.items():
-            result = "".join(char for char, bit in zip(new_obs, key) if bit == "1")
+            result = "".join(
+                char for char, bit in zip(new_obs, key) if bit == "1"
+            )
             not_i = len(result) - result.count("I")
             if not_i % 2 == 0:
                 expectation_value += float(value)
@@ -501,7 +517,7 @@ def gate_cutting_QC(
                 expectation_value -= float(value)
         print(expectation_value)
         lst.append(abs(expectation_value))
-    
-    reconstruction = gate_reconstruction(gate_type,gates_cut,lst)
+
+    reconstruction = gate_reconstruction(gate_type, gates_cut, lst)
     print("REconstruction expectation value: ", reconstruction)
     return reconstruction

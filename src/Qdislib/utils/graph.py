@@ -231,7 +231,7 @@ def print_graph(graph):
     plt.show()
 
 
-@task(returns=list)
+# @task(returns=2)
 def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
     """
     Description
@@ -268,35 +268,37 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
     if verbose:
         print(subgraphs)
 
-    diff_list = []
-    list_subcircuits = _partition_circuit(
-        subgraphs, dag, new_circuit, diff_list, verbose=False
+    list_subcircuits, diff_list = _partition_circuit(
+        subgraphs, dag, new_circuit, verbose=False
     )
-    if verbose: print(list_subcircuits)
+    if verbose:
+        print(list_subcircuits)
 
     if observable_dict is not None:
         list_obs = []
         for p in diff_list:
-            new_obs = {}
-            for index, x in enumerate(p):
-                if verbose:
-                    print(observable_dict)
-
-                new_obs[index] = observable_dict[x]
-                if verbose:
-                    print(new_obs)
+            new_obs = _create_observables(p, observable_dict, verbose=False)
             list_obs.append(new_obs)
         if verbose:
             print(list_obs)
-        list_subcircuits_obs = [list_subcircuits, list_obs]
-    else:
-        list_subcircuits_obs = list_subcircuits
+        # list_subcircuits_obs = [list_subcircuits, list_obs]
+    # else:
+    # list_subcircuits_obs = list_subcircuits
 
-    return list_subcircuits_obs
+    return list_subcircuits, list_obs
 
 
-def _partition_circuit(subgraphs, dag, new_circuit, diff_list, verbose=False):
+@task(returns=1)
+def _create_observables(p, observable_dict, verbose):
+    new_obs = {}
+    for index, x in enumerate(p):
+        new_obs[index] = observable_dict[x]
+        if verbose:
+            print(new_obs)
+    return new_obs
 
+
+def _partition_circuit(subgraphs, dag, new_circuit, verbose=False):
     """
     Cut a circuit represented by subgraphs into individual
     subcircuits and adjusts the qubit indices accordingly.
@@ -308,49 +310,52 @@ def _partition_circuit(subgraphs, dag, new_circuit, diff_list, verbose=False):
     :param verbose: bool.
     :return: list_subcircuits
     """
+    diff_list = []
     list_subcircuits = []
     for subgraph in subgraphs:
-        subgraph = sorted(subgraph)
-        selected_elements = [dag.nodes[i - 1] for i in subgraph]
-        # circuit_copy = copy.deepcopy(new_circuit)
-
-        # remove specific qubit
-
-        circuit_copy = models.Circuit(new_circuit.nqubits)
-        circuit_copy.add(selected_elements)
-
-        non_empty_qubits = _del_empty_qubits(circuit_copy)
-        non_empty_qubits.sort()
-        # print(non_empty_qubits)
-        difference_list = [
-            value - index for index, value in enumerate(non_empty_qubits)
-        ]
-        # print("Non empty qubit ",difference_list)
-        subtracted_list = [
-            x - y for x, y in zip(non_empty_qubits, difference_list)
-        ]
-        if verbose:
-            print("Substracted list: ", subtracted_list)
-        diff_list.append(non_empty_qubits)
-        for gate in circuit_copy.queue:
-            if len(gate.qubits) > 1:
-                control = subtracted_list[
-                    non_empty_qubits.index(gate.qubits[0])
-                ]
-                gate._set_control_qubits((control,))
-                target = subtracted_list[
-                    non_empty_qubits.index(gate.qubits[1])
-                ]
-                gate._set_target_qubits((target,))
-            else:
-                target = subtracted_list[
-                    non_empty_qubits.index(gate.qubits[0])
-                ]
-                gate._set_target_qubits((target,))
-        circuit_copy.nqubits = len(non_empty_qubits)
-        #circuit_copy.queue.nmeasurements = 0
+        circuit_copy, non_empty_qubits = _create_circuit(
+            subgraph, dag, new_circuit, verbose
+        )
         list_subcircuits.append(circuit_copy)
-    return list_subcircuits
+        diff_list.append(non_empty_qubits)
+    return list_subcircuits, diff_list
+
+
+@task(returns=2)
+def _create_circuit(subgraph, dag, new_circuit, verbose=False):
+    subgraph = sorted(subgraph)
+    selected_elements = [dag.nodes[i - 1] for i in subgraph]
+    # circuit_copy = copy.deepcopy(new_circuit)
+
+    # remove specific qubit
+
+    circuit_copy = models.Circuit(new_circuit.nqubits)
+    circuit_copy.add(selected_elements)
+
+    non_empty_qubits = _del_empty_qubits(circuit_copy)
+    non_empty_qubits.sort()
+    # print(non_empty_qubits)
+    difference_list = [
+        value - index for index, value in enumerate(non_empty_qubits)
+    ]
+    # print("Non empty qubit ",difference_list)
+    subtracted_list = [
+        x - y for x, y in zip(non_empty_qubits, difference_list)
+    ]
+    if verbose:
+        print("Substracted list: ", subtracted_list)
+
+    for gate in circuit_copy.queue:
+        if len(gate.qubits) > 1:
+            control = subtracted_list[non_empty_qubits.index(gate.qubits[0])]
+            gate._set_control_qubits((control,))
+            target = subtracted_list[non_empty_qubits.index(gate.qubits[1])]
+            gate._set_target_qubits((target,))
+        else:
+            target = subtracted_list[non_empty_qubits.index(gate.qubits[0])]
+            gate._set_target_qubits((target,))
+    circuit_copy.nqubits = len(non_empty_qubits)
+    return circuit_copy, non_empty_qubits
 
 
 def _separate_observables(circuit, observables, verbose=False):

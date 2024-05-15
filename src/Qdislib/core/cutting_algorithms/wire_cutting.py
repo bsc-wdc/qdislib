@@ -17,6 +17,10 @@
 
 # -*- coding: utf-8 -*-
 
+from pycompss.api.task import task
+from pycompss.api.api import compss_wait_on
+from pycompss.api.parameter import COLLECTION_IN, DICTIONARY_IN
+
 import numpy as np
 import qibo
 from qibo import models, gates, hamiltonians  # , callbacks
@@ -41,7 +45,13 @@ import time
 
 
 def wire_cutting(
-    observables, circuit, gate_tuple, shots=30000, draw=False, verbose=False
+    observables,
+    circuit,
+    gate_tuple,
+    shots=30000,
+    draw=False,
+    verbose=False,
+    sync=True,
 ):
     """Description
     -----------
@@ -83,7 +93,13 @@ def wire_cutting(
         observables, circuit, gate_tuple, draw, verbose
     )
     reconstruction = simulation(
-        lst_observables, qubit, list_subcircuits[0], list_subcircuits[1], shots, verbose
+        lst_observables,
+        qubit,
+        list_subcircuits[0],
+        list_subcircuits[1],
+        shots,
+        verbose,
+        sync=True,
     )
     return reconstruction
 
@@ -160,10 +176,8 @@ def split(observables, circuit, gate_tuple, draw=False, verbose=False):
         print("MORE THAN 2 SUBGRAPH")
         return None, None
 
-    non_empty_list = []
-
-    list_subcircuits = _partition_circuit(
-        subgraphs, dag, circuit, non_empty_list, verbose=False
+    list_subcircuits, non_empty_list = _partition_circuit(
+        subgraphs, dag, circuit, verbose=False
     )
 
     if verbose:
@@ -174,6 +188,42 @@ def split(observables, circuit, gate_tuple, draw=False, verbose=False):
     if verbose:
         print(first_gate.qubits, second_gate.qubits)
 
+    obs1, obs2 = create_wire_observables(
+        non_empty_list,
+        list_subcircuits,
+        first_gate,
+        new_qubit,
+        observable_dict,
+        verbose,
+    )
+
+    lst_observables = [obs1, obs2]
+
+    check_reverse(first_gate, list_subcircuits, lst_observables)
+
+    """if draw:
+        for circ in list_subcircuits:
+            print(circ.draw())
+            print("\n")"""
+    return new_qubit, list_subcircuits, lst_observables
+
+
+@task(list_subcircuits=COLLECTION_IN, lst_observables=COLLECTION_IN)
+def check_reverse(first_gate, list_subcircuits, lst_observables):
+    if first_gate not in list_subcircuits[0].queue:
+        list_subcircuits.reverse()
+        lst_observables.reverse()
+
+
+@task(returns=2, non_empty_list=COLLECTION_IN, list_subcircuits=COLLECTION_IN)
+def create_wire_observables(
+    non_empty_list,
+    list_subcircuits,
+    first_gate,
+    new_qubit,
+    observable_dict,
+    verbose=False,
+):
     obs1 = {}
     obs2 = {}
 
@@ -199,16 +249,7 @@ def split(observables, circuit, gate_tuple, draw=False, verbose=False):
         print(obs1)
     if verbose:
         print(obs2)
-    lst_observables = [obs1, obs2]
-
-    if first_gate not in list_subcircuits[0].queue:
-        list_subcircuits.reverse()
-        lst_observables.reverse()
-    if draw:
-        for circ in list_subcircuits:
-            print(circ.draw())
-            print("\n")
-    return new_qubit, list_subcircuits, lst_observables
+    return obs1, obs2
 
 
 def simulation(
@@ -218,6 +259,7 @@ def simulation(
     circuit_2=None,
     shots=30000,
     verbose=False,
+    sync=True,
 ):
     """Description
     -----------
@@ -269,26 +311,24 @@ def simulation(
         for b in basis:
             if verbose:
                 print("Basis: ", b)
-            copy_circuit1 = models.Circuit(circuit_1.nqubits)
-            copy_circuit = circuit_1.copy(True)
-            copy_circuit1.queue = copy_circuit.queue
-            circuit1 = _first_subcircuit_basis(copy_circuit1, b, qubit[0])
+            # copy_circuit1 = models.Circuit(circuit_1.nqubits)
+            # copy_circuit = circuit_1.copy(True)
+            # copy_circuit1.queue = copy_circuit.queue
+            circuit1 = _first_subcircuit_basis(circuit_1, b, qubit[0])
             result = circuit1.execute_compss(nshots=shots)
             # obtain probability distribution
             freq = result.frequencies_compss(binary=True)
             # we call the function that computes the e
             # new_obs = num_z_sub1[:qubit[0]] + b + num_z_sub1[qubit[0]:]
             # print(new_obs)
-            for key, value in observables_1.items():
-                if value == "-":
-                    observables_1[key] = b
-            new_obs = "".join(
-                [value for key, value in sorted(observables_1.items())]
-            )
+
+            # new_obs = "".join(
+            #    [value for key, value in sorted(observables_1.items())]
+            # )
             if verbose:
-                print("OBSERVABLES: ", new_obs)
+                print("OBSERVABLES: ", observables_1)
             exp_value_1[b] = _compute_expectation_value(
-                freq, new_obs, shots=shots
+                freq, observables_1, shots=shots, wire_observables=True, b=b
             )
 
         # second subcircuit:
@@ -298,44 +338,36 @@ def simulation(
         for s in states:
             if verbose:
                 print("States: ", s)
-            copy_circuit2 = models.Circuit(circuit_2.nqubits)
-            copy_circuit = circuit_2.copy(True)
-            copy_circuit2.queue = copy_circuit.queue
-            circuit2 = _second_subcircuit_states(copy_circuit2, s, qubit[1])
+            # copy_circuit2 = models.Circuit(circuit_2.nqubits)
+            # copy_circuit = circuit_2.copy(True)
+            # copy_circuit2.queue = copy_circuit.queue
+            circuit2 = _second_subcircuit_states(circuit_2, s, qubit[1])
             result = circuit2.execute_compss(nshots=shots)
             # obtain probability distribution
             freq = result.frequencies_compss(binary=True)
-            new_obs2 = "".join(
-                [value for key, value in sorted(observables_2.items())]
-            )
+            # new_obs2 = "".join(
+            #    [value for key, value in sorted(observables_2.items())]
+            # )
             # we call the function that computes the expectation value
             if verbose:
-                print("OBSERVABLES: ", new_obs2)
+                print("OBSERVABLES: ", observables_2)
             exp_value_2[s] = _compute_expectation_value(
-                freq, new_obs2, shots=shots
+                freq, observables_2, shots=shots
             )
 
-        exp_value_1 = compss_wait_on(exp_value_1)
-        exp_value_2 = compss_wait_on(exp_value_2)
+        # exp_value_1 = compss_wait_on(exp_value_1)
+        # exp_value_2 = compss_wait_on(exp_value_2)
+        print(exp_value_1)
+        print(exp_value_2)
 
-        reconstruction = (
-            1
-            / 2
-            * (
-                (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
-                + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
-                + exp_value_1["X"]
-                * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
-                + exp_value_1["Y"]
-                * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
-            )
-        )
-
-        if verbose:
-            print(
-                "Expectation value after circuit cutting and reconstruction:",
-                reconstruction,
-            )
+        reconstruction = wire_reconstruction(exp_value_1, exp_value_2)
+        if sync:
+            reconstruction = compss_wait_on(reconstruction)
+            if verbose:
+                print(
+                    "Expectation value after circuit cutting and reconstruction:",
+                    reconstruction,
+                )
         return reconstruction
     else:
         circuit_1.add(gates.M(*range(circuit_1.nqubits)))
@@ -351,6 +383,23 @@ def simulation(
                 expec -= float(value) / shots
         print("Expectation value for the circuit: ", expec)
         return expec
+
+
+@task(exp_value_1=DICTIONARY_IN, exp_value_2=DICTIONARY_IN, returns=1)
+def wire_reconstruction(exp_value_1, exp_value_2):
+    reconstruction = (
+        1
+        / 2
+        * (
+            (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
+            + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
+            + exp_value_1["X"]
+            * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
+            + exp_value_1["Y"]
+            * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
+        )
+    )
+    return reconstruction
 
 
 def execute_qc(

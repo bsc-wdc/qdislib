@@ -24,12 +24,15 @@ from pycompss.api.parameter import *
 import networkx as nx
 import copy
 
-from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting, wire_cutting_QC
+from Qdislib.core.cutting_algorithms.wire_cutting import (
+    wire_cutting,
+    wire_cutting_QC,
+)
 from Qdislib.core.cutting_algorithms.gate_cutting import (
     gate_cutting,
     _gates_dict,
     _has_number,
-    gate_cutting_QC
+    gate_cutting_QC,
 )
 from Qdislib.utils.graph import (
     _build_dag,
@@ -383,7 +386,9 @@ def optimal_cut(
         ValueError("Error on returning best option")
 
 
-def execute_optimal_cut(observables,circuit, cut, shots=30000, verbose=False, sync=True):
+def execute_optimal_cut(
+    observables, circuit, cut, shots=30000, chunk=1, verbose=False, sync=True
+):
     """
 
     Description
@@ -411,16 +416,29 @@ def execute_optimal_cut(observables,circuit, cut, shots=30000, verbose=False, sy
     >>> reconstruction = execute_optimal_cut(circuit, cut=[2,14], verbose=True)
     """
     if isinstance(cut[0], tuple):
-        reconstruction = wire_cutting(observables, circuit, cut, shots, verbose=verbose)
+        reconstruction = wire_cutting(
+            observables, circuit, cut, shots, verbose=verbose, sync=sync
+        )
         if verbose:
             print("RECONSTRUCTION WIRE CUTTING: ", reconstruction)
     else:
-        reconstruction = gate_cutting(observables, circuit, cut, shots, verbose=verbose, sync=sync)
+        reconstruction = gate_cutting(
+            observables,
+            circuit,
+            cut,
+            shots,
+            chunk=chunk,
+            verbose=verbose,
+            sync=sync,
+        )
         if verbose:
             print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
     return reconstruction
 
-def execute_optimal_cut_QC(connection,observables,circuit, cut, shots=30000, verbose=False):
+
+def execute_optimal_cut_QC(
+    connection, observables, circuit, cut, shots=30000, verbose=False
+):
     """
 
     Description
@@ -448,14 +466,16 @@ def execute_optimal_cut_QC(connection,observables,circuit, cut, shots=30000, ver
     >>> reconstruction = execute_optimal_cut(circuit, cut=[2,14], verbose=True)
     """
 
-
-
     if isinstance(cut[0], tuple):
-        reconstruction = wire_cutting_QC(connection, observables, circuit, cut, shots, verbose=verbose)
+        reconstruction = wire_cutting_QC(
+            connection, observables, circuit, cut, shots, verbose=verbose
+        )
         if verbose:
             print("RECONSTRUCTION WIRE CUTTING: ", reconstruction)
     else:
-        reconstruction = gate_cutting_QC(connection, observables, circuit, cut, shots, verbose=verbose)
+        reconstruction = gate_cutting_QC(
+            connection, observables, circuit, cut, shots, verbose=verbose
+        )
         if verbose:
             print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
     return reconstruction
