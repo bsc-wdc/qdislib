@@ -39,8 +39,6 @@ from Qdislib.utils.graph import (
     _partition_circuit,
 )
 from Qdislib.core.qubit_mapping.qubit_mapping import *
-
-from pycompss.api.api import compss_wait_on
 import time
 
 
@@ -99,7 +97,7 @@ def wire_cutting(
         list_subcircuits[1],
         shots,
         verbose,
-        sync=True,
+        sync=sync,
     )
     return reconstruction
 
