@@ -18,7 +18,7 @@
 # -*- coding: utf-8 -*-
 
 from pycompss.api.task import task
-
+import qibo
 from qibo import gates
 
 from Qdislib.classes.circuit_classes import _NewCircuit
@@ -26,7 +26,7 @@ from Qdislib.classes.circuit_classes import _NewCircuit
 
 @task(returns=int)
 def _compute_expectation_value(
-    freq, basis, shots, wire_observables=False, b=None
+    freq, basis, shots, wire_observables=False, b=None, gpu=False, gpu_counter=0
 ):
     """
     Compute the expectation value given a probability
@@ -55,6 +55,9 @@ def _compute_expectation_value(
        2) Only a single I operator in the last position. For example 'ZYXXYI'.
 
     """
+    if gpu:
+        qibo.set_device(f"/GPU:{gpu_counter}")
+
     if wire_observables:
         for key, value in basis.items():
             if value == "-":

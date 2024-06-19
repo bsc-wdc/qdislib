@@ -23,6 +23,7 @@ from pycompss.api.parameter import *
 
 import networkx as nx
 import copy
+import qibo
 
 from Qdislib.core.cutting_algorithms.wire_cutting import (
     wire_cutting,
@@ -387,7 +388,7 @@ def optimal_cut(
 
 
 def execute_optimal_cut(
-    observables, circuit, cut, shots=30000, chunk=1, verbose=False, sync=True
+    observables, circuit, cut, shots=30000, chunk=1, verbose=False, sync=True, gpu=False, gpu_counter=0
 ):
     """
 
@@ -415,6 +416,7 @@ def execute_optimal_cut(
     -------
     >>> reconstruction = execute_optimal_cut(circuit, cut=[2,14], verbose=True)
     """
+
     if isinstance(cut[0], tuple):
         reconstruction = wire_cutting(
             observables, circuit, cut, shots, verbose=verbose, sync=sync
@@ -430,6 +432,8 @@ def execute_optimal_cut(
             chunk=chunk,
             verbose=verbose,
             sync=sync,
+            gpu=gpu,
+            gpu_counter=gpu_counter
         )
         if verbose:
             print("RECONSTRUCTION GATE CUTTING: ", reconstruction)

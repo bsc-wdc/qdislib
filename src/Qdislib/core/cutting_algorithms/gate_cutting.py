@@ -251,7 +251,7 @@ def _concatenate_lists(lst):
 
 
 @task(returns=CircuitResult)
-def _gate_simulation(circuit, shots=30000):
+def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     """
     Execute a circuit.
 
@@ -259,24 +259,28 @@ def _gate_simulation(circuit, shots=30000):
     :param shots: int.
     :return: result.
     """
+    if gpu:
+        qibo.set_device(f"/GPU:{gpu_counter}")
     result = circuit(nshots=shots)
     return result
 
 
 @task(returns=list)
-def _gate_frequencies(result):
+def _gate_frequencies(result, gpu=False, gpu_counter=0):
     """
     Calculate frequencies from a result.
 
     :param result: CircuitResult.
     :return: frequencies.
     """
+    if gpu:
+        qibo.set_device(f"/GPU:{gpu_counter}")
     freq = dict(result.frequencies(binary=True))
     return freq
 
 
 @task(exp_values=COLLECTION_IN, returns=1)
-def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
+def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False, gpu=False, gpu_counter=0):
     """
     Description
     -----------
@@ -305,6 +309,8 @@ def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
     >>> exp_values = [0.5, 0.3, 0.6, 0.4, 0.7, 0.1, 0.8, 0.2]
     >>> reconstruction = gate_reconstruction(type_gates, gates_cut, exp_values, verbose=True)
     """
+    if gpu:
+        qibo.set_device(f"/GPU:{gpu_counter}")
     num_generated = int(len(exp_values) / 2 ** len(gates_cut))
     if verbose:
         print(num_generated)
@@ -344,7 +350,7 @@ def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False):
 
 
 @task(returns=dict, dicts=COLLECTION_IN)
-def _sum_dicts(dicts):
+def _sum_dicts(dicts, gpu=False, gpu_counter=0):
     """
     Sum all dictionaries by key resulting in only one
     dictionary.
@@ -352,6 +358,8 @@ def _sum_dicts(dicts):
     :param dics: dict list.
     :return: summed_dict.
     """
+    if gpu:
+        qibo.set_device(f"/GPU:{gpu_counter}")
     summed_dict = reduce(lambda a, b: a + Counter(b), dicts, Counter())
     return dict(summed_dict)
 
@@ -387,6 +395,8 @@ def gate_cutting(
     draw=False,
     verbose=False,
     sync=True,
+    gpu=False,
+    gpu_counter=0
 ):
     """
     Description
@@ -430,14 +440,14 @@ def gate_cutting(
     exp_value = []
     for index, i in enumerate(subcircuits):
         list_freq = []
-        _add_M_gate(i)
+        _add_M_gate(i,gpu=gpu, gpu_counter=gpu_counter)
         for _ in range(0, chunk):
-            result = _gate_simulation(i, int(shots / chunk))
-            freq = _gate_frequencies(result)
+            result = _gate_simulation(i, int(shots / chunk), gpu=gpu, gpu_counter=gpu_counter)
+            freq = _gate_frequencies(result,gpu=gpu, gpu_counter=gpu_counter)
             # frq in a list COLLECTION
             list_freq.append(freq)
         # task per sumar dicts COLLECTIONS
-        total_freq = _sum_dicts(list_freq)
+        total_freq = _sum_dicts(list_freq,gpu=gpu, gpu_counter=gpu_counter)
         if verbose:
             print(total_freq)
         if verbose:
@@ -446,11 +456,11 @@ def gate_cutting(
         if verbose:
             print(obs)
 
-        exp_value.append(_compute_expectation_value(total_freq, obs, shots))
+        exp_value.append(_compute_expectation_value(total_freq, obs, shots, gpu, gpu_counter))
 
     # exp_value = compss_wait_on(exp_value)
     reconstruction = gate_reconstruction(
-        type_gates, gates_cut, exp_value, verbose
+        type_gates, gates_cut, exp_value, verbose, gpu=gpu, gpu_counter=gpu_counter
     )
     if sync:
         reconstruction = compss_wait_on(reconstruction)
@@ -458,7 +468,9 @@ def gate_cutting(
 
 
 @task(i=INOUT)
-def _add_M_gate(i):
+def _add_M_gate(i, gpu=False, gpu_counter=0):
+    if gpu:
+        qibo.set_device(f"/GPU:{gpu_counter}")
     i.add(gates.M(*range(i.nqubits)))
 
 
@@ -519,5 +531,5 @@ def gate_cutting_QC(
         lst.append(abs(expectation_value))
 
     reconstruction = gate_reconstruction(gate_type, gates_cut, lst)
-    print("REconstruction expectation value: ", reconstruction)
+    print("Reconstruction expectation value: ", reconstruction)
     return reconstruction
