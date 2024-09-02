@@ -496,9 +496,8 @@ def gate_cutting_QC(
         print(new_circuit.draw())
         new_circuit.add(gates.M(*range(new_circuit.nqubits)))
 
-        for i in new_circuit.queue:
-            print(i)
-            print(i.qubits)
+
+        #------------------------------------------------------------------------- 
         job_ids = connection.execute(new_circuit, nshots=shots)
         print(job_ids)
         tmp = connection._get_job(job_id=job_ids[0])
@@ -512,6 +511,13 @@ def gate_cutting_QC(
 
         while any(x is None for x in results):
             results = connection.get_results(job_ids=job_ids)
+        #--------------------------------------------------------------------------
+        
+        #HW_AVG = shots ???
+        #result = platform.execute(program=circuit, num_avg=HW_AVG, repetition_duration=REPETITION_DURATION)
+        #freq = result.probabilities
+
+        #--------------------------------------------------------------------------
 
         # print(results)
         freq = results[0][0]["probabilities"]

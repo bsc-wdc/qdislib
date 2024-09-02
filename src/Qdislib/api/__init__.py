@@ -23,3 +23,5 @@ from Qdislib.core.cutting_algorithms.gate_cutting import *
 from Qdislib.core.cutting_algorithms.wire_cutting import *
 from Qdislib.core.optimal_cut.optimal_cut import *
 from Qdislib.core.qubit_mapping.qubit_mapping import *
+from Qdislib.core.graph_algorithms.max_cut import *
+from Qdislib.core.graph_algorithms.random_graph_generator import *

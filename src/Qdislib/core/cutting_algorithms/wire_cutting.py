@@ -309,11 +309,11 @@ def simulation(
         for b in basis:
             if verbose:
                 print("Basis: ", b)
-            # copy_circuit1 = models.Circuit(circuit_1.nqubits)
-            # copy_circuit = circuit_1.copy(True)
-            # copy_circuit1.queue = copy_circuit.queue
-            circuit1 = _first_subcircuit_basis(circuit_1, b, qubit[0])
-            result = circuit1.execute_compss(nshots=shots)
+            copy_circuit = models.Circuit(circuit_1.nqubits)
+            temp = circuit_1.copy()
+            copy_circuit.queue = temp.queue
+            copy_circuit = _first_subcircuit_basis(copy_circuit, b, qubit[0])
+            result = copy_circuit.execute_compss(nshots=shots)
             # obtain probability distribution
             freq = result.frequencies_compss(binary=True)
             # we call the function that computes the e
@@ -324,7 +324,11 @@ def simulation(
             #    [value for key, value in sorted(observables_1.items())]
             # )
             if verbose:
-                print("OBSERVABLES: ", observables_1)
+                print("OBSERVABLES 1: ", observables_1)
+                print(circuit_1.draw())
+                print(circuit_1.nqubits)
+                print(copy_circuit.circuit.draw())
+                print(copy_circuit.circuit.nqubits)
             exp_value_1[b] = _compute_expectation_value(
                 freq, observables_1, shots=shots, wire_observables=True, b=b
             )
@@ -336,11 +340,11 @@ def simulation(
         for s in states:
             if verbose:
                 print("States: ", s)
-            # copy_circuit2 = models.Circuit(circuit_2.nqubits)
-            # copy_circuit = circuit_2.copy(True)
-            # copy_circuit2.queue = copy_circuit.queue
-            circuit2 = _second_subcircuit_states(circuit_2, s, qubit[1])
-            result = circuit2.execute_compss(nshots=shots)
+            copy_circuit2 = models.Circuit(circuit_2.nqubits)
+            temp2 = circuit_2.copy(True)
+            copy_circuit2.queue = temp2.queue
+            copy_circuit2 = _second_subcircuit_states(copy_circuit2, s, qubit[1])
+            result = copy_circuit2.execute_compss(nshots=shots)
             # obtain probability distribution
             freq = result.frequencies_compss(binary=True)
             # new_obs2 = "".join(
@@ -348,7 +352,7 @@ def simulation(
             # )
             # we call the function that computes the expectation value
             if verbose:
-                print("OBSERVABLES: ", observables_2)
+                print("OBSERVABLES 2: ", observables_2)
             exp_value_2[s] = _compute_expectation_value(
                 freq, observables_2, shots=shots
             )
