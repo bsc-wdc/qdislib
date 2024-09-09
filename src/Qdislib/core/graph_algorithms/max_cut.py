@@ -118,7 +118,6 @@ def solve_maxcut(G, p=1, num_shots=8000, seed=10):
 def solve_maxcut_expected_value(G, observables, p=1, num_shots=8000, max_qubits=None,gate_cut=True,wire_cut=True,draw=False, seed=10, chunk=1,verbose=False,sync=True,gpu=False,gpu_counter=0):
     if not wire_cut and not gate_cut:
         qaoa_circuit = create_qaoa_circuit(G, p, seed)
-        qaoa_circuit.add(gates.M(*range(qaoa_circuit.nqubits)))
         freq = execute_qaoa(qaoa_circuit,num_shots)
         return _compute_expectation_value(freq, observables, num_shots)
     else:

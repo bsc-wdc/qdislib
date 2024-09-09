@@ -63,7 +63,8 @@ def _compute_expectation_value(
             if value == "-":
                 basis[key] = b
 
-    basis = "".join([value for key, value in sorted(basis.items())])
+    if not isinstance(basis,str):
+        basis = "".join([value for key, value in sorted(basis.items())])
     
     expectation_value = 0
     '''for key, value in freq.items():
