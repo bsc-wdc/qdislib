@@ -64,8 +64,9 @@ def _compute_expectation_value(
                 basis[key] = b
 
     basis = "".join([value for key, value in sorted(basis.items())])
+    
     expectation_value = 0
-    for key, value in freq.items():
+    '''for key, value in freq.items():
         if len(basis) != len(key):
             print("Not enough basis")
             return None
@@ -74,7 +75,30 @@ def _compute_expectation_value(
         if not_i % 2 == 0:
             expectation_value += float(value) / shots
         else:
-            expectation_value -= float(value) / shots
+            expectation_value -= float(value) / shots'''
+    
+    for key, value in freq.items():
+        if len(basis) != len(key):
+            print("Not enough basis")
+            return None
+        # Map the measurement result to the observable
+        contribution = 1
+        for bit, obs in zip(key, basis):
+            if obs == "Z":
+                contribution *= (-1) ** int(bit)
+            elif obs == "X":
+                # Assuming X gives ±1 based on measurement outcomes
+                contribution *= 1 if bit == "0" else -1
+            elif obs == "Y":
+                # Assuming Y gives ±i based on measurement outcomes
+                contribution *= 1 if bit == "0" else -1
+            elif obs == "I":
+                contribution *= 1
+            else:
+                raise ValueError(f"Unsupported observable {obs}")
+        
+        # Add the contribution weighted by its frequency
+        expectation_value += contribution * (value / shots)
 
     return expectation_value
 

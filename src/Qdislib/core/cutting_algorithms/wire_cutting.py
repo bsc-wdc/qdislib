@@ -359,8 +359,6 @@ def simulation(
 
         # exp_value_1 = compss_wait_on(exp_value_1)
         # exp_value_2 = compss_wait_on(exp_value_2)
-        print(exp_value_1)
-        print(exp_value_2)
 
         reconstruction = wire_reconstruction(exp_value_1, exp_value_2)
         if sync:

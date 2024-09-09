@@ -29,6 +29,7 @@ from pycompss.api.api import compss_barrier
 from pycompss.api.parameter import *
 
 from Qdislib.core.optimal_cut.optimal_cut import optimal_cut, execute_optimal_cut
+from Qdislib.core.cutting_algorithms._pycompss_functions import _compute_expectation_value
 
 class QAOASolver(object):
     def __init__(self, input_graph: nx.Graph, num_shots=8000, seed=10):
@@ -115,9 +116,13 @@ def solve_maxcut(G, p=1, num_shots=8000, seed=10):
     return qaoa_solution
 
 def solve_maxcut_expected_value(G, observables, p=1, num_shots=8000, max_qubits=None,gate_cut=True,wire_cut=True,draw=False, seed=10, chunk=1,verbose=False,sync=True,gpu=False,gpu_counter=0):
-    qaoa_circuit = create_qaoa_circuit(G, p, seed)
-    cut = optimal_cut(circuit=qaoa_circuit,max_qubits=max_qubits,gate_cut=gate_cut,wire_cut=wire_cut,draw=draw)
-    print(cut)
-    print(observables)
-    qaoa_reconstruction = execute_qaoa_expected_value(qaoa_circuit=qaoa_circuit, cut=cut, observables=observables, num_shots=num_shots, chunk=chunk,verbose=verbose,sync=sync,gpu=gpu,gpu_counter=gpu_counter)
-    return qaoa_reconstruction
+    if not wire_cut and not gate_cut:
+        qaoa_circuit = create_qaoa_circuit(G, p, seed)
+        qaoa_circuit.add(gates.M(*range(qaoa_circuit.nqubits)))
+        freq = execute_qaoa(qaoa_circuit,num_shots)
+        return _compute_expectation_value(freq, observables, num_shots)
+    else:
+        qaoa_circuit = create_qaoa_circuit(G, p, seed)
+        cut = optimal_cut(circuit=qaoa_circuit,max_qubits=max_qubits,gate_cut=gate_cut,wire_cut=wire_cut,draw=draw)
+        qaoa_reconstruction = execute_qaoa_expected_value(qaoa_circuit=qaoa_circuit, cut=cut, observables=observables, num_shots=num_shots, chunk=chunk,verbose=verbose,sync=sync,gpu=gpu,gpu_counter=gpu_counter)
+        return qaoa_reconstruction
