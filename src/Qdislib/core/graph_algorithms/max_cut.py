@@ -123,5 +123,7 @@ def solve_maxcut_expected_value(G, observables, p=1, num_shots=8000, max_qubits=
     else:
         qaoa_circuit = create_qaoa_circuit(G, p, seed)
         cut = optimal_cut(circuit=qaoa_circuit,max_qubits=max_qubits,gate_cut=gate_cut,wire_cut=wire_cut,draw=draw)
+        print(cut)
+        cut = compss_wait_on(cut)
         qaoa_reconstruction = execute_qaoa_expected_value(qaoa_circuit=qaoa_circuit, cut=cut, observables=observables, num_shots=num_shots, chunk=chunk,verbose=verbose,sync=sync,gpu=gpu,gpu_counter=gpu_counter)
         return qaoa_reconstruction
