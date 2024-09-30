@@ -261,6 +261,7 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     """
     if gpu:
         qibo.set_device(f"/GPU:{gpu_counter}")
+    qibo.set_backend("numpy")
     result = circuit(nshots=shots)
     return result
 
