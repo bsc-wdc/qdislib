@@ -77,48 +77,50 @@ def _double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
 
         # Store number of nodes in each subgraph
         result_list = []
-        for subgraph in subgraphs:
-            subgraph = sorted(subgraph)
-            if draw:
-                print("Subgraph: ", subgraph)
-            # --------------------------------------------------------------
-            selected_elements = [circuit.queue[i - 1] for i in subgraph]
-            circuit_copy = copy.deepcopy(circuit)
-            circuit_copy.queue = selected_elements
-            non_empty_qubits = _del_empty_qubits(circuit_copy)
-            non_empty_qubits.sort()
-            result_list.append(len(non_empty_qubits))
-            # --------------------------------------------------------------
-            num_nodes.append(len(subgraph))
-        if max_qubits is None or _has_number(result_list, max_qubits):
-            if num_subcirucits is None or num_components == num_subcirucits:
-                right_subgrafs.append(array)
-                str_array = str(array)
-                temp[str_array] = {}
-                # num_nodes_in_subgraphs.append(num_nodes)
-                comp_cost = (
-                    2 ** len(array)
-                    * num_components
-                    * max(result_list)
-                    * (max(num_nodes) - min(num_nodes))
-                )
-                computational_cost.append(comp_cost)
-                temp[str_array]["computacional_cost"] = comp_cost
-                temp[str_array]["num_components"] = num_components
-                temp[str_array]["num_qubits"] = result_list
-                temp[str_array]["num_gates"] = num_nodes
+        if num_components > 1:
+            print("HEY")
+            for subgraph in subgraphs:
+                subgraph = sorted(subgraph)
                 if draw:
-                    print("Removing gate ", array)
-                if draw:
-                    print("Number of connected components:", num_components)
-                if draw:
-                    print("Number of qubits per subcircuit: ", result_list)
-                if draw:
-                    print("Number of gates per subcircuit: ", num_nodes)
-                if draw:
-                    print("Computational Cost: ", comp_cost)
-                if draw:
-                    print_graph(copy_dag)
+                    print("Subgraph: ", subgraph)
+                # --------------------------------------------------------------
+                selected_elements = [circuit.queue[i - 1] for i in subgraph]
+                circuit_copy = copy.deepcopy(circuit)
+                circuit_copy.queue = selected_elements
+                non_empty_qubits = _del_empty_qubits(circuit_copy)
+                non_empty_qubits.sort()
+                result_list.append(len(non_empty_qubits))
+                # --------------------------------------------------------------
+                num_nodes.append(len(subgraph))
+            if max_qubits is None or _has_number(result_list, max_qubits):
+                if num_subcirucits is None or num_components == num_subcirucits:
+                    right_subgrafs.append(array)
+                    str_array = str(array)
+                    temp[str_array] = {}
+                    # num_nodes_in_subgraphs.append(num_nodes)
+                    comp_cost = (
+                        2 ** len(array)
+                        * num_components
+                        * max(result_list)
+                        * (max(num_nodes) - min(num_nodes))
+                    )
+                    computational_cost.append(comp_cost)
+                    temp[str_array]["computacional_cost"] = comp_cost
+                    temp[str_array]["num_components"] = num_components
+                    temp[str_array]["num_qubits"] = result_list
+                    temp[str_array]["num_gates"] = num_nodes
+                    if draw:
+                        print("Removing gate ", array)
+                    if draw:
+                        print("Number of connected components:", num_components)
+                    if draw:
+                        print("Number of qubits per subcircuit: ", result_list)
+                    if draw:
+                        print("Number of gates per subcircuit: ", num_nodes)
+                    if draw:
+                        print("Computational Cost: ", comp_cost)
+                    if draw:
+                        print_graph(copy_dag)
     return right_subgrafs, computational_cost
 
 
