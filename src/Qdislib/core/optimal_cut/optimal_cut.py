@@ -78,7 +78,6 @@ def _double_gates(circuit, digraph, max_qubits, num_subcirucits, draw):
         # Store number of nodes in each subgraph
         result_list = []
         if num_components > 1:
-            print("HEY")
             for subgraph in subgraphs:
                 subgraph = sorted(subgraph)
                 if draw:
