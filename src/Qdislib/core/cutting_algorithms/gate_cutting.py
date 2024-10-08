@@ -282,6 +282,7 @@ def _gate_frequencies(result, gpu=False, gpu_counter=0):
     if gpu:
         qibo.set_device(f"/GPU:{gpu_counter}")
     freq = dict(result.frequencies(binary=True))
+    compss_barrier()
     return freq
 
 
