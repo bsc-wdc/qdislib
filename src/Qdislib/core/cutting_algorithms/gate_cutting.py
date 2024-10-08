@@ -251,8 +251,8 @@ def _concatenate_lists(lst):
     return conc_list
 
 
-@task(returns=CircuitResult)
 @constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
+@task(returns=CircuitResult)
 def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     """
     Execute a circuit.
@@ -270,7 +270,6 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
 
 
 @task(returns=list)
-@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 def _gate_frequencies(result, gpu=False, gpu_counter=0):
     """
     Calculate frequencies from a result.
