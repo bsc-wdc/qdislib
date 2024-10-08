@@ -270,6 +270,7 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
 
 
 @task(returns=list)
+@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 def _gate_frequencies(result, gpu=False, gpu_counter=0):
     """
     Calculate frequencies from a result.
