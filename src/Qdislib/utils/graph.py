@@ -27,6 +27,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 from pycompss.api.task import task
+from pycompss.api.constraint import constraint
+
 from qibo import models
 
 
@@ -288,6 +290,7 @@ def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
     return list_subcircuits, list_obs
 
 
+@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 @task(returns=1)
 def _create_observables(p, observable_dict, verbose):
     new_obs = {}
@@ -321,6 +324,7 @@ def _partition_circuit(subgraphs, dag, new_circuit, verbose=False):
     return list_subcircuits, diff_list
 
 
+@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 @task(returns=2)
 def _create_circuit(subgraph, dag, new_circuit, verbose=False):
     subgraph = sorted(subgraph)

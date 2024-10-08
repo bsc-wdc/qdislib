@@ -21,6 +21,7 @@ from pycompss.api.task import task
 from pycompss.api.constraint import constraint
 from pycompss.api.api import compss_wait_on
 from pycompss.api.parameter import COLLECTION_IN, INOUT
+from pycompss.api.api import compss_barrier
 
 import numpy as np
 import qibo
@@ -266,6 +267,7 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     
     #qibo.set_backend("numpy")
     result = circuit(nshots=shots)
+    result = compss_wait_on(result)
     return result
 
 @constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
@@ -473,6 +475,7 @@ def gate_cutting(
     return reconstruction
 
 
+@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 @task(i=INOUT)
 def _add_M_gate(i, gpu=False, gpu_counter=0):
     if gpu:
