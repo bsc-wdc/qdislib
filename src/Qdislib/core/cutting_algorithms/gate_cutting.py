@@ -18,6 +18,7 @@
 # -*- coding: utf-8 -*-
 
 from pycompss.api.task import task
+from pycompss.api.constraint import constraint
 from pycompss.api.api import compss_wait_on
 from pycompss.api.parameter import COLLECTION_IN, INOUT
 
@@ -251,6 +252,7 @@ def _concatenate_lists(lst):
 
 
 @task(returns=CircuitResult)
+@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     """
     Execute a circuit.
@@ -261,8 +263,8 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     """
     if gpu:
         qibo.set_device(f"/GPU:{gpu_counter}")
-    else:
-        qibo.set_backend("numpy")
+    
+    #qibo.set_backend("numpy")
     result = circuit(nshots=shots)
     return result
 
