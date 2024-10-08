@@ -268,7 +268,7 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     result = circuit(nshots=shots)
     return result
 
-
+@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 @task(returns=list)
 def _gate_frequencies(result, gpu=False, gpu_counter=0):
     """
@@ -283,6 +283,7 @@ def _gate_frequencies(result, gpu=False, gpu_counter=0):
     return freq
 
 
+@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 @task(exp_values=COLLECTION_IN, returns=1)
 def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False, gpu=False, gpu_counter=0):
     """
@@ -353,6 +354,7 @@ def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False, gpu=Fa
     return reconstruction.real
 
 
+@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 @task(returns=dict, dicts=COLLECTION_IN)
 def _sum_dicts(dicts, gpu=False, gpu_counter=0):
     """

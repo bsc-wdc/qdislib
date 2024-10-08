@@ -23,7 +23,6 @@ from qibo import gates
 
 from Qdislib.classes.circuit_classes import _NewCircuit
 
-
 @task(returns=int)
 def _compute_expectation_value(
     freq, basis, shots, wire_observables=False, b=None, gpu=False, gpu_counter=0
