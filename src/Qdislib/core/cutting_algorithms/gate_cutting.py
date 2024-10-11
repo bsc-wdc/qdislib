@@ -265,12 +265,9 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     if gpu:
         qibo.set_device(f"/GPU:{gpu_counter}")
     
-    #qibo.set_backend("numpy")
     result = circuit(nshots=shots)
-    result = compss_wait_on(result)
     return result
 
-@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 @task(returns=list)
 def _gate_frequencies(result, gpu=False, gpu_counter=0):
     """
@@ -282,11 +279,9 @@ def _gate_frequencies(result, gpu=False, gpu_counter=0):
     if gpu:
         qibo.set_device(f"/GPU:{gpu_counter}")
     freq = dict(result.frequencies(binary=True))
-    compss_barrier()
     return freq
 
 
-@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 @task(exp_values=COLLECTION_IN, returns=1)
 def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False, gpu=False, gpu_counter=0):
     """
@@ -330,22 +325,28 @@ def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False, gpu=Fa
         print(exp_values)
     if verbose:
         print(result)
-    result1 = [x * 1j if i % 2 == 0 else x for i, x in enumerate(result)]
-    result2 = [x * 1j if i % 2 != 0 else x for i, x in enumerate(result)]
+    #result1 = [x * 1j if i % 2 == 0 else x for i, x in enumerate(result)]
+    #result2 = [x * 1j if i % 2 != 0 else x for i, x in enumerate(result)]
+    adjusted_expected_values = [
+    expected_value * ((1j) ** (bin(index).count('1')))
+    for index, expected_value in enumerate(result)
+    ]
+    print(exp_values)
+    print(result)
+    print(adjusted_expected_values)
     if type_gates == gates.CZ:
         reconstruction = (
             (1 / (1j + 1))
-            * (sum(result1) + sum(result2))
-            / 2 ** len(gates_cut)
+            * sum(adjusted_expected_values)
         )
     elif type_gates == gates.CNOT:
-        reconstruction = (
+        '''reconstruction = (
             1j
             * np.exp(-1j * np.pi / 4)
             / np.sqrt(2)
             * (sum(result1) + sum(result2))
             / 2 ** len(gates_cut)
-        )
+        )'''
     if verbose:
         print("\n")
     if verbose:
