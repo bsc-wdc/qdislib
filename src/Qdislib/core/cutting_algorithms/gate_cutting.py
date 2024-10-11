@@ -16,6 +16,7 @@
 #
 
 # -*- coding: utf-8 -*-
+import os
 
 from pycompss.api.task import task
 from pycompss.api.constraint import constraint
@@ -262,7 +263,10 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     :param shots: int.
     :return: result.
     """
+
     if gpu:
+        gpu_counter = os.environ["CUDA_VISIBLE_DEVICES"]
+        print(f"gpu counter: {gpu_counter}")
         qibo.set_device(f"/GPU:{gpu_counter}")
     
     result = circuit(nshots=shots)
