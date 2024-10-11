@@ -253,7 +253,7 @@ def _concatenate_lists(lst):
     return conc_list
 
 
-@constraint(processors=[{'processorType':'GPU', 'computingUnits':'1', 'processorType':'CPU', 'computingUnits':'1'}])
+@constraint(processors=[{'processorType':'GPU', 'computingUnits':'1'}, {'processorType':'CPU', 'computingUnits':'1'}])
 @task(returns=CircuitResult)
 def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     """
