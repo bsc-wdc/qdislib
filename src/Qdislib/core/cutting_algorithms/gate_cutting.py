@@ -17,6 +17,7 @@
 
 # -*- coding: utf-8 -*-
 import os
+import cupy
 
 from pycompss.api.task import task
 from pycompss.api.constraint import constraint
@@ -263,13 +264,15 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     :param shots: int.
     :return: result.
     """
+    mempool = cupy.get_default_memory_pool()
 
-    if gpu:
-        gpu_counter = os.environ["CUDA_VISIBLE_DEVICES"]
-        print(f"gpu counter: {gpu_counter}")
-        qibo.set_device(f"/GPU:{gpu_counter}")
-    
+    gpu_counter = os.environ["CUDA_VISIBLE_DEVICES"]
+    print(f"gpu counter: {gpu_counter}")
+    qibo.set_device(f"/GPU:{gpu_counter}")
+
     result = circuit(nshots=shots)
+    
+    mempool.free_all_blocks()
     return result
 
 @task(returns=list)
