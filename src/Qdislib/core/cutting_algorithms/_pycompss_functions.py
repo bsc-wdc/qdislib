@@ -54,8 +54,6 @@ def _compute_expectation_value(
        2) Only a single I operator in the last position. For example 'ZYXXYI'.
 
     """
-    if gpu:
-        qibo.set_device(f"/GPU:{gpu_counter}")
 
     if wire_observables:
         for key, value in basis.items():

@@ -17,7 +17,7 @@
 
 # -*- coding: utf-8 -*-
 import os
-import cupy
+#import cupy
 
 from pycompss.api.task import task
 from pycompss.api.constraint import constraint
@@ -219,6 +219,10 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
         list_subcircuits.extend(new_subcirc)
         list_observables.extend(new_obs)
 
+    for circuit in list_subcircuits:
+        for gate in circuit.queue:
+            print(gate.parameters)
+
     # list_unpack = compss_wait_on(list_unpack)
 
     """for x in list_unpack:
@@ -264,15 +268,21 @@ def _gate_simulation(circuit, shots=30000, gpu=False, gpu_counter=0):
     :param shots: int.
     :return: result.
     """
-    mempool = cupy.get_default_memory_pool()
+    #mempool = cupy.get_default_memory_pool()
 
-    gpu_counter = os.environ["CUDA_VISIBLE_DEVICES"]
-    print(f"gpu counter: {gpu_counter}")
-    qibo.set_device(f"/GPU:{gpu_counter}")
+    # Check if CUDA devices are available
+    gpu_counter = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+
+    if gpu_counter:
+        print(f"GPU counter: {gpu_counter}")
+        qibo.set_device(f"/GPU:{gpu_counter}")
+    else:
+        print("No GPU devices available. Skipping GPU setup.")
+        #.set_device("/CPU:0")
+
 
     result = circuit(nshots=shots)
     
-    mempool.free_all_blocks()
     return result
 
 @task(returns=list)
@@ -283,8 +293,6 @@ def _gate_frequencies(result, gpu=False, gpu_counter=0):
     :param result: CircuitResult.
     :return: frequencies.
     """
-    if gpu:
-        qibo.set_device(f"/GPU:{gpu_counter}")
     freq = dict(result.frequencies(binary=True))
     return freq
 
@@ -319,8 +327,6 @@ def gate_reconstruction(type_gates, gates_cut, exp_values, verbose=False, gpu=Fa
     >>> exp_values = [0.5, 0.3, 0.6, 0.4, 0.7, 0.1, 0.8, 0.2]
     >>> reconstruction = gate_reconstruction(type_gates, gates_cut, exp_values, verbose=True)
     """
-    if gpu:
-        qibo.set_device(f"/GPU:{gpu_counter}")
     num_generated = int(len(exp_values) / 2 ** len(gates_cut))
     if verbose:
         print(num_generated)
@@ -375,8 +381,6 @@ def _sum_dicts(dicts, gpu=False, gpu_counter=0):
     :param dics: dict list.
     :return: summed_dict.
     """
-    if gpu:
-        qibo.set_device(f"/GPU:{gpu_counter}")
     summed_dict = reduce(lambda a, b: a + Counter(b), dicts, Counter())
     return dict(summed_dict)
 
@@ -487,8 +491,6 @@ def gate_cutting(
 @constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
 @task(i=INOUT)
 def _add_M_gate(i, gpu=False, gpu_counter=0):
-    if gpu:
-        qibo.set_device(f"/GPU:{gpu_counter}")
     i.add(gates.M(*range(i.nqubits)))
 
 
