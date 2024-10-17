@@ -219,9 +219,6 @@ def split_gates(observables, gates_cut, circuit, draw=False, verbose=False):
         list_subcircuits.extend(new_subcirc)
         list_observables.extend(new_obs)
 
-    for circuit in list_subcircuits:
-        for gate in circuit.queue:
-            print(gate.parameters)
 
     # list_unpack = compss_wait_on(list_unpack)
 
