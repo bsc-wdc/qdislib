@@ -26,7 +26,36 @@ import qibo
 from qibo import models, gates, hamiltonians  # , callbacks
 import networkx as nx
 
-from Qdislib.core.cutting_algorithms._pycompss_functions import (
+import numpy as np
+import networkx as nx
+from qibo import models, gates
+import numpy as np
+import networkx as nx
+from Qdislib.api import *
+from qiboconnection.connection import ConnectionConfiguration
+from qiboconnection.api import API
+from Qdislib.api import *
+from scipy.optimize import minimize
+import time
+import itertools
+
+from pycompss.api.task import task
+from pycompss.api.api import compss_wait_on
+from pycompss.api.api import compss_barrier
+from pycompss.api.parameter import *
+
+import igraph as ig
+import matplotlib.pyplot as plt
+import random
+
+
+import networkx as nx
+from qibo import gates, models
+
+import math
+
+
+'''from Qdislib.core.cutting_algorithms._pycompss_functions import (
     _first_subcircuit_basis,
     _second_subcircuit_states,
     _compute_expectation_value,
@@ -658,7 +687,7 @@ def wire_cutting_QC(
         "Expectation value after circuit cutting and reconstruction:",
         reconstruction,
     )
-    return reconstruction
+    return reconstruction'''
 
 
 def analytical_solution(observables, circuit, verbose=False):
@@ -720,3 +749,583 @@ def analytical_solution(observables, circuit, verbose=False):
             exp_full_circuit,
         )
     return exp_full_circuit
+
+
+
+def circuit_to_dag(circuit, num_qubits):
+    """
+    Convert a Qibo circuit to a DAG where each node stores gate information.
+    
+    Args:
+    - circuit: The Qibo circuit to transform.
+    - num_qubits: The number of qubits in the circuit.
+    
+    Returns:
+    - dag: A directed acyclic graph (DAG) with nodes containing gate information.
+    """
+    # Create a directed graph
+    dag = nx.DiGraph()
+
+    # Add gates to the DAG as nodes with unique identifiers
+    for gate_idx, gate in enumerate(circuit.queue, start=1):
+        # Unique identifier for each gate instance
+        gate_name = f"{gate.__class__.__name__}_{gate_idx}"
+
+        # Add the gate to the DAG, including the gate type, qubits, and parameters
+        dag.add_node(gate_name, gate=gate.__class__.__name__, qubits=gate.qubits, parameters=gate.parameters)
+            
+    
+        # Connect gates based on qubit dependencies
+        for qubit in gate.qubits:
+            for pred_gate in reversed(list(dag.nodes)): # Skip the last node since it is the current gate being added
+                if dag.nodes[pred_gate].get('qubits') and qubit in dag.nodes[pred_gate]['qubits']:  # Check if the qubit is in the node's qubits
+                    if gate_name != pred_gate:
+                        dag.add_edge(pred_gate, gate_name, color="blue")
+                        break
+    
+        for qubit in gate.qubits:
+            for pred_gate in reversed(list(dag.nodes)):
+                if dag.nodes[pred_gate].get('qubits') and qubit in dag.nodes[pred_gate]['qubits']:
+                    if gate_name != pred_gate:
+                        if not dag.has_edge(pred_gate, gate_name):
+                            dag.add_edge(pred_gate,gate_name, color="red")
+
+    return dag
+
+def plot_dag(dag):
+    """
+    Plot the DAG graph using matplotlib and networkx.
+    
+    Args:
+    - dag: A networkx DiGraph representing the circuit.
+    """
+    # Set up graph layout
+    pos = nx.spring_layout(dag)
+
+    # Draw edges for the first group with blue color
+    edges_first_group = [
+        (edge[0], edge[1])
+        for edge in dag.edges.data("color")
+        if edge[2] == "blue"
+    ]
+    nx.draw_networkx_edges(
+        dag,
+        pos,
+        edgelist=edges_first_group,
+        edge_color="blue",
+        width=2.0,
+        alpha=0.7,
+    )
+    
+    edges_second_group = [
+        (edge[0], edge[1])
+        for edge in dag.edges.data("color")
+        if edge[2] == "red"
+    ]
+    nx.draw_networkx_edges(
+        dag,
+        pos,
+        edgelist=edges_second_group,
+        edge_color="red",
+        width=2.0,
+        alpha=0.7,
+        style="dotted",
+    )
+
+    # Draw nodes
+    node_labels = nx.get_node_attributes(dag, 'gate')
+    nx.draw_networkx_nodes(dag, pos, node_color="skyblue", node_size=1000)
+    nx.draw_networkx_labels(dag, pos, labels=node_labels, font_size=10)
+
+    # Show plot
+    plt.title("Circuit DAG")
+    plt.show()
+
+
+
+
+
+@task(returns=1)
+def dag_to_circuit(dag, num_qubits):
+    """
+    Reconstruct a Qibo circuit from a DAG.
+    
+    Args:
+    - dag: A networkx DiGraph representing the circuit.
+    - num_qubits: The number of qubits in the original circuit.
+    
+    Returns:
+    - circuit: A Qibo circuit reconstructed from the DAG.
+    """
+    
+    # Create an empty Qibo circuit
+    circuit = models.Circuit(num_qubits)
+    
+    # Traverse the DAG in topological order
+    topo_order = list(nx.topological_sort(dag))
+
+    for node in topo_order:
+        node_data = dag.nodes[node]
+        gate_name = node_data['gate']
+        
+        # Skip the measurement nodes (we'll handle them separately)
+        if gate_name == "Measurement":
+            continue
+        
+        # Get the qubits this gate acts on
+        
+        qubits = node_data['qubits']
+        parameters = node_data['parameters']
+
+        # Reconstruct the gate based on the gate type and qubits
+        if gate_name == 'H':
+            circuit.add(gates.H(*qubits))
+        elif gate_name == 'CNOT':
+            circuit.add(gates.CNOT(*qubits))
+        elif gate_name == 'CZ':
+            circuit.add(gates.CZ(*qubits))
+        elif gate_name == 'X':
+            circuit.add(gates.X(*qubits))
+        elif gate_name == 'M':
+            circuit.add(gates.M(*qubits))
+        elif gate_name == 'S':
+            circuit.add(gates.S(*qubits))
+        elif gate_name == 'T':
+            circuit.add(gates.T(*qubits))
+        elif gate_name == 'SDG':
+            circuit.add(gates.SDG(*qubits))
+        elif gate_name == 'RZ':
+            circuit.add(gates.RZ(*qubits, parameters))
+        elif gate_name == 'RY':
+            circuit.add(gates.RY(*qubits, parameters))
+        elif gate_name == 'RX':
+            circuit.add(gates.RX(*qubits, parameters))
+
+        else:
+            raise ValueError(f"Unsupported gate type: {gate_name}")
+
+    # Optionally handle measurements, assuming all qubits are measured at the end
+    for node in topo_order:
+        node_data = dag.nodes[node]
+        if node_data['gate'] == "Measurement":
+            circuit.add(gates.M(node_data['qubit']))
+
+    return circuit
+
+
+def wire_cutting(rand_qc,cut,sync=True):
+    dag = circuit_to_dag(rand_qc, num_qubits=rand_qc.nqubits)
+
+    '''if nx.number_connected_components(dag.to_undirected()) > 1:
+        S = [dag.subgraph(c).copy() for c in nx.connected_components(dag)]
+        for s in S:
+            if '''
+
+    graphs = generate_wire_cutting(dag,cut , num_qubits=rand_qc.nqubits)
+    if sync:
+        graphs = compss_wait_on(graphs)
+    final_recons = 1/(2**len(cut))*sum(graphs)
+    return final_recons
+
+def generate_wire_cutting(dag, edges_to_replace, num_qubits):
+    """
+    Replace a specific edge in the DAG with a source and end node.
+    
+    Args:
+    - dag: The directed acyclic graph (DAG) to modify.
+    - edge_to_replace: The edge to remove (tuple of nodes).
+    - num_qubits: The current number of qubits in the circuit.
+    
+    Returns:
+    - updated_dag: The modified DAG with new source and end nodes.
+    """
+    
+    reconstruction = []
+
+    for index, edge_to_replace in enumerate(edges_to_replace, start=1):
+    
+        # Extract the nodes of the edge to be replaced
+        source, target = edge_to_replace
+        
+        # Remove the original edge
+        dag.remove_edge(source, target)
+
+        source_gate_info = dag.nodes[source]
+
+        target_gate_info = dag.nodes[target]
+
+        common_qubit = list(set(target_gate_info.get('qubits')).intersection(set(source_gate_info.get('qubits'))))
+
+        successors = []
+        # Iterate over all nodes in the graph
+        for node in dag.nodes:
+            if dag.has_edge(target, node):
+                successors.append(node)
+    
+        # Include the target node itself
+        nodes = [target] + successors
+
+        for successor in nodes:
+            qubits = dag.nodes[successor].get('qubits')
+            for qubit in qubits:
+
+                if common_qubit[0] is qubit:
+                    temp_list = list(dag.nodes[successor].get('qubits'))
+            
+                    # Replace the common element with the new value
+                    for i in range(len(temp_list)):
+
+                        if temp_list[i] == common_qubit[0]:
+                            temp_list[i] = num_qubits+index-1
+            
+                    updated_tuple = tuple(temp_list)
+                    dag.nodes[successor]['qubits'] = updated_tuple
+
+
+        dag.add_node(f"O_{index}", gate='S', qubits=common_qubit, parameters=())
+        
+        # Add the new end node with the same properties as the target node
+        dag.add_node(f"PS_{index}", gate='T', qubits=(num_qubits+index-1,), parameters=())
+
+        dag.add_edge(source, f"O_{index}", color="blue")
+        dag.add_edge(f"PS_{index}", target, color="blue")
+    
+        copy_dag = dag.copy()
+        red_edges = []
+        for ed in dag.edges:
+            if dag.get_edge_data(ed[0],ed[1])["color"] == "red":
+                red_edges.append(ed)
+        
+        copy_dag.remove_edges_from(red_edges)
+
+    graphs = []
+    for i in range(8**len(edges_to_replace)):
+        graphs.append(dag.copy())
+
+    for index, graph in enumerate(graphs, start=0):
+        copy_graph = graph.copy()
+
+        copy_graph = remove_red_edges(copy_graph)
+
+        num_components = nx.number_connected_components(copy_graph.to_undirected())
+
+        graph_components = []
+        for i in range(num_components):
+            graph_components.append(nx.DiGraph().copy()) 
+
+        graph = generate_subcircuits_wire_cutting(graph, num_qubits+len(edges_to_replace),index, edges_to_replace, graph_components )
+
+        exp_value = []
+        for s in graph_components:
+            s_new, highest_qubit = update_qubits(s)
+            subcirc = dag_to_circuit(s_new,highest_qubit)
+            expected_value = execute_subcircuits(subcirc, index)
+            exp_value.append(expected_value)
+
+        exp_value = change_sign(exp_value, index)
+        reconstruction.append(exp_value)
+
+    return reconstruction
+
+def connected_components(G):
+    """Generate connected components.
+
+    Parameters
+    ----------
+    G : NetworkX graph
+       An undirected graph
+
+    Returns
+    -------
+    comp : generator of sets
+       A generator of sets of nodes, one for each component of G.
+
+    Raises
+    ------
+    NetworkXNotImplemented
+        If G is directed.
+
+    Examples
+    --------
+    Generate a sorted list of connected components, largest first.
+
+    >>> G = nx.path_graph(4)
+    >>> nx.add_path(G, [10, 11, 12])
+    >>> [len(c) for c in sorted(nx.connected_components(G), key=len, reverse=True)]
+    [4, 3]
+
+    If you only want the largest connected component, it's more
+    efficient to use max instead of sort.
+
+    >>> largest_cc = max(nx.connected_components(G), key=len)
+
+    To create the induced subgraph of each component use:
+
+    >>> S = [G.subgraph(c).copy() for c in nx.connected_components(G)]
+
+    See Also
+    --------
+    strongly_connected_components
+    weakly_connected_components
+
+    Notes
+    -----
+    For undirected graphs only.
+
+    """
+    seen = set()
+    for v in G:
+        if v not in seen:
+            c = plain_bfs(G, v)
+            seen.update(c)
+            yield c
+
+@task(returns=1)
+def plain_bfs(G, source):
+    """A fast BFS node generator"""
+    adj = G._adj
+    n = len(adj)
+    seen = {source}
+    nextlevel = [source]
+    while nextlevel:
+        thislevel = nextlevel
+        nextlevel = []
+        for v in thislevel:
+            for w in adj[v]:
+                if w not in seen:
+                    seen.add(w)
+                    nextlevel.append(w)
+            if len(seen) == n:
+                return seen
+    return seen
+
+
+@task(returns=1)
+def compute_exp_value(exp_value, expected_value):
+    return exp_value * expected_value
+
+
+@task(returns=1)
+def get_subgraph(graph, c):
+    return graph.subgraph(c).copy()
+
+@task(returns=2, s=INOUT)
+def update_qubits(s):
+    my_set = set()
+    for node, data in s.nodes(data=True):
+        for qubit in s.nodes[node]["qubits"]:
+            my_set.add(qubit)
+
+
+    for node, data in s.nodes(data=True):
+        new_tuple = ()
+        for qubit in s.nodes[node]["qubits"]:
+            len_missing = count_missing_up_to(my_set, qubit)
+            new_qubit = qubit - len_missing
+            new_tuple = new_tuple + (new_qubit,)
+        s.nodes[node]["qubits"] = new_tuple
+
+    highest_qubit = max(my_set)+1 - count_missing_up_to(my_set, max(my_set))
+    return s, highest_qubit
+
+def remove_red_edges(graph):
+    copy_dag = graph.copy()
+    red_edges = []
+    
+    for ed in copy_dag.edges:
+        if copy_dag.get_edge_data(ed[0],ed[1])["color"] == "red":
+            red_edges.append(ed)
+
+    copy_dag.remove_edges_from(red_edges)
+    return copy_dag
+
+
+@task(returns=1)
+def generate_set(s):
+    my_set = set()
+    for node, data in s.nodes(data=True):
+        for qubit in s.nodes[node]["qubits"]:
+            my_set.add(qubit)
+    return my_set
+
+
+def count_missing_up_to(nums, max_num):
+    # Create a set of all numbers from 0 to max_num
+    full_set = set(range(max_num + 1))
+    
+    # Subtract the given set from the full set to get the missing numbers
+    missing_numbers = full_set - nums
+    
+    # Return the count of missing numbers
+    return len(missing_numbers)
+
+
+@task(returns=1, graph_components=COLLECTION_OUT)
+def generate_subcircuits_wire_cutting(updated_dag, num_qubits, idx, edges_to_replace, graph_components):
+
+    #graphs = [updated_dag]
+
+    number = idx
+    list_substitutions = []
+    
+    digit = number % 8  # Get the last digit
+    list_substitutions.append(digit)
+    number //= 8 # Move to the next digit
+    
+    while number != 0:
+        digit = number % 8  # Get the last digit
+        list_substitutions.append(digit)
+        number //= 8 # Move to the next digit
+
+    list_substitutions = list(reversed(list_substitutions))
+        
+        #index = idx // (8**(idx2-1))
+
+    for idx2, index in enumerate(list_substitutions, start=0):
+        idx2 = len(list_substitutions) - idx2
+        
+        # I 0 
+        if index == 0:
+            updated_dag.remove_node(f'O_{idx2}')
+            updated_dag.remove_node(f'PS_{idx2}')
+
+        # I 1
+        elif index == 1:
+            updated_dag.remove_node(f'O_{idx2}')
+            updated_dag.nodes[f'PS_{idx2}']['gate'] = 'X'
+
+        # X +
+        elif index == 2:
+            updated_dag.nodes[f'O_{idx2}']['gate'] = 'H'
+            updated_dag.nodes[f'PS_{idx2}']['gate'] = 'H'
+        
+        # X -
+        elif index == 3:
+            updated_dag.nodes[f'O_{idx2}']['gate'] = 'H'
+            updated_dag.nodes[f'PS_{idx2}']['gate'] = 'H'
+            updated_dag.add_node(f'PS2_{idx2}', gate='X', qubits=updated_dag.nodes[f'PS_{idx2}'].get('qubits'), parameters=())
+            updated_dag.add_edge(f'PS2_{idx2}', f'PS_{idx2}', color="blue")
+
+        # Y +i
+        elif index == 4:
+            updated_dag.nodes[f'O_{idx2}']['gate'] = 'H'
+            updated_dag.add_node(f"O2_{idx2}", gate='SDG', qubits=updated_dag.nodes[f'O_{idx2}'].get('qubits'), parameters=())
+            updated_dag.add_edge(f'O_{idx2}', f'O2_{idx2}', color="blue")
+            updated_dag.nodes[f'PS_{idx2}']['gate'] = 'S'
+            updated_dag.add_node(f"PS2_{idx2}", gate='H', qubits=updated_dag.nodes[f'PS_{idx2}'].get('qubits'), parameters=())
+            updated_dag.add_edge(f'PS2_{idx2}', f'PS_{idx2}', color="blue")
+
+        # Y -i
+        elif index == 5:
+            updated_dag.nodes[f'O_{idx2}']['gate'] = 'H'
+            updated_dag.add_node(f"O2_{idx2}", gate='SDG', qubits=updated_dag.nodes[f'O_{idx2}'].get('qubits'), parameters=())
+            updated_dag.add_edge(f'O_{idx2}', f'O2_{idx2}', color="blue")
+            updated_dag.nodes[f'PS_{idx2}']['gate'] = 'S'
+            updated_dag.add_node(f"PS2_{idx2}", gate='H', qubits=updated_dag.nodes[f'PS_{idx2}'].get('qubits'), parameters=())
+            updated_dag.add_edge(f'PS2_{idx2}', f'PS_{idx2}',color="blue")
+            updated_dag.add_node(f"PS3_{idx2}", gate='X', qubits=updated_dag.nodes[f'PS_{idx2}'].get('qubits'), parameters=())
+            updated_dag.add_edge(f'PS3_{idx2}', f'PS2_{idx2}', color="blue")
+
+        # Z 0
+        elif index == 6:
+            updated_dag.remove_node(f'O_{idx2}')
+            updated_dag.remove_node(f'PS_{idx2}')
+
+        # Z 1
+        elif index == 7:
+            updated_dag.remove_node(f'O_{idx2}')
+            updated_dag.nodes[f'PS_{idx2}']['gate'] = 'X'
+
+        else:
+            print("ERROR")
+            raise ValueError
+
+    updated_dag = remove_red_edges(updated_dag)
+    for i, c in enumerate(nx.connected_components(updated_dag.to_undirected())):
+        new_subgraph = updated_dag.subgraph(c).copy()
+        graph_components[i].add_nodes_from(new_subgraph.nodes(data=True))
+        graph_components[i].add_edges_from(new_subgraph.edges(data=True))
+        
+    return updated_dag
+
+@task(returns=1)
+def execute_subcircuits(subcirc, index):
+    qibo.set_backend("numpy")
+    subcirc.add(gates.M(*range(subcirc.nqubits))) #
+    result = subcirc(nshots=30000)
+    freq = dict(result.frequencies(binary=True))
+
+    expectation_value = 0
+    for key, value in freq.items():
+        contribution = 1
+        for bit, obs in zip(key, 'Z'*subcirc.nqubits):
+            if obs == "Z":
+                contribution *= (-1) ** int(bit)
+            elif obs == "I":
+                contribution *= 1
+            else:
+                raise ValueError(f"Unsupported observable {obs}")
+        
+        # Add the contribution weighted by its frequency
+        expectation_value += contribution * (value / 30000)
+
+    return expectation_value
+
+@task(returns=1, expectation_value=COLLECTION_IN)
+def change_sign(expectation_value, index):
+    expectation_value = math.prod(expectation_value)
+    number = index
+
+    change_sign = False
+
+    while number != 0:
+        digit = number % 8  # Get the last digit
+        if digit in {3, 5, 7}:  # Check if the digit is 3, 5, or 7
+            change_sign = not change_sign  # Flip the sign change flag
+        number //= 8 # Move to the next digit
+    #print(change_sign)
+
+    # If change_sign is True, we flip the sign of the original number
+    if change_sign:
+        return -expectation_value
+    else:
+        return expectation_value
+
+
+def random_circuit(qubits, gate_max, num_cz, p):
+    if p == None:
+        graph = ig.Graph.Erdos_Renyi(n=qubits, m=num_cz, directed=False, loops=False)
+    elif num_cz == None:
+        graph = ig.Graph.Erdos_Renyi(n=qubits, p=p, directed=False, loops=False)
+    else:
+        print(
+            "Error: only the number of edges or the probability of adding an edge must be specified"
+        )
+
+    # adj_mat=graph.get_adjacency()
+    # fig, ax = plt.subplots()
+    # ig.plot(graph, target=ax, vertex_label=range(qubits))
+    # graph.degree()
+
+    edge_list = graph.get_edgelist()
+
+    gates_pull = [gates.X, gates.H, gates.S, gates.T]  # pull of single-qubit gates
+
+    circuit = models.Circuit(qubits)
+    for i in range(len(edge_list)):
+        rand_tmp = random.randint(
+            0, gate_max, seed=10
+        )  # number of single-qubit gates between CZ
+        for j in range(rand_tmp):
+            sel_gate = random.choice(gates_pull, seed=10)  # gate selected from the pull
+            sel_qubit = random.randint(
+                0, qubits - 1, seed=10
+            )  # qubit selected to apply the gate
+            circuit.add(sel_gate(sel_qubit))
+
+        circuit.add(
+            gates.CZ(edge_list[i][0], edge_list[i][1])
+        )  # 2-qubit gate from graph
+
+    return circuit
+
