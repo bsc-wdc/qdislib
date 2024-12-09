@@ -33,7 +33,7 @@ from qiboconnection.api import API
 from Qdislib.api import *
 from scipy.optimize import minimize
 import time
-import itertools
+import itertools as it
 
 from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on

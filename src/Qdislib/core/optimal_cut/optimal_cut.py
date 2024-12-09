@@ -388,7 +388,7 @@ def optimal_cut(
         ValueError("Error on returning best option")
 
 
-def execute_optimal_cut(
+'''def execute_optimal_cut(
     observables, circuit, cut, shots=30000, chunk=1, verbose=False, sync=True, gpu=False, gpu_counter=0
 ):
     """
@@ -438,10 +438,10 @@ def execute_optimal_cut(
         )
         if verbose:
             print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
-    return reconstruction
+    return reconstruction'''
 
 
-def execute_optimal_cut_QC(
+'''def execute_optimal_cut_QC(
     connection, observables, circuit, cut, shots=30000, verbose=False
 ):
     """
@@ -483,4 +483,4 @@ def execute_optimal_cut_QC(
         )
         if verbose:
             print("RECONSTRUCTION GATE CUTTING: ", reconstruction)
-    return reconstruction
+    return reconstruction'''
