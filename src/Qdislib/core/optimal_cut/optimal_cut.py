@@ -25,10 +25,10 @@ import networkx as nx
 import copy
 import qibo
 
-from Qdislib.core.cutting_algorithms.wire_cutting import (
+'''from Qdislib.core.cutting_algorithms.wire_cutting import (
     wire_cutting,
     wire_cutting_QC,
-)
+)'''
 from Qdislib.core.cutting_algorithms.gate_cutting import (
     gate_cutting,
     _gates_dict,
