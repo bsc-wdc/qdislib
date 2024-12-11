@@ -28,8 +28,8 @@ from pycompss.api.api import compss_wait_on
 from pycompss.api.api import compss_barrier
 from pycompss.api.parameter import *
 
-from Qdislib.core.optimal_cut.optimal_cut import optimal_cut, execute_optimal_cut
-from Qdislib.core.cutting_algorithms._pycompss_functions import _compute_expectation_value
+'''from Qdislib.core.optimal_cut.optimal_cut import optimal_cut, execute_optimal_cut
+from Qdislib.core.cutting_algorithms._pycompss_functions import _compute_expectation_value'''
 
 class QAOASolver(object):
     def __init__(self, input_graph: nx.Graph, num_shots=8000, seed=10):

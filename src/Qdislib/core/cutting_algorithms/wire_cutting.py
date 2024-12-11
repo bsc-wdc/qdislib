@@ -1080,7 +1080,7 @@ def generate_wire_cutting(dag, edges_to_replace, num_qubits):
         for i in range(num_components):
             graph_components.append(nx.DiGraph().copy()) 
 
-        graph = generate_subcircuits_wire_cutting(graph, num_qubits+len(edges_to_replace),index, edges_to_replace, graph_components)
+        graph = generate_subcircuits_wire_cutting(copy_graph, num_qubits+len(edges_to_replace),index, edges_to_replace, graph_components)
 
         exp_value = []
         for s in graph_components:
@@ -1248,38 +1248,12 @@ def count_missing_up_to(nums, max_num):
 @task(returns=1, graph_components=COLLECTION_OUT)
 def generate_subcircuits_wire_cutting(updated_dag, num_qubits, idx, edges_to_replace, graph_components):
 
-    #graphs = [updated_dag]
-
-    number = idx
-    list_substitutions = []
-    
-    #print("INDEX ",number)
-
-    digit = number % 8  # Get the last digit
-    list_substitutions.append(digit)
-    #print("LST ", list_substitutions)
-    number //= 8 # Move to the next digit
-    
-    counter = 0
-    while number != 0:
-        digit = number % 8  # Get the last digit
-        list_substitutions.append(digit)
-        number //= 8 # Move to the next digit
-        counter += 1
-
-    list_substitutions = list(reversed(list_substitutions))
-
-    while len(list_substitutions) < len(edges_to_replace):
-        prod = len(edges_to_replace) - len(list_substitutions)
-        tmp = [counter]* prod
-        list_substitutions = tmp + list_substitutions
-
-
-    #print("LIST SUBSTITUTIONS: ",list_substitutions)
-        
+    base8_rep = oct(idx)[2:]
+    base8_rep = base8_rep.zfill(len(edges_to_replace))
+    list_substitutions = list(map(int, base8_rep))
 
     for idx2, index in enumerate(list_substitutions, start=0):
-        idx2 = len(list_substitutions) - idx2
+        idx2 = idx2+1
         
         # I 0 
         if index == 0:
@@ -1551,23 +1525,21 @@ def math_prod(exp_value):
 
 def draw_to_circuit(text_draw):
     split = text_draw.splitlines()
-    print(split) 
+    #print(split) 
 
     qubits = []
-    for line in split[1:-1]:
-        print("LINE ",line)
+    split = [element for element in split if element.strip()]
+    split = [element for element in split if element != ""]
+    for line in split:
         index = line.index('─')
         qubits.append(line[index:])
         
-    for i in qubits:
-        print(i)
 
     list_multiple_gates = []
     # Now we will process each line to identify multi-qubit gates
     for idx, qubit_line in enumerate(qubits):
         qubit_number = idx  # Line number corresponds to the qubit (q0 is index 0)
         qubit_state = list(qubit_line)
-        print(qubit_state)
         
         # Boolean to track if we are inside a multi-qubit gate
         for i, symbol in enumerate(qubit_state):
