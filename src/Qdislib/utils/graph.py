@@ -28,193 +28,84 @@ import matplotlib.pyplot as plt
 
 from pycompss.api.task import task
 from pycompss.api.constraint import constraint
+from pycompss.api.parameter import *
 
-from qibo import models
+import inspect
 
+from qibo import models, gates
 
-class _DAGgraph:
-    """Direct Aciclyc Graph class.
-
-    Representation of a direct aciclyc graph.
+def circuit_to_dag(circuit):
     """
-
-    def __init__(self):
-        self.nodes = []
-        self.edges = []
-        self.edges2 = []
-
-    def add_node(self, gate):
-        """
-        Add a gate as a graph node.
-
-        :param gate: Gate.
-        """
-        self.nodes.append(gate)
-
-    def add_edge(self, gate1, gate2):
-        """
-        Add the edge between two gates.
-
-        :param gate1: Gate.
-        :param gate2: Gate.
-        """
-        self.edges.append((gate1, gate2))
-
-    def add_edge2(self, gate1, gate2):
-        """
-        Add the edge between two gates.
-
-        :param gate1: Gate.
-        :param gate2: Gate.
-        """
-        self.edges2.append((gate1, gate2))
-
-    def print_nodes(self):
-        """
-        Print graph nodes.
-        """
-        print("Nodes :", self.nodes)
-
-    def print_edges(self):
-        """
-        Print graph edges.
-        """
-        print("Edges: ", self.edges)
-
-
-def _build_dag(circuit, dag):
+    Convert a Qibo circuit to a DAG where each node stores gate information.
+    
+    Args:
+    - circuit: The Qibo circuit to transform.
+    - num_qubits: The number of qubits in the circuit.
+    
+    Returns:
+    - dag: A directed acyclic graph (DAG) with nodes containing gate information.
     """
-    Build a directed acyclic graph (DAG) representation of the
-    given circuit. It iterates through the gates of the circuit and adds them as
-    nodes to the DAG. Then, it connects the gates based on qubit dependencies,
-    ensuring that gates are executed in the correct order.
+    # Create a directed graph
+    dag = nx.DiGraph()
 
-    :param circuit: Circuit.
-    :param dag: empty DAGgraph.
-    :return: DAGgraph.
-    """
-    for gate in circuit.queue:
-        dag.add_node(gate)
+    # Add gates to the DAG as nodes with unique identifiers
+    for gate_idx, gate in enumerate(circuit.queue, start=1):
+        # Unique identifier for each gate instance
+        gate_name = f"{gate.__class__.__name__}_{gate_idx}"
+
+        # Add the gate to the DAG, including the gate type, qubits, and parameters
+        dag.add_node(gate_name, gate=gate.__class__.__name__, qubits=gate.qubits, parameters=gate.parameters)
+            
+    
         # Connect gates based on qubit dependencies
         for qubit in gate.qubits:
-            for node in reversed(
-                dag.nodes[:-1]
-            ):  # Skip the last node since it is the current gate being added
-                if (
-                    qubit in node.qubits
-                ):  # Check if the qubit is in the node's qubits
-                    dag.add_edge(node, gate)
-                    break
-    for gate in circuit.queue:
-        # Connect gates based on qubit dependencies
+            for pred_gate in reversed(list(dag.nodes)): # Skip the last node since it is the current gate being added
+                if dag.nodes[pred_gate].get('qubits') and qubit in dag.nodes[pred_gate]['qubits']:  # Check if the qubit is in the node's qubits
+                    if gate_name != pred_gate:
+                        dag.add_edge(pred_gate, gate_name, color="blue")
+                        break
+    
         for qubit in gate.qubits:
-            for node in reversed(
-                dag.nodes[:-1]
-            ):  # Skip the last node since it is the current gate being added
-                if (
-                    qubit in node.qubits
-                ):  # Check if the qubit is in the node's qubits
-                    if (node, gate) in dag.edges or (gate, node) in dag.edges:
-                        pass
-                    else:
-                        if node != gate:
-                            dag.add_edge2(node, gate)
+            for pred_gate in reversed(list(dag.nodes)):
+                if dag.nodes[pred_gate].get('qubits') and qubit in dag.nodes[pred_gate]['qubits']:
+                    if gate_name != pred_gate:
+                        if not dag.has_edge(pred_gate, gate_name):
+                            dag.add_edge(pred_gate,gate_name, color="red")
+
     return dag
 
-
-def _create_graph(dag, digraph):
+def plot_dag(dag):
     """
-    Create a directed graph (digraph) based on the given directed acyclic
-    graph (DAG). It assigns numerical labels to the nodes of the DAG and adds corresponding
-    nodes to the digraph. Then, it adds edges to the digraph based on the edges of the DAG,
-    distinguishing between regular edges (blue) and additional edges (red).
-
-    :param dag: DAGgraph.
-    :param digraph: DiGraph.
-    :return: DiGraph.
+    Plot the DAG graph using matplotlib and networkx.
+    
+    Args:
+    - dag: A networkx DiGraph representing the circuit.
     """
-
-    new_nodes = [index + 1 for index, i in enumerate(dag.nodes)]
-    labels = {
-        i: index + 1 for index, i in enumerate(dag.nodes)
-    }  # Start numbering from 0
-    new_edges = [(labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges]
-    new_edges2 = [
-        (labels[gate1], labels[gate2]) for gate1, gate2 in dag.edges2
-    ]
-
-    digraph.add_nodes_from(new_nodes)
-    digraph.add_edges_from(new_edges, color="blue")
-    digraph.add_edges_from(new_edges2, color="red")
-    return digraph
-
-
-def _del_empty_qubits(circuit):
-    """
-    Identify and remove empty qubits from a given
-    circuit. Empty qubits are those that are not targeted by any
-    gate in the circuit.
-
-    :param circuit: Circuit.
-    :return: int list.
-    """
-    empty_qubits = []
-    for gate in circuit.queue:
-        for i in gate.qubits:
-            if i not in empty_qubits:
-                empty_qubits.append(i)
-    return empty_qubits
-
-
-def print_graph(graph):
-    """
-    Description
-    -----------
-    Visualize a directed graph with two types of edges, distinguished by color. It draws the graph using the Spring layout algorithm for node positioning.
-
-    Parameters
-    ----------
-    graph: object
-        The directed graph to be visualized.
-
-    Returns
-    -------
-    This function does not return any value. It displays the graph visualization.
-
-    Example
-    -------
-    >>> import networkx as nx
-    >>> import matplotlib.pyplot as plt
-    >>> graph = nx.DiGraph()
-    >>> graph.add_edge(1, 2, color="blue")
-    >>> graph.add_edge(2, 3, color="red")
-    >>> print_graph(graph)
-    """
-
-    pos = nx.spring_layout(graph)  # Define layout for the nodes
+    # Set up graph layout
+    pos = nx.spring_layout(dag)
 
     # Draw edges for the first group with blue color
     edges_first_group = [
         (edge[0], edge[1])
-        for edge in graph.edges.data("color")
+        for edge in dag.edges.data("color")
         if edge[2] == "blue"
     ]
     nx.draw_networkx_edges(
-        graph,
+        dag,
         pos,
         edgelist=edges_first_group,
         edge_color="blue",
         width=2.0,
         alpha=0.7,
     )
-
+    
     edges_second_group = [
         (edge[0], edge[1])
-        for edge in graph.edges.data("color")
+        for edge in dag.edges.data("color")
         if edge[2] == "red"
     ]
     nx.draw_networkx_edges(
-        graph,
+        dag,
         pos,
         edgelist=edges_second_group,
         edge_color="red",
@@ -223,157 +114,135 @@ def print_graph(graph):
         style="dotted",
     )
 
-    # Draw nodes and labels
-    nx.draw_networkx_nodes(graph, pos, node_color="skyblue", node_size=500)
-    nx.draw_networkx_labels(graph, pos, font_weight="bold", font_size=12)
+    # Draw nodes
+    node_labels = nx.get_node_attributes(dag, 'gate')
+    nx.draw_networkx_nodes(dag, pos, node_color="skyblue", node_size=1000)
+    nx.draw_networkx_labels(dag, pos, labels=node_labels, font_size=10)
 
-    # plt.title(
-    #    "Directed Graph with Two Edge Groups (Red edges in dotted line)"
-    # )
+    # Show plot
+    plt.title("Circuit DAG")
     plt.show()
 
 
-# @task(returns=2)
-def gen_graph_circuit(new_circuit, observable_dict=None, verbose=False):
-    """
-    Description
-    -----------
-    Generate a graph representation of a given circuit and partitions it into subcircuits. It also associates observables with the subcircuits if provided.
-
-    Parameters
-    ----------
-    new_circuit: Circuit
-        The circuit to be represented and partitioned.
-    observable_dict: dict, optional
-        A dictionary mapping nodes to observables. Defaults to None.
-    verbose: bool, optional
-        If True, prints additional information during execution. Defaults to False.
-
-    Returns
-    -------
-    list_subcircuits_obs: list
-        A list containing information about the subcircuits. If ``observable_dict`` is provided, it contains both the subcircuits and their associated observables.
-
-    Example
-    -------
-    >>> list_subcircuits = gen_graph_circuit(circuit, observable_dict, verbose=True)
-
-    """
-    # convert to DAG and DIGRPAPH
-    digraph = nx.Graph()
-    dag = _DAGgraph()
-
-    _build_dag(new_circuit, dag)
-    _create_graph(dag, digraph)
-
-    subgraphs = list(nx.connected_components(digraph))
-    if verbose:
-        print(subgraphs)
-
-    list_subcircuits, diff_list = _partition_circuit(
-        subgraphs, dag, new_circuit, verbose=False
-    )
-    if verbose:
-        print(list_subcircuits)
-
-    if observable_dict is not None:
-        list_obs = []
-        for p in diff_list:
-            new_obs = _create_observables(p, observable_dict, verbose=False)
-            list_obs.append(new_obs)
-        if verbose:
-            print(list_obs)
-        # list_subcircuits_obs = [list_subcircuits, list_obs]
-    # else:
-    # list_subcircuits_obs = list_subcircuits
-
-    return list_subcircuits, list_obs
 
 
-@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
+
 @task(returns=1)
-def _create_observables(p, observable_dict, verbose):
-    new_obs = {}
-    for index, x in enumerate(p):
-        new_obs[index] = observable_dict[x]
-        if verbose:
-            print(new_obs)
-    return new_obs
-
-
-def _partition_circuit(subgraphs, dag, new_circuit, verbose=False):
+def dag_to_circuit(dag, num_qubits):
     """
-    Cut a circuit represented by subgraphs into individual
-    subcircuits and adjusts the qubit indices accordingly.
-
-    :param subgraphs: list of circuit.
-    :param dag: DAGgraph.
-    :param circuit: Circuit.
-    :param diff_list: list.
-    :param verbose: bool.
-    :return: list_subcircuits
+    Reconstruct a Qibo circuit from a DAG.
+    
+    Args:
+    - dag: A networkx DiGraph representing the circuit.
+    - num_qubits: The number of qubits in the original circuit.
+    
+    Returns:
+    - circuit: A Qibo circuit reconstructed from the DAG.
     """
-    diff_list = []
-    list_subcircuits = []
-    for subgraph in subgraphs:
-        circuit_copy, non_empty_qubits = _create_circuit(
-            subgraph, dag, new_circuit, verbose
-        )
-        list_subcircuits.append(circuit_copy)
-        diff_list.append(non_empty_qubits)
-    return list_subcircuits, diff_list
+    
+    # Create an empty Qibo circuit
+    circuit = models.Circuit(num_qubits)
+    
+    # Traverse the DAG in topological order
+    topo_order = list(nx.topological_sort(dag))
 
+    for node in topo_order:
+        node_data = dag.nodes[node]
+        gate_name = node_data['gate']
+        
+        # Skip the measurement nodes (we'll handle them separately)
+        if gate_name == "Observable I":
+            continue
+        
+        # Get the qubits this gate acts on
+        
+        qubits = node_data['qubits']
+        parameters = node_data['parameters']
 
-@constraint(processors=[{'ProcessorType':'GPU', 'ComputingUnits':'1', 'ProcessorType':'CPU', 'ComputingUnits':'1'}])
-@task(returns=2)
-def _create_circuit(subgraph, dag, new_circuit, verbose=False):
-    subgraph = sorted(subgraph)
-    selected_elements = [dag.nodes[i - 1] for i in subgraph]
-    # circuit_copy = copy.deepcopy(new_circuit)
+        # Get the gate class from the qibo.gates module
+        gate_class = getattr(gates, gate_name)
 
-    # remove specific qubit
+        # Get the signature of the gate's __init__ method
+        signature = inspect.signature(gate_class.__init__)
 
-    circuit_copy = models.Circuit(new_circuit.nqubits)
-    circuit_copy.add(selected_elements)
+        # Count the number of required positional arguments (excluding 'self')
+        param_count = len(signature.parameters) - 1  # exclude 'self'
 
-    non_empty_qubits = _del_empty_qubits(circuit_copy)
-    non_empty_qubits.sort()
-    # print(non_empty_qubits)
-    difference_list = [
-        value - index for index, value in enumerate(non_empty_qubits)
-    ]
-    # print("Non empty qubit ",difference_list)
-    subtracted_list = [
-        x - y for x, y in zip(non_empty_qubits, difference_list)
-    ]
-    if verbose:
-        print("Substracted list: ", subtracted_list)
-
-    for gate in circuit_copy.queue:
-        if len(gate.qubits) > 1:
-            control = subtracted_list[non_empty_qubits.index(gate.qubits[0])]
-            gate._set_control_qubits((control,))
-            target = subtracted_list[non_empty_qubits.index(gate.qubits[1])]
-            gate._set_target_qubits((target,))
+        # Check if parameters are provided and the gate requires them
+        if parameters is not None and param_count > len(qubits):
+            # Pass qubits and parameters if the gate requires both
+            circuit.add(gate_class(*qubits, parameters))
         else:
-            target = subtracted_list[non_empty_qubits.index(gate.qubits[0])]
-            gate._set_target_qubits((target,))
-    circuit_copy.nqubits = len(non_empty_qubits)
-    return circuit_copy, non_empty_qubits
+            # Otherwise, pass only the qubits
+            circuit.add(gate_class(*qubits))
+
+    # Optionally handle measurements, assuming all qubits are measured at the end
+    obs_I = []
+    for node in topo_order:
+        node_data = dag.nodes[node]
+        if node_data['gate'] == "Observable I":
+            obs_I.append(node_data['qubits'][0])
+            dag.remove_node(node)
+            #print(obs_I)
+            #circuit.add(gates.M(node_data['qubit']))
+
+    if obs_I:
+        return [circuit, obs_I]
+
+    return [circuit, None]
 
 
-def _separate_observables(circuit, observables, verbose=False):
-    """
-    Separate the observables specified for each qubit in the circuit.
+def max_qubit(graph):
+    # Initialize a variable to keep track of the highest Qubits value
+    max_qubits = float('-inf')  # Start with the lowest possible number
+    max_node = None  # Store the node with the highest qubit
 
-    :param circuit: Circuit.
-    :param observables: dict.
-    :param verbose: bool.
-    :return: observables_dict
-    """
-    observable_dict = {}
-    for num_qubit in range(0, circuit.nqubits):
-        observable_dict[num_qubit] = observables[num_qubit]
-    if verbose:
-        print(observable_dict)
-    return observable_dict
+    # Iterate over the nodes and check their 'Qubits' attribute
+    for node, data in graph.nodes(data=True):
+        qubits = data.get('qubits', 0)  # Default to 0 if 'Qubits' is not present
+        for qubit in qubits:
+            if qubit > max_qubits:
+                max_qubits = qubit
+                max_node = node
+    return max_qubits
+
+
+@task(returns=2, s=INOUT)
+def update_qubits(s):
+    my_set = set()
+    for node, data in s.nodes(data=True):
+        for qubit in s.nodes[node]["qubits"]:
+            my_set.add(qubit)
+
+
+    for node, data in s.nodes(data=True):
+        new_tuple = ()
+        for qubit in s.nodes[node]["qubits"]:
+            len_missing = count_missing_up_to(my_set, qubit)
+            new_qubit = qubit - len_missing
+            new_tuple = new_tuple + (new_qubit,)
+        s.nodes[node]["qubits"] = new_tuple
+
+    highest_qubit = max(my_set)+1 - count_missing_up_to(my_set, max(my_set))
+    return s, highest_qubit
+
+def remove_red_edges(graph):
+    copy_dag = graph.copy()
+    red_edges = []
+    
+    for ed in copy_dag.edges:
+        if copy_dag.get_edge_data(ed[0],ed[1])["color"] == "red":
+            red_edges.append(ed)
+
+    copy_dag.remove_edges_from(red_edges)
+    return copy_dag
+
+def count_missing_up_to(nums, max_num):
+    # Create a set of all numbers from 0 to max_num
+    full_set = set(range(max_num + 1))
+    
+    # Subtract the given set from the full set to get the missing numbers
+    missing_numbers = full_set - nums
+    
+    # Return the count of missing numbers
+    return len(missing_numbers)
