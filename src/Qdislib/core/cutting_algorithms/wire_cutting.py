@@ -49,7 +49,7 @@ import math
 import inspect
 from collections import defaultdict
 
-from Qdislib.utils.graph import circuit_to_dag, dag_to_circuit, max_qubit
+from Qdislib.utils.graph import circuit_to_dag, dag_to_circuit, max_qubit, update_qubits, remove_red_edges
 
 def wire_cutting(rand_qc,cut,sync=True,gate_cutting=False):
     if type(rand_qc) == models.Circuit:
