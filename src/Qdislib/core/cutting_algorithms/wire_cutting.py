@@ -48,645 +48,6 @@ import math
 
 import inspect
 
-#from Qdislib.api import *
-
-
-
-
-'''from Qdislib.core.cutting_algorithms._pycompss_functions import (
-    _first_subcircuit_basis,
-    _second_subcircuit_states,
-    _compute_expectation_value,
-)
-from Qdislib.utils.graph import (
-    _DAGgraph,
-    _build_dag,
-    _separate_observables,
-    _create_graph,
-    _partition_circuit,
-)
-from Qdislib.core.qubit_mapping.qubit_mapping import *
-import time
-
-
-def wire_cutting(
-    observables,
-    circuit,
-    gate_tuple,
-    shots=30000,
-    draw=False,
-    verbose=False,
-    sync=True,
-):
-    """Description
-    -----------
-    Implement the algorithm of circuit cutting in one function. Cuts the circuit in 2 between two specified gates, and calculates the expected value of the reconstruction.
-
-    Parameters
-    ----------
-    observables: str
-        Observable.
-    circuit: Circuit
-        Circuit object.
-    gate_tuple: tuple of int
-        Tuple containing two integers specifying the gates between which the circuit will be cut.
-    shots: int, optional
-        Number of shots for simulation. Defaults to 30000.
-    draw: bool, optional
-        Whether to draw the subcircuits. Defaults to False.
-    verbose: bool, optional
-        Whether to print verbose output. Defaults to False.
-
-    Returns
-    -------
-    reconstruction: float
-        Reconstruction value.
-
-    Example
-    -------
-    >>> reconstruction = wire_cutting(observables="ZZZZZ", circuit=circuit, gate_tuple=(2, 5),
-    >>>                               shots=30000, draw=True, verbose=True)
-
-    """
-
-    # Show qibo version
-    if verbose:
-        print(f"qibo version: {qibo.__version__}")
-
-    gate_tuple = gate_tuple[0]
-    qubit, list_subcircuits, lst_observables = split(
-        observables, circuit, gate_tuple, draw, verbose
-    )
-    reconstruction = simulation(
-        lst_observables,
-        qubit,
-        list_subcircuits[0],
-        list_subcircuits[1],
-        shots,
-        verbose,
-        sync=sync,
-    )
-    return reconstruction
-
-
-def split(observables, circuit, gate_tuple, draw=False, verbose=False):
-    """Description
-    -----------
-    Split a circuit into two subcircuits by cutting a qubit between the specified gates.
-
-    Parameters
-    ----------
-    observables: str
-        String containing observables.
-    circuit: Circuit
-        Circuit object.
-    gate_tuple: tuple of int
-        Tuple containing two integers specifying the gates between which the circuit will be cut.
-    draw: bool, optional
-        Whether to draw the subcircuits. Defaults to False.
-    verbose: bool, optional
-        Whether to print verbose output. Defaults to False.
-
-    Returns
-    -------
-    qubit: list
-        List containing the qubits between which the circuit was cut.
-    list_subcircuits: list of Circuit
-        List of subcircuits generated after splitting.
-    list_observables: list
-        List of dictionaries containing observables associated with each subcircuit.
-
-    Example
-    -------
-    >>> qubit, list_subcricuits, list_observables = split(observables="ZZZZZ", circuit=circuit,
-    >>>                                                   gate_tuple)=(2, 5), draw=True, verbose=True)
-
-    """
-
-    circuit = circuit.copy()
-    qubits_first_gate = circuit.queue[gate_tuple[0] - 1].qubits
-    qubits_second_gate = circuit.queue[gate_tuple[1] - 1].qubits
-    first_gate = circuit.queue[gate_tuple[0] - 1]
-    second_gate = circuit.queue[gate_tuple[1] - 1]
-    if verbose:
-        print(first_gate, second_gate)
-    qubit = list(
-        set(circuit.queue[gate_tuple[0] - 1].qubits).intersection(
-            set(circuit.queue[gate_tuple[1] - 1].qubits)
-        )
-    )
-    qubit = qubit[0]
-    pos1 = qubits_first_gate.index(qubit)
-    pos2 = qubits_second_gate.index(qubit)
-
-    observable_dict = _separate_observables(circuit, observables, verbose)
-
-    digraph = nx.Graph()
-    dag = _DAGgraph()
-
-    _build_dag(circuit, dag)
-    _create_graph(dag, digraph)
-
-    red_edges = [
-        (edge[0], edge[1])
-        for edge in digraph.edges.data("color")
-        if edge[2] == "red"
-    ]
-    digraph.remove_edges_from(red_edges)
-
-    digraph.remove_edge(gate_tuple[0], gate_tuple[1])
-
-    subgraphs = list(nx.connected_components(digraph))
-    if len(subgraphs) > 2:
-        print("MORE THAN 2 SUBGRAPH")
-        return None, None
-
-    list_subcircuits, non_empty_list = _partition_circuit(
-        subgraphs, dag, circuit, verbose=False
-    )
-
-    if verbose:
-        print(qubits_first_gate, qubits_second_gate)
-    new_qubit = [first_gate.qubits[pos1], second_gate.qubits[pos2]]
-    if verbose:
-        print(new_qubit)
-    if verbose:
-        print(first_gate.qubits, second_gate.qubits)
-
-    obs1, obs2 = create_wire_observables(
-        non_empty_list,
-        list_subcircuits,
-        first_gate,
-        new_qubit,
-        observable_dict,
-        verbose,
-    )
-
-    lst_observables = [obs1, obs2]
-
-    check_reverse(first_gate, list_subcircuits, lst_observables)
-
-    """if draw:
-        for circ in list_subcircuits:
-            print(circ.draw())
-            print("\n")"""
-    return new_qubit, list_subcircuits, lst_observables
-
-
-@task(list_subcircuits=COLLECTION_IN, lst_observables=COLLECTION_IN)
-def check_reverse(first_gate, list_subcircuits, lst_observables):
-    if first_gate not in list_subcircuits[0].queue:
-        list_subcircuits.reverse()
-        lst_observables.reverse()
-
-
-@task(returns=2, non_empty_list=COLLECTION_IN, list_subcircuits=COLLECTION_IN)
-def create_wire_observables(
-    non_empty_list,
-    list_subcircuits,
-    first_gate,
-    new_qubit,
-    observable_dict,
-    verbose=False,
-):
-    obs1 = {}
-    obs2 = {}
-
-    for index, x in enumerate(non_empty_list[0]):
-        if first_gate in list_subcircuits[0].queue:
-            if index == new_qubit[0]:
-                obs1[index] = "-"
-            else:
-                obs1[index] = observable_dict[x]
-        else:
-            obs1[index] = observable_dict[x]
-
-    for index, x in enumerate(non_empty_list[1]):
-        if first_gate not in list_subcircuits[0].queue:
-            if index == new_qubit[0]:
-                obs2[index] = "-"
-            else:
-                obs2[index] = observable_dict[x]
-        else:
-            obs2[index] = observable_dict[x]
-
-    if verbose:
-        print(obs1)
-    if verbose:
-        print(obs2)
-    return obs1, obs2
-
-
-def simulation(
-    list_observables,
-    qubit,
-    circuit_1,
-    circuit_2=None,
-    shots=30000,
-    verbose=False,
-    sync=True,
-):
-    """Description
-    -----------
-    Perform the execution of a circuit to calculate the expected value. It accepts one or two circuits. With one circuit, it calculates the expected value straightforwardly. With two circuits, it performs a reconstruction in order to provide the expected value.
-
-    Parameters
-    ----------
-    list_observables: list of dict
-        List of dictionaries containing observables.
-    qubits: list
-        List of qubits where the cut was performed.
-    circuit_1: Circuit
-        First circuit object.
-    circuit_2: Circuit, optional
-        Second circuit object. Defaults to None.
-    shots: int, optional
-        Number of shots for simulation. Defaults to 30000.
-    verbose: bool, optional
-        Whether to print verbose output. Defaults to False.
-
-    Returns
-    -------
-    reconstruction value: float.
-        Reconstruction value.
-
-    Example
-    -------
-    >>> reconstrution = simulation(list_obervables=[observables1, observables2], qubits=[0,2],
-    >>>                            circuit1, circuit2, shots=30000, verbose=True)
-
-    """
-
-    if verbose:
-        print(f"qibo version: {qibo.__version__}")
-
-    if circuit_2 is not None:
-        # SIMULATION
-
-        basis = ["X", "Y", "Z", "I"]
-        states = ["0", "1", "+", "+i"]
-
-        observables_1 = list_observables[0]
-        observables_2 = list_observables[1]
-        # num_z_sub1 = observables[:(sub_circuit_1_dimension - 1)]
-        # num_z_sub2 = observables[(sub_circuit_1_dimension - 1):]
-
-        # first subcircuit:
-        exp_value_1 = {}
-        for b in basis:
-            if verbose:
-                print("Basis: ", b)
-            copy_circuit = models.Circuit(circuit_1.nqubits)
-            temp = circuit_1.copy()
-            copy_circuit.queue = temp.queue
-            copy_circuit = _first_subcircuit_basis(copy_circuit, b, qubit[0])
-            result = copy_circuit.execute_compss(nshots=shots)
-            # obtain probability distribution
-            freq = result.frequencies_compss(binary=True)
-            # we call the function that computes the e
-            # new_obs = num_z_sub1[:qubit[0]] + b + num_z_sub1[qubit[0]:]
-            # print(new_obs)
-
-            # new_obs = "".join(
-            #    [value for key, value in sorted(observables_1.items())]
-            # )
-            if verbose:
-                print("OBSERVABLES 1: ", observables_1)
-                print(circuit_1.draw())
-                print(circuit_1.nqubits)
-                print(copy_circuit.circuit.draw())
-                print(copy_circuit.circuit.nqubits)
-            exp_value_1[b] = _compute_expectation_value(
-                freq, observables_1, shots=shots, wire_observables=True, b=b
-            )
-
-        # second subcircuit:
-        exp_value_2 = {}
-        if verbose:
-            print("SECOND ONE")
-        for s in states:
-            if verbose:
-                print("States: ", s)
-            copy_circuit2 = models.Circuit(circuit_2.nqubits)
-            temp2 = circuit_2.copy(True)
-            copy_circuit2.queue = temp2.queue
-            copy_circuit2 = _second_subcircuit_states(copy_circuit2, s, qubit[1])
-            result = copy_circuit2.execute_compss(nshots=shots)
-            # obtain probability distribution
-            freq = result.frequencies_compss(binary=True)
-            # new_obs2 = "".join(
-            #    [value for key, value in sorted(observables_2.items())]
-            # )
-            # we call the function that computes the expectation value
-            if verbose:
-                print("OBSERVABLES 2: ", observables_2)
-            exp_value_2[s] = _compute_expectation_value(
-                freq, observables_2, shots=shots
-            )
-
-        # exp_value_1 = compss_wait_on(exp_value_1)
-        # exp_value_2 = compss_wait_on(exp_value_2)
-
-        reconstruction = wire_reconstruction(exp_value_1, exp_value_2)
-        if sync:
-            reconstruction = compss_wait_on(reconstruction)
-            if verbose:
-                print(
-                    "Expectation value after circuit cutting and reconstruction:",
-                    reconstruction,
-                )
-        return reconstruction
-    else:
-        circuit_1.add(gates.M(*range(circuit_1.nqubits)))
-        result = circuit_1(nshots=shots)
-        freq = dict(result.frequencies(binary=True))
-
-        expec = 0
-        for key, value in freq.items():
-            ones = key.count("1")
-            if ones % 2 == 0:
-                expec += float(value) / shots
-            else:
-                expec -= float(value) / shots
-        print("Expectation value for the circuit: ", expec)
-        return expec
-
-
-@task(exp_value_1=DICTIONARY_IN, exp_value_2=DICTIONARY_IN, returns=1)
-def wire_reconstruction(exp_value_1, exp_value_2):
-    reconstruction = (
-        1
-        / 2
-        * (
-            (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
-            + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
-            + exp_value_1["X"]
-            * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
-            + exp_value_1["Y"]
-            * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
-        )
-    )
-    return reconstruction
-
-
-def execute_qc(
-    connection, qubit, circuit_1, circuit_2=None, shots=30000, verbose=False
-):
-    """Description
-    -----------
-    Perform the execution of a circuit by sending it to the Quantum Computer and obtaining the job IDs. Accepts one or two circuits. With one circuit, it executes it straightforwardly. With two circuits, it executes them separately and returns the job IDs for each.
-
-    Parameters
-    ----------
-    connection: object
-        API configuration.
-    qubit: list
-        List of qubits where the cut was performed.
-    circuit_1: Circuit
-        First circuit object.
-    circuit_2: Circuit, optional
-        Second circuit object. Defaults to None.
-    shots: int, optional
-        Number of shots for simulation. Defaults to 30000.
-    verbose: bool, optional
-        Whether to print verbose output. Defaults to False.
-
-    Returns
-    -------
-    job_ids1: list
-        List of job IDs for the first circuit.
-    job_ids2: list
-        List of job IDs for the second circuit, if provided. Otherwise, None.
-
-    Example
-    -------
-    >>> job_ids1, job_ids2 = execute_qc(connection, qubits=[0,2], circuit1, circuit2, shots=30000, verbose=True)
-    """
-
-    connection.select_device_ids(device_ids=[9])
-    connection.list_devices()
-
-    if circuit_2 is not None:
-        # SIMULATION
-
-        basis = ["X", "Y", "Z", "I"]
-        states = ["0", "1", "+", "+i"]
-
-        job_ids1 = []
-        for b in basis:
-            if verbose:
-                print("Basis: ", b)
-            copy_circuit1 = models.Circuit(circuit_1.nqubits)
-            copy_circuit = circuit_1.copy(True)
-            copy_circuit1.queue = copy_circuit.queue
-            final_circuit = _first_subcircuit_basis(copy_circuit1, b, qubit[0])
-            """G = architecture_x()
-            G1 = _qubit_arch(final_circuit.circuit)
-            dict_arch = subgraph_matcher(G,G1)
-            print(dict_arch)
-            mapped_circuit = rename_qubits(final_circuit,2,dict_arch[0],'B')
-            print(mapped_circuit.circuit.draw())"""
-            job_ids = final_circuit.execute_qc_compss(connection, nshots=shots)
-            # job_ids = connection.execute(circuit=circuit_1, nshots=1000)
-            job_ids1.append(job_ids[0])
-
-        # second subcircuit:
-        job_ids2 = []
-        for s in states:
-            if verbose:
-                print("States: ", s)
-            copy_circuit2 = models.Circuit(circuit_2.nqubits)
-            copy_circuit = circuit_2.copy(True)
-            copy_circuit2.queue = copy_circuit.queue
-            final_circuit = _second_subcircuit_states(
-                copy_circuit2, s, qubit[1]
-            )
-            job_ids = final_circuit.execute_qc_compss(connection, nshots=shots)
-            # job_ids = connection.execute(circuit=final_circuit, nshots=1000)
-            job_ids2.append(job_ids[0])
-
-        job_ids1 = compss_wait_on(job_ids1)
-        job_ids2 = compss_wait_on(job_ids2)
-    else:
-        print("Missing subcircuit2")
-        print("NOT YET IMPLEMENTED!")
-        job_ids1, job_ids2 = None, None
-    return job_ids1, job_ids2
-
-
-def reconstruction_qc(
-    connection,
-    job_ids1,
-    job_ids2,
-    list_observables,
-    shots=30000,
-    verbose=False,
-):
-    """Description
-    -----------
-    Perform the reconstruction of a circuit after sending it to the Quantum Computer and retrieving the job IDs. Accepts job IDs for one or two circuits and the list of observables associated with each subcircuit. Calculates the expectation value of the reconstructed circuit.
-
-    Parameters
-    ----------
-    connection: object
-        API configuration.
-    job_ids1: list
-        List of job IDs for the first circuit.
-    job_ids2: list
-        List of job IDs for the second circuit, if provided. Otherwise, None.
-    list_observables: list of dict
-        List of dictionaries containing observables for each subcircuit.
-    shots: int, optional
-        Number of shots for simulation. Defaults to 30000.
-    verbose: bool, optional
-        Whether to print verbose output. Defaults to False.
-
-    Returns
-    -------
-    reconstruction: float
-        Reconstruction value.
-
-    Example
-    -------
-    >>> reconstruction = reconstruction_qc(connection, job_ids1, job_ids2,
-    >>>                                    list_observables=[observables1, observables2],
-    >>>                                    shots=30000, verbose=True)
-    """
-    connection.select_device_ids(device_ids=[9])
-    connection.list_devices()
-
-    results1 = connection.get_results(job_ids=job_ids1)
-    results2 = connection.get_results(job_ids=job_ids2)
-
-    while any(x is None for x in results1) or any(x is None for x in results2):
-        print("RETRIVEING RESULTS...")
-        results1 = connection.get_results(job_ids=job_ids1)
-        results2 = connection.get_results(job_ids=job_ids2)
-        time.sleep(1)
-
-    basis = ["X", "Y", "Z", "I"]
-    states = ["0", "1", "+", "+i"]
-
-    observables_1 = list_observables[0]
-    observables_2 = list_observables[1]
-
-    # first subcircuit:
-    exp_value_1 = {}
-    for index, b in enumerate(basis):
-        if verbose:
-            print("Basis: ", b)
-        result = results1[index]
-        # obtain probability distribution
-        freq = result.frequencies_compss(binary=True)
-        # we call the function that computes the expectation value
-        for key, value in observables_1.items():
-            if value == "-":
-                observables_1[key] = b
-        new_obs = "".join(
-            [value for key, value in sorted(observables_1.items())]
-        )
-        if verbose:
-            print("OBSERVABLES: ", new_obs)
-        exp_value_1[b] = _compute_expectation_value(freq, new_obs, shots=shots)
-
-    # second subcircuit:
-    exp_value_2 = {}
-    if verbose:
-        print("SECOND ONE")
-    for index, s in enumerate(states):
-        if verbose:
-            print("States: ", s)
-        result = results2[index]
-        # obtain probability distribution
-        freq = result.frequencies_compss(binary=True)
-        new_obs2 = "".join(
-            [value for key, value in sorted(observables_2.items())]
-        )
-        # we call the function that computes the expectation value
-        if verbose:
-            print("OBSERVABLES: ", new_obs2)
-        exp_value_2[s] = _compute_expectation_value(
-            freq, new_obs2, shots=shots
-        )
-
-    exp_value_1 = compss_wait_on(exp_value_1)
-    exp_value_2 = compss_wait_on(exp_value_2)
-    reconstruction = (
-        1
-        / 2
-        * (
-            (exp_value_1["I"] + exp_value_1["Z"]) * exp_value_2["0"]
-            + (exp_value_1["I"] - exp_value_1["Z"]) * exp_value_2["1"]
-            + exp_value_1["X"]
-            * (2 * exp_value_2["+"] - exp_value_2["0"] - exp_value_2["1"])
-            + exp_value_1["Y"]
-            * (2 * exp_value_2["+i"] - exp_value_2["0"] - exp_value_2["1"])
-        )
-    )
-
-    print(
-        "Expectation value after circuit cutting and reconstruction:",
-        reconstruction,
-    )
-    return reconstruction
-
-
-def wire_cutting_QC(
-    connection,
-    list_observables,
-    qubit,
-    circuit1,
-    circuit2,
-    shots=10,
-    verbose=False,
-):
-    """Description
-    -----------
-    Send the circuits to the Quantum Computer in order to be executed and retrieves the information to calculate the reconstruction value.
-
-    Parameters
-    ----------
-    connection: string
-        Connection string.
-    list_observables: list of dict
-        List of dictionaries containing observables.
-    qubit: list
-        List of qubits where the cut was performed.
-    circuit1: Circuit
-        First circuit object.
-    circuit2: Circuit
-        Second circuit object.
-    shots: int, optional
-        Number of shots for simulation. Defaults to 10.
-    verbose: bool, optional
-        Whether to print verbose output. Defaults to False.
-
-    Returns
-    -------
-    reconstruction value: float
-        Reconstruction value.
-
-    Example
-    -------
-    >>> reconstruction = quantum_computer(connection, list_observables=[observables1, observables2], qubit=[0,2],
-    >>>                                   circuit1, circuit2, shots=10, verbose=True)
-    """
-
-    if verbose:
-        print(f"qibo version: {qibo.__version__}")
-
-    job_ids1, job_ids2 = execute_qc(
-        connection, qubit, circuit1, circuit2, shots
-    )
-    reconstruction = reconstruction_qc(
-        connection, job_ids1, job_ids2, list_observables, shots
-    )
-    print(
-        "Expectation value after circuit cutting and reconstruction:",
-        reconstruction,
-    )
-    return reconstruction'''
-
 
 def analytical_solution(observables, circuit, verbose=False):
     """Description
@@ -709,7 +70,7 @@ def analytical_solution(observables, circuit, verbose=False):
 
     Example
     -------
-    >>> analytical_value = analytical_solution(observables="ZXYI", circuit=circuit, verbose=True)
+    >>> analytical_value = analytical_solution(observables="ZZZZ", circuit=circuit, verbose=True)
     """
 
     state = circuit()
@@ -747,8 +108,6 @@ def analytical_solution(observables, circuit, verbose=False):
             exp_full_circuit,
         )
     return exp_full_circuit
-
-
 
 
 
@@ -1523,21 +882,23 @@ def math_prod(exp_value):
     expectation_value = math.prod(exp_value)
     return expectation_value
 
+from collections import defaultdict
 def draw_to_circuit(text_draw, parameters=None):
     split = text_draw.splitlines()
-    
-    qubits = []
+    #print(split) 
+    print(split)
+    qubits_lst = []
     split = [element for element in split if element.strip()]
     split = [element for element in split if element != ""]
-
+    print(split)
     for line in split:
         index = line.index('─')
-        qubits.append(line[index:])
+        qubits_lst.append(line[index:])
         
 
-    list_multiple_gates = []
+    list_multiple_gates = defaultdict(list)
     # Now we will process each line to identify multi-qubit gates
-    for idx, qubit_line in enumerate(qubits):
+    for idx, qubit_line in enumerate(qubits_lst):
         qubit_number = idx  # Line number corresponds to the qubit (q0 is index 0)
         qubit_state = list(qubit_line)
         
@@ -1545,28 +906,34 @@ def draw_to_circuit(text_draw, parameters=None):
         for i, symbol in enumerate(qubit_state):
             if symbol == 'o':
                 index = i
-                for idx2, qubit in enumerate(qubits[idx+1:]):
+                for idx2, qubit in enumerate(qubits_lst[idx+1:]):
                     if list(qubit)[index] != '|':
                         name = list(qubit)[index]
                         if name == 'Z':
                             name = 'CZ'
                         elif name == 'X':
                             name = 'CNOT'
-                        list_multiple_gates.append((name, (idx,idx2+idx+1)))
-                        qubits[idx2+idx+1] = qubits[idx2+idx+1][:index] + '─' + qubits[idx2+idx+1][index+1:] 
+                        list_multiple_gates[idx].append((name, (idx,idx2+idx+1)))
+                        qubits_lst[idx2+idx+1] = qubits_lst[idx2+idx+1][:index] + '─' + qubits_lst[idx2+idx+1][index+1:] 
                         break
 
-    circuit = models.Circuit(len(qubits))
-    counter=0
-    tmp = ''
-    for idx, qubit_line in enumerate(qubits):
-        qubit_state = list(qubit_line)
-        parameter_tracker = 0
-        for idx2, char in enumerate(qubit_state):
+    circuit = models.Circuit(len(qubits_lst))
+    
+    num_steps = len(list(qubits_lst[0]))  # Total number of time steps (columns)
+    
+    for step in range(num_steps):
+        print(qubits_lst)
+        saved_qubit = []
+        for idx, qubit_line in enumerate(qubits_lst):
+            qubit_state = list(qubit_line)
+            parameter_tracker = 0
+
+            char = qubit_state[step]
+            #for idx2, char in enumerate(qubit_state):
             if char != '─' and char != '|':
                 if char != 'o':
-                    if qubit_state[idx2+1] == '─':
-                        tmp = tmp + char
+                    if qubit_state[step+1] == '─' and qubit_state[step-1] == '─':
+                        tmp = char
                         #print("Add gate: ", tmp, " qubit ", (idx,))
                         #circuit.add(getattr(gates, tmp)(idx))
                         print(tmp)
@@ -1593,21 +960,62 @@ def draw_to_circuit(text_draw, parameters=None):
                             circuit.add(gate_class(qubits))
 
 
+                        
+                    elif qubit_state[step-1] == '─' and qubit_state[step+1] != '─':
                         tmp = ''
-                    else:
-                        tmp = tmp + char
-                    
+                        print(qubit_state)
+                        print(qubit_state[step+1])
+                        print(range(step,num_steps))
+                        for i in range(step,num_steps):
+                            print(qubit_state[i])
+                            if qubit_state[i+1] == '─':
+                                print("HEY")
+                                tmp = tmp + qubit_state[i]
+
+                                gate_name = tmp
+                                qubits = idx
+
+                                print(tmp)
+
+                                # Get the gate class from the qibo.gates module
+                                gate_class = getattr(gates, gate_name)
+
+                                # Get the signature of the gate's __init__ method
+                                signature = inspect.signature(gate_class.__init__)
+
+                                # Count the number of required positional arguments (excluding 'self')
+                                param_count = len(signature.parameters) - 1  # exclude 'self'
+
+                                # Check if parameters are provided and the gate requires them
+                                if parameters is not None and param_count > 1:
+                                    print("HEY2")
+                                    param = parameters[idx][parameter_tracker][1]
+                                    # Pass qubits and parameters if the gate requires both
+                                    circuit.add(gate_class(qubits, param))
+                                    parameter_tracker += 1
+                                    break
+                                else:
+                                    print("HEY3")
+                                    # Otherwise, pass only the qubits
+                                    print(gate_class)
+
+                                    circuit.add(gate_class(qubits))
+                                    break
+
+                            else:
+                                tmp = tmp + qubit_state[i]
+                        
 
                 
                 elif char == 'o':
-                    print(list_multiple_gates)
-                    print("Add gate: ", list_multiple_gates[counter][0] ," qubit ", list_multiple_gates[counter][1])
-                    circuit.add(getattr(gates, list_multiple_gates[counter][0])(*list_multiple_gates[counter][1]))
-                    
-                    counter += 1
-                
-                else:
-                    raise ValueError
+                    saved_qubit.append(idx)
+
+
+        for idx in saved_qubit:
+        #if list_multiple_gates[idx]:
+            print("Add gate: ", list_multiple_gates[idx][0][0] ," qubit ", list_multiple_gates[idx][0][1])
+            circuit.add(getattr(gates, list_multiple_gates[idx][0][0])(*list_multiple_gates[idx][0][1]))        
+            list_multiple_gates[idx].remove(list_multiple_gates[idx][0])
 
     print(circuit.draw())
     return circuit
