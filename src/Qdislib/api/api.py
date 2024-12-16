@@ -19,7 +19,6 @@
 
 """Quantum Distributed Library API."""
 
-from Qdislib.core.cutting_algorithms.gate_cutting import *
 from Qdislib.core.cutting_algorithms.wire_cutting import *
 from Qdislib.core.optimal_cut.optimal_cut import *
 from Qdislib.core.qubit_mapping.qubit_mapping import *
