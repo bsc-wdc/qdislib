@@ -26,7 +26,7 @@ import copy
 import qibo
 import itertools as it
 
-from Qdislib.core.cutting_algorithms.wire_cutting import update_qubits, remove_red_edges
+from Qdislib.utils.graph import update_qubits, remove_red_edges
 
 
 # Function to find predecessor or successor nodes with specific qubit
