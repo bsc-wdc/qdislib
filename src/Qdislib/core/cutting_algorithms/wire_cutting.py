@@ -289,7 +289,7 @@ def generate_subcircuits_wire_cutting(updated_dag, num_qubits, idx, edges_to_rep
     
     return updated_dag
 
-@task(returns=1)
+@task(returns=1, lst=COLLECTION_IN)
 def sum_results(lst):
     return sum(lst)
 
