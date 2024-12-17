@@ -72,6 +72,8 @@ def wire_cutting(rand_qc,cut,sync=True,gate_cutting=False):
                 #print(dag_to_circuit(s,5)[0].draw())
                 graphs = generate_wire_cutting(s, tmp_cuts , num_qubits=num_qubits)
                 print("GRAPHS ",graphs)
+                if sync:
+                    graphs = compss_wait_on(graphs)
                 results.append(sum(graphs)) #1/(2**len(tmp_cuts))*sum(graphs)
             else:
                 s_new, highest_qubit = update_qubits(s)
