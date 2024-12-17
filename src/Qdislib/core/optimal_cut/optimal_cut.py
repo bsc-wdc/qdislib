@@ -120,14 +120,15 @@ def optimal_cut(graph, threshold):
     :return: Best cut as a list of edges and its score.
     """
     best_cut_edges = None
-    best_score = float('inf')
+    
 
     graph = remove_red_edges(graph)
     components = [graph.subgraph(c).copy() for c in nx.connected_components(graph.to_undirected())]
     cuts = []
     scores = []
     max_len_cut = float("-inf")
-    for component in components:
+    for idx, component in enumerate(components):
+        best_score = float('inf')
         component, _ = update_qubits(component)
         highest_qubit = float('-inf')
         smallest_qubit = float('inf')
@@ -139,9 +140,8 @@ def optimal_cut(graph, threshold):
                 smallest_qubit = min(qubits)
 
         if highest_qubit - smallest_qubit > (threshold - 1):
+            print(f"Component {idx} out of {len(components)}")
             print("Cut required due to threshold violation")
-            print(highest_qubit)
-            print(smallest_qubit)
 
             centrality = nx.edge_betweenness_centrality(component)
             sorted_edges = sorted(centrality.items(), key=lambda x: x[1], reverse=True)
@@ -191,6 +191,7 @@ def optimal_cut(graph, threshold):
             cuts = cuts + [*best_cut_edges]
             scores.append(best_score)
         else:
+            print(f"Component {idx} out of {len(components)}")
             print("No cut required")
 
     return cuts, scores, max_len_cut
