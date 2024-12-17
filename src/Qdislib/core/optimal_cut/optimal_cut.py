@@ -112,7 +112,7 @@ def evaluate_cut(graph, cut_edges, cut_nodes, threshold):
     return True, score
 
 
-def find_best_cut(graph, threshold):
+def optimal_cut(graph, threshold):
     """
     Find the best cut based on the given constraints.
     :param graph: NetworkX graph object.
