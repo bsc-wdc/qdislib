@@ -72,9 +72,8 @@ def wire_cutting(rand_qc,cut,sync=True,gate_cutting=False):
                 #print(dag_to_circuit(s,5)[0].draw())
                 graphs = generate_wire_cutting(s, tmp_cuts , num_qubits=num_qubits)
                 print("GRAPHS ",graphs)
-                if sync:
-                    graphs = compss_wait_on(graphs)
-                results.append(sum(graphs)) #1/(2**len(tmp_cuts))*sum(graphs)
+                graphs = sum_results(graphs)
+                results.append(graphs) #1/(2**len(tmp_cuts))*sum(graphs)
             else:
                 s_new, highest_qubit = update_qubits(s)
                 subcirc = dag_to_circuit(s_new,highest_qubit)
@@ -289,6 +288,10 @@ def generate_subcircuits_wire_cutting(updated_dag, num_qubits, idx, edges_to_rep
         graph_components[i].add_edges_from(new_subgraph.edges(data=True), color="blue")
     
     return updated_dag
+
+@task(returns=1)
+def sum_results(lst):
+    return sum(lst)
 
 @task(returns=1)
 def execute_subcircuits(subcirc):
