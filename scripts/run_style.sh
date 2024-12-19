@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/usr/bin/env bash
 
 # Runs black code style checks on the Qdislib.
 python3 -m black --line-length 79 ../src/
