@@ -30,8 +30,8 @@ def load_tests(loader, tests, pattern):
     :param pattern: Test pattern.
     :return: Loaded tests.
     """
-    return loader.discover('./tests/')
+    return loader.discover("./tests/")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main(verbosity=2)
