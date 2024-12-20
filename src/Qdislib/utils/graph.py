@@ -27,7 +27,6 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 from pycompss.api.task import task
-from pycompss.api.constraint import constraint
 from pycompss.api.parameter import *
 
 import inspect
