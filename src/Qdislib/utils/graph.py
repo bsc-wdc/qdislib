@@ -246,3 +246,23 @@ def count_missing_up_to(nums, max_num):
     
     # Return the count of missing numbers
     return len(missing_numbers)
+
+
+def update_qubits_serie(s):
+    my_set = set()
+    for node, data in s.nodes(data=True):
+        for qubit in s.nodes[node]["qubits"]:
+            my_set.add(qubit)
+
+
+    for node, data in s.nodes(data=True):
+        new_tuple = ()
+        for qubit in s.nodes[node]["qubits"]:
+            len_missing = count_missing_up_to(my_set, qubit)
+            new_qubit = qubit - len_missing
+            new_tuple = new_tuple + (new_qubit,)
+        s.nodes[node]["qubits"] = new_tuple
+
+    highest_qubit = max(my_set)+1 - count_missing_up_to(my_set, max(my_set))
+    smallest_qubit = min(my_set) - count_missing_up_to(my_set, min(my_set))
+    return s, highest_qubit, smallest_qubit
