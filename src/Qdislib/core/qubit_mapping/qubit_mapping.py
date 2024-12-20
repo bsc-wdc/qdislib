@@ -17,7 +17,7 @@
 
 # -*- coding: utf-8 -*-
 
-import networkx as nx
+'''import networkx as nx
 import matplotlib.pyplot as plt
 from qibo import models, gates
 from Qdislib.classes.circuit_classes import _NewCircuit
@@ -294,3 +294,5 @@ def rename_qubits(subcirc, qubit_middle, best_arch, middle_arch_qubit):
     if _NewCircuit_class:
         new_circuit = _NewCircuit(new_circuit)
     return new_circuit
+
+    '''
