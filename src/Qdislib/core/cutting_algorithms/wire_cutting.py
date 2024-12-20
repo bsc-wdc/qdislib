@@ -19,35 +19,15 @@
 
 from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
-from pycompss.api.parameter import COLLECTION_IN, DICTIONARY_IN
 from pycompss.api.parameter import *
 
-import numpy as np
 import qibo
-from qibo import models, gates, hamiltonians  # , callbacks
+from qibo import models, gates
 import networkx as nx
 
 from Qdislib.api import *
-from qiboconnection.connection import ConnectionConfiguration
-from qiboconnection.api import API
-from Qdislib.api import *
-from scipy.optimize import minimize
-import time
-import itertools as it
-
-from pycompss.api.task import task
-from pycompss.api.api import compss_wait_on
-from pycompss.api.api import compss_barrier
-from pycompss.api.parameter import *
-
-import igraph as ig
-import matplotlib.pyplot as plt
-import random
 
 import math
-
-import inspect
-from collections import defaultdict
 
 from Qdislib.utils.graph import circuit_to_dag, dag_to_circuit, max_qubit, update_qubits, remove_red_edges
 
