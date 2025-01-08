@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 
-# Run the coverage of the dislib using the tests in ./tests (sequential)
+cd ..
+# Run the coverage of the Qdislib using the tests in ../tests (sequential)
 coverage3 run --source Qdislib tests
 # Create the report
 coverage3 report
 # Report coverage results to the CLI.
 coverage3 report -m
 # Upload coverage report to codecov.io
-##bash <(curl -s https://codecov.io/bash) -t 629589cf-e257-4262-8ec0-314dfd98f003
+##bash <(curl -s https://codecov.io/bash) -t <token_id>
+cd -

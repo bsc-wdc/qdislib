@@ -29,5 +29,5 @@ cd ..
 #---------------------------------------------------
 
 rm -f .coverage
-rm -f output.log
+rm -f scripts/output.log
 rm -rf Qdislib.egg-info

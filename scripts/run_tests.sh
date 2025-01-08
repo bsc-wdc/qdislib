@@ -4,7 +4,7 @@
 runcompss \
   --pythonpath=$(pwd) \
   --python_interpreter=python3 \
-  ./tests/__main__.py &> >(tee output.log)
+  ../tests/__main__.py &> >(tee output.log)
 
 # Check the unittest output because PyCOMPSs exits with code 0 even if there
 # are failed tests (the execution itself is successful)
