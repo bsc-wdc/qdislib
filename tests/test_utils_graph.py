@@ -17,19 +17,19 @@
 
 # -*- coding: utf-8 -*-
 
-"""Utils Circuit Unit tests."""
+"""Utils Graph Unit tests."""
 
 from tests import BaseTimedTestCase
 
 
-class CircuitTest(BaseTimedTestCase):
+class GraphTest(BaseTimedTestCase):
 
-    def test_random_circuit(self):
-        from Qdislib.utils.circuit import random_circuit
-        # Do something to check that retrieves a valid random circuit
+    def test_circuit_to_dag(self):
+        from Qdislib.utils.graph import circuit_to_dag
+        # Do something to check that retrieves a valid dag from circuit
         self.assertTrue(True)
 
-    def test_draw_to_circuit(self):
-        from Qdislib.utils.circuit import draw_to_circuit
-        # Do something to check that the draw_to_circuit function works
+    def test_dag_to_circuit(self):
+        from Qdislib.utils.graph import dag_to_circuit
+        # Do something to check that the dag_to_circuit function works
         self.assertTrue(True)

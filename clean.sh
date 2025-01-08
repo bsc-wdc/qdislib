@@ -11,7 +11,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 #---------------------------------------------------
 
 rm -rf "${SCRIPT_DIR}/build"
-rm -rf "${SCRIPT_DIR}/src/Qdislib.egg-info"
+rm -rf "${SCRIPT_DIR}/Qdislib.egg-info"
 rm -rf "${SCRIPT_DIR}/dist"
 
 find "${SCRIPT_DIR}" | grep __pycache__ | xargs rm -rf
@@ -28,6 +28,5 @@ cd ..
 # REMOVE OTHER FILES
 #---------------------------------------------------
 
-rm -f .coverage
-rm -f scripts/output.log
-rm -rf Qdislib.egg-info
+rm -f "${SCRIPT_DIR}/.coverage"
+rm -f "${SCRIPT_DIR}/scripts/output.log"

@@ -42,7 +42,7 @@ description = "The quantum distributed computing library on top of PyCOMPSs"
 readme = "README.md"
 requires-python = ">=3.7"
 license = { file = "LICENSE" }
-keywords = ["quantum", "distributed computing", "PyCOMPSs", "COMPSs"]
+keywords = ["Quantum", "distributed computing", "PyCOMPSs", "COMPSs", "Qdislib"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: Apache Software License",
