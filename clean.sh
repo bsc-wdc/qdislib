@@ -23,3 +23,11 @@ find "${SCRIPT_DIR}" | grep __pycache__ | xargs rm -rf
 cd docs
 make clean
 cd ..
+
+#---------------------------------------------------
+# REMOVE OTHER FILES
+#---------------------------------------------------
+
+rm -f .coverage
+rm -f output.log
+rm -rf Qdislib.egg-info

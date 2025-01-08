@@ -21,6 +21,7 @@
 
 from tests import BaseTimedTestCase
 
+import Qdislib
 
 class CircuitTest(BaseTimedTestCase):
 
