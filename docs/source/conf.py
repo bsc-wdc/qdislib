@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.abspath('../../notebooks/'))
 # -- Project information -----------------------------------------------------
 
 project = 'Qdislib'
-copyright = '2024, Barcelona Supercomputing Center (BSC)'
+copyright = '2025, Barcelona Supercomputing Center (BSC)'
 html_show_copyright = False
 author = 'Barcelona Supercomputing Center (BSC)'
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-#  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
+#  Copyright 2002-2025 Barcelona Supercomputing Center (www.bsc.es)
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 #
 
 # -*- coding: utf-8 -*-
+
+"""Wire cutting algorithms."""
 
 from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
@@ -34,11 +36,11 @@ from Qdislib.utils.graph import circuit_to_dag, dag_to_circuit, max_qubit, updat
 def wire_cutting(rand_qc,cut,sync=True,gate_cutting=False):
     if type(rand_qc) == models.Circuit:
         dag = circuit_to_dag(rand_qc)
-         
+
     else:
         dag = rand_qc
-    
-    
+
+
     if nx.number_connected_components(dag.to_undirected()) > 1:
         S = [dag.subgraph(c).copy() for c in nx.connected_components(dag.to_undirected())]
         results = []
@@ -59,9 +61,9 @@ def wire_cutting(rand_qc,cut,sync=True,gate_cutting=False):
                 subcirc = dag_to_circuit(s_new,highest_qubit)
                 #print(subcirc.draw())
                 expected_value = execute_subcircuits(subcirc)
-                results.append(expected_value)       
+                results.append(expected_value)
                 print("EV ",expected_value)
-        
+
         if sync:
             results = compss_wait_on(results)
 
@@ -71,7 +73,7 @@ def wire_cutting(rand_qc,cut,sync=True,gate_cutting=False):
         print(results)
         final_recons = 1/(2**len(cut))*math.prod(results)
         return final_recons
-    
+
     else:
         num_qubits = max_qubit(dag)
         if cut:
@@ -90,23 +92,23 @@ def wire_cutting(rand_qc,cut,sync=True,gate_cutting=False):
 def generate_wire_cutting(dag, edges_to_replace, num_qubits):
     """
     Replace a specific edge in the DAG with a source and end node.
-    
+
     Args:
     - dag: The directed acyclic graph (DAG) to modify.
     - edge_to_replace: The edge to remove (tuple of nodes).
     - num_qubits: The current number of qubits in the circuit.
-    
+
     Returns:
     - updated_dag: The modified DAG with new source and end nodes.
     """
-    
+
     reconstruction = []
 
     for index, edge_to_replace in enumerate(edges_to_replace, start=1):
-    
+
         # Extract the nodes of the edge to be replaced
         source, target = edge_to_replace
-        
+
         # Remove the original edge
         dag.remove_edge(source, target)
 
@@ -121,7 +123,7 @@ def generate_wire_cutting(dag, edges_to_replace, num_qubits):
         for node in dag.nodes:
             if dag.has_edge(target, node):
                 successors.append(node)
-    
+
         # Include the target node itself
         nodes = [target] + successors
 
@@ -131,30 +133,30 @@ def generate_wire_cutting(dag, edges_to_replace, num_qubits):
 
                 if common_qubit[0] is qubit:
                     temp_list = list(dag.nodes[successor].get('qubits'))
-            
+
                     # Replace the common element with the new value
                     for i in range(len(temp_list)):
 
                         if temp_list[i] == common_qubit[0]:
                             temp_list[i] = num_qubits+index
-            
+
                     updated_tuple = tuple(temp_list)
                     dag.nodes[successor]['qubits'] = updated_tuple
 
         dag.add_node(f"O_{index}", gate='S', qubits=common_qubit, parameters=())
-        
+
         # Add the new end node with the same properties as the target node
         dag.add_node(f"PS_{index}", gate='T', qubits=(num_qubits+index,), parameters=())
 
         dag.add_edge(source, f"O_{index}", color="blue")
         dag.add_edge(f"PS_{index}", target, color="blue")
-    
+
         copy_dag = dag.copy()
         red_edges = []
         for ed in dag.edges:
             if dag.get_edge_data(ed[0],ed[1])["color"] == "red":
                 red_edges.append(ed)
-        
+
         copy_dag.remove_edges_from(red_edges)
 
     #print(dag_to_circuit(dag,6)[0].draw())
@@ -172,7 +174,7 @@ def generate_wire_cutting(dag, edges_to_replace, num_qubits):
 
         graph_components = []
         for i in range(num_components):
-            graph_components.append(nx.DiGraph().copy()) 
+            graph_components.append(nx.DiGraph().copy())
 
         graph = generate_subcircuits_wire_cutting(copy_graph, num_qubits+len(edges_to_replace),index, edges_to_replace, graph_components)
 
@@ -202,8 +204,8 @@ def generate_subcircuits_wire_cutting(updated_dag, num_qubits, idx, edges_to_rep
 
     for idx2, index in enumerate(list_substitutions, start=0):
         idx2 = idx2+1
-        
-        # I 0 
+
+        # I 0
         if index == 0:
             updated_dag.nodes[f'O_{idx2}']['gate'] = 'Observable I'
             #updated_dag.remove_node(f'O_{idx2}')
@@ -219,7 +221,7 @@ def generate_subcircuits_wire_cutting(updated_dag, num_qubits, idx, edges_to_rep
         elif index == 2:
             updated_dag.nodes[f'O_{idx2}']['gate'] = 'H'
             updated_dag.nodes[f'PS_{idx2}']['gate'] = 'H'
-        
+
         # X -
         elif index == 3:
             updated_dag.nodes[f'O_{idx2}']['gate'] = 'H'
@@ -266,7 +268,7 @@ def generate_subcircuits_wire_cutting(updated_dag, num_qubits, idx, edges_to_rep
         new_subgraph = updated_dag.subgraph(c).copy()
         graph_components[i].add_nodes_from(new_subgraph.nodes(data=True))
         graph_components[i].add_edges_from(new_subgraph.edges(data=True), color="blue")
-    
+
     return updated_dag
 
 @task(returns=1, lst=COLLECTION_IN)
@@ -289,7 +291,7 @@ def execute_subcircuits(subcirc):
 
     observables = ''.join(observables)
     print(observables)
-    
+
     qibo.set_backend("numpy")
     shots=50000
     subcirc.add(gates.M(*range(subcirc.nqubits))) #
@@ -306,7 +308,7 @@ def execute_subcircuits(subcirc):
                 contribution *= 1
             else:
                 raise ValueError(f"Unsupported observable {obs}")
-        
+
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
     #print(expectation_value)

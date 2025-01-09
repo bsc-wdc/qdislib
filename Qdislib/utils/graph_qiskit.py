@@ -1,6 +1,6 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
-#  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
+#  Copyright 2002-2025 Barcelona Supercomputing Center (www.bsc.es)
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -18,9 +18,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Qdislib graph utils.
+Qdislib qiskit graph utils.
 
-This file contains all auxiliary graph classes and functions.
+This file contains all auxiliary qiskit graph classes and functions.
 """
 
 import networkx as nx
@@ -33,11 +33,11 @@ from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 def circuit_qiskit_to_dag(circuit):
     """
     Convert a Qibo circuit to a DAG where each node stores gate information.
-    
+
     Args:
     - circuit: The Qibo circuit to transform.
     - num_qubits: The number of qubits in the circuit.
-    
+
     Returns:
     - dag: A directed acyclic graph (DAG) with nodes containing gate information.
     """
@@ -59,8 +59,8 @@ def circuit_qiskit_to_dag(circuit):
 
             # Add the gate to the DAG, including the gate type, qubits, and parameters
             dag.add_node(gate_name, gate=gate.operation.name, qubits=qubits, parameters=gate.operation.params)
-                
-        
+
+
             # Connect gates based on qubit dependencies
             for qubit in qubits:
                 for pred_gate in reversed(list(dag.nodes)): # Skip the last node since it is the current gate being added
@@ -68,7 +68,7 @@ def circuit_qiskit_to_dag(circuit):
                         if gate_name != pred_gate:
                             dag.add_edge(pred_gate, gate_name, color="blue")
                             break
-        
+
             for qubit in qubits:
                 for pred_gate in reversed(list(dag.nodes)):
                     if dag.nodes[pred_gate].get('qubits') and qubit in dag.nodes[pred_gate]['qubits']:
@@ -81,33 +81,33 @@ def circuit_qiskit_to_dag(circuit):
 def dag_to_circuit_qiskit(dag, num_qubits):
     """
     Reconstruct a Qibo circuit from a DAG.
-    
+
     Args:
     - dag: A networkx DiGraph representing the circuit.
     - num_qubits: The number of qubits in the original circuit.
-    
+
     Returns:
     - circuit: A Qibo circuit reconstructed from the DAG.
     """
-    
+
     # Create an empty Qibo circuit
     qreg_q = QuantumRegister(num_qubits, 'q')
     creg_c = ClassicalRegister(num_qubits, 'c')
     circuit = QuantumCircuit(qreg_q, creg_c)
-    
+
     # Traverse the DAG in topological order
     topo_order = list(nx.topological_sort(dag))
 
     for node in topo_order:
         node_data = dag.nodes[node]
         gate_name = node_data['gate']
-        
+
         # Skip the measurement nodes (we'll handle them separately)
         if gate_name == "Observable I":
             continue
-        
+
         # Get the qubits this gate acts on
-        
+
         qubits = node_data['qubits']
         parameters = node_data['parameters']
 

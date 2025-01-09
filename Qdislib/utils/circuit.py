@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-#  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
+#  Copyright 2002-2025 Barcelona Supercomputing Center (www.bsc.es)
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -16,6 +16,12 @@
 #
 
 # -*- coding: utf-8 -*-
+
+"""
+Qdislib circuit utils.
+
+This file contains all auxiliary circuit classes and functions.
+"""
 
 import numpy as np
 import qibo
@@ -155,7 +161,7 @@ def draw_to_circuit(text_draw, parameters=None):
                         elif name == 'X':
                             name = 'CNOT'
                         list_multiple_gates[idx].append((name, (idx,idx2+idx+1)))
-                        qubits_lst[idx2+idx+1] = qubits_lst[idx2+idx+1][:index] + '─' + qubits_lst[idx2+idx+1][index+1:] 
+                        qubits_lst[idx2+idx+1] = qubits_lst[idx2+idx+1][:index] + '─' + qubits_lst[idx2+idx+1][index+1:]
                         break
 
     circuit = models.Circuit(len(qubits_lst))

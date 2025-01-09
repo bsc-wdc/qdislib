@@ -80,7 +80,7 @@ If you use Qdislib in a scientific publication, we would appreciate you citing t
             author      = {Authors},
             booktitle   = {Proceedings},
             pages       = {1-2},
-            year        = {2024},
+            year        = {2025},
  }
 ```
 

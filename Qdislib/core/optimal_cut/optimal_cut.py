@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-#  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
+#  Copyright 2002-2025 Barcelona Supercomputing Center (www.bsc.es)
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
 #
 
 # -*- coding: utf-8 -*-
+
+"""Optimal cut algorithms."""
 
 from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
@@ -35,7 +37,7 @@ def find_nodes_with_qubit(G, node, qubit, direction='predecessor'):
         neighbors = G.successors(node)
     else:
         raise ValueError("Direction must be either 'predecessor' or 'successor'")
-    
+
     # Filter neighbors based on the qubit data
     nodes_with_qubit = [n for n in neighbors if qubit in G.nodes[n]['qubits']]
     return nodes_with_qubit
@@ -191,7 +193,7 @@ def optimal_cut(graph, threshold):
             best_score_components.append(best_score)
             best_cut_components.append(best_cut_edges)
 
-            
+
         else:
             print(f"Component {idx} out of {len(components)}")
             print("No cut required")
@@ -200,7 +202,7 @@ def optimal_cut(graph, threshold):
     best_cut_components = compss_wait_on(best_cut_components)
     print(best_score_components)
     print(best_cut_components)
-    
+
     for idx,best_score in enumerate(best_score_components):
         best_score = [abs(ele) for ele in best_score]
         index_min = best_score.index(min(best_score))
