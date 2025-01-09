@@ -23,7 +23,8 @@ import networkx as nx
 import random
 import matplotlib.pyplot as plt
 
-def generate_random_graph(num_nodes, probability=0.2, seed = 10 ,draw=False):
+
+def generate_random_graph(num_nodes, probability=0.2, seed=10, draw=False):
     """
     Generates a random undirected graph with a specified number of nodes.
 
@@ -59,7 +60,15 @@ def generate_random_graph(num_nodes, probability=0.2, seed = 10 ,draw=False):
     if draw:
         plt.figure(figsize=(8, 6))
         pos = nx.spring_layout(G)  # Use spring layout for a visually pleasing graph
-        nx.draw(G, pos, with_labels=True, node_color='skyblue', node_size=500, font_size=10, font_weight='bold')
+        nx.draw(
+            G,
+            pos,
+            with_labels=True,
+            node_color="skyblue",
+            node_size=500,
+            font_size=10,
+            font_weight="bold",
+        )
         plt.show()
 
     return G

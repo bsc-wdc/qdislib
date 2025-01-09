@@ -30,17 +30,18 @@ from Qdislib.utils.graph import update_qubits, update_qubits_serie, remove_red_e
 
 
 # Function to find predecessor or successor nodes with specific qubit
-def find_nodes_with_qubit(G, node, qubit, direction='predecessor'):
-    if direction == 'predecessor':
+def find_nodes_with_qubit(G, node, qubit, direction="predecessor"):
+    if direction == "predecessor":
         neighbors = G.predecessors(node)
-    elif direction == 'successor':
+    elif direction == "successor":
         neighbors = G.successors(node)
     else:
         raise ValueError("Direction must be either 'predecessor' or 'successor'")
 
     # Filter neighbors based on the qubit data
-    nodes_with_qubit = [n for n in neighbors if qubit in G.nodes[n]['qubits']]
+    nodes_with_qubit = [n for n in neighbors if qubit in G.nodes[n]["qubits"]]
     return nodes_with_qubit
+
 
 @task(returns=2)
 def evaluate_cut(graph, cut_edges, cut_nodes, threshold):
@@ -57,14 +58,22 @@ def evaluate_cut(graph, cut_edges, cut_nodes, threshold):
 
     # Process cut_nodes for multi-qubit gates only and convert them to edge cuts
     for elem in cut_nodes:
-        target_qubits = graph_copy.nodes[elem]['qubits']
+        target_qubits = graph_copy.nodes[elem]["qubits"]
 
         # Only consider multi-qubit gates (nodes with more than 1 qubit)
         if len(target_qubits) > 1:
-            pred_0 = find_nodes_with_qubit(graph_copy, elem, qubit=target_qubits[0], direction='predecessor')
-            pred_1 = find_nodes_with_qubit(graph_copy, elem, qubit=target_qubits[1], direction='predecessor')
-            succ_0 = find_nodes_with_qubit(graph_copy, elem, qubit=target_qubits[0], direction='successor')
-            succ_1 = find_nodes_with_qubit(graph_copy, elem, qubit=target_qubits[1], direction='successor')
+            pred_0 = find_nodes_with_qubit(
+                graph_copy, elem, qubit=target_qubits[0], direction="predecessor"
+            )
+            pred_1 = find_nodes_with_qubit(
+                graph_copy, elem, qubit=target_qubits[1], direction="predecessor"
+            )
+            succ_0 = find_nodes_with_qubit(
+                graph_copy, elem, qubit=target_qubits[0], direction="successor"
+            )
+            succ_1 = find_nodes_with_qubit(
+                graph_copy, elem, qubit=target_qubits[1], direction="successor"
+            )
 
             # Collect edges connected to the multi-qubit nodes and treat them as wire cuts
             if pred_0:
@@ -80,23 +89,28 @@ def evaluate_cut(graph, cut_edges, cut_nodes, threshold):
     graph_copy.remove_edges_from(cut_edges)
 
     # Find all connected components after the cut
-    components = [graph_copy.subgraph(c).copy() for c in nx.connected_components(graph_copy.to_undirected())]
+    components = [
+        graph_copy.subgraph(c).copy()
+        for c in nx.connected_components(graph_copy.to_undirected())
+    ]
     if len(components) < 2:
-        return False, float('inf')
+        return False, float("inf")
 
     num_nodes = []
     for component in components:
-        component, _ , _= update_qubits_serie(component)
-        highest_qubit = float('-inf')
-        smallest_qubit = float('inf')
+        component, _, _ = update_qubits_serie(component)
+        highest_qubit = float("-inf")
+        smallest_qubit = float("inf")
         for node in component:
-            qubits = component.nodes[node]['qubits']
+            qubits = component.nodes[node]["qubits"]
             if max(qubits) > highest_qubit:
                 highest_qubit = max(qubits)
             if min(qubits) < smallest_qubit:
                 smallest_qubit = min(qubits)
         if highest_qubit - smallest_qubit > (threshold - 1):
-            return False, float('inf')  # Invalid cut if any component exceeds the threshold
+            return False, float(
+                "inf"
+            )  # Invalid cut if any component exceeds the threshold
         num_nodes.append(len(component))
 
     cut_size = len(cut_edges)
@@ -125,7 +139,9 @@ def optimal_cut(graph, threshold):
     best_cut_components = []
 
     graph = remove_red_edges(graph)
-    components = [graph.subgraph(c).copy() for c in nx.connected_components(graph.to_undirected())]
+    components = [
+        graph.subgraph(c).copy() for c in nx.connected_components(graph.to_undirected())
+    ]
     cuts = []
     scores = []
     max_len_cut = float("-inf")
@@ -136,14 +152,14 @@ def optimal_cut(graph, threshold):
         highest_qubit = highest_qubit - 1
         print(highest_qubit)
         print(smallest_qubit)
-        '''highest_qubit = float('-inf')
+        """highest_qubit = float('-inf')
         smallest_qubit = float('inf')
         for node in component:
             qubits = component.nodes[node]['qubits']
             if max(qubits) > highest_qubit:
                 highest_qubit = max(qubits)
             if min(qubits) < smallest_qubit:
-                smallest_qubit = min(qubits)'''
+                smallest_qubit = min(qubits)"""
 
         if highest_qubit - smallest_qubit > (threshold - 1):
             print(f"Component {idx} out of {len(components)}")
@@ -155,8 +171,9 @@ def optimal_cut(graph, threshold):
 
             # Filter articulation points that are multi-qubit gates only
             articulation_points = [
-                node for node in nx.articulation_points(component.to_undirected())
-                if len(component.nodes[node]['qubits']) > 1  # Only multi-qubit gates
+                node
+                for node in nx.articulation_points(component.to_undirected())
+                if len(component.nodes[node]["qubits"]) > 1  # Only multi-qubit gates
             ]
 
             flag_best_score = False
@@ -167,32 +184,41 @@ def optimal_cut(graph, threshold):
 
                 if r <= 3:  # Only edges
                     for cut_edges in it.combinations(edges, r):
-                        valid, score = evaluate_cut(component, list(cut_edges), [], threshold)
-                        if valid: #and abs(score) < best_score:
+                        valid, score = evaluate_cut(
+                            component, list(cut_edges), [], threshold
+                        )
+                        if valid:  # and abs(score) < best_score:
                             best_cut_edges.append(cut_edges)
                             best_score.append(score)
-                            '''if best_score < 2:
+                            """if best_score < 2:
                             flag_best_score = True
-                            break'''
+                            break"""
 
-                elif r >= 4:  # Combination of node and edge removal (nodes converted to edges)
+                elif (
+                    r >= 4
+                ):  # Combination of node and edge removal (nodes converted to edges)
                     num_nodes_to_remove = r // 4
                     num_edges_to_remove = r % 4
                     if len(articulation_points) >= num_nodes_to_remove:
-                        for cut_nodes in it.combinations(articulation_points, num_nodes_to_remove):
-                            for cut_edges in it.combinations(edges, num_edges_to_remove):
+                        for cut_nodes in it.combinations(
+                            articulation_points, num_nodes_to_remove
+                        ):
+                            for cut_edges in it.combinations(
+                                edges, num_edges_to_remove
+                            ):
                                 all_cut_edges = list(cut_edges)  # Start with the edges
-                                valid, score = evaluate_cut(component, all_cut_edges, cut_nodes, threshold)
-                                if valid: #and abs(score) < best_score:
+                                valid, score = evaluate_cut(
+                                    component, all_cut_edges, cut_nodes, threshold
+                                )
+                                if valid:  # and abs(score) < best_score:
                                     best_cut_edges.append(cut_edges)
                                     best_score.append(score)
-                                '''if best_score < 2:
+                                """if best_score < 2:
                                     flag_best_score = True
-                                    break'''
+                                    break"""
 
             best_score_components.append(best_score)
             best_cut_components.append(best_cut_edges)
-
 
         else:
             print(f"Component {idx} out of {len(components)}")
@@ -203,7 +229,7 @@ def optimal_cut(graph, threshold):
     print(best_score_components)
     print(best_cut_components)
 
-    for idx,best_score in enumerate(best_score_components):
+    for idx, best_score in enumerate(best_score_components):
         best_score = [abs(ele) for ele in best_score]
         index_min = best_score.index(min(best_score))
         best_cut_edges = best_cut_components[idx][index_min]

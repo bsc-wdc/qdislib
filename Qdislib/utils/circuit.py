@@ -80,9 +80,7 @@ def analytical_solution(observables, circuit, verbose=False):
     new_expectation_value = hamiltonians.SymbolicHamiltonian(expectation_value)
     # Finally we compute the expectation value
     exp_full_circuit = float(
-        new_expectation_value.expectation(
-            state.state(numpy=True), normalize=False
-        )
+        new_expectation_value.expectation(state.state(numpy=True), normalize=False)
     )
 
     if verbose:
@@ -93,6 +91,7 @@ def analytical_solution(observables, circuit, verbose=False):
             exp_full_circuit,
         )
     return exp_full_circuit
+
 
 def random_circuit(qubits, gate_max, num_cz, p):
     if p == None:
@@ -133,14 +132,14 @@ def random_circuit(qubits, gate_max, num_cz, p):
 
 def draw_to_circuit(text_draw, parameters=None):
     split = text_draw.splitlines()
-    #print(split)
+    # print(split)
     print(split)
     qubits_lst = []
     split = [element for element in split if element.strip()]
     split = [element for element in split if element != ""]
     print(split)
     for line in split:
-        index = line.index('─')
+        index = line.index("─")
         qubits_lst.append(line[index:])
 
     list_multiple_gates = defaultdict(list)
@@ -151,17 +150,21 @@ def draw_to_circuit(text_draw, parameters=None):
 
         # Boolean to track if we are inside a multi-qubit gate
         for i, symbol in enumerate(qubit_state):
-            if symbol == 'o':
+            if symbol == "o":
                 index = i
-                for idx2, qubit in enumerate(qubits_lst[idx+1:]):
-                    if list(qubit)[index] != '|':
+                for idx2, qubit in enumerate(qubits_lst[idx + 1 :]):
+                    if list(qubit)[index] != "|":
                         name = list(qubit)[index]
-                        if name == 'Z':
-                            name = 'CZ'
-                        elif name == 'X':
-                            name = 'CNOT'
-                        list_multiple_gates[idx].append((name, (idx,idx2+idx+1)))
-                        qubits_lst[idx2+idx+1] = qubits_lst[idx2+idx+1][:index] + '─' + qubits_lst[idx2+idx+1][index+1:]
+                        if name == "Z":
+                            name = "CZ"
+                        elif name == "X":
+                            name = "CNOT"
+                        list_multiple_gates[idx].append((name, (idx, idx2 + idx + 1)))
+                        qubits_lst[idx2 + idx + 1] = (
+                            qubits_lst[idx2 + idx + 1][:index]
+                            + "─"
+                            + qubits_lst[idx2 + idx + 1][index + 1 :]
+                        )
                         break
 
     circuit = models.Circuit(len(qubits_lst))
@@ -175,13 +178,13 @@ def draw_to_circuit(text_draw, parameters=None):
             parameter_tracker = 0
 
             char = qubit_state[step]
-            #for idx2, char in enumerate(qubit_state):
-            if char != '─' and char != '|':
-                if char != 'o':
-                    if qubit_state[step+1] == '─' and qubit_state[step-1] == '─':
+            # for idx2, char in enumerate(qubit_state):
+            if char != "─" and char != "|":
+                if char != "o":
+                    if qubit_state[step + 1] == "─" and qubit_state[step - 1] == "─":
                         tmp = char
-                        #print("Add gate: ", tmp, " qubit ", (idx,))
-                        #circuit.add(getattr(gates, tmp)(idx))
+                        # print("Add gate: ", tmp, " qubit ", (idx,))
+                        # circuit.add(getattr(gates, tmp)(idx))
                         print(tmp)
                         gate_name = tmp
                         qubits = idx
@@ -205,14 +208,14 @@ def draw_to_circuit(text_draw, parameters=None):
                             # Otherwise, pass only the qubits
                             circuit.add(gate_class(qubits))
 
-                    elif qubit_state[step-1] == '─' and qubit_state[step+1] != '─':
-                        tmp = ''
+                    elif qubit_state[step - 1] == "─" and qubit_state[step + 1] != "─":
+                        tmp = ""
                         print(qubit_state)
-                        print(qubit_state[step+1])
-                        print(range(step,num_steps))
-                        for i in range(step,num_steps):
+                        print(qubit_state[step + 1])
+                        print(range(step, num_steps))
+                        for i in range(step, num_steps):
                             print(qubit_state[i])
-                            if qubit_state[i+1] == '─':
+                            if qubit_state[i + 1] == "─":
                                 print("HEY")
                                 tmp = tmp + qubit_state[i]
 
@@ -228,7 +231,9 @@ def draw_to_circuit(text_draw, parameters=None):
                                 signature = inspect.signature(gate_class.__init__)
 
                                 # Count the number of required positional arguments (excluding 'self')
-                                param_count = len(signature.parameters) - 1  # exclude 'self'
+                                param_count = (
+                                    len(signature.parameters) - 1
+                                )  # exclude 'self'
 
                                 # Check if parameters are provided and the gate requires them
                                 if parameters is not None and param_count > 1:
@@ -249,14 +254,22 @@ def draw_to_circuit(text_draw, parameters=None):
                             else:
                                 tmp = tmp + qubit_state[i]
 
-                elif char == 'o':
+                elif char == "o":
                     saved_qubit.append(idx)
 
-
         for idx in saved_qubit:
-        #if list_multiple_gates[idx]:
-            print("Add gate: ", list_multiple_gates[idx][0][0] ," qubit ", list_multiple_gates[idx][0][1])
-            circuit.add(getattr(gates, list_multiple_gates[idx][0][0])(*list_multiple_gates[idx][0][1]))
+            # if list_multiple_gates[idx]:
+            print(
+                "Add gate: ",
+                list_multiple_gates[idx][0][0],
+                " qubit ",
+                list_multiple_gates[idx][0][1],
+            )
+            circuit.add(
+                getattr(gates, list_multiple_gates[idx][0][0])(
+                    *list_multiple_gates[idx][0][1]
+                )
+            )
             list_multiple_gates[idx].remove(list_multiple_gates[idx][0])
 
     print(circuit.draw())
