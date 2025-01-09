@@ -23,26 +23,23 @@ Qdislib qiskit graph utils.
 This file contains all auxiliary qiskit graph classes and functions.
 """
 
-import networkx as nx
-import matplotlib.pyplot as plt
 import inspect
+import networkx
 
-from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
+from qiskit import QuantumCircuit
+from qiskit import QuantumRegister
+from qiskit import ClassicalRegister
 
 
-def circuit_qiskit_to_dag(circuit):
-    """
-    Convert a Qibo circuit to a DAG where each node stores gate information.
+def circuit_qiskit_to_dag(circuit: QuantumCircuit) -> networkx.DiGraph:
+    """Convert a Qibo circuit to a DAG where each node stores gate information.
 
-    Args:
-    - circuit: The Qibo circuit to transform.
-    - num_qubits: The number of qubits in the circuit.
-
-    Returns:
-    - dag: A directed acyclic graph (DAG) with nodes containing gate information.
+    :param circuit: The Qibo circuit to transform.
+    :param num_qubits: The number of qubits in the circuit.
+    :return: A directed acyclic graph (DAG) with nodes containing gate information.
     """
     # Create a directed graph
-    dag = nx.DiGraph()
+    dag = networkx.DiGraph()
 
     # Add gates to the DAG as nodes with unique identifiers
     for gate_idx, gate in enumerate(circuit.data, start=1):
@@ -67,49 +64,44 @@ def circuit_qiskit_to_dag(circuit):
 
             # Connect gates based on qubit dependencies
             for qubit in qubits:
-                for pred_gate in reversed(
-                    list(dag.nodes)
-                ):  # Skip the last node since it is the current gate being added
+                # Skip the last node since it is the current gate being added
+                for pred_gate in reversed(list(dag.nodes)):
+                    # Check if the qubit is in the node's qubits
                     if (
                         dag.nodes[pred_gate].get("qubits")
                         and qubit in dag.nodes[pred_gate]["qubits"]
-                    ):  # Check if the qubit is in the node's qubits
-                        if gate_name != pred_gate:
-                            dag.add_edge(pred_gate, gate_name, color="blue")
-                            break
+                        and gate_name != pred_gate
+                    ):
+                        dag.add_edge(pred_gate, gate_name, color="blue")
+                        break
 
             for qubit in qubits:
                 for pred_gate in reversed(list(dag.nodes)):
                     if (
                         dag.nodes[pred_gate].get("qubits")
                         and qubit in dag.nodes[pred_gate]["qubits"]
+                        and gate_name != pred_gate
+                        and not dag.has_edge(pred_gate, gate_name)
                     ):
-                        if gate_name != pred_gate:
-                            if not dag.has_edge(pred_gate, gate_name):
-                                dag.add_edge(pred_gate, gate_name, color="red")
+                        dag.add_edge(pred_gate, gate_name, color="red")
 
     return dag
 
 
-def dag_to_circuit_qiskit(dag, num_qubits):
+def dag_to_circuit_qiskit(dag: networkx.DiGraph, num_qubits: int) -> QuantumCircuit:
+    """Reconstruct a Qibo circuit from a DAG.
+
+    :param dag: A networkx DiGraph representing the circuit.
+    :param num_qubits: The number of qubits in the original circuit.
+    :return: A Qibo circuit reconstructed from the DAG.
     """
-    Reconstruct a Qibo circuit from a DAG.
-
-    Args:
-    - dag: A networkx DiGraph representing the circuit.
-    - num_qubits: The number of qubits in the original circuit.
-
-    Returns:
-    - circuit: A Qibo circuit reconstructed from the DAG.
-    """
-
     # Create an empty Qibo circuit
     qreg_q = QuantumRegister(num_qubits, "q")
     creg_c = ClassicalRegister(num_qubits, "c")
     circuit = QuantumCircuit(qreg_q, creg_c)
 
     # Traverse the DAG in topological order
-    topo_order = list(nx.topological_sort(dag))
+    topo_order = list(networkx.topological_sort(dag))
 
     for node in topo_order:
         node_data = dag.nodes[node]
@@ -156,15 +148,16 @@ def dag_to_circuit_qiskit(dag, num_qubits):
                 tmp = getattr(circuit, gate_class)
                 tmp(*qubits)
 
+    # TODO: check the obs_I initialization since it will never go into the next if
     # Optionally handle measurements, assuming all qubits are measured at the end
     obs_I = []
-    """for node in topo_order:
-        node_data = dag.nodes[node]
-        if node_data['gate'] == "Observable I":
-            obs_I.append(node_data['qubits'][0])
-            dag.remove_node(node)
-            #print(obs_I)
-            #circuit.add(gates.M(node_data['qubit']))"""
+    # for node in topo_order:
+    #     node_data = dag.nodes[node]
+    #     if node_data['gate'] == "Observable I":
+    #         obs_I.append(node_data['qubits'][0])
+    #         dag.remove_node(node)
+    #         #print(obs_I)
+    #         #circuit.add(gates.M(node_data['qubit']))
 
     if obs_I:
         return [circuit, obs_I]

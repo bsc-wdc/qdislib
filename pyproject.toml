@@ -30,7 +30,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Qdislib"
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 authors = [
   { name="Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email="support-compss@bsc.es" },
 ]
@@ -88,6 +88,7 @@ pycompss = ["pycompss",
 
 [tool.setuptools.dynamic]
 version = { attr = "Qdislib.__version__" }
+dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.packages.find]
 where = ["."]

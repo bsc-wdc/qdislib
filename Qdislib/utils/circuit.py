@@ -23,40 +23,34 @@ Qdislib circuit utils.
 This file contains all auxiliary circuit classes and functions.
 """
 
+import igraph
+import inspect
 import numpy as np
 import qibo
-from qibo import models, gates, hamiltonians  # , callbacks
-
-import igraph as ig
 import random
-
-import inspect
+import typing
 from collections import defaultdict
+from qibo import models  # , callbacks
+from qibo import gates
+from qibo import hamiltonians
+from Qdislib.utils.exceptions import QdislibException
 
 
-def analytical_solution(observables, circuit, verbose=False):
-    """Description
-    -----------
-    Calculate the analytical expected value of a whole circuit.
-
-    Parameters
-    ----------
-    observables: string
-        String containing observables.
-    circuit: Circuit
-        Circuit object.
-    verbose: bool, optional
-        Whether to print verbose output. Defaults to False.
-
-    Returns
-    -------
-    analytical expected value: float
-        Analytical expected value.
+def analytical_solution(
+    observables: str, circuit: typing.Any, verbose: bool = False
+) -> float:
+    """Calculate the analytical expected value of a whole circuit.
 
     Example
     -------
     >>> analytical_value = analytical_solution(observables="ZZZZ", circuit=circuit, verbose=True)
+
+    :param observables: String containing observables.
+    :param circuit: Circuit object.
+    :param verbose: Whether to print verbose output. Defaults to False.
+    :return: Analytical expected value.
     """
+    # TODO: circuit parameter is instantiable?
 
     state = circuit()
     counter = 0
@@ -93,44 +87,63 @@ def analytical_solution(observables, circuit, verbose=False):
     return exp_full_circuit
 
 
-def random_circuit(qubits, gate_max, num_cz, p):
+def random_circuit(
+    qubits: int, gate_max, num_cz: typing.Optional[int], p: typing.Any
+) -> models.Circuit:
+    """Generate a random circuit.
+
+    :param qubits: Number of qubits.
+    :param gate_max: Maximum number of single-qubit gates between CZ.
+    :param num_cz: Number of CZ qbit gates. If none, p will be taken.
+    :param p: Probability of adding an edge.
+    :raise QdislibException: If num_cz or p are both None.
+    :return: New random circuit.
+    """
     if p == None:
-        graph = ig.Graph.Erdos_Renyi(n=qubits, m=num_cz, directed=False, loops=False)
+        graph = igraph.Graph.Erdos_Renyi(
+            n=qubits, m=num_cz, directed=False, loops=False
+        )
     elif num_cz == None:
-        graph = ig.Graph.Erdos_Renyi(n=qubits, p=p, directed=False, loops=False)
+        graph = igraph.Graph.Erdos_Renyi(n=qubits, p=p, directed=False, loops=False)
     else:
-        print(
+        raise QdislibException(
             "Error: only the number of edges or the probability of adding an edge must be specified"
         )
 
+    # # Display the graph:
     # adj_mat=graph.get_adjacency()
     # fig, ax = plt.subplots()
-    # ig.plot(graph, target=ax, vertex_label=range(qubits))
+    # igraph.plot(graph, target=ax, vertex_label=range(qubits))
     # graph.degree()
 
     edge_list = graph.get_edgelist()
 
     gates_pull = [gates.X, gates.H, gates.S, gates.T]  # pull of single-qubit gates
     circuit = models.Circuit(qubits)
-    for i in range(len(edge_list)):
-        rand_tmp = random.randint(
-            0, gate_max
-        )  # number of single-qubit gates between CZ
-        for j in range(rand_tmp):
-            sel_gate = random.choice(gates_pull)  # gate selected from the pull
-            sel_qubit = random.randint(
-                0, qubits - 1
-            )  # qubit selected to apply the gate
+    for edge in edge_list:
+        # Number of single-qubit gates between CZ
+        rand_tmp = random.randint(0, gate_max)
+        for _ in range(rand_tmp):
+            # Gate selected from the pull
+            sel_gate = random.choice(gates_pull)
+            # Qubit selected to apply the gate
+            sel_qubit = random.randint(0, qubits - 1)
             circuit.add(sel_gate(sel_qubit))
-
-        circuit.add(
-            gates.CZ(edge_list[i][0], edge_list[i][1])
-        )  # 2-qubit gate from graph
+        # 2-qubit gate from graph
+        circuit.add(gates.CZ(edge[0], edge[1]))
 
     return circuit
 
 
-def draw_to_circuit(text_draw, parameters=None):
+def draw_to_circuit(
+    text_draw: str, parameters: typing.Optional[typing.List[typing.Any]] = None
+) -> models.Circuit:
+    """Convert text circuit to circuit object.
+
+    :param text_draw: Input text to convert.
+    :param parameters: List of parameters, defaults to None
+    :return: Circuit object.
+    """
     split = text_draw.splitlines()
     # print(split)
     print(split)

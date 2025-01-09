@@ -8,3 +8,6 @@ stevedore>=3.0.0
 typing-extensions
 symengine>=0.11,<0.14
 igraph>=0.11.8
+qiskit>=1.1.0
+qiskit_aer>=0.15.1
+networkx>=3.1

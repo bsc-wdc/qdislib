@@ -19,37 +19,47 @@
 
 """Wire cutting algorithms."""
 
+import math
+import networkx
+import qibo
+import typing
+
+from qibo import models, gates
 from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
-from pycompss.api.parameter import *
-
-import qibo
-from qibo import models, gates
-import networkx as nx
-
-from Qdislib.api import *
-
-import math
-
-from Qdislib.utils.graph import (
-    circuit_to_dag,
-    dag_to_circuit,
-    max_qubit,
-    update_qubits,
-    remove_red_edges,
-)
+from pycompss.api.parameter import COLLECTION_IN
+from pycompss.api.parameter import COLLECTION_OUT
+from Qdislib.utils.graph import circuit_to_dag
+from Qdislib.utils.graph import dag_to_circuit
+from Qdislib.utils.graph import max_qubit
+from Qdislib.utils.graph import update_qubits
+from Qdislib.utils.graph import remove_red_edges
 
 
-def wire_cutting(rand_qc, cut, sync=True, gate_cutting=False):
+def wire_cutting(
+    rand_qc: typing.Any,
+    cut: typing.List[typing.Any],
+    sync: bool = True,
+    gate_cutting: bool = False,
+):
+    """Wire cutting algorithm.
+
+    :param rand_qc: Given random quantum circuit.
+    :param cut: List of cuts.
+    :param sync: Syncrhonize or not.
+    :param gate_cutting: Currently unused.
+    :return: The expected value of the given quantum circuit considering the cuts.
+    """
     if type(rand_qc) == models.Circuit:
         dag = circuit_to_dag(rand_qc)
 
     else:
         dag = rand_qc
 
-    if nx.number_connected_components(dag.to_undirected()) > 1:
+    if networkx.number_connected_components(dag.to_undirected()) > 1:
         S = [
-            dag.subgraph(c).copy() for c in nx.connected_components(dag.to_undirected())
+            dag.subgraph(c).copy()
+            for c in networkx.connected_components(dag.to_undirected())
         ]
         results = []
         for s in S:
@@ -71,17 +81,14 @@ def wire_cutting(rand_qc, cut, sync=True, gate_cutting=False):
                 expected_value = execute_subcircuits(subcirc)
                 results.append(expected_value)
                 print("EV ", expected_value)
-
         if sync:
             results = compss_wait_on(results)
-
-        """if gate_cutting:
-            final_recons = 1/2*sum(results)
-        else:"""
-        print(results)
+        # Consider gate cutting within wire cutting:
+        # if gate_cutting:
+        #     final_recons = 1/2*sum(results)
+        # else:
         final_recons = 1 / (2 ** len(cut)) * math.prod(results)
         return final_recons
-
     else:
         num_qubits = max_qubit(dag)
         if cut:
@@ -89,7 +96,6 @@ def wire_cutting(rand_qc, cut, sync=True, gate_cutting=False):
 
             if sync:
                 results = compss_wait_on(results)
-            # print(results)
             final_recons = 1 / (2 ** len(cut)) * sum(results)
         else:
             s_new, highest_qubit = update_qubits(dag)
@@ -98,21 +104,19 @@ def wire_cutting(rand_qc, cut, sync=True, gate_cutting=False):
         return final_recons
 
 
-def generate_wire_cutting(dag, edges_to_replace, num_qubits):
+def generate_wire_cutting(
+    dag: typing.Any,
+    edges_to_replace: typing.List[typing.Tuple[str, str]],
+    num_qubits: int,
+) -> typing.List[float]:
+    """Replace a specific edge in the DAG with a source and end node.
+
+    :param dag: The directed acyclic graph (DAG) to modify.
+    :param edge_to_replace: The edge to remove (tuple of nodes).
+    :param num_qubits: The current number of qubits in the circuit.
+    :return: The updated dag (the modified DAG with new source and end nodes).
     """
-    Replace a specific edge in the DAG with a source and end node.
-
-    Args:
-    - dag: The directed acyclic graph (DAG) to modify.
-    - edge_to_replace: The edge to remove (tuple of nodes).
-    - num_qubits: The current number of qubits in the circuit.
-
-    Returns:
-    - updated_dag: The modified DAG with new source and end nodes.
-    """
-
     reconstruction = []
-
     for index, edge_to_replace in enumerate(edges_to_replace, start=1):
 
         # Extract the nodes of the edge to be replaced
@@ -148,9 +152,8 @@ def generate_wire_cutting(dag, edges_to_replace, num_qubits):
                     temp_list = list(dag.nodes[successor].get("qubits"))
 
                     # Replace the common element with the new value
-                    for i in range(len(temp_list)):
-
-                        if temp_list[i] == common_qubit[0]:
+                    for i, element in enumerate(temp_list):
+                        if element == common_qubit[0]:
                             temp_list[i] = num_qubits + index
 
                     updated_tuple = tuple(temp_list)
@@ -185,11 +188,13 @@ def generate_wire_cutting(dag, edges_to_replace, num_qubits):
 
         copy_graph = remove_red_edges(copy_graph)
 
-        num_components = nx.number_connected_components(copy_graph.to_undirected())
+        num_components = networkx.number_connected_components(
+            copy_graph.to_undirected()
+        )
 
         graph_components = []
         for i in range(num_components):
-            graph_components.append(nx.DiGraph().copy())
+            graph_components.append(networkx.DiGraph().copy())
 
         graph = generate_subcircuits_wire_cutting(
             copy_graph,
@@ -212,14 +217,28 @@ def generate_wire_cutting(dag, edges_to_replace, num_qubits):
         exp_value = change_sign(exp_value, index)
         # print(exp_value)
         reconstruction.append(exp_value)
+
     return reconstruction
 
 
 @task(returns=1, graph_components=COLLECTION_OUT)
 def generate_subcircuits_wire_cutting(
-    updated_dag, num_qubits, idx, edges_to_replace, graph_components
-):
+    updated_dag: typing.Any,
+    num_qubits: int,
+    idx: int,
+    edges_to_replace: typing.List[typing.Tuple[str, str]],
+    graph_components: typing.List[typing.Any],
+) -> typing.Any:
+    """Generate the subcircuits from a circuit applying wire cutting.
 
+    :param updated_dag: Given DAG.
+    :param num_qubits: Current number of Qbits.
+    :param idx: Index.
+    :param edges_to_replace: List of edges to replace.
+    :param graph_components: List of graph components.
+    :raises ValueError: If it is not possible to generate subcircuits.
+    :return: The updated DAG.
+    """
     base8_rep = oct(idx)[2:]
     base8_rep = base8_rep.zfill(len(edges_to_replace))
     list_substitutions = list(map(int, base8_rep))
@@ -316,7 +335,7 @@ def generate_subcircuits_wire_cutting(
             raise ValueError
 
     updated_dag = remove_red_edges(updated_dag)
-    for i, c in enumerate(nx.connected_components(updated_dag.to_undirected())):
+    for i, c in enumerate(networkx.connected_components(updated_dag.to_undirected())):
         new_subgraph = updated_dag.subgraph(c).copy()
         graph_components[i].add_nodes_from(new_subgraph.nodes(data=True))
         graph_components[i].add_edges_from(new_subgraph.edges(data=True), color="blue")
@@ -325,12 +344,23 @@ def generate_subcircuits_wire_cutting(
 
 
 @task(returns=1, lst=COLLECTION_IN)
-def sum_results(lst):
+def sum_results(lst: typing.List[int]) -> int:
+    """Calculate the sum of all results.
+
+    :param lst: List of partial results.
+    :return: Sum of all partial results.
+    """
     return sum(lst)
 
 
 @task(returns=1)
-def execute_subcircuits(subcirc):
+def execute_subcircuits(subcirc: typing.Any) -> float:
+    """Execute the given circuit.
+
+    :param subcirc: Circuit to execute.
+    :raises ValueError: If there is an unsupported observable.
+    :return: The circuit expected value.
+    """
     tmp = subcirc[1]
     subcirc = subcirc[0]
     if tmp:
@@ -371,20 +401,26 @@ def execute_subcircuits(subcirc):
 
 @task(returns=1, expectation_value=COLLECTION_IN)
 def change_sign(expectation_value, index):
+    """Get the product of all expected values and apply change of sign if necessary.
+
+    :param expectation_value: List of expected values.
+    :param index: Number to be used to determine if the sign has to be changed.
+    :return: The expected value.
+    """
     expectation_value = math.prod(expectation_value)
     number = index
 
-    change_sign = False
+    sign_change = False
 
     while number != 0:
         digit = number % 8  # Get the last digit
         if digit in {3, 5, 7}:  # Check if the digit is 3, 5, or 7
-            change_sign = not change_sign  # Flip the sign change flag
+            sign_change = not sign_change  # Flip the sign change flag
         number //= 8  # Move to the next digit
-    # print(change_sign)
+    # print(sign_change)
 
     # If change_sign is True, we flip the sign of the original number
-    if change_sign:
+    if sign_change:
         return -expectation_value
     else:
         return expectation_value

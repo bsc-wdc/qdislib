@@ -23,30 +23,25 @@ Qdislib graph utils.
 This file contains all auxiliary graph classes and functions.
 """
 
-import networkx as nx
+import inspect
+import networkx
 import matplotlib.pyplot as plt
+import typing
+from qibo import models
+from qibo import gates
 
 from pycompss.api.task import task
-from pycompss.api.parameter import *
-
-import inspect
-
-from qibo import models, gates
+from pycompss.api.parameter import INOUT
 
 
-def circuit_to_dag(circuit):
-    """
-    Convert a Qibo circuit to a DAG where each node stores gate information.
+def circuit_to_dag(circuit: models.Circuit) -> networkx.DiGraph:
+    """Convert a Qibo circuit to a DAG where each node stores gate information.
 
-    Args:
-    - circuit: The Qibo circuit to transform.
-    - num_qubits: The number of qubits in the circuit.
-
-    Returns:
-    - dag: A directed acyclic graph (DAG) with nodes containing gate information.
+    :param circuit: The Qibo circuit to transform.
+    :return: A directed acyclic graph (DAG) with nodes containing gate information.
     """
     # Create a directed graph
-    dag = nx.DiGraph()
+    dag = networkx.DiGraph()
 
     # Add gates to the DAG as nodes with unique identifiers
     for gate_idx, gate in enumerate(circuit.queue, start=1):
@@ -63,45 +58,44 @@ def circuit_to_dag(circuit):
 
         # Connect gates based on qubit dependencies
         for qubit in gate.qubits:
-            for pred_gate in reversed(
-                list(dag.nodes)
-            ):  # Skip the last node since it is the current gate being added
+            # Skip the last node since it is the current gate being added
+            for pred_gate in reversed(list(dag.nodes)):
+                # Check if the qubit is in the node's qubits
                 if (
                     dag.nodes[pred_gate].get("qubits")
                     and qubit in dag.nodes[pred_gate]["qubits"]
-                ):  # Check if the qubit is in the node's qubits
-                    if gate_name != pred_gate:
-                        dag.add_edge(pred_gate, gate_name, color="blue")
-                        break
+                    and gate_name != pred_gate
+                ):
+                    dag.add_edge(pred_gate, gate_name, color="blue")
+                    break
 
         for qubit in gate.qubits:
             for pred_gate in reversed(list(dag.nodes)):
                 if (
                     dag.nodes[pred_gate].get("qubits")
                     and qubit in dag.nodes[pred_gate]["qubits"]
+                    and gate_name != pred_gate
+                    and not dag.has_edge(pred_gate, gate_name)
                 ):
-                    if gate_name != pred_gate:
-                        if not dag.has_edge(pred_gate, gate_name):
-                            dag.add_edge(pred_gate, gate_name, color="red")
+                    dag.add_edge(pred_gate, gate_name, color="red")
 
     return dag
 
 
-def plot_dag(dag):
-    """
-    Plot the DAG graph using matplotlib and networkx.
+def plot_dag(dag: networkx.DiGraph) -> None:
+    """Plot the DAG graph using matplotlib and networkx.
 
-    Args:
-    - dag: A networkx DiGraph representing the circuit.
+    :param dag: A networkx DiGraph representing the circuit.
+    :return: None
     """
     # Set up graph layout
-    pos = nx.spring_layout(dag)
+    pos = networkx.spring_layout(dag)
 
     # Draw edges for the first group with blue color
     edges_first_group = [
         (edge[0], edge[1]) for edge in dag.edges.data("color") if edge[2] == "blue"
     ]
-    nx.draw_networkx_edges(
+    networkx.draw_networkx_edges(
         dag,
         pos,
         edgelist=edges_first_group,
@@ -113,7 +107,7 @@ def plot_dag(dag):
     edges_second_group = [
         (edge[0], edge[1]) for edge in dag.edges.data("color") if edge[2] == "red"
     ]
-    nx.draw_networkx_edges(
+    networkx.draw_networkx_edges(
         dag,
         pos,
         edgelist=edges_second_group,
@@ -124,9 +118,9 @@ def plot_dag(dag):
     )
 
     # Draw nodes
-    node_labels = nx.get_node_attributes(dag, "gate")
-    nx.draw_networkx_nodes(dag, pos, node_color="skyblue", node_size=1000)
-    nx.draw_networkx_labels(dag, pos, labels=node_labels, font_size=10)
+    node_labels = networkx.get_node_attributes(dag, "gate")
+    networkx.draw_networkx_nodes(dag, pos, node_color="skyblue", node_size=1000)
+    networkx.draw_networkx_labels(dag, pos, labels=node_labels, font_size=10)
 
     # Show plot
     plt.title("Circuit DAG")
@@ -134,23 +128,18 @@ def plot_dag(dag):
 
 
 @task(returns=1)
-def dag_to_circuit(dag, num_qubits):
+def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
+    """Task to reconstruct a Qibo circuit from a DAG.
+
+    :param dag: A networkx DiGraph representing the circuit.
+    :param num_qubits: The number of qubits in the original circuit.
+    :return: A Qibo circuit reconstructed from the DAG.
     """
-    Reconstruct a Qibo circuit from a DAG.
-
-    Args:
-    - dag: A networkx DiGraph representing the circuit.
-    - num_qubits: The number of qubits in the original circuit.
-
-    Returns:
-    - circuit: A Qibo circuit reconstructed from the DAG.
-    """
-
     # Create an empty Qibo circuit
     circuit = models.Circuit(num_qubits)
 
     # Traverse the DAG in topological order
-    topo_order = list(nx.topological_sort(dag))
+    topo_order = list(networkx.topological_sort(dag))
 
     for node in topo_order:
         node_data = dag.nodes[node]
@@ -200,10 +189,16 @@ def dag_to_circuit(dag, num_qubits):
     return [circuit, None]
 
 
-def max_qubit(graph):
+def max_qubit(graph: networkx.DiGraph) -> float:
+    """Get the highest Qubit value.
+
+    :param graph: Graph to explore.
+    :return: The value of the highest Qubit.
+    """
     # Initialize a variable to keep track of the highest Qubits value
     max_qubits = float("-inf")  # Start with the lowest possible number
-    max_node = None  # Store the node with the highest qubit
+    # # It is possible to store the node:
+    # max_node = None  # Store the node with the highest qubit
 
     # Iterate over the nodes and check their 'Qubits' attribute
     for node, data in graph.nodes(data=True):
@@ -211,18 +206,26 @@ def max_qubit(graph):
         for qubit in qubits:
             if qubit > max_qubits:
                 max_qubits = qubit
-                max_node = node
+                # # Keep track of the node with the highest Qubit value
+                # max_node = node
     return max_qubits
 
 
 @task(returns=2, s=INOUT)
-def update_qubits(s):
+def update_qubits(
+    s: typing.List[typing.Any],
+) -> typing.Tuple[typing.List[typing.Any, float]]:
+    """Update qubits task.
+
+    :param s: Graph to explore.
+    :return: The updated graph and the highest qubit value.
+    """
     my_set = set()
-    for node, data in s.nodes(data=True):
+    for node, _ in s.nodes(data=True):
         for qubit in s.nodes[node]["qubits"]:
             my_set.add(qubit)
 
-    for node, data in s.nodes(data=True):
+    for node, _ in s.nodes(data=True):
         new_tuple = ()
         for qubit in s.nodes[node]["qubits"]:
             len_missing = count_missing_up_to(my_set, qubit)
@@ -234,7 +237,12 @@ def update_qubits(s):
     return s, highest_qubit
 
 
-def remove_red_edges(graph):
+def remove_red_edges(graph: networkx.DiGraph) -> networkx.DiGraph:
+    """Remove red edges from the given graph.
+
+    :param graph: Graph to process.
+    :return: Updated input graph without red edges.
+    """
     copy_dag = graph.copy()
     red_edges = []
 
@@ -246,7 +254,15 @@ def remove_red_edges(graph):
     return copy_dag
 
 
-def count_missing_up_to(nums, max_num):
+def count_missing_up_to(nums: typing.Set[int], max_num: int) -> int:
+    """Retrieve the amount of missing numbers in the nums set.
+
+    # TODO: Maybe max_num is not necessary and can be taken from max(nums)
+
+    :param nums: Set of numbers.
+    :param max_num: Highest number in nums.
+    :return: Amount of missing numbers.
+    """
     # Create a set of all numbers from 0 to max_num
     full_set = set(range(max_num + 1))
 
@@ -257,7 +273,14 @@ def count_missing_up_to(nums, max_num):
     return len(missing_numbers)
 
 
-def update_qubits_serie(s):
+def update_qubits_serie(
+    s: typing.List[typing.Any],
+) -> typing.Tuple[typing.List[typing.Any], int, int]:
+    """Update the given serie of qubits.
+
+    :param s: Input qubit serie.
+    :return: Updated qubit serie, highest qubit value and lowest qubit value.
+    """
     my_set = set()
     for node, data in s.nodes(data=True):
         for qubit in s.nodes[node]["qubits"]:
