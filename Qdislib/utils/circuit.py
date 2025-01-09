@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
 #  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
 #
@@ -127,7 +127,7 @@ def random_circuit(qubits, gate_max, num_cz, p):
 
 def draw_to_circuit(text_draw, parameters=None):
     split = text_draw.splitlines()
-    #print(split) 
+    #print(split)
     print(split)
     qubits_lst = []
     split = [element for element in split if element.strip()]
@@ -136,14 +136,13 @@ def draw_to_circuit(text_draw, parameters=None):
     for line in split:
         index = line.index('─')
         qubits_lst.append(line[index:])
-        
 
     list_multiple_gates = defaultdict(list)
     # Now we will process each line to identify multi-qubit gates
     for idx, qubit_line in enumerate(qubits_lst):
         qubit_number = idx  # Line number corresponds to the qubit (q0 is index 0)
         qubit_state = list(qubit_line)
-        
+
         # Boolean to track if we are inside a multi-qubit gate
         for i, symbol in enumerate(qubit_state):
             if symbol == 'o':
@@ -160,9 +159,8 @@ def draw_to_circuit(text_draw, parameters=None):
                         break
 
     circuit = models.Circuit(len(qubits_lst))
-    
     num_steps = len(list(qubits_lst[0]))  # Total number of time steps (columns)
-    
+
     for step in range(num_steps):
         print(qubits_lst)
         saved_qubit = []
@@ -181,7 +179,7 @@ def draw_to_circuit(text_draw, parameters=None):
                         print(tmp)
                         gate_name = tmp
                         qubits = idx
-                        
+
                         # Get the gate class from the qibo.gates module
                         gate_class = getattr(gates, gate_name)
 
@@ -201,8 +199,6 @@ def draw_to_circuit(text_draw, parameters=None):
                             # Otherwise, pass only the qubits
                             circuit.add(gate_class(qubits))
 
-
-                        
                     elif qubit_state[step-1] == '─' and qubit_state[step+1] != '─':
                         tmp = ''
                         print(qubit_state)
@@ -246,9 +242,7 @@ def draw_to_circuit(text_draw, parameters=None):
 
                             else:
                                 tmp = tmp + qubit_state[i]
-                        
 
-                
                 elif char == 'o':
                     saved_qubit.append(idx)
 
@@ -256,7 +250,7 @@ def draw_to_circuit(text_draw, parameters=None):
         for idx in saved_qubit:
         #if list_multiple_gates[idx]:
             print("Add gate: ", list_multiple_gates[idx][0][0] ," qubit ", list_multiple_gates[idx][0][1])
-            circuit.add(getattr(gates, list_multiple_gates[idx][0][0])(*list_multiple_gates[idx][0][1]))        
+            circuit.add(getattr(gates, list_multiple_gates[idx][0][0])(*list_multiple_gates[idx][0][1]))
             list_multiple_gates[idx].remove(list_multiple_gates[idx][0])
 
     print(circuit.draw())

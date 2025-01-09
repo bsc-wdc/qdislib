@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
 #  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
 #
@@ -17,4 +17,19 @@
 
 # -*- coding: utf-8 -*-
 
-"""Quantum Distributed Library utilities."""
+"""Utils Circuit Unit tests."""
+
+from tests import BaseTimedTestCase
+
+
+class CircuitTest(BaseTimedTestCase):
+
+    def test_random_circuit(self):
+        from Qdislib.utils.circuit import random_circuit
+        # Do something to check that retrieves a valid random circuit
+        self.assertTrue(True)
+
+    def test_draw_to_circuit(self):
+        from Qdislib.utils.circuit import draw_to_circuit
+        # Do something to check that the draw_to_circuit function works
+        self.assertTrue(True)

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
 #  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
 #
@@ -17,4 +17,21 @@
 
 # -*- coding: utf-8 -*-
 
-"""Quantum Distributed Library cutting functionalities."""
+"""Main Quantum Distributed Library Tests."""
+
+import unittest
+
+
+def load_tests(loader, tests, pattern):
+    """Find and load all available tests.
+
+    :param loader: Test loader.
+    :param tests: Tests list.
+    :param pattern: Test pattern.
+    :return: Loaded tests.
+    """
+    return loader.discover("./tests/")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

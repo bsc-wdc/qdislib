@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
 #  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
 #
@@ -36,11 +36,11 @@ from qibo import models, gates
 def circuit_to_dag(circuit):
     """
     Convert a Qibo circuit to a DAG where each node stores gate information.
-    
+
     Args:
     - circuit: The Qibo circuit to transform.
     - num_qubits: The number of qubits in the circuit.
-    
+
     Returns:
     - dag: A directed acyclic graph (DAG) with nodes containing gate information.
     """
@@ -54,8 +54,7 @@ def circuit_to_dag(circuit):
 
         # Add the gate to the DAG, including the gate type, qubits, and parameters
         dag.add_node(gate_name, gate=gate.__class__.__name__, qubits=gate.qubits, parameters=gate.parameters)
-            
-    
+
         # Connect gates based on qubit dependencies
         for qubit in gate.qubits:
             for pred_gate in reversed(list(dag.nodes)): # Skip the last node since it is the current gate being added
@@ -63,7 +62,7 @@ def circuit_to_dag(circuit):
                     if gate_name != pred_gate:
                         dag.add_edge(pred_gate, gate_name, color="blue")
                         break
-    
+
         for qubit in gate.qubits:
             for pred_gate in reversed(list(dag.nodes)):
                 if dag.nodes[pred_gate].get('qubits') and qubit in dag.nodes[pred_gate]['qubits']:
@@ -76,7 +75,7 @@ def circuit_to_dag(circuit):
 def plot_dag(dag):
     """
     Plot the DAG graph using matplotlib and networkx.
-    
+
     Args:
     - dag: A networkx DiGraph representing the circuit.
     """
@@ -97,7 +96,7 @@ def plot_dag(dag):
         width=2.0,
         alpha=0.7,
     )
-    
+
     edges_second_group = [
         (edge[0], edge[1])
         for edge in dag.edges.data("color")
@@ -130,34 +129,33 @@ def plot_dag(dag):
 def dag_to_circuit(dag, num_qubits):
     """
     Reconstruct a Qibo circuit from a DAG.
-    
+
     Args:
     - dag: A networkx DiGraph representing the circuit.
     - num_qubits: The number of qubits in the original circuit.
-    
+
     Returns:
     - circuit: A Qibo circuit reconstructed from the DAG.
     """
-    
+
     # Create an empty Qibo circuit
     circuit = models.Circuit(num_qubits)
-    
+
     # Traverse the DAG in topological order
     topo_order = list(nx.topological_sort(dag))
 
     for node in topo_order:
         node_data = dag.nodes[node]
         gate_name = node_data['gate'].upper()
-        
+
         # Skip the measurement nodes (we'll handle them separately)
         if gate_name == "Observable I":
             continue
 
         if gate_name == "MEASURE":
             continue
-        
+
         # Get the qubits this gate acts on
-        
         qubits = node_data['qubits']
         parameters = node_data['parameters']
 
@@ -231,7 +229,7 @@ def update_qubits(s):
 def remove_red_edges(graph):
     copy_dag = graph.copy()
     red_edges = []
-    
+
     for ed in copy_dag.edges:
         if copy_dag.get_edge_data(ed[0],ed[1])["color"] == "red":
             red_edges.append(ed)
@@ -242,10 +240,10 @@ def remove_red_edges(graph):
 def count_missing_up_to(nums, max_num):
     # Create a set of all numbers from 0 to max_num
     full_set = set(range(max_num + 1))
-    
+
     # Subtract the given set from the full set to get the missing numbers
     missing_numbers = full_set - nums
-    
+
     # Return the count of missing numbers
     return len(missing_numbers)
 

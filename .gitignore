@@ -71,3 +71,6 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# Tests
+*.log

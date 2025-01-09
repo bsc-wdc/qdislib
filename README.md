@@ -1,5 +1,5 @@
-<h1 align="center">  
-    <img src="https://github.com/bsc-wdc/qdislib/raw/master/docs/logos/dislib-logo-full.png" alt="Qdislib - The Quantum Distributed Computing Library" height="90px">    
+<h1 align="center">
+    <img src="https://github.com/bsc-wdc/qdislib/raw/master/docs/logos/dislib-logo-full.png" alt="Qdislib - The Quantum Distributed Computing Library" height="90px">
 </h1>
 
 <h3 align="center">Quantum distributed computing library implemented over PyCOMPSs programming model for HPC.</h3>
@@ -7,21 +7,21 @@
 <p align="center">
   <a href="https://dislib.bsc.es/en/latest/?badge=latest">
     <img src="https://readthedocs.org/projects/qdislib/badge/?version=stable" alt="Documentation Status"/>
-  </a>  
+  </a>
   <a href="https://github.com/bsc-wdc/qdislib">
     <img src="https://compss.bsc.es/jenkins/buildStatus/icon?job=qdislib_multibranch%2Fmaster"
          alt="Build Status">
   </a>
   <a href="https://badge.fury.io/py/qdislib">
       <img src="https://badge.fury.io/py/qdislib.svg" alt="PyPI version" height="18">
-  </a>   
+  </a>
   <a href="https://badge.fury.io/py/qdislib">
       <img src="https://img.shields.io/badge/python-3.6-blue.svg" alt="Python version" height="18">
-  </a>       
+  </a>
 </p>
 
 <p align="center"><b>
-    <a href="https://qdislib.bsc.es">Website</a> •  
+    <a href="https://qdislib.bsc.es">Website</a> •
     <a href="https://qdislib.bsc.es/en/stable/api-reference.html">Documentation</a> •
     <a href="https://github.com/bsc-wdc/qdislib/releases">Releases</a> •
     <a href="https://bit.ly/bsc-wdc-community">Slack</a>
@@ -29,14 +29,15 @@
 
 
  **Table of content:**
- - [Description](#description)
- - [Requirements](#requirements)
- - [Installation](#installation)
- - [Availability](#availability)
- - [Citing Qdislib](#citing-qdislib)
- - [URLs](#urls)
- - [Acknowledgements](#acknowledgements)
- - [License](#license)
+- [Description](#description)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Availability](#availability)
+- [Citing Qdislib](#citing-qdislib)
+  - [Bibtex:](#bibtex)
+- [URLs](#urls)
+- [Acknowledgements](#acknowledgements)
+- [License](#license)
 
 ## Description
 
@@ -80,7 +81,7 @@ If you use Qdislib in a scientific publication, we would appreciate you citing t
             booktitle   = {Proceedings},
             pages       = {1-2},
             year        = {2024},
- }            
+ }
 ```
 
 
@@ -91,7 +92,7 @@ If you use Qdislib in a scientific publication, we would appreciate you citing t
 
 ## Acknowledgements
 
-This work has received funding from the European Commision's through the following R&D projects:
+This work has received funding from the European Commission's through the following R&D projects:
 
 * [TBD]
 

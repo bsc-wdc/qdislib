@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
 #  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
 #
@@ -17,4 +17,10 @@
 
 # -*- coding: utf-8 -*-
 
-"""Quantum Distributed Library qubit mapping functionalities."""
+"""Main Quantum Distributed Library package."""
+
+
+__version__ = "0.0.1"
+
+
+from Qdislib.api import *

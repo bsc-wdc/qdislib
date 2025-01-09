@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
 #
 #  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
 #
@@ -14,3 +14,15 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 #
+
+# -*- coding: utf-8 -*-
+
+"""Quantum Distributed Library API."""
+
+from Qdislib.core.cutting_algorithms.wire_cutting import *
+from Qdislib.core.optimal_cut.optimal_cut import *
+#from Qdislib.core.qubit_mapping.qubit_mapping import *
+from Qdislib.core.graph_algorithms.random_graph_generator import *
+from Qdislib.utils.circuit import *
+from Qdislib.utils.graph import *
+from Qdislib.utils.graph_qiskit import *

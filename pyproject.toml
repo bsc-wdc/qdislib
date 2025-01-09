@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env bash
 #
 #  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
 #
@@ -40,9 +40,9 @@ maintainers = [
 description = "The quantum distributed computing library on top of PyCOMPSs"
 # url="https://Qdislib.bsc.es",
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.7"
 license = { file = "LICENSE" }
-keywords = ["quantum", "distributed computing", "PyCOMPSs", "COMPSs"]
+keywords = ["Quantum", "distributed computing", "PyCOMPSs", "COMPSs", "Qdislib"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: Apache Software License",
@@ -56,12 +56,12 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3 :: Only",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
     "Topic :: System :: Distributed Computing",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -89,6 +89,12 @@ pycompss = ["pycompss",
 [tool.setuptools.dynamic]
 version = { attr = "Qdislib.__version__" }
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["Qdislib*"]
+exclude = ["notebooks"]
+namespaces = false  # to disable scanning PEP 420 namespaces (true by default)
+
 [project.urls]
 Homepage = "https://Qdislib.bsc.es"
 Documentation = "https://Qdislib.readthedocs.io"
@@ -98,6 +104,14 @@ Documentation = "https://Qdislib.readthedocs.io"
 
 # [project.scripts]
 # Qdislib-cli = "Qdislib:main_cli"
+
+[tool.coverage.report]
+fail_under = 80
+
+[tool.coverage.run]
+branch = true
+source = ["Qdislib"]
+command_line = "-m unittest discover -s tests/"
 
 [tool.bandit]
 exclude_dirs = ["notebooks/",

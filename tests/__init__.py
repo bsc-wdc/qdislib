@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
 #  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
 #
@@ -17,4 +17,21 @@
 
 # -*- coding: utf-8 -*-
 
-"""Quantum Distributed Library optimal cut functionalities."""
+"""Main Quantum Distributed Library Tests."""
+
+from time import time
+import unittest
+import numpy as np
+
+
+class BaseTimedTestCase(unittest.TestCase):
+    """Base test class that sets seed and measures the time."""
+
+    def setUp(self):
+        np.random.seed(521)
+        self.start_time = time()
+        self.end_time = self.start_time
+
+    def tearDown(self):
+        self.end_time = time()
+        print(f"Test {self.id()} took: {self.end_time - self.start_time:.3f} seconds")

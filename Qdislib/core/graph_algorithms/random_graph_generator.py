@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #
 #  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
 #
@@ -24,11 +24,11 @@ import matplotlib.pyplot as plt
 def generate_random_graph(num_nodes, probability=0.2, seed = 10 ,draw=False):
     """
     Generates a random undirected graph with a specified number of nodes.
-    
+
     Parameters:
     - num_nodes: int - The number of nodes in the graph.
     - probability: float - The probability of creating an edge between any pair of nodes.
-    
+
     Returns:
     - G: networkx.Graph - The generated graph with num_nodes nodes.
     """
@@ -36,16 +36,16 @@ def generate_random_graph(num_nodes, probability=0.2, seed = 10 ,draw=False):
 
     # Create an empty graph
     G = nx.Graph()
-    
+
     # Add nodes to the graph
     G.add_nodes_from(range(num_nodes))
-    
+
     # Add edges randomly based on the given probability
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
             if random.random() < probability:
                 G.add_edge(i, j)
-    
+
     # Ensure the graph is connected (Optional step)
     # This step ensures that the generated graph is a single connected component
     if not nx.is_connected(G) and num_nodes > 1:
@@ -59,6 +59,5 @@ def generate_random_graph(num_nodes, probability=0.2, seed = 10 ,draw=False):
         pos = nx.spring_layout(G)  # Use spring layout for a visually pleasing graph
         nx.draw(G, pos, with_labels=True, node_color='skyblue', node_size=500, font_size=10, font_weight='bold')
         plt.show()
-    
+
     return G
-    

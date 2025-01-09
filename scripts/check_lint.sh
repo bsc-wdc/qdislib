@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/usr/bin/env bash
 
 # Runs pylint to check the Qdislib code.
-pylint ../src/Qdislib/
+pylint ../Qdislib/
