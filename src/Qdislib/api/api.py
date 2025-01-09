@@ -25,3 +25,4 @@ from Qdislib.core.optimal_cut.optimal_cut import *
 from Qdislib.core.graph_algorithms.random_graph_generator import *
 from Qdislib.utils.circuit import *
 from Qdislib.utils.graph import *
+from Qdislib.utils.graph_qiskit import *

@@ -22,8 +22,6 @@ from pycompss.api.api import compss_wait_on
 from pycompss.api.parameter import *
 
 import networkx as nx
-import copy
-import qibo
 import itertools as it
 
 from Qdislib.utils.graph import update_qubits, update_qubits_serie, remove_red_edges

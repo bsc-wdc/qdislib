@@ -147,10 +147,13 @@ def dag_to_circuit(dag, num_qubits):
 
     for node in topo_order:
         node_data = dag.nodes[node]
-        gate_name = node_data['gate']
+        gate_name = node_data['gate'].upper()
         
         # Skip the measurement nodes (we'll handle them separately)
         if gate_name == "Observable I":
+            continue
+
+        if gate_name == "MEASURE":
             continue
         
         # Get the qubits this gate acts on
