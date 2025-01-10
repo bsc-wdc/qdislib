@@ -13,7 +13,7 @@ Welcome to Qdislib!
    main
    modules
    examples
-   
+
 
 
 Indices and tables

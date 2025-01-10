@@ -12,8 +12,7 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../../src/'))
-sys.path.insert(0, os.path.abspath('../../notebooks/'))
+sys.path.insert(0, os.path.abspath('../../'))
 
 
 # -- Project information -----------------------------------------------------
@@ -28,7 +27,7 @@ author = 'Barcelona Supercomputing Center (BSC)'
 # built documents.
 #
 # The full version, including alpha/beta/rc tags.
-init_contents = open('../../src/Qdislib/__init__.py').readlines()
+init_contents = open('../../Qdislib/__init__.py').readlines()
 for line in init_contents:
     if "__version__" in line:
         clean_line = line.strip()

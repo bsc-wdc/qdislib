@@ -8,7 +8,6 @@ Subpackages
    :maxdepth: 4
 
    Qdislib.api
-   Qdislib.classes
    Qdislib.core
    Qdislib.utils
 

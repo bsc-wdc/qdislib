@@ -214,7 +214,7 @@ def max_qubit(graph: networkx.DiGraph) -> float:
 @task(returns=2, s=INOUT)
 def update_qubits(
     s: typing.List[typing.Any],
-) -> typing.Tuple[typing.List[typing.Any, float]]:
+) -> typing.Tuple[typing.List[typing.Any], float]:
     """Update qubits task.
 
     :param s: Graph to explore.
