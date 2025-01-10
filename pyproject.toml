@@ -79,6 +79,7 @@ ci = ["pycodestyle",
       "nbsphinx",
       "nbsphinx-link",
       "sphinx-material",
+      "sphinx-mdinclude"
 ]
 notebooks = ["jupyter"]
 qchip = ["qiboconnection>=0.12.0"]

@@ -21,12 +21,13 @@ find "${SCRIPT_DIR}" | grep __pycache__ | xargs rm -rf
 #---------------------------------------------------
 
 cd docs
-make clean
+./clean.sh
 cd ..
 
 #---------------------------------------------------
 # REMOVE OTHER FILES
 #---------------------------------------------------
 
+rm -f "${SCRIPT_DIR}/output.log"
 rm -f "${SCRIPT_DIR}/.coverage"
 rm -f "${SCRIPT_DIR}/scripts/output.log"
