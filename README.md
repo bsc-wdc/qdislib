@@ -58,9 +58,7 @@
 
 Currently, the following supercomputers have already PyCOMPSs and Qdislib installed and ready to use. If you need help configuring your own cluster or supercomputer, drop us an email and we will be pleased to help.
 
-- Marenostrum 4 - Barcelona Supercomputing Center (BSC)
-- Minotauro - Barcelona Supercomputing Center (BSC)
-- Nord 3 - Barcelona Supercomputing Center (BSC)
+- Marenostrum 5 - Barcelona Supercomputing Center (BSC)
 
 Supported architectures:
 - [IBM's Power 9](https://www.ibm.com/it-infrastructure/power/power9-b)
@@ -75,12 +73,12 @@ If you use Qdislib in a scientific publication, we would appreciate you citing t
 ### Bibtex:
 
 ```latex
-@inproceedings{dislib,
-            title       = {{Title}},
-            author      = {Authors},
-            booktitle   = {Proceedings},
-            pages       = {1-2},
-            year        = {2024},
+@inproceedings{Qdislib,
+               title       = {{Title}},
+               author      = {Authors},
+               booktitle   = {Proceedings},
+               pages       = {1-2},
+               year        = {2025},
  }
 ```
 

@@ -12,14 +12,13 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../../src/'))
-sys.path.insert(0, os.path.abspath('../../notebooks/'))
+sys.path.insert(0, os.path.abspath('../../'))
 
 
 # -- Project information -----------------------------------------------------
 
 project = 'Qdislib'
-copyright = '2024, Barcelona Supercomputing Center (BSC)'
+copyright = '2025, Barcelona Supercomputing Center (BSC)'
 html_show_copyright = False
 author = 'Barcelona Supercomputing Center (BSC)'
 
@@ -28,7 +27,7 @@ author = 'Barcelona Supercomputing Center (BSC)'
 # built documents.
 #
 # The full version, including alpha/beta/rc tags.
-init_contents = open('../../src/Qdislib/__init__.py').readlines()
+init_contents = open('../../Qdislib/__init__.py').readlines()
 for line in init_contents:
     if "__version__" in line:
         clean_line = line.strip()
@@ -66,6 +65,7 @@ extensions = [
     'sphinx.ext.autosummary',
     'nbsphinx',
     'nbsphinx_link',
+    'sphinx_mdinclude',
 ]
 
 nbsphinx_execute = 'never'
@@ -257,4 +257,5 @@ texinfo_documents = [
 # texinfo_no_detailmenu = False
 
 # Example configuration for intersphinx: refer to the Python standard library.
-intersphinx_mapping = {'https://docs.python.org/': None}
+intersphinx_mapping = {'python': ('https://docs.python.org/3',
+                                  (None, 'python-inv.txt'))}

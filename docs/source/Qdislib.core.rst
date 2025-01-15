@@ -8,6 +8,7 @@ Subpackages
    :maxdepth: 4
 
    Qdislib.core.cutting_algorithms
+   Qdislib.core.graph_algorithms
    Qdislib.core.optimal_cut
    Qdislib.core.qubit_mapping
 

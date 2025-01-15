@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-#  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
+#  Copyright 2002-2025 Barcelona Supercomputing Center (www.bsc.es)
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -21,7 +21,8 @@
 
 from Qdislib.core.cutting_algorithms.wire_cutting import *
 from Qdislib.core.optimal_cut.optimal_cut import *
-#from Qdislib.core.qubit_mapping.qubit_mapping import *
+
+# from Qdislib.core.qubit_mapping.qubit_mapping import *
 from Qdislib.core.graph_algorithms.random_graph_generator import *
 from Qdislib.utils.circuit import *
 from Qdislib.utils.graph import *

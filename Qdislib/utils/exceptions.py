@@ -17,4 +17,20 @@
 
 # -*- coding: utf-8 -*-
 
-"""Quantum Distributed Library graph functionalities."""
+"""
+Qdislib exception utils.
+
+This file contains all auxiliary exceptions.
+"""
+
+
+class QdislibException(Exception):
+    """Generic Qdislib exception class."""
+
+    def __init__(self, message: str) -> None:
+        """Create a new QdislibException instance.
+
+        :param message: Exception message.
+        """
+        msg = f"Qdislib Exception: {message}"
+        super().__init__(msg)

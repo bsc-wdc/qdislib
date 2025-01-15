@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-#  Copyright 2002-2024 Barcelona Supercomputing Center (www.bsc.es)
+#  Copyright 2002-2025 Barcelona Supercomputing Center (www.bsc.es)
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Qdislib"
-dynamic = ["version"]
+dynamic = ["version", "dependencies"]
 authors = [
   { name="Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email="support-compss@bsc.es" },
 ]
@@ -79,6 +79,7 @@ ci = ["pycodestyle",
       "nbsphinx",
       "nbsphinx-link",
       "sphinx-material",
+      "sphinx-mdinclude"
 ]
 notebooks = ["jupyter"]
 qchip = ["qiboconnection>=0.12.0"]
@@ -88,6 +89,7 @@ pycompss = ["pycompss",
 
 [tool.setuptools.dynamic]
 version = { attr = "Qdislib.__version__" }
+dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.packages.find]
 where = ["."]
