@@ -1,5 +1,5 @@
 FROM compss/compss-tutorial:3.3
-MAINTAINER COMPSs Support <support-compss@bsc.es>
+LABEL org.opencontainers.image.authors="support-compss@bsc.es"
 
 COPY . Qdislib/
 
