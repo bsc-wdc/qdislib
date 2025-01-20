@@ -46,7 +46,7 @@ def circuit_to_dag(circuit: models.Circuit) -> networkx.DiGraph:
     # Add gates to the DAG as nodes with unique identifiers
     for gate_idx, gate in enumerate(circuit.queue, start=1):
         # Unique identifier for each gate instance
-        gate_name = f"{gate.__class__.__name__}_{gate_idx}"
+        gate_name = f"{gate.__class__.__name__}_{gate_idx}".upper()
 
         # Add the gate to the DAG, including the gate type, qubits, and parameters
         dag.add_node(
@@ -146,7 +146,7 @@ def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
         gate_name = node_data["gate"].upper()
 
         # Skip the measurement nodes (we'll handle them separately)
-        if gate_name == "Observable I":
+        if gate_name == "OBSERVABLE I":
             continue
 
         if gate_name == "MEASURE":
@@ -220,6 +220,8 @@ def update_qubits(
     :param s: Graph to explore.
     :return: The updated graph and the highest qubit value.
     """
+    if not s.nodes():
+        return None, None
     my_set = set()
     for node, _ in s.nodes(data=True):
         for qubit in s.nodes[node]["qubits"]:
