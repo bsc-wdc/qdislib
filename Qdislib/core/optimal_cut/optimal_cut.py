@@ -26,9 +26,9 @@ import typing
 from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
 
-from Qdislib.utils.graph import update_qubits
-from Qdislib.utils.graph import update_qubits_serie
-from Qdislib.utils.graph import remove_red_edges
+from Qdislib.utils.graph_qibo import update_qubits
+from Qdislib.utils.graph_qibo import update_qubits_serie
+from Qdislib.utils.graph_qibo import remove_red_edges
 
 
 def find_nodes_with_qubit(

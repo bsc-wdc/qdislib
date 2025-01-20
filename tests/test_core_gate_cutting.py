@@ -17,19 +17,26 @@
 
 # -*- coding: utf-8 -*-
 
-"""Utils Graph Unit tests."""
+"""Utils Circuit Unit tests."""
 
 from tests import BaseTimedTestCase
 
 
-class GraphTest(BaseTimedTestCase):
+class CircuitTest(BaseTimedTestCase):
 
-    def test_circuit_to_dag(self):
-        from Qdislib.utils.graph_qibo import circuit_to_dag
-        # Do something to check that retrieves a valid dag from circuit
-        self.assertTrue(True)
+    def test_gate_cutting(self):
+        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
 
-    def test_dag_to_circuit(self):
-        from Qdislib.utils.graph_qibo import dag_to_circuit
-        # Do something to check that the dag_to_circuit function works
-        self.assertTrue(True)
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(2)
+        qc.h(0) 
+        qc.cz(0, 1)
+        qc.ry(0.8, 0)
+
+        reconstruction = gate_cutting(qc, ["CZ_2"])
+
+        if abs(reconstruction + 0.71) < 0.2:
+            self.assertTrue(True)
+        else:
+            self.assertTrue(False)

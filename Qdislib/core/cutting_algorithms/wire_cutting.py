@@ -22,6 +22,7 @@
 import math
 import networkx
 import qibo
+import qiskit
 import typing
 
 from qibo import models, gates
@@ -29,11 +30,12 @@ from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
 from pycompss.api.parameter import COLLECTION_IN
 from pycompss.api.parameter import COLLECTION_OUT
-from Qdislib.utils.graph import circuit_to_dag
-from Qdislib.utils.graph import dag_to_circuit
-from Qdislib.utils.graph import max_qubit
-from Qdislib.utils.graph import update_qubits
-from Qdislib.utils.graph import remove_red_edges
+from Qdislib.utils.graph_qibo import circuit_to_dag
+from Qdislib.utils.graph_qibo import dag_to_circuit
+from Qdislib.utils.graph_qibo import max_qubit
+from Qdislib.utils.graph_qibo import update_qubits
+from Qdislib.utils.graph_qibo import remove_red_edges
+from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
 
 
 def wire_cutting(
@@ -50,7 +52,10 @@ def wire_cutting(
     :param gate_cutting: Currently unused.
     :return: The expected value of the given quantum circuit considering the cuts.
     """
-    if type(rand_qc) == models.Circuit:
+    if type(rand_qc) == qiskit.circuit.quantumcircuit.QuantumCircuit:
+        dag = circuit_qiskit_to_dag(rand_qc)
+
+    elif type(rand_qc) == qibo.models.Circuit:
         dag = circuit_to_dag(rand_qc)
 
     else:

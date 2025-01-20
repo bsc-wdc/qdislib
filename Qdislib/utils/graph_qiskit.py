@@ -31,6 +31,8 @@ from qiskit import QuantumRegister
 from qiskit import ClassicalRegister
 
 
+from pycompss.api.task import task
+
 def circuit_qiskit_to_dag(circuit: QuantumCircuit) -> networkx.DiGraph:
     """Convert a Qibo circuit to a DAG where each node stores gate information.
 
@@ -47,7 +49,7 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit) -> networkx.DiGraph:
         if gate.operation.name != "barrier":
 
             # Unique identifier for each gate instance
-            gate_name = f"{gate.operation.name}_{gate_idx}"
+            gate_name = f"{gate.operation.name}_{gate_idx}".upper()
 
             qubits = ()
             for elem in gate.qubits:
@@ -88,33 +90,40 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit) -> networkx.DiGraph:
     return dag
 
 
-def dag_to_circuit_qiskit(dag: networkx.DiGraph, num_qubits: int) -> QuantumCircuit:
-    """Reconstruct a Qibo circuit from a DAG.
-
-    :param dag: A networkx DiGraph representing the circuit.
-    :param num_qubits: The number of qubits in the original circuit.
-    :return: A Qibo circuit reconstructed from the DAG.
+@task(returns=1)
+def dag_to_circuit_qiskit(dag, num_qubits):
     """
+    Reconstruct a Qibo circuit from a DAG.
+    
+    Args:
+    - dag: A networkx DiGraph representing the circuit.
+    - num_qubits: The number of qubits in the original circuit.
+    
+    Returns:
+    - circuit: A Qibo circuit reconstructed from the DAG.
+    """
+    if dag is None:
+        return None
     # Create an empty Qibo circuit
-    qreg_q = QuantumRegister(num_qubits, "q")
-    creg_c = ClassicalRegister(num_qubits, "c")
+    qreg_q = QuantumRegister(num_qubits, 'q')
+    creg_c = ClassicalRegister(num_qubits, 'c')
     circuit = QuantumCircuit(qreg_q, creg_c)
-
+    
     # Traverse the DAG in topological order
     topo_order = list(networkx.topological_sort(dag))
 
     for node in topo_order:
         node_data = dag.nodes[node]
-        gate_name = node_data["gate"]
-
+        gate_name = node_data['gate']
+        
         # Skip the measurement nodes (we'll handle them separately)
         if gate_name == "Observable I":
             continue
-
+        
         # Get the qubits this gate acts on
-
-        qubits = node_data["qubits"]
-        parameters = node_data["parameters"]
+        
+        qubits = node_data['qubits']
+        parameters = node_data['parameters']
 
         # Get the gate class from the qibo.gates module
         gate_class = gate_name.lower()
@@ -133,8 +142,10 @@ def dag_to_circuit_qiskit(dag: networkx.DiGraph, num_qubits: int) -> QuantumCirc
         # Check if parameters are provided and the gate requires them
         if parameters:
             # Pass qubits and parameters if the gate requires both
-            # circuit.gate_class(parameters, *qubits)
+            #circuit.gate_class(parameters, *qubits)
             tmp = getattr(circuit, gate_class)
+            print(parameters)
+            print(qubits)
             tmp(*parameters, *qubits)
         else:
             if gate_class == "measure":
@@ -144,22 +155,23 @@ def dag_to_circuit_qiskit(dag: networkx.DiGraph, num_qubits: int) -> QuantumCirc
 
             else:
                 # Otherwise, pass only the qubits
-                # circuit.gate_class(*qubits)
+                #circuit.gate_class(*qubits)
                 tmp = getattr(circuit, gate_class)
+                print(qubits)
                 tmp(*qubits)
 
-    # TODO: check the obs_I initialization since it will never go into the next if
     # Optionally handle measurements, assuming all qubits are measured at the end
     obs_I = []
-    # for node in topo_order:
-    #     node_data = dag.nodes[node]
-    #     if node_data['gate'] == "Observable I":
-    #         obs_I.append(node_data['qubits'][0])
-    #         dag.remove_node(node)
-    #         #print(obs_I)
-    #         #circuit.add(gates.M(node_data['qubit']))
+    '''for node in topo_order:
+        node_data = dag.nodes[node]
+        if node_data['gate'] == "Observable I":
+            obs_I.append(node_data['qubits'][0])
+            dag.remove_node(node)
+            #print(obs_I)
+            #circuit.add(gates.M(node_data['qubit']))'''
 
     if obs_I:
         return [circuit, obs_I]
 
+    print("HEY")
     return [circuit, None]
