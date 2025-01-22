@@ -26,6 +26,7 @@ class CircuitTest(BaseTimedTestCase):
 
     def test_gate_cutting(self):
         from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
 
         from qiskit import QuantumCircuit
 
@@ -34,15 +35,27 @@ class CircuitTest(BaseTimedTestCase):
         qc.cz(0, 1)
         qc.ry(0.8, 0)
 
-        reconstruction = gate_cutting(qc, ["CZ_2"])
-        print(reconstruction)
-        if abs(reconstruction - 0.71) < 0.2:
+        from qibo import models, gates
+        import numpy as np
+
+        import qibo
+        qibo.set_backend("numpy")
+        
+        circ = models.Circuit(2)
+        circ.add(gates.H(0))
+        circ.add(gates.CZ(0,1))
+        circ.add(gates.RY(0,0.8))
+
+        reconstruction = wire_cutting(qc, [("H_1","CZ_2")])
+        analytical = analytical_solution("ZZ", circ)
+
+        if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
         else:
             self.assertTrue(False)
 
     def test_gate_cutting_more_components(self):
-        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
         from Qdislib.utils.circuit import analytical_solution
 
         from qibo import models, gates
@@ -63,7 +76,7 @@ class CircuitTest(BaseTimedTestCase):
         circuit.add(gates.CZ(2,3))
         circuit.add(gates.H(3))
 
-        reconstruction = gate_cutting(circuit, [("CZ_3","H_4")])
+        reconstruction = wire_cutting(circuit, [("CZ_3","H_4")])
 
         analytical = analytical_solution("ZZZZ", circuit)
 
