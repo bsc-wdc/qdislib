@@ -145,12 +145,9 @@ def draw_to_circuit(
     :return: Circuit object.
     """
     split = text_draw.splitlines()
-    # print(split)
-    print(split)
     qubits_lst = []
     split = [element for element in split if element.strip()]
     split = [element for element in split if element != ""]
-    print(split)
     for line in split:
         index = line.index("─")
         qubits_lst.append(line[index:])
@@ -184,7 +181,6 @@ def draw_to_circuit(
     num_steps = len(list(qubits_lst[0]))  # Total number of time steps (columns)
 
     for step in range(num_steps):
-        print(qubits_lst)
         saved_qubit = []
         for idx, qubit_line in enumerate(qubits_lst):
             qubit_state = list(qubit_line)
@@ -196,9 +192,6 @@ def draw_to_circuit(
                 if char != "o":
                     if qubit_state[step + 1] == "─" and qubit_state[step - 1] == "─":
                         tmp = char
-                        # print("Add gate: ", tmp, " qubit ", (idx,))
-                        # circuit.add(getattr(gates, tmp)(idx))
-                        print(tmp)
                         gate_name = tmp
                         qubits = idx
 
@@ -223,20 +216,12 @@ def draw_to_circuit(
 
                     elif qubit_state[step - 1] == "─" and qubit_state[step + 1] != "─":
                         tmp = ""
-                        print(qubit_state)
-                        print(qubit_state[step + 1])
-                        print(range(step, num_steps))
                         for i in range(step, num_steps):
-                            print(qubit_state[i])
                             if qubit_state[i + 1] == "─":
-                                print("HEY")
                                 tmp = tmp + qubit_state[i]
 
                                 gate_name = tmp
                                 qubits = idx
-
-                                print(tmp)
-
                                 # Get the gate class from the qibo.gates module
                                 gate_class = getattr(gates, gate_name)
 
@@ -250,17 +235,12 @@ def draw_to_circuit(
 
                                 # Check if parameters are provided and the gate requires them
                                 if parameters is not None and param_count > 1:
-                                    print("HEY2")
                                     param = parameters[idx][parameter_tracker][1]
                                     # Pass qubits and parameters if the gate requires both
                                     circuit.add(gate_class(qubits, param))
                                     parameter_tracker += 1
                                     break
                                 else:
-                                    print("HEY3")
-                                    # Otherwise, pass only the qubits
-                                    print(gate_class)
-
                                     circuit.add(gate_class(qubits))
                                     break
 
@@ -284,6 +264,4 @@ def draw_to_circuit(
                 )
             )
             list_multiple_gates[idx].remove(list_multiple_gates[idx][0])
-
-    print(circuit.draw())
     return circuit

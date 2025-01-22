@@ -35,8 +35,39 @@ class CircuitTest(BaseTimedTestCase):
         qc.ry(0.8, 0)
 
         reconstruction = gate_cutting(qc, ["CZ_2"])
+        print(reconstruction)
+        if abs(reconstruction - 0.71) < 0.2:
+            self.assertTrue(True)
+        else:
+            self.assertTrue(False)
 
-        if abs(reconstruction + 0.71) < 0.2:
+    def test_gate_cutting_more_components(self):
+        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
+        from Qdislib.utils.circuit import analytical_solution
+
+        from qibo import models, gates
+        import numpy as np
+
+        import qibo
+        qibo.set_backend("numpy")
+        
+        circuit = models.Circuit(4)
+        circuit.add(gates.H(0))
+        circuit.add(gates.H(1))
+        circuit.add(gates.CZ(0,1))
+        circuit.add(gates.H(1))
+        circuit.add(gates.RY(1,np.pi/5))
+        circuit.add(gates.RZ(2,np.pi/3))
+        circuit.add(gates.RZ(3,np.pi/2))
+        circuit.add(gates.H(3))
+        circuit.add(gates.CZ(2,3))
+        circuit.add(gates.H(3))
+
+        reconstruction = gate_cutting(circuit, ["CZ_3"])
+
+        analytical = analytical_solution("ZZZZ", circuit)
+
+        if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
         else:
             self.assertTrue(False)
