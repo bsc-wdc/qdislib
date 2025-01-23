@@ -74,18 +74,14 @@ def wire_cutting(
                 if s.has_edge(*c):
                     tmp_cuts.append(c)
             if tmp_cuts:
-                # print(dag_to_circuit(s,5)[0].draw())
                 graphs = generate_wire_cutting(s, tmp_cuts, num_qubits=num_qubits)
-                print("GRAPHS ", graphs)
                 graphs = sum_results(graphs)
                 results.append(graphs)  # 1/(2**len(tmp_cuts))*sum(graphs)
             else:
                 s_new, highest_qubit = update_qubits(s)
                 subcirc = dag_to_circuit(s_new, highest_qubit)
-                # print(subcirc.draw())
                 expected_value = execute_subcircuits(subcirc)
                 results.append(expected_value)
-                print("EV ", expected_value)
         if sync:
             results = compss_wait_on(results)
         # Consider gate cutting within wire cutting:
@@ -182,8 +178,6 @@ def generate_wire_cutting(
 
         copy_dag.remove_edges_from(red_edges)
 
-    # print(dag_to_circuit(dag,6)[0].draw())
-
     graphs = []
     for i in range(8 ** len(edges_to_replace)):
         graphs.append(dag.copy())
@@ -212,15 +206,10 @@ def generate_wire_cutting(
         exp_value = []
         for s in graph_components:
             s_new, highest_qubit = update_qubits(s)
-            # print(s_new.nodes(data=True))
             subcirc = dag_to_circuit(s_new, highest_qubit)
-            # print(subcirc.draw())
             expected_value = execute_subcircuits(subcirc)
             exp_value.append(expected_value)
-
-        # print(exp_value)
         exp_value = change_sign(exp_value, index)
-        # print(exp_value)
         reconstruction.append(exp_value)
 
     return reconstruction
@@ -336,8 +325,7 @@ def generate_subcircuits_wire_cutting(
             updated_dag.nodes[f"PS_{idx2}"]["gate"] = "X"
 
         else:
-            print("ERROR")
-            raise ValueError
+            Exception("Something went wrong preparing the combinations")
 
     updated_dag = remove_red_edges(updated_dag)
     for i, c in enumerate(networkx.connected_components(updated_dag.to_undirected())):
@@ -379,7 +367,6 @@ def execute_subcircuits(subcirc: typing.Any) -> float:
             observables[element] = "I"
 
     observables = "".join(observables)
-    print(observables)
 
     qibo.set_backend("numpy")
     shots = 50000
@@ -400,7 +387,6 @@ def execute_subcircuits(subcirc: typing.Any) -> float:
 
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
-    # print(expectation_value)
     return expectation_value
 
 
@@ -422,7 +408,6 @@ def change_sign(expectation_value, index):
         if digit in {3, 5, 7}:  # Check if the digit is 3, 5, or 7
             sign_change = not sign_change  # Flip the sign change flag
         number //= 8  # Move to the next digit
-    # print(sign_change)
 
     # If change_sign is True, we flip the sign of the original number
     if sign_change:

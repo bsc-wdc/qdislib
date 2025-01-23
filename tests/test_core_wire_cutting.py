@@ -24,7 +24,7 @@ from tests import BaseTimedTestCase
 
 class CircuitTest(BaseTimedTestCase):
 
-    def test_gate_cutting(self):
+    def test_wire_cutting(self):
         from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
         from Qdislib.utils.circuit import analytical_solution
 
@@ -54,7 +54,7 @@ class CircuitTest(BaseTimedTestCase):
         else:
             self.assertTrue(False)
 
-    def test_gate_cutting_more_components(self):
+    def test_wire_cutting_more_components(self):
         from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
         from Qdislib.utils.circuit import analytical_solution
 

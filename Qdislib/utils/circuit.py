@@ -252,12 +252,12 @@ def draw_to_circuit(
 
         for idx in saved_qubit:
             # if list_multiple_gates[idx]:
-            print(
+            '''print(
                 "Add gate: ",
                 list_multiple_gates[idx][0][0],
                 " qubit ",
                 list_multiple_gates[idx][0][1],
-            )
+            )'''
             circuit.add(
                 getattr(gates, list_multiple_gates[idx][0][0])(
                     *list_multiple_gates[idx][0][1]
