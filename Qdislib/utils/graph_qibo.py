@@ -180,8 +180,6 @@ def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
         if node_data["gate"] == "Observable I":
             obs_I.append(node_data["qubits"][0])
             dag.remove_node(node)
-            # print(obs_I)
-            # circuit.add(gates.M(node_data['qubit']))
 
     if obs_I:
         return [circuit, obs_I]

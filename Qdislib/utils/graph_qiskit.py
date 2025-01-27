@@ -54,7 +54,6 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit) -> networkx.DiGraph:
             qubits = ()
             for elem in gate.qubits:
                 qubits = qubits + (elem._index,)
-                print(qubits)
 
             # Add the gate to the DAG, including the gate type, qubits, and parameters
             dag.add_node(
@@ -127,7 +126,6 @@ def dag_to_circuit_qiskit(dag, num_qubits):
 
         # Get the gate class from the qibo.gates module
         gate_class = gate_name.lower()
-        print(gate_class)
 
         # Get the signature of the gate's __init__ method
         signature = inspect.signature(gate_class.__init__)
@@ -135,30 +133,26 @@ def dag_to_circuit_qiskit(dag, num_qubits):
         # Count the number of required positional arguments (excluding 'self')
         param_count = len(signature.parameters) - 1  # exclude 'self'
 
-        print(signature)
-        print(param_count)
-        print(parameters)
-
         # Check if parameters are provided and the gate requires them
         if parameters:
             # Pass qubits and parameters if the gate requires both
             #circuit.gate_class(parameters, *qubits)
             tmp = getattr(circuit, gate_class)
-            print(parameters)
-            print(qubits)
             tmp(*parameters, *qubits)
         else:
             if gate_class == "measure":
                 clbit = qubits
                 tmp = getattr(circuit, gate_class)
                 tmp(*qubits, *clbit)
+                circuit.x(*qubits).c_if(*qubits, *clbit)
 
             else:
                 # Otherwise, pass only the qubits
                 #circuit.gate_class(*qubits)
                 tmp = getattr(circuit, gate_class)
-                print(qubits)
                 tmp(*qubits)
+        
+
 
     # Optionally handle measurements, assuming all qubits are measured at the end
     obs_I = []
@@ -172,6 +166,4 @@ def dag_to_circuit_qiskit(dag, num_qubits):
 
     if obs_I:
         return [circuit, obs_I]
-
-    print("HEY")
     return [circuit, None]
