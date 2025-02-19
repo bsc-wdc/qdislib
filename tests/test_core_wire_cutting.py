@@ -76,6 +76,8 @@ class CircuitTest(BaseTimedTestCase):
         circuit.add(gates.CZ(2,3))
         circuit.add(gates.H(3))
 
+        print(circuit.draw())
+
         reconstruction = wire_cutting(circuit, [("CZ_3","H_4")])
 
         analytical = analytical_solution("ZZZZ", circuit)

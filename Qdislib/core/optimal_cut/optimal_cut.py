@@ -194,6 +194,9 @@ def optimal_cut_wire(
             sorted_edges = sorted(centrality.items(), key=lambda x: x[1], reverse=True)
             edges = [edge for edge, _ in sorted_edges]
 
+            if len(edges) > 25:
+                edges = edges[:25]
+
             # Filter articulation points that are multi-qubit gates only
             articulation_points = [
                 node
@@ -259,14 +262,15 @@ def optimal_cut_wire(
         print(best_score_components)
         print(best_cut_components)
 
-    for idx, best_score in enumerate(best_score_components):
-        best_score = [abs(ele) for ele in best_score]
-        index_min = best_score.index(min(best_score))
-        best_cut_edges = best_cut_components[idx][index_min]
-        max_len_cut = len(best_cut_components[idx])
-        best_score = min(best_score)
-        cuts = cuts + [*best_cut_edges]
-        scores.append(best_score)
+    if best_score_components != [[]]:
+        for idx, best_score in enumerate(best_score_components):
+            best_score = [abs(ele) for ele in best_score]
+            index_min = best_score.index(min(best_score))
+            best_cut_edges = best_cut_components[idx][index_min]
+            max_len_cut = len(best_cut_components[idx])
+            best_score = min(best_score)
+            cuts = cuts + [*best_cut_edges]
+            scores.append(best_score)
 
     if verbose:
         print(scores)
@@ -282,6 +286,19 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
         
         if verbose:
             print(double_gates)
+
+        print(double_gates)
+
+        centrality = networkx.betweenness_centrality(dag)
+        sorted_nodes = sorted(centrality.items(), key=lambda x: x[1], reverse=True)
+        double_gates = [nodes for nodes, _ in sorted_nodes if nodes in double_gates]
+
+        print(sorted_nodes)
+
+        print(double_gates)
+
+        if len(double_gates) > 10:
+            double_gates = double_gates[:10]
 
         results = []
         final_cut = []
@@ -307,7 +324,7 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
 
 
                 # Weights for the objective function
-                w1 = 2  # Weight for cut size (minimize this)
+                w1 = 3  # Weight for cut size (minimize this)
                 w2 = -1  # Weight for number of components (maximize this)
                 w3 = 1  # Weight for balanced graphs (minimize this)
 
@@ -376,6 +393,9 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
     if verbose:
         print(cuts, scores, max_len_cut)
         print(best_gate_score, cut_gate)
+
+    if not cuts:
+        scores = float('inf')
 
     if scores < best_gate_score:
         print("Wire Cutting best cut: ", cuts)

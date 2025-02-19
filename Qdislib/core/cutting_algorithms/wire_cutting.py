@@ -42,7 +42,9 @@ def wire_cutting(
     rand_qc: typing.Any,
     cut: typing.List[typing.Any],
     sync: bool = True,
-    gate_cutting: bool = False,
+    observables: str = None,
+    shots: int = 10000,
+    backend: str = "numpy"
 ):
     """Wire cutting algorithm.
 
@@ -52,11 +54,25 @@ def wire_cutting(
     :param gate_cutting: Currently unused.
     :return: The expected value of the given quantum circuit considering the cuts.
     """
-    if type(rand_qc) == qiskit.circuit.quantumcircuit.QuantumCircuit:
-        dag = circuit_qiskit_to_dag(rand_qc)
+    if observables:
+        rand_qc = change_basis(rand_qc,observables)
 
+    if type(rand_qc) == qiskit.circuit.quantumcircuit.QuantumCircuit:
+        if observables:
+            if "I" in observables:
+                dag = circuit_qiskit_to_dag(rand_qc, obs_I=observables)
+            else:
+                dag = circuit_qiskit_to_dag(rand_qc)
+        else:
+            dag = circuit_qiskit_to_dag(rand_qc)
     elif type(rand_qc) == qibo.models.Circuit:
-        dag = circuit_to_dag(rand_qc)
+        if observables:
+            if "I" in observables:
+                dag = circuit_to_dag(rand_qc,obs_I=observables)
+            else:
+                dag = circuit_to_dag(rand_qc)
+        else:
+            dag = circuit_to_dag(rand_qc)
 
     else:
         dag = rand_qc
@@ -80,7 +96,7 @@ def wire_cutting(
             else:
                 s_new, highest_qubit = update_qubits(s)
                 subcirc = dag_to_circuit(s_new, highest_qubit)
-                expected_value = execute_subcircuits(subcirc)
+                expected_value = execute_subcircuits(subcirc, shots, backend)
                 results.append(expected_value)
         if sync:
             results = compss_wait_on(results)
@@ -101,7 +117,7 @@ def wire_cutting(
         else:
             s_new, highest_qubit = update_qubits(dag)
             subcirc = dag_to_circuit(s_new, highest_qubit)
-            final_recons = execute_subcircuits(subcirc)
+            final_recons = execute_subcircuits(subcirc,shots,backend)
         return final_recons
 
 
@@ -109,6 +125,8 @@ def generate_wire_cutting(
     dag: typing.Any,
     edges_to_replace: typing.List[typing.Tuple[str, str]],
     num_qubits: int,
+    shots: int = 10000,
+    backend: str = "numpy"
 ) -> typing.List[float]:
     """Replace a specific edge in the DAG with a source and end node.
 
@@ -207,7 +225,7 @@ def generate_wire_cutting(
         for s in graph_components:
             s_new, highest_qubit = update_qubits(s)
             subcirc = dag_to_circuit(s_new, highest_qubit)
-            expected_value = execute_subcircuits(subcirc)
+            expected_value = execute_subcircuits(subcirc,shots, backend)
             exp_value.append(expected_value)
         exp_value = change_sign(exp_value, index)
         reconstruction.append(exp_value)
@@ -347,7 +365,7 @@ def sum_results(lst: typing.List[int]) -> int:
 
 
 @task(returns=1)
-def execute_subcircuits(subcirc: typing.Any) -> float:
+def execute_subcircuits(subcirc: typing.Any, shots=10000, backend="numpy") -> float:
     """Execute the given circuit.
 
     :param subcirc: Circuit to execute.
@@ -356,6 +374,8 @@ def execute_subcircuits(subcirc: typing.Any) -> float:
     """
     tmp = subcirc[1]
     subcirc = subcirc[0]
+
+    #print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -366,10 +386,12 @@ def execute_subcircuits(subcirc: typing.Any) -> float:
         for element in obs_I:
             observables[element] = "I"
 
+    #print(obs_I)
+   
     observables = "".join(observables)
+    #print(observables)
 
-    qibo.set_backend("numpy")
-    shots = 50000
+    qibo.set_backend(backend)
     subcirc.add(gates.M(*range(subcirc.nqubits)))  #
     result = subcirc(nshots=shots)
     freq = dict(result.frequencies(binary=True))
@@ -414,3 +436,15 @@ def change_sign(expectation_value, index):
         return -expectation_value
     else:
         return expectation_value
+
+def change_basis(circuit, observables):
+    for idx,i in enumerate(observables):
+        if i == "X":
+            circuit.add(gates.H(idx))
+        elif i == "Y":
+            circuit.add(gates.SDG(idx))
+            circuit.add(gates.H(idx))
+        else:
+            pass
+
+    return circuit
