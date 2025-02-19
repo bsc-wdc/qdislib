@@ -34,7 +34,7 @@ from pycompss.api.task import task
 from pycompss.api.parameter import INOUT
 
 
-def circuit_to_dag(circuit: models.Circuit) -> networkx.DiGraph:
+def circuit_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:
     """Convert a Qibo circuit to a DAG where each node stores gate information.
 
     :param circuit: The Qibo circuit to transform.
@@ -78,6 +78,19 @@ def circuit_to_dag(circuit: models.Circuit) -> networkx.DiGraph:
                     and not dag.has_edge(pred_gate, gate_name)
                 ):
                     dag.add_edge(pred_gate, gate_name, color="red")
+
+    if obs_I:
+        sinks = [node for node in dag.nodes if dag.out_degree(node) == 0]
+        #print(sinks)
+        for idx, i in enumerate(obs_I):
+            if i == "I":
+                #print(obs_I)
+                for elem in sinks:
+                    if dag.nodes[elem].get("qubits") == (idx,):
+                        #print(dag.nodes[elem])
+                        #print(dag.nodes[elem].get("qubits"))
+                        dag.add_node(f"OBSI_{idx}", gate="Observable I", qubits=(idx,),parameters=())
+                        dag.add_edge(elem, f"OBSI_{idx}", color="blue")
 
     return dag
 
@@ -135,10 +148,23 @@ def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
     :param num_qubits: The number of qubits in the original circuit.
     :return: A Qibo circuit reconstructed from the DAG.
     """
-    # Create an empty Qibo circuit
-    circuit = models.Circuit(num_qubits)
-
     # Traverse the DAG in topological order
+    topo_order = list(networkx.topological_sort(dag))
+
+    # Optionally handle measurements, assuming all qubits are measured at the end
+    obs_I = []
+    for node in topo_order:
+        node_data = dag.nodes[node]
+        if node_data["gate"] == "Observable I":
+            #print(node)
+            obs_I.append(node_data["qubits"][0])
+            dag.remove_node(node)
+
+    dag, highest_qubit, smalles_qubit = update_qubits_serie(dag)
+
+    # Create an empty Qibo circuit
+    circuit = models.Circuit(highest_qubit)
+
     topo_order = list(networkx.topological_sort(dag))
 
     for node in topo_order:
@@ -147,6 +173,7 @@ def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
 
         # Skip the measurement nodes (we'll handle them separately)
         if gate_name == "OBSERVABLE I":
+            #print(gate_name)
             continue
 
         if gate_name == "MEASURE":
@@ -173,13 +200,7 @@ def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
             # Otherwise, pass only the qubits
             circuit.add(gate_class(*qubits))
 
-    # Optionally handle measurements, assuming all qubits are measured at the end
-    obs_I = []
-    for node in topo_order:
-        node_data = dag.nodes[node]
-        if node_data["gate"] == "Observable I":
-            obs_I.append(node_data["qubits"][0])
-            dag.remove_node(node)
+
 
     if obs_I:
         return [circuit, obs_I]

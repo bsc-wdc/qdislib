@@ -30,10 +30,11 @@ from qiskit import QuantumCircuit
 from qiskit import QuantumRegister
 from qiskit import ClassicalRegister
 
+from Qdislib.utils.graph_qibo import update_qubits_serie
 
 from pycompss.api.task import task
 
-def circuit_qiskit_to_dag(circuit: QuantumCircuit) -> networkx.DiGraph:
+def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGraph:
     """Convert a Qibo circuit to a DAG where each node stores gate information.
 
     :param circuit: The Qibo circuit to transform.
@@ -85,7 +86,18 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit) -> networkx.DiGraph:
                         and not dag.has_edge(pred_gate, gate_name)
                     ):
                         dag.add_edge(pred_gate, gate_name, color="red")
-
+    if obs_I:
+        sinks = [node for node in dag.nodes if dag.out_degree(node) == 0]
+        #print(sinks)
+        for idx, i in enumerate(obs_I):
+            if i == "I":
+                #print(obs_I)
+                for elem in sinks:
+                    if dag.nodes[elem].get("qubits") == (idx,):
+                        #print(dag.nodes[elem])
+                        #print(dag.nodes[elem].get("qubits"))
+                        dag.add_node(f"OBSI_{idx}", gate="Observable I", qubits=(idx,),parameters=())
+                        dag.add_edge(elem, f"OBSI_{idx}", color="blue")
     return dag
 
 
@@ -103,6 +115,20 @@ def dag_to_circuit_qiskit(dag, num_qubits):
     """
     if dag is None:
         return None
+    
+    topo_order = list(networkx.topological_sort(dag))
+
+    # Optionally handle measurements, assuming all qubits are measured at the end
+    obs_I = []
+    for node in topo_order:
+        node_data = dag.nodes[node]
+        if node_data["gate"] == "Observable I":
+            #print(node)
+            obs_I.append(node_data["qubits"][0])
+            dag.remove_node(node)
+
+    dag, highest_qubit, smalles_qubit = update_qubits_serie(dag)
+
     # Create an empty Qibo circuit
     qreg_q = QuantumRegister(num_qubits, 'q')
     creg_c = ClassicalRegister(num_qubits, 'c')
@@ -118,6 +144,8 @@ def dag_to_circuit_qiskit(dag, num_qubits):
         # Skip the measurement nodes (we'll handle them separately)
         if gate_name == "Observable I":
             continue
+        elif gate_name == "CNOT":
+            gate_name = "cx"
         
         # Get the qubits this gate acts on
         
@@ -155,7 +183,7 @@ def dag_to_circuit_qiskit(dag, num_qubits):
 
 
     # Optionally handle measurements, assuming all qubits are measured at the end
-    obs_I = []
+    #obs_I = []
     '''for node in topo_order:
         node_data = dag.nodes[node]
         if node_data['gate'] == "Observable I":

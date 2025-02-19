@@ -39,9 +39,8 @@ class CircuitTest(BaseTimedTestCase):
         circ.add(gates.CZ(0,1))
         circ.add(gates.RY(0,0.8))
 
-        cut = optimal_cut(circ)
-
-        if cut == []:
+        cut = optimal_cut(circ, max_qubits=2, gate_cut=False)
+        if cut == None:
             self.assertTrue(True)
         else:
             self.assertTrue(False)
@@ -105,7 +104,7 @@ class CircuitTest(BaseTimedTestCase):
         circuit.add(gates.CZ(2,3))
         circuit.add(gates.H(3))
 
-        cut = optimal_cut(circuit, 2)
+        cut = optimal_cut(circuit, 2, wire_cut=False)
 
         reconstrucion = gate_cutting(circuit, cut)
         analytical = analytical_solution("ZZZZ", circuit)
