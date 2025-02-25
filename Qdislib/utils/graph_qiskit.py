@@ -33,6 +33,7 @@ from qiskit import ClassicalRegister
 from Qdislib.utils.graph_qibo import update_qubits_serie
 
 from pycompss.api.task import task
+from pycompss.api.constraint import *
 
 def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGraph:
     """Convert a Qibo circuit to a DAG where each node stores gate information.
@@ -101,6 +102,7 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
     return dag
 
 
+@constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
 @task(returns=1)
 def dag_to_circuit_qiskit(dag, num_qubits):
     """

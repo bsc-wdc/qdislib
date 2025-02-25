@@ -32,6 +32,7 @@ from qibo import gates
 
 from pycompss.api.task import task
 from pycompss.api.parameter import INOUT
+from pycompss.api.constraint import *
 
 
 def circuit_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:
@@ -229,7 +230,7 @@ def max_qubit(graph: networkx.DiGraph) -> float:
                 # max_node = node
     return max_qubits
 
-
+@constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
 @task(returns=2, s=INOUT)
 def update_qubits(
     s: typing.List[typing.Any],
