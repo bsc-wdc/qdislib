@@ -102,7 +102,7 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
     return dag
 
 
-@constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
+#@constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
 @task(returns=1)
 def dag_to_circuit_qiskit(dag, num_qubits):
     """

@@ -230,7 +230,7 @@ def max_qubit(graph: networkx.DiGraph) -> float:
                 # max_node = node
     return max_qubits
 
-@constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
+#@constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
 @task(returns=2, s=INOUT)
 def update_qubits(
     s: typing.List[typing.Any],
