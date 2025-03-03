@@ -205,11 +205,11 @@ def optimal_cut_wire(
             ]
 
             # TODO: This variable is not used. Remove?
-            flag_best_score = False
+            #flag_best_score = False
 
             for r in range(1, 8 + 1):  # Number of edges to remove
-                if flag_best_score:
-                    break
+                '''if flag_best_score:
+                    break'''
 
                 if r <= 3:  # Only edges
                     for cut_edges in itertools.combinations(edges, r):
@@ -220,9 +220,9 @@ def optimal_cut_wire(
                             best_cut_edges.append(cut_edges)
                             best_score.append(score)
                             # Loop break condition
-                            if score < 2:
+                            '''if score < 2:
                                 flag_best_score = True
-                                break
+                                break'''
 
                 elif (
                     r >= 4
@@ -244,9 +244,9 @@ def optimal_cut_wire(
                                     best_cut_edges.append(cut_edges)
                                     best_score.append(score)
                                 # Loop break condition
-                                if score < 2:
+                                '''if score < 2:
                                     flag_best_score = True
-                                    break
+                                    break'''
 
             best_score_components.append(best_score)
             best_cut_components.append(best_cut_edges)
@@ -256,21 +256,21 @@ def optimal_cut_wire(
                 print(f"Component {idx} out of {len(components)}")
                 print("No cut required")
 
-    best_score_components = compss_wait_on(best_score_components)
-    best_cut_components = compss_wait_on(best_cut_components)
+    #best_score_components = compss_wait_on(best_score_components)
+    #best_cut_components = compss_wait_on(best_cut_components)
     if verbose:
         print(best_score_components)
         print(best_cut_components)
 
     if best_score_components != [[]]:
-        for idx, best_score in enumerate(best_score_components):
-            best_score = [abs(ele) for ele in best_score]
+        for idx, best_score_comp in enumerate(best_score_components):
+            best_score = [abs(ele) for ele in best_score_comp]
             index_min = best_score.index(min(best_score))
             best_cut_edges = best_cut_components[idx][index_min]
             max_len_cut = len(best_cut_components[idx])
-            best_score = min(best_score)
+            best_score_min = min(best_score)
             cuts = cuts + [*best_cut_edges]
-            scores.append(best_score)
+            scores.append(best_score_min)
 
     if verbose:
         print(scores)
@@ -303,11 +303,16 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
         results = []
         final_cut = []
 
+
         if max_cuts is None:
             max_cuts = 8
         
-        if max_components is None:
-            max_components = float('inf')
+        '''if max_components is None:
+            max_components = float('inf')'''
+        
+        print(max_qubits)
+        print(max_components)
+        print(max_cuts)
 
         for r in range(1,max_cuts):
             for cut in itertools.combinations(double_gates, r):
@@ -336,13 +341,20 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
                 if verbose:
                     print("SCORE ", score)
 
-                if max_components and max_components < num_components:
+                print(flag)
+
+                if max_components is not None and max_components < num_components:
                     flag = False
 
-
-                if max_qubits and max(max_num_qubits) > max_qubits:
+                print(max_components)
+                #print(max_components < num_components)
+                print(flag)
+                if max_qubits is not None and max(max_num_qubits) > max_qubits:
                     flag = False
-                    
+                
+                print(max_qubits)
+                #print(max(max_num_qubits) > max_qubits)
+                print(flag)
                 if flag:
                     results.append(score)
                     final_cut.append(cut)
@@ -350,14 +362,15 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
         if verbose:
             print(results)
 
-        best_score = min(results)
-        min_index = results.index(best_score)
+        best_score_gate = min(results)
+        min_index = results.index(best_score_gate)
         min_cut = final_cut[min_index]
 
-        return best_score, list(min_cut)
+        return best_score_gate, list(min_cut)
 
 def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wire_cut=True, gate_cut=True, verbose=False):
     print(wire_cut)
+    print(gate_cut)
     if type(circuit) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         dag = circuit_qiskit_to_dag(circuit)
         num_qubits = circuit.num_qubits
@@ -374,11 +387,15 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
 
     if wire_cut:
         if max_qubits is None:
-            max_qubits = num_qubits //2 +1
-        cuts, scores, max_len_cut = optimal_cut_wire(dag, max_qubits)
+            max_qubits_wire_cut = num_qubits //2 +1
+        else:
+            max_qubits_wire_cut = max_qubits
+        cuts, scores, max_len_cut = optimal_cut_wire(dag, max_qubits_wire_cut, verbose)
         
     if gate_cut:
-        best_gate_score, cut_gate = optimal_cut_gate(dag, max_qubits, max_components, max_cuts)
+        '''if max_qubits is None:
+            max_qubits = num_qubits'''
+        best_gate_score, cut_gate = optimal_cut_gate(dag, max_qubits, max_components, max_cuts, verbose)
 
     if not wire_cut:
         cuts, scores, max_len_cut = None, [float('inf')], float('inf')
