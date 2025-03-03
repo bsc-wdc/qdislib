@@ -347,12 +347,13 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
                     flag = False
 
                 print(max_components)
-                #print(max_components < num_components)
+                print(num_components)
                 print(flag)
-                if max_qubits is not None and max(max_num_qubits) > max_qubits:
+                if max_qubits is not None and max(max_num_qubits) <= max_qubits:
                     flag = False
                 
                 print(max_qubits)
+                print(max(max_num_qubits))
                 #print(max(max_num_qubits) > max_qubits)
                 print(flag)
                 if flag:
