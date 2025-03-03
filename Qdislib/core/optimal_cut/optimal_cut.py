@@ -298,7 +298,7 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
         print(double_gates)
 
         if len(double_gates) > 10:
-            double_gates = double_gates[:10]
+            double_gates = double_gates[:(len(double_gates)//2)]
 
         results = []
         final_cut = []
@@ -349,10 +349,11 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
                 print(max_components)
                 print(num_components)
                 print(flag)
-                if max_qubits is not None and max(max_num_qubits) <= max_qubits:
+                if max_qubits is not None and max(max_num_qubits) > max_qubits:
                     flag = False
                 
                 print(max_qubits)
+                print(max_num_qubits)
                 print(max(max_num_qubits))
                 #print(max(max_num_qubits) > max_qubits)
                 print(flag)
@@ -363,11 +364,14 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
         if verbose:
             print(results)
 
-        best_score_gate = min(results)
-        min_index = results.index(best_score_gate)
-        min_cut = final_cut[min_index]
+        if results == []:
+            return float('inf'), []
+        else:
+            best_score_gate = min(results)
+            min_index = results.index(best_score_gate)
+            min_cut = final_cut[min_index]
 
-        return best_score_gate, list(min_cut)
+            return best_score_gate, list(min_cut)
 
 def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wire_cut=True, gate_cut=True, verbose=False):
     print(wire_cut)
