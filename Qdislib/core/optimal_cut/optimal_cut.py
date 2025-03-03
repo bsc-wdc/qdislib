@@ -305,6 +305,9 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
 
         if max_cuts is None:
             max_cuts = 8
+        
+        if max_components is None:
+            max_components = float('inf')
 
         for r in range(1,max_cuts):
             for cut in itertools.combinations(double_gates, r):
@@ -354,6 +357,7 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
         return best_score, list(min_cut)
 
 def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wire_cut=True, gate_cut=True, verbose=False):
+    print(wire_cut)
     if type(circuit) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         dag = circuit_qiskit_to_dag(circuit)
         num_qubits = circuit.num_qubits
