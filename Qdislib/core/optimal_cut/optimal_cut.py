@@ -300,7 +300,7 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
 
         if len(double_gates) > 10:
             #(len(double_gates)//2)
-            double_gates = double_gates[:10]
+            double_gates = double_gates[:30]
 
 
         if max_cuts is None:
