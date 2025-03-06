@@ -171,9 +171,7 @@ def optimal_cut_wire(
         graph.subgraph(c).copy()
         for c in networkx.connected_components(graph.to_undirected())
     ]
-    cuts = []
-    scores = []
-    max_len_cut = float("-inf")
+    
     for idx, component in enumerate(components):
         best_score = []
         best_cut_edges = []
@@ -257,26 +255,8 @@ def optimal_cut_wire(
                 print(f"Component {idx} out of {len(components)}")
                 print("No cut required")
 
-    best_score_components = compss_wait_on(best_score_components)
-    best_cut_components = compss_wait_on(best_cut_components)
-    if verbose:
-        print(best_score_components)
-        print(best_cut_components)
-
-    if best_score_components != [[]]:
-        for idx, best_score_comp in enumerate(best_score_components):
-            best_score = [abs(ele) for ele in best_score_comp]
-            index_min = best_score.index(min(best_score))
-            best_cut_edges = best_cut_components[idx][index_min]
-            max_len_cut = len(best_cut_components[idx])
-            best_score_min = min(best_score)
-            cuts = cuts + [*best_cut_edges]
-            scores.append(best_score_min)
-
-    if verbose:
-        print(scores)
-        print(cuts)
-    return cuts, scores, max_len_cut
+    return best_score_components, best_cut_components
+    
 
 #@task(returns=2)
 def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, verbose=False):
@@ -320,20 +300,9 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
                 results.append(score)
                 final_cut.append(cut)
 
-        results = compss_wait_on(results)
-        final_cut = compss_wait_on(final_cut)
+        return score, final_cut
 
-        if verbose:
-            print(results)
-
-        if results == []:
-            return float('inf'), []
-        else:
-            best_score_gate = min(results)
-            min_index = results.index(best_score_gate)
-            min_cut = final_cut[min_index]
-
-            return best_score_gate, list(min_cut)
+        
 
 @task(returns=2)
 def evaluate_cut_gate(dag,cut,max_components, max_qubits, verbose=False):
@@ -404,12 +373,55 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
             max_qubits_wire_cut = num_qubits //2 +1
         else:
             max_qubits_wire_cut = max_qubits
-        cuts, scores, max_len_cut = optimal_cut_wire(dag, max_qubits_wire_cut, verbose)
+        best_score_components, best_cut_components = optimal_cut_wire(dag, max_qubits_wire_cut, verbose)
+
+        best_score_components = compss_wait_on(best_score_components)
+        best_cut_components = compss_wait_on(best_cut_components)
+        
+        if verbose:
+            print(best_score_components)
+            print(best_cut_components)
+
+        cuts = []
+        scores = []
+        max_len_cut = float("-inf")
+
+        if best_score_components != [[]]:
+            for idx, best_score_comp in enumerate(best_score_components):
+                best_score = [abs(ele) for ele in best_score_comp]
+                index_min = best_score.index(min(best_score))
+                best_cut_edges = best_cut_components[idx][index_min]
+                max_len_cut = len(best_cut_components[idx])
+                best_score_min = min(best_score)
+                cuts = cuts + [*best_cut_edges]
+                scores.append(best_score_min)
+
+        if verbose:
+            print(scores)
+            print(cuts)
         
     if gate_cut:
         '''if max_qubits is None:
             max_qubits = num_qubits'''
-        best_gate_score, cut_gate = optimal_cut_gate(dag, max_qubits, max_components, max_cuts, verbose)
+        results, final_cut = optimal_cut_gate(dag, max_qubits, max_components, max_cuts, verbose)
+        
+        results = compss_wait_on(results)
+        final_cut = compss_wait_on(final_cut)
+
+        if verbose:
+            print(results)
+
+        if results == []:
+            best_gate_score, cut_gate = float('inf'), []
+        else:
+            best_score_gate = min(results)
+            min_index = results.index(best_score_gate)
+            min_cut = final_cut[min_index]
+
+            best_gate_score, cut_gate = best_score_gate, list(min_cut)
+
+
+    
 
     if not wire_cut:
         cuts, scores, max_len_cut = None, [float('inf')], float('inf')
