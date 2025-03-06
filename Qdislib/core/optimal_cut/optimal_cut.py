@@ -300,7 +300,7 @@ def optimal_cut_gate(dag, max_qubits=None, max_components=None, max_cuts=None, v
                 results.append(score)
                 final_cut.append(cut)
 
-        return score, final_cut
+        return results, final_cut
 
         
 
