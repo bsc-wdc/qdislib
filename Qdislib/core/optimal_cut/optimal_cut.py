@@ -375,9 +375,24 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
             max_qubits_wire_cut = max_qubits
         best_score_components, best_cut_components = optimal_cut_wire(dag, max_qubits_wire_cut, verbose)
 
-        best_score_components = compss_wait_on(best_score_components)
-        best_cut_components = compss_wait_on(best_cut_components)
         
+    if gate_cut:
+        '''if max_qubits is None:
+            max_qubits = num_qubits'''
+        results, final_cut = optimal_cut_gate(dag, max_qubits, max_components, max_cuts, verbose)
+
+
+    #if gate_cut and wire_cut:
+    best_score_components = compss_wait_on(best_score_components)
+    best_cut_components = compss_wait_on(best_cut_components)
+    results = compss_wait_on(results)
+    final_cut = compss_wait_on(final_cut)
+
+    
+
+    if not wire_cut:
+        cuts, scores, max_len_cut = None, [float('inf')], float('inf')
+    else:
         if verbose:
             print(best_score_components)
             print(best_cut_components)
@@ -399,15 +414,10 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
         if verbose:
             print(scores)
             print(cuts)
-        
-    if gate_cut:
-        '''if max_qubits is None:
-            max_qubits = num_qubits'''
-        results, final_cut = optimal_cut_gate(dag, max_qubits, max_components, max_cuts, verbose)
-        
-        results = compss_wait_on(results)
-        final_cut = compss_wait_on(final_cut)
-
+    
+    if not gate_cut:
+        best_gate_score, cut_gate = float('inf'), None
+    else:
         if verbose:
             print(results)
 
@@ -419,14 +429,6 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
             min_cut = final_cut[min_index]
 
             best_gate_score, cut_gate = best_score_gate, list(min_cut)
-
-
-    
-
-    if not wire_cut:
-        cuts, scores, max_len_cut = None, [float('inf')], float('inf')
-    if not gate_cut:
-        best_gate_score, cut_gate = float('inf'), None
 
 
     #cuts = compss_wait_on(cuts)
