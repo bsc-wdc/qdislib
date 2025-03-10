@@ -202,7 +202,7 @@ def optimal_cut_wire(
             edges = [edge for edge, _ in sorted_edges]
 
             if len(edges) > 25:
-                edges = edges[:25]
+                edges = edges[:len(edges)//4]
 
             # Filter articulation points that are multi-qubit gates only
             articulation_points = [
@@ -214,11 +214,11 @@ def optimal_cut_wire(
             # TODO: This variable is not used. Remove?
             #flag_best_score = False
 
-            for r in range(1, 8 + 1):  # Number of edges to remove
+            for r in range(1, 3 + 1):  # Number of edges to remove
                 '''if flag_best_score:
                     break'''
 
-                if r <= 3:  # Only edges
+                if r <= 9:  # Only edges
                     for cut_edges in itertools.combinations(edges, r):
                         valid, score = evaluate_cut(
                             component, list(cut_edges), [], threshold
@@ -231,7 +231,7 @@ def optimal_cut_wire(
                             flag_best_score = True
                             break'''
 
-                elif (
+                '''elif (
                     r >= 4
                 ):  # Combination of node and edge removal (nodes converted to edges)
                     num_nodes_to_remove = r // 4
@@ -250,10 +250,7 @@ def optimal_cut_wire(
                                 #if valid:  # and abs(score) < best_score:
                                 best_cut_edges.append(cut_edges)
                                 best_score.append(score)
-                                # Loop break condition
-                                '''if score < 2:
-                                    flag_best_score = True
-                                    break'''
+                                # Loop break condition'''
 
             best_score_components.append(best_score)
             best_cut_components.append(best_cut_edges)
