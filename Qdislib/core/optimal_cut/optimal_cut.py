@@ -35,7 +35,15 @@ import qibo
 import qiskit
 
 from Qdislib.utils.graph_qibo import circuit_to_dag
-from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
+from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag, dag_to_circuit_qiskit
+
+import qiskit.qasm2
+
+from qiskit_addon_cutting.automated_cut_finding import (
+    find_cuts,
+    OptimizationParameters,
+    DeviceConstraints,
+    )
 
 
 def find_nodes_with_qubit(
@@ -353,7 +361,7 @@ def evaluate_cut_gate(dag,cut,max_components, max_qubits, verbose=False):
     else:
         return float('inf'), float('inf')
 
-def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wire_cut=True, gate_cut=True, verbose=False):
+def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wire_cut=True, gate_cut=True, implementation='qdislib', verbose=False):
     if type(circuit) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         dag = circuit_qiskit_to_dag(circuit)
         num_qubits = circuit.num_qubits
@@ -368,91 +376,132 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
     else:
         Exception("Type circuit not suported")
 
-    if wire_cut:
-        if max_qubits is None:
-            max_qubits_wire_cut = num_qubits //2 +1
-        else:
-            max_qubits_wire_cut = max_qubits
-        best_score_components, best_cut_components = optimal_cut_wire(dag, max_qubits_wire_cut, verbose)
+    if implementation == 'qdislib':
+        if wire_cut:
+            if max_qubits is None:
+                max_qubits_wire_cut = num_qubits //2 +1
+            else:
+                max_qubits_wire_cut = max_qubits
+            best_score_components, best_cut_components = optimal_cut_wire(dag, max_qubits_wire_cut, verbose)
+
+            
+        if gate_cut:
+            '''if max_qubits is None:
+                max_qubits = num_qubits'''
+            results, final_cut = optimal_cut_gate(dag, max_qubits, max_components, max_cuts, verbose)
+
+
+        #if gate_cut and wire_cut:
+        best_score_components = compss_wait_on(best_score_components)
+        best_cut_components = compss_wait_on(best_cut_components)
+        results = compss_wait_on(results)
+        final_cut = compss_wait_on(final_cut)
 
         
-    if gate_cut:
-        '''if max_qubits is None:
-            max_qubits = num_qubits'''
-        results, final_cut = optimal_cut_gate(dag, max_qubits, max_components, max_cuts, verbose)
 
-
-    #if gate_cut and wire_cut:
-    best_score_components = compss_wait_on(best_score_components)
-    best_cut_components = compss_wait_on(best_cut_components)
-    results = compss_wait_on(results)
-    final_cut = compss_wait_on(final_cut)
-
-    
-
-    if not wire_cut:
-        cuts, scores, max_len_cut = None, [float('inf')], float('inf')
-    else:
-        if verbose:
-            print(best_score_components)
-            print(best_cut_components)
-
-        cuts = []
-        scores = []
-        max_len_cut = float("-inf")
-
-        if best_score_components != [[]]:
-            for idx, best_score_comp in enumerate(best_score_components):
-                best_score = [abs(ele) for ele in best_score_comp]
-                index_min = best_score.index(min(best_score))
-                best_cut_edges = best_cut_components[idx][index_min]
-                max_len_cut = len(best_cut_components[idx])
-                best_score_min = min(best_score)
-                cuts = cuts + [*best_cut_edges]
-                scores.append(best_score_min)
-
-        if verbose:
-            print(scores)
-            print(cuts)
-    
-    if not gate_cut:
-        best_gate_score, cut_gate = float('inf'), None
-    else:
-        if verbose:
-            print(results)
-
-        if results == []:
-            best_gate_score, cut_gate = float('inf'), []
+        if not wire_cut:
+            cuts, scores, max_len_cut = None, [float('inf')], float('inf')
         else:
-            best_score_gate = min(results)
-            min_index = results.index(best_score_gate)
-            min_cut = final_cut[min_index]
+            if verbose:
+                print(best_score_components)
+                print(best_cut_components)
 
-            best_gate_score, cut_gate = best_score_gate, list(min_cut)
+            cuts = []
+            scores = []
+            max_len_cut = float("-inf")
+
+            if best_score_components != [[]]:
+                for idx, best_score_comp in enumerate(best_score_components):
+                    best_score = [abs(ele) for ele in best_score_comp]
+                    index_min = best_score.index(min(best_score))
+                    best_cut_edges = best_cut_components[idx][index_min]
+                    max_len_cut = len(best_cut_components[idx])
+                    best_score_min = min(best_score)
+                    cuts = cuts + [*best_cut_edges]
+                    scores.append(best_score_min)
+
+            if verbose:
+                print(scores)
+                print(cuts)
+        
+        if not gate_cut:
+            best_gate_score, cut_gate = float('inf'), None
+        else:
+            if verbose:
+                print(results)
+
+            if results == []:
+                best_gate_score, cut_gate = float('inf'), []
+            else:
+                best_score_gate = min(results)
+                min_index = results.index(best_score_gate)
+                min_cut = final_cut[min_index]
+                print(best_score_gate)
+                print(min_cut)
+
+                best_gate_score, cut_gate = best_score_gate, list(min_cut)
 
 
-    #cuts = compss_wait_on(cuts)
-    #scores = compss_wait_on(scores)
-    #max_len_cut = compss_wait_on(max_len_cut)
-    #cut_gate = compss_wait_on(cut_gate)  
-    #best_gate_score = compss_wait_on(best_gate_score)  
+        #cuts = compss_wait_on(cuts)
+        #scores = compss_wait_on(scores)
+        #max_len_cut = compss_wait_on(max_len_cut)
+        #cut_gate = compss_wait_on(cut_gate)  
+        #best_gate_score = compss_wait_on(best_gate_score)  
 
-    scores = sum(scores)
+        scores = sum(scores)
 
-    if verbose:
-        print(cuts, scores, max_len_cut)
-        print(best_gate_score, cut_gate)
+        if verbose:
+            print(cuts, scores, max_len_cut)
+            print(best_gate_score, cut_gate)
 
-    if not cuts:
-        scores = float('inf')
+        if not cuts:
+            scores = float('inf')
 
-    if scores < best_gate_score:
-        print("Wire Cutting best cut: ", cuts)
-        return cuts
-    if best_gate_score < scores:
-        print("Gate Cutting best cut: ", cut_gate)
-        return cut_gate
-    else:
-        print("Same score both cuts, choosing gate cutting:  ", cut_gate)
-        return cut_gate
+        if scores < best_gate_score:
+            print("Wire Cutting best cut: ", cuts)
+            return cuts
+        if best_gate_score < scores:
+            print("Gate Cutting best cut: ", cut_gate)
+            return cut_gate
+        else:
+            print("Same score both cuts, choosing gate cutting:  ", cut_gate)
+            return cut_gate
+    
+    elif implementation == 'ibm-ckt':
+        if type(circuit) == qibo.models.Circuit:
+            qasm_str = circuit.to_qasm()
+            circuit = qiskit.qasm2.loads(qasm_str)
+        elif type(circuit) == networkx.DiGraph:
+            circuit = dag_to_circuit_qiskit(circuit)
+
+        # Specify settings for the cut-finding optimizer
+        optimization_settings = OptimizationParameters(seed=50)
+
+        # Specify the size of the QPUs available
+        if max_qubits is None:
+            max_qubits_ckt = num_qubits //2 +1
+        else:
+            max_qubits_ckt = max_qubits
+        device_constraints = DeviceConstraints(qubits_per_subcircuit=max_qubits_ckt)
+
+        cut_circuit, metadata = find_cuts(circuit, optimization_settings, device_constraints)
+        if verbose:
+            print(
+                f'Found solution using {len(metadata["cuts"])} cuts with a sampling '
+                f'overhead of {metadata["sampling_overhead"]}.\n'
+                f'Lowest cost solution found: {metadata["minimum_reached"]}.'
+            )
+            for cut in metadata["cuts"]:
+                print(f"{cut[0]} at circuit instruction index {cut[1]}")
+            cut_circuit.draw("mpl", scale=0.8, fold=-1)
+        
+        list_gates_cut=[]
+        for cut in metadata["cuts"]:
+            if cut[0] == 'Gate Cut':
+                gate_name = circuit.data[cut[1]].operation.name.upper()
+                list_gates_cut.append(f"{gate_name}_{cut[1]+1}")
+        print(list_gates_cut)
+        return list_gates_cut
+
+
 
