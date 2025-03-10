@@ -436,10 +436,8 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
                 best_score_gate = min(results)
                 min_index = results.index(best_score_gate)
                 min_cut = final_cut[min_index]
-                print(best_score_gate)
-                print(min_cut)
 
-                best_gate_score, cut_gate = best_score_gate, list(min_cut)
+                best_gate_score, cut_gate = best_score_gate, [min_cut]
 
 
         #cuts = compss_wait_on(cuts)
