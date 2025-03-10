@@ -148,6 +148,12 @@ def dag_to_circuit_qiskit(dag, num_qubits):
             continue
         elif gate_name == "CNOT":
             gate_name = "cx"
+            qubits = node_data['qubits']
+            
+            circuit.h(qubits[1])
+            circuit.cz(*qubits)
+            circuit.h(qubits[1])
+            continue
         
         # Get the qubits this gate acts on
         
