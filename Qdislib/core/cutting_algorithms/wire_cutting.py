@@ -365,7 +365,7 @@ def sum_results(lst: typing.List[int]) -> int:
 
 
 @task(returns=1)
-def execute_subcircuits(subcirc: typing.Any, shots=10000, backend="numpy") -> float:
+def execute_subcircuits(subcirc: typing.Any, shots=1024, backend="numpy") -> float:
     """Execute the given circuit.
 
     :param subcirc: Circuit to execute.
