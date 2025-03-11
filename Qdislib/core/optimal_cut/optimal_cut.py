@@ -388,11 +388,20 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
             results, final_cut = optimal_cut_gate(dag, max_qubits, max_components, max_cuts, verbose)
 
 
-        #if gate_cut and wire_cut:
-        best_score_components = compss_wait_on(best_score_components)
-        best_cut_components = compss_wait_on(best_cut_components)
-        results = compss_wait_on(results)
-        final_cut = compss_wait_on(final_cut)
+        if gate_cut and wire_cut:
+            best_score_components = compss_wait_on(best_score_components)
+            best_cut_components = compss_wait_on(best_cut_components)
+            results = compss_wait_on(results)
+            final_cut = compss_wait_on(final_cut)
+        elif gate_cut:
+            results = compss_wait_on(results)
+            final_cut = compss_wait_on(final_cut)
+        elif wire_cut:
+            best_score_components = compss_wait_on(best_score_components)
+            best_cut_components = compss_wait_on(best_cut_components)
+        else:
+            raise TypeError
+
 
         
 
