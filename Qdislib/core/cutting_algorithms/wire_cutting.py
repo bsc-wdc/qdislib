@@ -137,7 +137,6 @@ def generate_wire_cutting(
     """
     reconstruction = []
     for index, edge_to_replace in enumerate(edges_to_replace, start=1):
-
         # Extract the nodes of the edge to be replaced
         source, target = edge_to_replace
 

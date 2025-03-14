@@ -48,7 +48,6 @@ class CircuitTest(BaseTimedTestCase):
 
         reconstruction = gate_cutting(qc, ["CZ_2"])
         analytical = analytical_solution("ZZ", circ)
-
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
         else:
