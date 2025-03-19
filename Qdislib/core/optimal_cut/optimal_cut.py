@@ -33,7 +33,7 @@ from Qdislib.utils.graph_qibo import remove_red_edges
 
 import qibo
 import qiskit
-import metis
+import pymetis
 
 from Qdislib.utils.graph_qibo import circuit_to_dag
 from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag, dag_to_circuit_qiskit
@@ -697,7 +697,13 @@ def find_best_spectral_clustering(graph,clusters,max_qubits,max_cuts):
 
 def metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
     # Convert the NetworkX graph to a format suitable for METIS
-    _, parts = metis.part_graph(graph, nparts=num_clusters)
+    print(num_clusters)
+    adjacency_list = []
+    
+    for node in graph.nodes():
+        neighbors = list(graph.neighbors(node))
+        adjacency_list.append(neighbors)
+    _, parts = pymetis.part_graph(adjacency=adjacency_list, nparts=num_clusters)
     # Group nodes based on the partition labels
     clusters = {}
     for node, part in enumerate(parts):
