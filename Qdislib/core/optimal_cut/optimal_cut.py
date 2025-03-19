@@ -795,11 +795,40 @@ def find_cut_gate(circuit,max_qubits=None,max_cuts=None, max_components=None, ve
     final.append(best_met_cutset)
 
     print(results)
-    tmp = min(results)
-    tmp2= results.index(tmp)
-    cut = final[tmp2]
-    print(cut)
-    return cut, tmp
+    best_score = min(results)
+    best_cut = final[results.index(best_score)]
+    print(best_cut)
+
+    if verbose:
+        import matplotlib.pyplot as plt
+        # Plot the graph with partition
+        pos = networkx.spring_layout(dag)  # Positions for all nodes
+        plt.figure(figsize=(12, 12))
+        
+        # Get the best partition (assuming the best partition is the one corresponding to the best cut)
+        best_partition = None
+        if results.index(best_score) == 0:
+            best_partition = best_kl_partition
+        elif results.index(best_score) == 1:
+            best_partition = best_gn_partition
+        elif results.index(best_score) == 2:
+            best_partition = best_sc_partition
+        else:
+            best_partition = best_met_partition
+
+        # Assign colors to partitions
+        colors = ['orange', 'purple', 'green', 'red', 'blue']
+        for i, partition in enumerate(best_partition):
+            networkx.draw_networkx_nodes(dag, pos, nodelist=partition, node_color=colors[i % len(colors)], node_size=200, alpha=0.5)
+        
+        # Draw the edges and labels
+        networkx.draw_networkx_edges(dag, pos, alpha=0.5)
+        networkx.draw_networkx_labels(dag, pos)
+
+        # Display the plot
+        plt.title("Graph Partition Visualization")
+        plt.show()
+    return best_cut, best_score
 
 @task(returns=2)
 def find_cut_wire(circuit,max_qubits=None,max_cuts=None, max_components=None, verbose=False):
@@ -909,6 +938,7 @@ def find_cut_wire(circuit,max_qubits=None,max_cuts=None, max_components=None, ve
 
 
 def find_cut(circuit,max_qubits=None,max_cuts=None, max_components=None, wire_cut=True, gate_cut=True, implementation='qdislib', verbose=False):
+    print("HEY4")
     if implementation == 'qdislib':
         if max_qubits and not max_components:
             max_components = circuit.nqubits // max_qubits + 1
@@ -916,9 +946,11 @@ def find_cut(circuit,max_qubits=None,max_cuts=None, max_components=None, wire_cu
             max_components =  2
 
         if gate_cut:
+            print("HEY3")
             cut_gate, score_gate = find_cut_gate(circuit,max_qubits=max_qubits,max_cuts=max_cuts, max_components=max_components,verbose=verbose)
         
         if wire_cut:
+            print("HEY2")
             cut_wire,  score_wire = find_cut_wire(circuit,max_qubits=max_qubits,max_cuts=max_cuts, max_components=max_components,verbose=verbose)
 
         if gate_cut and wire_cut:
