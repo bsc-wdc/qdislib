@@ -306,7 +306,7 @@ def parse_qsim(fname: str, depth:int = 5*4 +2):
                 q1 = int(gdesc[3])
                 theta = float(gdesc[4]) / np.pi
                 phi = float(gdesc[5]) / np.pi
-                c.add(gates.fSim(q, q1, theta, phi))
+                c.add(gates.CZ(q, q1))
 
         
         #c.gates = gates
