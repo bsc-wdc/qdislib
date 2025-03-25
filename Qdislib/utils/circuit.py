@@ -265,3 +265,49 @@ def draw_to_circuit(
             )
             list_multiple_gates[idx].remove(list_multiple_gates[idx][0])
     return circuit
+
+
+def parse_qsim(fname: str, depth:int = 5*4 +2):
+        """Produces a :class:`Circuit` based on a .qsim description of a circuit."""
+        
+        with open(fname, 'r') as f:
+            data = f.read()
+        print(data)
+        lines = data.strip().splitlines()
+
+        try:
+            qcount = int(lines.pop(0))
+        except ValueError:
+            raise ValueError('First line should be qubit count')
+
+        from qibo import models
+        c = models.Circuit(qcount)
+
+        for l in lines:
+            l = l.strip()
+            if l == '': continue
+            gdesc = l.split(' ')
+
+            q = int(gdesc[2])
+            moment = int(gdesc[0])
+            if moment >= depth:
+                break
+
+            if gdesc[1] == 'rz':
+                phase = float(gdesc[3]) / np.pi
+                c.add(gates.RZ(q, phase))
+            elif gdesc[1] == 'hz_1_2':
+                c.add(gates.H(q))
+            elif gdesc[1] == 'x_1_2':
+                c.add(gates.X(q))
+            elif gdesc[1] == 'y_1_2':
+                c.add(gates.Y(q))
+            elif gdesc[1] == 'fs':
+                q1 = int(gdesc[3])
+                theta = float(gdesc[4]) / np.pi
+                phi = float(gdesc[5]) / np.pi
+                c.add(gates.fSim(q, q1, theta, phi))
+
+        
+        #c.gates = gates
+        return c
