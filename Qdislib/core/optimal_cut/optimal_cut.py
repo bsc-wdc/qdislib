@@ -742,7 +742,7 @@ def find_cut_gate(circuit,max_qubits=None,max_cuts=None, max_components=None, ve
     best_met_partition, best_met_cutset = metis_partition(dag, num_clusters=max_components, max_nodes_per_cluster=max_qubits, max_cuts=max_cuts)
     
     # Weights for the objective function
-    w1 = 3  # Weight for cut size (minimize this)
+    w1 = 100  # Weight for cut size (minimize this)
     w2 = -1  # Weight for number of components (maximize this)
     w3 = 1  # Weight for balanced graphs (minimize this)
     
@@ -852,7 +852,7 @@ def find_cut_wire(circuit,max_qubits=None,max_cuts=None, max_components=None, ve
     print("METIS DONE...")
 
     # Weights for the objective function
-    w1 = 3  # Weight for cut size (minimize this)
+    w1 = 100  # Weight for cut size (minimize this)
     w2 = -1  # Weight for number of components (maximize this)
     w3 = 1  # Weight for balanced graphs (minimize this)
     
