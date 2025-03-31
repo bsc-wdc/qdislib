@@ -33,6 +33,7 @@ from qibo import gates
 from pycompss.api.task import task
 from pycompss.api.parameter import INOUT
 from pycompss.api.constraint import *
+import numpy as np
 
 
 def circuit_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:
@@ -178,6 +179,10 @@ def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
             continue
 
         if gate_name == "MEASURE":
+            qubits = node_data["qubits"]
+            print(qubits)
+            output = circuit.add(gates.M(*qubits, collapse=True))
+            circuit.add(gates.RX(*qubits, theta=np.pi * output.symbols[0] / 4))
             continue
 
         # Get the qubits this gate acts on
