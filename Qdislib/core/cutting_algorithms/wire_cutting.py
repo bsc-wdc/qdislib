@@ -95,7 +95,7 @@ def wire_cutting(
                 if s.has_edge(*c):
                     tmp_cuts.append(c)
             if tmp_cuts:
-                graphs = generate_wire_cutting(s, tmp_cuts, num_qubits=num_qubits)
+                graphs = generate_wire_cutting(s, tmp_cuts, num_qubits=num_qubits, qpu=qpu)
                 graphs = sum_results(graphs)
                 results.append(graphs)  # 1/(2**len(tmp_cuts))*sum(graphs)
             else:
@@ -117,7 +117,7 @@ def wire_cutting(
     else:
         num_qubits = max_qubit(dag)
         if cut:
-            results = generate_wire_cutting(dag, cut, num_qubits=num_qubits)
+            results = generate_wire_cutting(dag, cut, num_qubits=num_qubits, qpu=qpu)
 
             if sync:
                 results = compss_wait_on(results)
