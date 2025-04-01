@@ -180,9 +180,8 @@ def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
 
         if gate_name == "MEASURE":
             qubits = node_data["qubits"]
-            print(qubits)
-            output = circuit.add(gates.M(*qubits, collapse=True))
-            circuit.add(gates.RX(*qubits, theta=np.pi * output.symbols[0] / 4))
+            circuit.add(gates.M(*qubits, collapse=True))
+            #circuit.add(gates.RX(*qubits, theta=np.pi * output.symbols[0] / 4))
             continue
 
         # Get the qubits this gate acts on
