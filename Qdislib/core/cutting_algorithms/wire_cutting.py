@@ -102,7 +102,7 @@ def wire_cutting(
                 s_new, highest_qubit = update_qubits(s)
                 subcirc = dag_to_circuit(s_new, highest_qubit)
                 if qpu=="MN_Ona":
-                    expec_value_qibo_qpu(subcirc, shots, method=backend)
+                    expected_value = expec_value_qibo_qpu(subcirc, shots, method=backend)
                 else:
                     expected_value = execute_subcircuits(subcirc, shots, backend)
                 results.append(expected_value)
@@ -126,7 +126,7 @@ def wire_cutting(
             s_new, highest_qubit = update_qubits(dag)
             subcirc = dag_to_circuit(s_new, highest_qubit)
             if qpu=="MN_Ona":
-                expec_value_qibo_qpu(subcirc, shots, method=backend)
+                final_recons = expec_value_qibo_qpu(subcirc, shots, method=backend)
             else:
                 final_recons = execute_subcircuits(subcirc,shots,backend)
         return final_recons
@@ -237,7 +237,7 @@ def generate_wire_cutting(
             s_new, highest_qubit = update_qubits(s)
             subcirc = dag_to_circuit(s_new, highest_qubit)
             if qpu=="MN_Ona":
-                expec_value_qibo_qpu(subcirc, shots, method=backend)
+                expected_value = expec_value_qibo_qpu(subcirc, shots, method=backend)
             else:
                 expected_value = execute_subcircuits(subcirc,shots, backend)
             exp_value.append(expected_value)
