@@ -478,7 +478,7 @@ def expec_value_qibo_qpu(subcirc, shots=1024, method='numpy'):
 
     freq = result.counts()
 
-    os.remove(circuit_filename)  # Remove circuit file after processing
+    #os.remove(circuit_filename)  # Remove circuit file after processing
     os.remove(result_filename)   # Remove result file after reading
 
     expectation_value = 0
