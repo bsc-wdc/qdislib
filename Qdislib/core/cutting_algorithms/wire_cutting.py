@@ -476,7 +476,7 @@ def expec_value_qibo_qpu(subcirc, shots=1024, method='numpy'):
         result = pickle.load(f)
         print(f"Received result from {result_filename}: {result}")
 
-    freq = dict(result.frequencies(binary=True))
+    freq = result.counts()
 
     os.remove(circuit_filename)  # Remove circuit file after processing
     os.remove(result_filename)   # Remove result file after reading
