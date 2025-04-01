@@ -24,6 +24,10 @@ import networkx
 import qibo
 import qiskit
 import typing
+import time
+import pickle
+import os
+import random
 
 from qibo import models, gates
 from pycompss.api.task import task
@@ -43,8 +47,9 @@ def wire_cutting(
     cut: typing.List[typing.Any],
     sync: bool = True,
     observables: str = None,
-    shots: int = 10000,
-    backend: str = "numpy"
+    shots: int = 1024,
+    backend: str = "numpy",
+    qpu=None
 ):
     """Wire cutting algorithm.
 
@@ -96,7 +101,10 @@ def wire_cutting(
             else:
                 s_new, highest_qubit = update_qubits(s)
                 subcirc = dag_to_circuit(s_new, highest_qubit)
-                expected_value = execute_subcircuits(subcirc, shots, backend)
+                if qpu=="MN_Ona":
+                    expec_value_qibo_qpu(subcirc, shots, method=backend)
+                else:
+                    expected_value = execute_subcircuits(subcirc, shots, backend)
                 results.append(expected_value)
         if sync:
             results = compss_wait_on(results)
@@ -117,7 +125,10 @@ def wire_cutting(
         else:
             s_new, highest_qubit = update_qubits(dag)
             subcirc = dag_to_circuit(s_new, highest_qubit)
-            final_recons = execute_subcircuits(subcirc,shots,backend)
+            if qpu=="MN_Ona":
+                expec_value_qibo_qpu(subcirc, shots, method=backend)
+            else:
+                final_recons = execute_subcircuits(subcirc,shots,backend)
         return final_recons
 
 
@@ -126,7 +137,8 @@ def generate_wire_cutting(
     edges_to_replace: typing.List[typing.Tuple[str, str]],
     num_qubits: int,
     shots: int = 10000,
-    backend: str = "numpy"
+    backend: str = "numpy",
+    qpu=None
 ) -> typing.List[float]:
     """Replace a specific edge in the DAG with a source and end node.
 
@@ -224,7 +236,10 @@ def generate_wire_cutting(
         for s in graph_components:
             s_new, highest_qubit = update_qubits(s)
             subcirc = dag_to_circuit(s_new, highest_qubit)
-            expected_value = execute_subcircuits(subcirc,shots, backend)
+            if qpu=="MN_Ona":
+                expec_value_qibo_qpu(subcirc, shots, method=backend)
+            else:
+                expected_value = execute_subcircuits(subcirc,shots, backend)
             exp_value.append(expected_value)
         exp_value = change_sign(exp_value, index)
         reconstruction.append(exp_value)
@@ -408,6 +423,78 @@ def execute_subcircuits(subcirc: typing.Any, shots=1024, backend="numpy") -> flo
 
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
+    return expectation_value
+
+@task(returns=1)
+def expec_value_qibo_qpu(subcirc, shots=1024, method='numpy'):
+    
+    if subcirc is None:
+        return None
+    
+    tmp = subcirc[1]
+    subcirc = subcirc[0]
+
+    #print(subcirc.draw())
+    if tmp:
+        obs_I = tmp
+    else:
+        obs_I = None
+    observables = ["Z"] * subcirc.nqubits
+
+    if obs_I:
+        for element in obs_I:
+            observables[element] = "I"
+
+    #print(obs_I)
+
+    subcirc.add(gates.M(*range(subcirc.nqubits)))
+   
+    observables = "".join(observables)
+    #print(observables)
+
+
+    '''counter = 1  # Initialize counter
+    while os.path.exists(f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{counter}.pkl"):  # Check if file already exists
+        counter += 1'''
+
+    unique_code = str(time.time_ns())  # Nanosecond precision timestamp
+
+    circuit_filename = f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{unique_code}.pkl"
+    result_filename = f"/home/bsc/bsc019635/ona_proves/subcircuits/result_{unique_code}.pkl"
+
+    # Save the circuit to the unique file
+    with open(circuit_filename, "wb") as f:
+        pickle.dump(subcirc, f)
+    
+    print(f"Circuit saved: {circuit_filename}, waiting for {result_filename}...")
+
+    while not os.path.exists(result_filename):
+        time.sleep(1)  # Check every second
+
+    # Load the circuit from the file
+    with open(result_filename, "rb") as f:
+        result = pickle.load(f)
+        print(f"Received result from {result_filename}: {result}")
+
+    freq = dict(result.frequencies(binary=True))
+
+    os.remove(circuit_filename)  # Remove circuit file after processing
+    os.remove(result_filename)   # Remove result file after reading
+
+    expectation_value = 0
+    for key, value in freq.items():
+        contribution = 1
+        for bit, obs in zip(key, observables):
+            if obs == "Z":
+                contribution *= (-1) ** int(bit)
+            elif obs == "I":
+                contribution *= 1
+            else:
+                raise ValueError(f"Unsupported observable {obs}")
+        
+        # Add the contribution weighted by its frequency
+        expectation_value += contribution * (value / shots)
+    #print(expectation_value)
     return expectation_value
 
 
