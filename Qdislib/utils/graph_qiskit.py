@@ -180,8 +180,7 @@ def dag_to_circuit_qiskit(dag, num_qubits):
                 clbit = qubits
                 tmp = getattr(circuit, gate_class)
                 tmp(*qubits, *clbit)
-                circuit.x(*qubits).c_if(*qubits, *clbit)
-
+                #circuit.x(*qubits).c_if(*qubits, *clbit)
             else:
                 # Otherwise, pass only the qubits
                 #circuit.gate_class(*qubits)
