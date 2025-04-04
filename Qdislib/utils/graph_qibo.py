@@ -323,3 +323,21 @@ def update_qubits_serie(
     highest_qubit = max(my_set) + 1 - count_missing_up_to(my_set, max(my_set))
     smallest_qubit = min(my_set) - count_missing_up_to(my_set, min(my_set))
     return s, highest_qubit, smallest_qubit
+
+
+def max_qubits_graph(
+    s: typing.List[typing.Any],
+) -> typing.Tuple[typing.List[typing.Any], int, int]:
+    """Update the given serie of qubits.
+
+    :param s: Input qubit serie.
+    :return: Updated qubit serie, highest qubit value and lowest qubit value.
+    """
+    my_set = set()
+    for node, data in s.nodes(data=True):
+        for qubit in s.nodes[node]["qubits"]:
+            my_set.add(qubit)
+
+    highest_qubit = max(my_set) + 1 - count_missing_up_to(my_set, max(my_set))
+    smallest_qubit = min(my_set) - count_missing_up_to(my_set, min(my_set))
+    return highest_qubit
