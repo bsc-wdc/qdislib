@@ -293,19 +293,20 @@ def parse_qsim(fname: str, depth:int = 5*4 +2):
             if moment >= depth:
                 break
 
+            random_param = np.random.uniform(0, 2*np.pi)
             if gdesc[1] == 'rz':
                 phase = float(gdesc[3]) / np.pi
                 c.add(gates.RZ(q, phase))
             elif gdesc[1] == 'hz_1_2':
                 c.add(gates.H(q))
             elif gdesc[1] == 'x_1_2':
-                c.add(gates.X(q))
+                c.add(gates.RX(q,theta=random_param))
             elif gdesc[1] == 'y_1_2':
-                c.add(gates.Y(q))
+                c.add(gates.RY(q, theta=random_param))
             elif gdesc[1] == 'fs':
                 q1 = int(gdesc[3])
-                theta = float(gdesc[4]) / np.pi
-                phi = float(gdesc[5]) / np.pi
+                #theta = float(gdesc[4]) / np.pi
+                #phi = float(gdesc[5]) / np.pi
                 c.add(gates.CZ(q, q1))
 
         
