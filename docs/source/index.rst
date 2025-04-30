@@ -7,6 +7,11 @@
 Welcome to Qdislib!
 ===================
 
+.. image:: ../logo.png
+   :alt: Qdislib Logo
+   :align: left
+   :scale: 100%
+
 The Quantum Distributed Computing Library (Qdislib) provides distributed
 Quantum algorithms ready to use as a library.
 So far, Qdislib is highly focused on Quantum circuit execution in High Performance Computers (HPCs) and Quantum Machines.
@@ -61,7 +66,7 @@ Citing dislib
 
 If you use Qdislib in a scientific publication, we would appreciate citations to the following paper:
 
-\M. Tejedor, J. Conejero, and R. M. Badia, "Qdislib: Large Scale High Performance Quantum circuit execution in Python," in *Proceedings of the ____*, 2025, pp. 1-6
+\M. Tejedor, B. Casas, J. Conejero, A. Cervera-Lierta and R. M. Badia, "Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing" in *In Proceedings of The International Conference for High Performance Computing, Networking, Storage, and Analysis (SC'25)*, 2025, pp. 1-11
 
 Bibtex
 ......
@@ -69,16 +74,16 @@ Bibtex
 .. code:: latex
 
    @inproceedings{Qdislib,
-               title       = {{Qdislib: Large Scale High Performance Quantum circuit execution in Python}},
-               author      = {Mar Tejedor and Javier Conejero and Rosa M. Badia},
-               booktitle   = {Proceedings of the _____},
-               pages       = {1-6},
+               title       = {{Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing}},
+               author      = {Mar Tejedor and Berta Cervera and Javier Conejero and Alba Cervera-Lierta and Rosa M. Badia},
+               booktitle   = {In Proceedings of The International Conference for High Performance Computing, Networking, Storage, and Analysis(SC'25).},
+               pages       = {1-11},
                year        = {2025},
     }
 
 
 Indices and tables
-==================
+------------------
 
 * :ref:`genindex`
 * :ref:`modindex`

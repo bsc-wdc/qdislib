@@ -47,7 +47,7 @@ class CircuitTest(BaseTimedTestCase):
         circ.add(gates.RY(0,0.8))
 
         reconstruction = wire_cutting(qc, [("H_1","CZ_2")])
-        analytical = analytical_solution("ZZ", circ)
+        analytical = analytical_solution(circ,"ZZ")
 
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
@@ -80,7 +80,7 @@ class CircuitTest(BaseTimedTestCase):
 
         reconstruction = wire_cutting(circuit, [("CZ_3","H_4")])
 
-        analytical = analytical_solution("ZZZZ", circuit)
+        analytical = analytical_solution(circuit,"ZZZZ")
 
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)

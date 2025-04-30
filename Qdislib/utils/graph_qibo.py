@@ -36,11 +36,45 @@ from pycompss.api.constraint import *
 import numpy as np
 
 
-def circuit_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:
-    """Convert a Qibo circuit to a DAG where each node stores gate information.
+def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:
+    """Convert a Qibo circuit into a directed acyclic graph (DAG) where each node represents a gate.
 
-    :param circuit: The Qibo circuit to transform.
-    :return: A directed acyclic graph (DAG) with nodes containing gate information.
+    This function constructs a DAG from a Qibo circuit. Each node in the graph corresponds to a gate in the circuit,
+    storing information such as gate type, applied qubits, and parameters. Edges represent qubit-based dependencies 
+    between gates, and optionally, nodes representing identity observables ("I") can be appended to sink nodes in 
+    the graph.
+
+    :param circuit: Qibo :class:`Circuit` object to convert into a DAG.
+    :param obs_I: Optional iterable indicating which qubits have identity ("I") observables appended. Used for internal workflow for cutting. Default None.
+
+    :return: A :class:`networkx.DiGraph` object where nodes represent gates and edges indicate gate dependencies.
+
+    Node Attributes:
+        - ``gate``: Name of the gate (e.g., "H", "CNOT").
+        - ``qubits``: Tuple of qubit indices the gate acts on.
+        - ``parameters``: Tuple of parameters for the gate (e.g., rotation angles).
+
+    Edge Attributes:
+        - ``color``: Connection type (e.g., "blue" or "red") used to distinguish dependency types.
+
+    Example:
+        .. code-block:: python
+
+            from qibo import models, gates
+            import networkx as nx
+            from Qdislib.core.utils.graph_qibo import circuit_qibo_to_dag
+
+            # Define a Qibo circuit
+            c = models.Circuit(2)
+            c.add(gates.H(0))
+            c.add(gates.CNOT(0, 1))
+
+            # Convert it to a DAG
+            dag = circuit_qibo_to_dag(c)
+
+            # Visualize or analyze the DAG
+            print(dag.nodes(data=True))
+            print(dag.edges(data=True))
     """
     # Create a directed graph
     dag = networkx.DiGraph()
@@ -98,10 +132,40 @@ def circuit_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:
 
 
 def plot_dag(dag: networkx.DiGraph) -> None:
-    """Plot the DAG graph using matplotlib and networkx.
+    """
+    Visualize a directed acyclic graph (DAG) representation of a quantum circuit.
 
-    :param dag: A networkx DiGraph representing the circuit.
+    This function uses `matplotlib` and `networkx` to plot a DAG where each node represents 
+    a quantum gate and edges indicate qubit dependencies between gates. Edges can be colored 
+    differently based on the "color" attribute in the graph:
+    
+    - **Blue**: Standard gate dependencies.
+    - **Red (dotted)**: Additional or alternative dependencies (e.g., same qubit paths).
+
+    :param dag: A :class:`networkx.DiGraph` object representing a quantum circuit DAG.
+
     :return: None
+
+    The plot includes:
+        - Nodes representing gates, labeled with gate names.
+        - Edges with color-coded dependencies.
+        - A spring layout for visually appealing positioning.
+
+    Example:
+        .. code-block:: python
+
+            import networkx as nx
+            from Qdislib.core.utils.graph_qibo import circuit_qibo_to_dag, plot_dag
+
+            # Define a Qibo circuit
+            c = models.Circuit(2)
+            c.add(gates.H(0))
+            c.add(gates.CNOT(0, 1))
+
+            # Convert it to a DAG
+            dag = circuit_qibo_to_dag(c)
+
+            plot_dag(dag)
     """
     # Set up graph layout
     pos = networkx.spring_layout(dag)
@@ -143,12 +207,42 @@ def plot_dag(dag: networkx.DiGraph) -> None:
 
 
 @task(returns=1)
-def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
-    """Task to reconstruct a Qibo circuit from a DAG.
+def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
+    """
+    Reconstruct a Qibo quantum circuit from a DAG representation.
 
-    :param dag: A networkx DiGraph representing the circuit.
-    :param num_qubits: The number of qubits in the original circuit.
-    :return: A Qibo circuit reconstructed from the DAG.
+    This function takes a directed acyclic graph (DAG) where each node represents a quantum gate,
+    and reconstructs a Qibo circuit by adding gates in topological order. Optionally, it detects
+    "Observable I" nodes and separates them from the circuit for measurement processing.
+
+    :param dag: A :class:`networkx.DiGraph` representing the quantum circuit DAG. Each node must 
+                contain `gate`, `qubits`, and `parameters` attributes.
+    :param num_qubits: The number of qubits in the original circuit (used to initialize the circuit).
+
+    :return: A list of two elements:
+             - A :class:`qibo.models.Circuit` object reconstructed from the DAG.
+             - A list of qubit indices where "Observable I" measurements are applied (or `None` if not present).
+
+    Gate nodes must have the following format:
+        - `gate`: Name of the gate (must match a class in `qibo.gates`).
+        - `qubits`: A tuple of qubit indices the gate acts on.
+        - `parameters`: A tuple of gate parameters (or `None` if not applicable).
+
+    Notes:
+        - Measurement gates (e.g., `"Observable I"`) are excluded from reconstruction but their qubit 
+          indices are returned for postprocessing.
+        - The reconstruction uses Python's `inspect` module to dynamically determine how to instantiate gates.
+
+    Example:
+        .. code-block:: python
+
+            from mymodule import dag_to_circuit_qibo
+            import networkx as nx
+
+            dag = ...  # previously constructed DAG
+            circuit, observables = dag_to_circuit_qibo(dag, num_qubits=5)
+            print(circuit)
+            print(observables)
     """
     # Traverse the DAG in topological order
     topo_order = list(networkx.topological_sort(dag))
@@ -162,7 +256,7 @@ def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
             obs_I.append(node_data["qubits"][0])
             dag.remove_node(node)
 
-    dag, highest_qubit, smalles_qubit = update_qubits_serie(dag)
+    dag, highest_qubit, smalles_qubit = _update_qubits_serie(dag)
 
     # Create an empty Qibo circuit
     circuit = models.Circuit(highest_qubit)
@@ -213,7 +307,7 @@ def dag_to_circuit(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
     return [circuit, None]
 
 
-def max_qubit(graph: networkx.DiGraph) -> float:
+def _max_qubit(graph: networkx.DiGraph) -> float:
     """Get the highest Qubit value.
 
     :param graph: Graph to explore.
@@ -236,7 +330,7 @@ def max_qubit(graph: networkx.DiGraph) -> float:
 
 #@constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
 @task(returns=2, s=INOUT)
-def update_qubits(
+def _update_qubits(
     s: typing.List[typing.Any],
 ) -> typing.Tuple[typing.List[typing.Any], float]:
     """Update qubits task.
@@ -254,16 +348,16 @@ def update_qubits(
     for node, _ in s.nodes(data=True):
         new_tuple = ()
         for qubit in s.nodes[node]["qubits"]:
-            len_missing = count_missing_up_to(my_set, qubit)
+            len_missing = _count_missing_up_to(my_set, qubit)
             new_qubit = qubit - len_missing
             new_tuple = new_tuple + (new_qubit,)
         s.nodes[node]["qubits"] = new_tuple
 
-    highest_qubit = max(my_set) + 1 - count_missing_up_to(my_set, max(my_set))
+    highest_qubit = max(my_set) + 1 - _count_missing_up_to(my_set, max(my_set))
     return s, highest_qubit
 
 
-def remove_red_edges(graph: networkx.DiGraph) -> networkx.DiGraph:
+def _remove_red_edges(graph: networkx.DiGraph) -> networkx.DiGraph:
     """Remove red edges from the given graph.
 
     :param graph: Graph to process.
@@ -280,7 +374,7 @@ def remove_red_edges(graph: networkx.DiGraph) -> networkx.DiGraph:
     return copy_dag
 
 
-def count_missing_up_to(nums: typing.Set[int], max_num: int) -> int:
+def _count_missing_up_to(nums: typing.Set[int], max_num: int) -> int:
     """Retrieve the amount of missing numbers in the nums set.
 
     # TODO: Maybe max_num is not necessary and can be taken from max(nums)
@@ -299,7 +393,7 @@ def count_missing_up_to(nums: typing.Set[int], max_num: int) -> int:
     return len(missing_numbers)
 
 
-def update_qubits_serie(
+def _update_qubits_serie(
     s: typing.List[typing.Any],
 ) -> typing.Tuple[typing.List[typing.Any], int, int]:
     """Update the given serie of qubits.
@@ -315,17 +409,17 @@ def update_qubits_serie(
     for node, data in s.nodes(data=True):
         new_tuple = ()
         for qubit in s.nodes[node]["qubits"]:
-            len_missing = count_missing_up_to(my_set, qubit)
+            len_missing = _count_missing_up_to(my_set, qubit)
             new_qubit = qubit - len_missing
             new_tuple = new_tuple + (new_qubit,)
         s.nodes[node]["qubits"] = new_tuple
 
-    highest_qubit = max(my_set) + 1 - count_missing_up_to(my_set, max(my_set))
-    smallest_qubit = min(my_set) - count_missing_up_to(my_set, min(my_set))
+    highest_qubit = max(my_set) + 1 - _count_missing_up_to(my_set, max(my_set))
+    smallest_qubit = min(my_set) - _count_missing_up_to(my_set, min(my_set))
     return s, highest_qubit, smallest_qubit
 
 
-def max_qubits_graph(
+def _max_qubits_graph(
     s: typing.List[typing.Any],
 ) -> typing.Tuple[typing.List[typing.Any], int, int]:
     """Update the given serie of qubits.
@@ -338,6 +432,65 @@ def max_qubits_graph(
         for qubit in s.nodes[node]["qubits"]:
             my_set.add(qubit)
 
-    highest_qubit = max(my_set) + 1 - count_missing_up_to(my_set, max(my_set))
-    smallest_qubit = min(my_set) - count_missing_up_to(my_set, min(my_set))
+    highest_qubit = max(my_set) + 1 - _count_missing_up_to(my_set, max(my_set))
+    smallest_qubit = min(my_set) - _count_missing_up_to(my_set, min(my_set))
     return highest_qubit
+
+@task(returns=1)
+def _dag_to_circuit_qibo_subcircuits(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
+    # Traverse the DAG in topological order
+    topo_order = list(networkx.topological_sort(dag))
+
+    # Optionally handle measurements, assuming all qubits are measured at the end
+    obs_I = []
+    for node in topo_order:
+        node_data = dag.nodes[node]
+        if node_data["gate"] == "Observable I":
+            #print(node)
+            obs_I.append(node_data["qubits"][0])
+            dag.remove_node(node)
+
+    dag, highest_qubit, smalles_qubit = _update_qubits_serie(dag)
+
+    # Create an empty Qibo circuit
+    circuit = models.Circuit(highest_qubit)
+
+    topo_order = list(networkx.topological_sort(dag))
+
+    for node in topo_order:
+        node_data = dag.nodes[node]
+        gate_name = node_data["gate"].upper()
+
+        # Skip the measurement nodes (we'll handle them separately)
+        if gate_name == "OBSERVABLE I":
+            #print(gate_name)
+            continue
+
+        if gate_name == "MEASURE":
+            #qubits = node_data["qubits"]
+            #circuit.add(gates.M(*qubits, collapse=True))
+            #circuit.add(gates.RX(*qubits, theta=np.pi * output.symbols[0] / 4))
+            continue
+
+        # Get the qubits this gate acts on
+        qubits = node_data["qubits"]
+        parameters = node_data["parameters"]
+
+        # Get the gate class from the qibo.gates module
+        gate_class = getattr(gates, gate_name)
+
+        # Get the signature of the gate's __init__ method
+        signature = inspect.signature(gate_class.__init__)
+
+        # Count the number of required positional arguments (excluding 'self')
+        param_count = len(signature.parameters) - 1  # exclude 'self'
+
+        # Check if parameters are provided and the gate requires them
+        if parameters is not None and param_count > len(qubits):
+            # Pass qubits and parameters if the gate requires both
+            circuit.add(gate_class(*qubits, parameters))
+        else:
+            # Otherwise, pass only the qubits
+            circuit.add(gate_class(*qubits))
+
+    return circuit

@@ -37,20 +37,56 @@ from Qdislib.utils.exceptions import QdislibException
 
 
 def analytical_solution(
-    observables: str, circuit: typing.Any, verbose: bool = False
+    circuit: typing.Any, observables: str, verbose: bool = False
 ) -> float:
-    """Calculate the analytical expected value of a whole circuit.
-
-    Example
-    -------
-    >>> analytical_value = analytical_solution(observables="ZZZZ", circuit=circuit, verbose=True)
-
-    :param observables: String containing observables.
-    :param circuit: Circuit object.
-    :param verbose: Whether to print verbose output. Defaults to False.
-    :return: Analytical expected value.
     """
-    # TODO: circuit parameter is instantiable?
+    Compute the analytical expectation value of a given quantum circuit.
+
+    This function evaluates the expectation value of a quantum circuit with respect
+    to a set of observables, using a symbolic Hamiltonian approach. It assumes
+    the circuit returns the full quantum statevector.
+
+    :param observables: 
+        A string representing the sequence of observables to apply (e.g., "XZI").
+        Each character corresponds to a Pauli operator ("X", "Y", "Z", "I") applied
+        on successive qubits.
+    :param circuit: 
+        A callable object (such as a Qibo circuit) that, when executed, returns the final quantum state.
+    :param verbose: 
+        If True, prints intermediate symbolic and numerical expectation values.
+    :return: 
+        The computed expectation value as a floating-point number.
+
+    :example:
+
+    Suppose we have a simple quantum circuit and wish to calculate the expectation value of the Pauli operators "XZI".
+
+    Example usage:
+
+    .. code-block:: python
+
+        from qibo import models, gates
+        from mymodule import analytical_solution
+
+        # Create a quantum circuit
+        circuit = models.Circuit(3)
+        circuit.add(gates.H(0))         # Apply Hadamard on qubit 0
+        circuit.add(gates.CNOT(0, 1))    # Apply CNOT between qubit 0 and 1
+
+        # Define the observables
+        observables = "XZI"  # Apply Pauli-X to qubit 0, Z to qubit 1, Identity to qubit 2
+
+        # Compute the analytical expectation value
+        result = analytical_solution(observables, circuit, verbose=True)
+
+        print(f"Expectation value: {result}")
+
+    In this example:
+    - The `observables` string `"XZI"` indicates that we are applying the Pauli X operator on qubit 0, Z operator on qubit 1, and the identity operator on qubit 2.
+    - The `circuit` is a simple 3-qubit quantum circuit, with a Hadamard gate on the first qubit followed by a CNOT gate.
+
+    The function will compute the expectation value of the given observables for the state produced by the circuit and return the result as a floating-point number.
+    """
 
     state = circuit()
     counter = 0
@@ -87,7 +123,7 @@ def analytical_solution(
     return exp_full_circuit
 
 
-def random_circuit(
+def _random_circuit(
     qubits: int, gate_max, num_cz: typing.Optional[int], p: typing.Any
 ) -> models.Circuit:
     """Generate a random circuit.
@@ -140,9 +176,41 @@ def draw_to_circuit(
 ) -> models.Circuit:
     """Convert text circuit to circuit object.
 
-    :param text_draw: Input text to convert.
-    :param parameters: List of parameters, defaults to None
-    :return: Circuit object.
+    This function takes a string representation of a quantum circuit and converts it
+    into a Qibo `models.Circuit` object. The input string should represent the circuit in a
+    "text drawing" format, where qubits are represented by lines and gates are represented
+    by various symbols. The function processes these text representations and constructs
+    the equivalent quantum circuit object.
+
+    :param text_draw: 
+        A string representing the quantum circuit in a text drawing format, where
+        qubits are represented by lines and gates are represented by symbols.
+    :param parameters: 
+        An optional list of parameters to be passed to the gates, defaults to None.
+    :return: 
+        A Qibo `models.Circuit` object corresponding to the input text drawing.
+
+    :example:
+
+    .. code-block:: python
+
+        from qibo.models import Circuit
+        from mymodule import draw_to_circuit
+
+        # Define the text representation of the quantum circuit
+        text_rep = '''
+        q0: ─H─S─X───SDG───H───
+        q1: ─X─S───o─X─T─o─S───
+        q2: ───────Z─T───|───o─
+        q3: ─────────────|─X─|─
+        q4: ──RX─────RX──Z───Z─
+        '''
+
+        # Convert the text drawing into a quantum circuit
+        circuit = draw_to_circuit(text_rep)
+
+        # Print the resulting circuit
+        print(circuit.draw())
     """
     split = text_draw.splitlines()
     qubits_lst = []
@@ -267,8 +335,48 @@ def draw_to_circuit(
     return circuit
 
 
-def parse_qsim(fname: str, depth:int = 5*4 +2):
-        """Produces a :class:`Circuit` based on a .qsim description of a circuit."""
+def parse_qsim(fname: str, depth:int = 22):
+        """Produces a Qibo :class:`Circuit` based on a .qsim description of a circuit.
+
+        This function parses a .qsim file to create a quantum circuit based on the gate instructions
+        provided in the file. The .qsim file should contain gate operations for the quantum circuit.
+        The file should start with the number of qubits, followed by a series of lines specifying 
+        gate operations in the format: `<moment> <gate> <qubit> [additional parameters]`. The function 
+        also allows setting a `depth` parameter to limit the number of moments to process.
+
+        :param fname: Path to the .qsim file containing the quantum circuit description.
+        :param depth: Maximum number of moments (steps) to process from the .qsim file. Default is 22.
+
+        :return: A :class:`Circuit` object from Qibo containing the parsed gate operations.
+
+        :raises ValueError: If the first line of the .qsim file cannot be converted to an integer 
+                            representing the number of qubits.
+
+        Example::
+
+        Suppose you have a `.qsim` file with the following content:
+
+        .. code-block:: text
+
+            3
+            0 rz 0 0.5
+            1 x_1_2 1
+            2 rz 2 1.0
+            3 hz_1_2 0
+            4 fs 1 2
+
+        You can parse this file and create a circuit like this:
+
+        .. code-block:: python
+
+            from mymodule import parse_qsim
+
+            # Parse the .qsim file to create a quantum circuit
+            circuit = parse_qsim("path_to_qsim_file.qsim", depth=10)
+
+            # Print the resulting circuit
+            print(circuit.draw())
+        """
         
         with open(fname, 'r') as f:
             data = f.read()
@@ -280,7 +388,6 @@ def parse_qsim(fname: str, depth:int = 5*4 +2):
         except ValueError:
             raise ValueError('First line should be qubit count')
 
-        from qibo import models
         c = models.Circuit(qcount)
 
         for l in lines:

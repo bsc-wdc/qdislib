@@ -20,10 +20,10 @@ Qdislib.utils.exceptions module
    :undoc-members:
    :show-inheritance:
 
-Qdislib.utils.graph module
---------------------------
+Qdislib.utils.graph\_qibo module
+--------------------------------
 
-.. automodule:: Qdislib.utils.graph
+.. automodule:: Qdislib.utils.graph_qibo
    :members:
    :undoc-members:
    :show-inheritance:

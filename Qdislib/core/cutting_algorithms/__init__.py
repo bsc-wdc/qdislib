@@ -17,4 +17,4 @@
 
 # -*- coding: utf-8 -*-
 
-"""Quantum Distributed Library cutting functionalities."""
+"""Quantum Distributed Library circuit cutting algorithms."""

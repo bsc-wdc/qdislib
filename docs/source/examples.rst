@@ -6,4 +6,3 @@ Examples
    :caption: Contents:
 
    notebooks/Qdislib_Notebook
-   notebooks/QC_examples

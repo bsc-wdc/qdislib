@@ -17,7 +17,7 @@
 
 # -*- coding: utf-8 -*-
 
-"""Optimal cut algorithms."""
+"""Find cut algorithms."""
 
 import itertools
 import networkx
@@ -27,15 +27,15 @@ from pycompss.api.task import task
 from pycompss.api.api import compss_wait_on
 from pycompss.api.parameter import *
 
-from Qdislib.utils.graph_qibo import update_qubits
-from Qdislib.utils.graph_qibo import update_qubits_serie
-from Qdislib.utils.graph_qibo import remove_red_edges
+from Qdislib.utils.graph_qibo import _update_qubits
+from Qdislib.utils.graph_qibo import _update_qubits_serie
+from Qdislib.utils.graph_qibo import _remove_red_edges
 
 import qibo
 import qiskit
 import pymetis
 
-from Qdislib.utils.graph_qibo import circuit_to_dag
+from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
 from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag, dag_to_circuit_qiskit
 
 import qiskit.qasm2
@@ -133,7 +133,7 @@ def evaluate_cut(
 
     num_nodes = []
     for component in components:
-        component, _, _ = update_qubits_serie(component)
+        component, _, _ = _update_qubits_serie(component)
         highest_qubit = float("-inf")
         smallest_qubit = float("inf")
         for node in component:
@@ -175,7 +175,7 @@ def optimal_cut_wire(
     best_score_components = []
     best_cut_components = []
 
-    graph = remove_red_edges(graph)
+    graph = _remove_red_edges(graph)
     components = [
         graph.subgraph(c).copy()
         for c in networkx.connected_components(graph.to_undirected())
@@ -184,7 +184,7 @@ def optimal_cut_wire(
     for idx, component in enumerate(components):
         best_score = []
         best_cut_edges = []
-        component, highest_qubit, smallest_qubit = update_qubits_serie(component)
+        component, highest_qubit, smallest_qubit = _update_qubits_serie(component)
         highest_qubit = highest_qubit - 1
         if verbose:
             print(f"highest_qubit: {highest_qubit}")
@@ -319,7 +319,7 @@ def evaluate_cut_gate(dag,cut,max_components, max_qubits, verbose=False):
 
     max_num_qubits = []
     for s in S:
-        s_new, highest_qubit, smallest_qubit = update_qubits_serie(s)
+        s_new, highest_qubit, smallest_qubit = _update_qubits_serie(s)
         max_num_qubits.append(highest_qubit - smallest_qubit)
 
 
@@ -352,13 +352,13 @@ def evaluate_cut_gate(dag,cut,max_components, max_qubits, verbose=False):
     else:
         return float('inf'), float('inf')
 
-def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wire_cut=True, gate_cut=True, implementation='qdislib', verbose=False):
+def find_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wire_cut=True, gate_cut=True, implementation='qdislib', verbose=False):
     if type(circuit) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         dag = circuit_qiskit_to_dag(circuit)
         num_qubits = circuit.num_qubits
 
     elif type(circuit) == qibo.models.Circuit:
-        dag = circuit_to_dag(circuit, one_qubit_gates=False)
+        dag = circuit_qibo_to_dag(circuit, one_qubit_gates=False)
         num_qubits = circuit.nqubits
 
     elif type(circuit) == networkx.DiGraph:
@@ -368,7 +368,7 @@ def optimal_cut(circuit, max_qubits=None, max_components=None, max_cuts=None, wi
         Exception("Type circuit not suported")
 
     from Qdislib.utils.graph_qibo import plot_dag
-    dag = remove_red_edges(dag)
+    dag = _remove_red_edges(dag)
     plot_dag(dag)
     
     if implementation == 'qdislib':
@@ -944,7 +944,6 @@ def find_cut_wire(circuit,max_qubits=None,max_cuts=None, max_components=None, ve
 
 
 def find_cut(circuit,max_qubits=None,max_cuts=None, max_components=None, wire_cut=True, gate_cut=True, implementation='qdislib', verbose=False):
-    print("HEY4")
     if implementation == 'qdislib':
         if max_qubits and not max_components:
             max_components = circuit.nqubits // max_qubits + 1
@@ -952,11 +951,9 @@ def find_cut(circuit,max_qubits=None,max_cuts=None, max_components=None, wire_cu
             max_components =  2
 
         if gate_cut:
-            print("HEY3")
             cut_gate, score_gate = find_cut_gate(circuit,max_qubits=max_qubits,max_cuts=max_cuts, max_components=max_components,verbose=verbose)
         
         if wire_cut:
-            print("HEY2")
             cut_wire,  score_wire = find_cut_wire(circuit,max_qubits=max_qubits,max_cuts=max_cuts, max_components=max_components,verbose=verbose)
 
         if gate_cut and wire_cut:

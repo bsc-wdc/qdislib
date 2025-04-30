@@ -17,4 +17,4 @@
 
 # -*- coding: utf-8 -*-
 
-"""Quantum Distributed Library optimal cut functionalities."""
+"""Quantum Distributed Library find cut functionalities."""

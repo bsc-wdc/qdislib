@@ -24,9 +24,9 @@ Qdislib currently requires:
 * qiskit >= 1.1.0
 * qiskit_aer >= 0.15.1
 * qibo >= 0.1.12
-* qiboconnection >= 0.12.0
 * networkx >= 3.1
 * matplotlib >= 3.4.3
+* pymetis >= 2023.1.1
 
 While in order to use GPUs, cupy and/or pytorch are also required.
 

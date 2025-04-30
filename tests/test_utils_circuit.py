@@ -25,11 +25,11 @@ from tests import BaseTimedTestCase
 class CircuitTest(BaseTimedTestCase):
 
     def test_random_circuit(self):
-        from Qdislib.utils.circuit import random_circuit
+        from Qdislib.utils.circuit import _random_circuit
 
         import qibo
 
-        circuit = random_circuit(5, 5, 3, None)
+        circuit = _random_circuit(5, 5, 3, None)
 
         if type(circuit) == qibo.models.Circuit:
             self.assertTrue(True)
@@ -74,7 +74,7 @@ class CircuitTest(BaseTimedTestCase):
         circuit.add(gates.H(1))
         circuit.add(gates.X(0))
 
-        solution = analytical_solution("ZZ", circuit)
+        solution = analytical_solution(circuit,"ZZ")
 
         if abs(solution + 0.69) < 0.2:
             self.assertTrue(True)

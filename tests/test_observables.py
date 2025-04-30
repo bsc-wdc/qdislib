@@ -43,7 +43,7 @@ class CircuitTest(BaseTimedTestCase):
 
         cut = ["CZ_4"]
 
-        analytical = analytical_solution("YY", circuit)
+        analytical = analytical_solution(circuit,"YY")
         circuit = entire_circuit()
         reconstruction = gate_cutting(circuit,cut,observables="YY")
 
@@ -60,7 +60,7 @@ class CircuitTest(BaseTimedTestCase):
         
         cut = ["CZ_4"]
 
-        analytical = analytical_solution("XX", circuit)
+        analytical = analytical_solution(circuit,"XX")
         circuit = entire_circuit()
         reconstruction = gate_cutting(circuit,cut,observables="XX")
 
@@ -77,7 +77,7 @@ class CircuitTest(BaseTimedTestCase):
 
         cut = ["CZ_4"]
 
-        analytical = analytical_solution("YX", circuit)
+        analytical = analytical_solution(circuit,"YX")
         circuit = entire_circuit()
         reconstruction = gate_cutting(circuit,cut,observables="YX")
 
@@ -95,7 +95,7 @@ class CircuitTest(BaseTimedTestCase):
 
         cut = [("H_3","CZ_4")]
 
-        analytical = analytical_solution("YY", circuit)
+        analytical = analytical_solution(circuit,"YY")
         circuit = entire_circuit()
         reconstruction = wire_cutting(circuit,cut,observables="YY")
         
@@ -113,7 +113,7 @@ class CircuitTest(BaseTimedTestCase):
 
         cut = [("H_3","CZ_4")]
 
-        analytical = analytical_solution("XX", circuit)
+        analytical = analytical_solution(circuit,"XX")
         circuit = entire_circuit()
         reconstruction = wire_cutting(circuit,cut,observables="XX")
         
@@ -130,7 +130,7 @@ class CircuitTest(BaseTimedTestCase):
 
         cut = [("H_3","CZ_4")]
 
-        analytical = analytical_solution("XY", circuit)
+        analytical = analytical_solution(circuit,"XY")
 
         circuit = entire_circuit()
         reconstruction = wire_cutting(circuit,cut,observables="XY")

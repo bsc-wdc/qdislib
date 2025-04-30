@@ -13,6 +13,10 @@
 import os
 import sys
 sys.path.insert(0, os.path.abspath('../../'))
+#sys.path.insert(0, '/home/mtejedor/.local/lib/python3.10/site-packages')
+#sys.path.insert(0, '/usr/local/lib/python3.10/dist-packages')
+#sys.path.insert(0, '/usr/lib/python3/dist-packages')
+
 
 
 # -- Project information -----------------------------------------------------
@@ -75,6 +79,8 @@ napoleon_use_param = False
 napoleon_use_ivar = True
 
 autodoc_mock_imports = ['pycompss']
+autodoc_preserve_defaults = True
+autodoc_function_signature_with_arguments_on_newline = True
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

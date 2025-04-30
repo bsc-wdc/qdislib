@@ -24,7 +24,8 @@ requires = [
     "qibo<=0.1.12",
     "numpy",
     "networkx",
-    "matplotlib"
+    "matplotlib",
+    "pymetis"
 ]
 build-backend = "setuptools.build_meta"
 

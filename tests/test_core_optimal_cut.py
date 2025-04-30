@@ -25,7 +25,7 @@ from tests import BaseTimedTestCase
 class CircuitTest(BaseTimedTestCase):
 
     def test_optimal_cut_no_cut(self):
-        from Qdislib.core.optimal_cut.optimal_cut import find_cut
+        from Qdislib.core.find_cut.find_cut import find_cut
         from Qdislib.utils.circuit import analytical_solution
 
         from qibo import models, gates
@@ -46,7 +46,7 @@ class CircuitTest(BaseTimedTestCase):
             self.assertTrue(False)
 
     def test_optimal_cut_wire_cut(self):
-        from Qdislib.core.optimal_cut.optimal_cut import find_cut
+        from Qdislib.core.find_cut.find_cut import find_cut
         from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
         from Qdislib.utils.circuit import analytical_solution
 
@@ -72,7 +72,7 @@ class CircuitTest(BaseTimedTestCase):
         cut = find_cut(circuit, 3, gate_cut=False)
 
         reconstrucion = wire_cutting(circuit, cut)
-        analytical = analytical_solution("ZZZZ", circuit)
+        analytical = analytical_solution(circuit,"ZZZZ")
 
         if cut == [('CZ_5', 'RZ_7')] and abs(reconstrucion - analytical) < 0.2:
             self.assertTrue(True)
@@ -81,7 +81,7 @@ class CircuitTest(BaseTimedTestCase):
             self.assertTrue(False)
 
     def test_optimal_cut_gate_cut(self):
-        from Qdislib.core.optimal_cut.optimal_cut import find_cut
+        from Qdislib.core.find_cut.find_cut import find_cut
         from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
         from Qdislib.utils.circuit import analytical_solution
 
@@ -107,7 +107,7 @@ class CircuitTest(BaseTimedTestCase):
         cut = find_cut(circuit, 2, wire_cut=False)
 
         reconstrucion = gate_cutting(dag=circuit, gates_cut=cut)
-        analytical = analytical_solution("ZZZZ", circuit)
+        analytical = analytical_solution(circuit,"ZZZZ")
 
         if cut == ['CZ_5'] and abs(reconstrucion - analytical) < 0.2:
             self.assertTrue(True)
