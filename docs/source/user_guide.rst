@@ -71,18 +71,20 @@ Qdislib includes two core circuit cutting strategies:
 
 - **Wire Cutting**: Cuts "wires" (qubit connections) between gates to disconnect logical qubits. This requires more advanced processing, often involving state preparation and postselection logic.
 
-### Automatic Cut Detection
+
+**Find Cut Function**
 
 To simplify the cutting process, Qdislib provides the `find_cut` utility to automatically suggest suitable locations for gate or wire cutting:
 
 .. code-block:: python
 
-    cut = qd.find_cut(circuit)                # Gate cutting suggestion
-    wire_cut = qd.find_cut(circuit, gate_cut=True)  # Wire cutting suggestion
+    cut = qd.find_cut(circuit)                       # Gate cand wire utting suggestion
+    wire_cut = qd.find_cut(circuit, gate_cut=False)  # Wire cutting suggestion
+    gate_cut = qd.find_cut(circuit, wire_cut=False)  # Gate cutting suggestion
 
 The returned list contains candidate gate names or gate pairs that are suitable cut points.
 
-### Subcircuit Generation Only
+**Subcircuit Generation Only**
 
 In addition to executing the full gate or wire cutting workflow, Qdislib also allows users to **only extract the subcircuits** without performing expectation value reconstruction. This enables:
 
@@ -95,14 +97,10 @@ You can generate and retrieve subcircuits using:
 .. code-block:: python
 
     # For gate cutting
-    val, subcircuits = qd.gate_cutting(circuit, cut, return_subcircuits=True)
+    subcircuits = qd.gate_cutting_subcircuits(circuit, gate_cut)
 
     # For wire cutting
-    val, subcircuits = qd.wire_cutting(circuit, wire_cut, return_subcircuits=True)
-
-    # Alternatively, use the explicit subcircuit-extraction functions:
-    _, subcircuits = qd.gate_cutting_subcircuits(circuit, cut, return_subcircuits=True)
-    _, subcircuits = qd.wire_cutting_subcircuits(circuit, wire_cut, return_subcircuits=True)
+    subcircuits = qd.wire_cutting_subcircuits(circuit, wire_cut)
 
 The returned `subcircuits` list contains all subcomponents resulting from the cutting process. These can be simulated independently using Qiskit, Qibo, or submitted to QPUs.
 

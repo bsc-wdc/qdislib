@@ -146,6 +146,7 @@ html_static_path = ['_static']
 html_css_files = ['custom.css']
 
 html_logo = '../bsc_logo.png'
+html_favicon = '../logo.png'
 
 # Material theme options (see theme.conf for more information)
 html_theme_options = {

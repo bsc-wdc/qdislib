@@ -12,11 +12,23 @@ Welcome to Qdislib!
    :align: left
    :scale: 100%
 
-The Quantum Distributed Computing Library (Qdislib) provides distributed
-Quantum algorithms ready to use as a library.
-So far, Qdislib is highly focused on Quantum circuit execution in High Performance Computers (HPCs) and Quantum Machines.
-However, other types of Quantum algorithms might be added in the future.
-The main objective of Qdislib is to facilitate the execution of large Quantum circuits in distributed platforms, such as clusters, clouds, and supercomputers.
+**Qdislib** is a Python library designed for scalable quantum circuit execution using *circuit cutting* techniques. It enables the simulation of large quantum circuits by splitting them into smaller, manageable subcircuits that can be executed independently—either on classical simulators, GPUs, or quantum hardware.
+
+Qdislib is built on top of the `PyCOMPSs <https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar>`_ parallel runtime, allowing seamless distributed execution of quantum workloads across CPUs, GPUs, and QPUs.
+
+With Qdislib, researchers and developers can:
+
+- Perform **gate** and **wire cutting** to decompose complex quantum circuits.
+- Leverage **GPU acceleration** using cuQuantum or Qibojit.
+- Submit subcircuits to **remote QPUs** like IBM Quantum.
+- Work with circuits defined in both **Qibo** and **Qiskit**.
+- Automatically identify good cut points with `find_cut`.
+- Extract and manipulate subcircuits independently.
+
+Whether you're targeting HPC systems, hybrid quantum-classical setups, or constrained simulators, Qdislib is a flexible and modular tool to bridge the gap between current hardware limitations and large-scale quantum algorithm design.
+
+Explore the sections below to get started with installation, quickstart examples, user guides, API references, and more.
+
 
 Qdislib has been implemented on top of
 `PyCOMPSs <https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar/>`_ programming model,
