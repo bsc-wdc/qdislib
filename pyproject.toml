@@ -33,7 +33,7 @@ maintainers = [
 description = "The quantum distributed computing library on top of PyCOMPSs"
 # url="https://Qdislib.bsc.es",
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 keywords = ["Quantum", "distributed computing", "PyCOMPSs", "COMPSs", "Qdislib"]
 classifiers = [
@@ -42,9 +42,6 @@ classifiers = [
   "Operating System :: POSIX :: Linux",
   "Operating System :: MacOS",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.7",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
