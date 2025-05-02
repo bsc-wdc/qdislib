@@ -36,13 +36,13 @@ and it is being developed by the
 `Workflows and Distributed Computing <https://www.bsc.es/discover-bsc/organisation/scientific-structure/workflows-and-distributed-computing>`_
 group of the `Barcelona Supercomputing Center <http://www.bsc.es>`_.
 
+
 Documentation
 -------------
 
 * :doc:`Quickstart <quickstart>`
 * :doc:`User guide <user_guide>`
 * :doc:`API Reference <api_reference>`
-* :doc:`Main <main>`
 * :doc:`Modules <modules>`
 * :doc:`Examples <examples>`
 * :doc:`Development <development>`
@@ -56,7 +56,6 @@ Documentation
    development
    examples
    glossary
-   main
    modules
    quickstart
    user_guide

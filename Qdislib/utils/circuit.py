@@ -46,15 +46,15 @@ def analytical_solution(
     to a set of observables, using a symbolic Hamiltonian approach. It assumes
     the circuit returns the full quantum statevector.
 
-    :param observables: 
+    :param observables:
         A string representing the sequence of observables to apply (e.g., "XZI").
         Each character corresponds to a Pauli operator ("X", "Y", "Z", "I") applied
         on successive qubits.
-    :param circuit: 
+    :param circuit:
         A callable object (such as a Qibo circuit) that, when executed, returns the final quantum state.
-    :param verbose: 
+    :param verbose:
         If True, prints intermediate symbolic and numerical expectation values.
-    :return: 
+    :return:
         The computed expectation value as a floating-point number.
 
     :example:
@@ -182,12 +182,12 @@ def draw_to_circuit(
     by various symbols. The function processes these text representations and constructs
     the equivalent quantum circuit object.
 
-    :param text_draw: 
+    :param text_draw:
         A string representing the quantum circuit in a text drawing format, where
         qubits are represented by lines and gates are represented by symbols.
-    :param parameters: 
+    :param parameters:
         An optional list of parameters to be passed to the gates, defaults to None.
-    :return: 
+    :return:
         A Qibo `models.Circuit` object corresponding to the input text drawing.
 
     :example:
@@ -340,19 +340,19 @@ def parse_qsim(fname: str, depth:int = 22):
 
         This function parses a .qsim file to create a quantum circuit based on the gate instructions
         provided in the file. The .qsim file should contain gate operations for the quantum circuit.
-        The file should start with the number of qubits, followed by a series of lines specifying 
-        gate operations in the format: `<moment> <gate> <qubit> [additional parameters]`. The function 
+        The file should start with the number of qubits, followed by a series of lines specifying
+        gate operations in the format: `<moment> <gate> <qubit> [additional parameters]`. The function
         also allows setting a `depth` parameter to limit the number of moments to process.
 
         :param fname: Path to the .qsim file containing the quantum circuit description.
         :param depth: Maximum number of moments (steps) to process from the .qsim file. Default is 22.
 
-        :return: A :class:`Circuit` object from Qibo containing the parsed gate operations.
+        :return: A :class:`models.Circuit` object from Qibo containing the parsed gate operations.
 
-        :raises ValueError: If the first line of the .qsim file cannot be converted to an integer 
+        :raises ValueError: If the first line of the .qsim file cannot be converted to an integer
                             representing the number of qubits.
 
-        Example::
+        :example:
 
         Suppose you have a `.qsim` file with the following content:
 
@@ -377,7 +377,7 @@ def parse_qsim(fname: str, depth:int = 22):
             # Print the resulting circuit
             print(circuit.draw())
         """
-        
+
         with open(fname, 'r') as f:
             data = f.read()
         print(data)
@@ -416,6 +416,6 @@ def parse_qsim(fname: str, depth:int = 22):
                 #phi = float(gdesc[5]) / np.pi
                 c.add(gates.CZ(q, q1))
 
-        
+
         #c.gates = gates
         return c

@@ -39,15 +39,15 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
     """Convert a Qiskit quantum circuit into a DAG where each node stores gate information.
 
     This function takes a :class:`qiskit.QuantumCircuit` object and builds a directed acyclic graph (DAG)
-    representation, where each node corresponds to a gate in the circuit and edges capture qubit dependencies 
+    representation, where each node corresponds to a gate in the circuit and edges capture qubit dependencies
     between gates. Each node stores metadata including gate type, acting qubits, and parameters.
 
     Optional post-processing allows for the insertion of "Observable I" nodes at sink positions in the graph,
     useful for modeling identity observables in quantum measurement pipelines.
 
     :param circuit: A :class:`qiskit.QuantumCircuit` object representing the circuit to convert.
-    :param obs_I: (Optional) A list of characters (e.g., `['X', 'I', 'Z', ...]`) where each entry corresponds 
-                  to a qubit, and an `"I"` indicates the insertion of an "Observable I" node at the end of 
+    :param obs_I: (Optional) A list of characters (e.g., `['X', 'I', 'Z', ...]`) where each entry corresponds
+                  to a qubit, and an `"I"` indicates the insertion of an "Observable I" node at the end of
                   the DAG path for that qubit.
 
     :return: A :class:`networkx.DiGraph` representing the circuit DAG. Each node in the DAG has the following attributes:
@@ -138,12 +138,11 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
 #@constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
 @task(returns=1)
 def dag_to_circuit_qiskit(dag, num_qubits):
-    """
-    Reconstruct a Qiskit quantum circuit from a DAG representation.
+    """Reconstruct a Qiskit quantum circuit from a DAG representation.
 
-    This function transforms a directed acyclic graph (DAG), where each node represents a quantum gate 
-    and contains metadata (e.g., gate type, acting qubits, parameters), back into a Qiskit 
-    :class:`qiskit.QuantumCircuit` object. The function handles standard gates, controlled gates, 
+    This function transforms a directed acyclic graph (DAG), where each node represents a quantum gate
+    and contains metadata (e.g., gate type, acting qubits, parameters), back into a Qiskit
+    :class:`qiskit.QuantumCircuit` object. The function handles standard gates, controlled gates,
     and optional Observable-I nodes used for measurement handling.
 
     Args:
@@ -151,6 +150,7 @@ def dag_to_circuit_qiskit(dag, num_qubits):
             - 'gate': (str) Name of the gate.
             - 'qubits': (tuple) Qubit indices the gate acts upon.
             - 'parameters': (list or None) Parameters for parametric gates (e.g., rotations).
+
         num_qubits (int): Number of qubits in the original circuit.
 
     Returns:
@@ -174,7 +174,7 @@ def dag_to_circuit_qiskit(dag, num_qubits):
     """
     if dag is None:
         return None
-    
+
     topo_order = list(networkx.topological_sort(dag))
 
     # Optionally handle measurements, assuming all qubits are measured at the end
@@ -192,28 +192,28 @@ def dag_to_circuit_qiskit(dag, num_qubits):
     qreg_q = QuantumRegister(num_qubits, 'q')
     creg_c = ClassicalRegister(num_qubits, 'c')
     circuit = QuantumCircuit(qreg_q, creg_c)
-    
+
     # Traverse the DAG in topological order
     topo_order = list(networkx.topological_sort(dag))
 
     for node in topo_order:
         node_data = dag.nodes[node]
         gate_name = node_data['gate']
-        
+
         # Skip the measurement nodes (we'll handle them separately)
         if gate_name == "Observable I":
             continue
         elif gate_name == "CNOT":
             gate_name = "cx"
             qubits = node_data['qubits']
-            
+
             circuit.h(qubits[1])
             circuit.cz(*qubits)
             circuit.h(qubits[1])
             continue
-        
+
         # Get the qubits this gate acts on
-        
+
         qubits = node_data['qubits']
         parameters = node_data['parameters']
 
@@ -243,7 +243,7 @@ def dag_to_circuit_qiskit(dag, num_qubits):
                 #circuit.gate_class(*qubits)
                 tmp = getattr(circuit, gate_class)
                 tmp(*qubits)
-        
+
 
 
     # Optionally handle measurements, assuming all qubits are measured at the end
@@ -264,7 +264,7 @@ def dag_to_circuit_qiskit(dag, num_qubits):
 def _dag_to_circuit_qiskit_subcircuits(dag, num_qubits):
     if dag is None:
         return None
-    
+
     topo_order = list(networkx.topological_sort(dag))
 
     # Optionally handle measurements, assuming all qubits are measured at the end
@@ -282,28 +282,28 @@ def _dag_to_circuit_qiskit_subcircuits(dag, num_qubits):
     qreg_q = QuantumRegister(num_qubits, 'q')
     creg_c = ClassicalRegister(num_qubits, 'c')
     circuit = QuantumCircuit(qreg_q, creg_c)
-    
+
     # Traverse the DAG in topological order
     topo_order = list(networkx.topological_sort(dag))
 
     for node in topo_order:
         node_data = dag.nodes[node]
         gate_name = node_data['gate']
-        
+
         # Skip the measurement nodes (we'll handle them separately)
         if gate_name == "Observable I":
             continue
         elif gate_name == "CNOT":
             gate_name = "cx"
             qubits = node_data['qubits']
-            
+
             circuit.h(qubits[1])
             circuit.cz(*qubits)
             circuit.h(qubits[1])
             continue
-        
+
         # Get the qubits this gate acts on
-        
+
         qubits = node_data['qubits']
         parameters = node_data['parameters']
 

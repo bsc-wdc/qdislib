@@ -1,3 +1,6 @@
+pip
+typing
+typing-extensions
 Sphinx>=8.0.2,<9.0.0
 sphinxcontrib.contentui==0.2.5
 nbsphinx>=0.9.5
@@ -13,3 +16,4 @@ ipython>=8.27.0
 ipywidgets>=8.1.5
 sphinx_mdinclude>=0.6.2
 sphinx-material>=0.0.36
+sphinx-autodoc-typehints
