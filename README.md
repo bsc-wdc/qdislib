@@ -5,7 +5,7 @@
 <h3 align="center">Quantum distributed computing library implemented over PyCOMPSs programming model for HPC.</h3>
 
 <p align="center">
-  <a href="https://dislib.bsc.es/en/latest/?badge=latest">
+  <a href="https://qdislib.bsc.es/en/latest/?badge=latest">
     <img src="https://readthedocs.org/projects/qdislib/badge/?version=stable" alt="Documentation Status"/>
   </a>
   <a href="https://badge.fury.io/py/qdislib">
