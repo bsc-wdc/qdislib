@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://qdislib.readthedocs.io/?badge=latest">
-    <img src="https://readthedocs.org/projects/qdislib/badge/?version=stable" alt="Documentation Status"/>
+    <img src="https://readthedocs.org/projects/qdislib/badge/?version=latest" alt="Documentation Status"/>
   </a>
   <a href="https://badge.fury.io/py/qdislib">
       <img src="https://badge.fury.io/py/qdislib.svg" alt="PyPI version" height="18">
