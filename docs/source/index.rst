@@ -77,7 +77,7 @@ Citing dislib
 
 If you use Qdislib in a scientific publication, we would appreciate citations to the following paper:
 
-\M. Tejedor, B. Casas, J. Conejero, A. Cervera-Lierta and R. M. Badia, "Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing" in *In Proceedings of The International Conference for High Performance Computing, Networking, Storage, and Analysis (SC'25)*, 2025, pp. 1-11
+\M. Tejedor, B. Casas, J. Conejero, A. Cervera-Lierta and R. M. Badia, "Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing" in *ArXiv*, 2025, pp. 1-12
 
 Bibtex
 ......
@@ -87,8 +87,8 @@ Bibtex
    @inproceedings{Qdislib,
                title       = {{Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing}},
                author      = {Mar Tejedor and Berta Cervera and Javier Conejero and Alba Cervera-Lierta and Rosa M. Badia},
-               booktitle   = {In Proceedings of The International Conference for High Performance Computing, Networking, Storage, and Analysis(SC'25).},
-               pages       = {1-11},
+               booktitle   = {ArXiv},
+               pages       = {1-12},
                year        = {2025},
     }
 
