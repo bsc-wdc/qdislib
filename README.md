@@ -36,7 +36,7 @@
 
 **Qdislib** is a Python library designed for scalable quantum circuit execution using *circuit cutting* techniques. It enables the simulation of large quantum circuits by splitting them into smaller, manageable subcircuits that can be executed independently—either on classical simulators, GPUs, or quantum hardware.
 
-Qdislib is built on top of the `PyCOMPSs <https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar>`_ parallel runtime, allowing seamless distributed execution of quantum workloads across CPUs, GPUs, and QPUs.
+Qdislib is built on top of the [PyCOMPSs](<https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar>) parallel runtime, allowing seamless distributed execution of quantum workloads across CPUs, GPUs, and QPUs.
 
 With Qdislib, researchers and developers can:
 
@@ -52,11 +52,8 @@ Whether you're targeting HPC systems, hybrid quantum-classical setups, or constr
 Explore the sections below to get started with installation, quickstart examples, user guides, API references, and more.
 
 
-Qdislib has been implemented on top of
-`PyCOMPSs <https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar/>`_ programming model,
-and it is being developed by the
-`Workflows and Distributed Computing <https://www.bsc.es/discover-bsc/organisation/scientific-structure/workflows-and-distributed-computing>`_
-group of the `Barcelona Supercomputing Center <http://www.bsc.es>`_.
+Qdislib has been implemented on top of [PyCOMPSs](<https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar/>) programming model,
+and it is being developed by the [Workflows and Distributed Computing](<https://www.bsc.es/discover-bsc/organisation/scientific-structure/workflows-and-distributed-computing>) group of the [Barcelona Supercomputing Center](<http://www.bsc.es>).
 
 
 
@@ -104,7 +101,7 @@ If you use Qdislib in a scientific publication, we would appreciate citations to
 
 ## URLs
 
-[Qauntum Distributed computing libraries BSC](https://www.bsc.es/research-development/research-areas/distributed-computing/distributed-computing-libraries-and)
+[Quantum Distributed computing libraries BSC](https://www.bsc.es/research-development/research-areas/distributed-computing/distributed-computing-libraries-and)
 
 
 ## Acknowledgements
