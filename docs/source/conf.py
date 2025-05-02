@@ -13,10 +13,6 @@
 import os
 import sys
 sys.path.insert(0, os.path.abspath('../../'))
-#sys.path.insert(0, '/home/mtejedor/.local/lib/python3.10/site-packages')
-#sys.path.insert(0, '/usr/local/lib/python3.10/dist-packages')
-#sys.path.insert(0, '/usr/lib/python3/dist-packages')
-
 
 
 # -- Project information -----------------------------------------------------
@@ -70,6 +66,7 @@ extensions = [
     'nbsphinx',
     'nbsphinx_link',
     'sphinx_mdinclude',
+    'sphinx_autodoc_typehints',
 ]
 
 nbsphinx_execute = 'never'
@@ -129,7 +126,6 @@ pygments_style = 'sphinx'
 # If true, `todo` and `todoList` produce output, else they produce nothing.
 todo_include_todos = False
 
-
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
@@ -145,7 +141,7 @@ html_static_path = ['_static']
 
 html_css_files = ['custom.css']
 
-html_logo = '../bsc_logo.png'
+html_logo = '../logo.png'
 html_favicon = '../logo.png'
 
 # Material theme options (see theme.conf for more information)

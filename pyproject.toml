@@ -18,75 +18,65 @@
 # -*- coding: utf-8 -*-
 
 [build-system]
-requires = [
-    "setuptools>=61.0",
-    "wheel",
-    "qibo<=0.1.12",
-    "numpy",
-    "networkx",
-    "matplotlib",
-    "pymetis"
-]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "Qdislib"
 dynamic = ["version", "dependencies"]
 authors = [
-  { name="Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email="support-compss@bsc.es" },
+  { name = "Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email = "support-compss@bsc.es" },
 ]
 maintainers = [
-  { name="Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email="support-compss@bsc.es" },
+  { name = "Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email = "support-compss@bsc.es" },
 ]
 description = "The quantum distributed computing library on top of PyCOMPSs"
 # url="https://Qdislib.bsc.es",
 readme = "README.md"
 requires-python = ">=3.7"
-license = { file = "LICENSE" }
+license = "Apache-2.0"
 keywords = ["Quantum", "distributed computing", "PyCOMPSs", "COMPSs", "Qdislib"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "License :: OSI Approved :: Apache Software License",
-    "Operating System :: Unix",
-    "Operating System :: POSIX :: Linux",
-    "Operating System :: MacOS",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3 :: Only",
-    "Intended Audience :: Science/Research",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Information Technology",
-    "Topic :: System :: Distributed Computing",
-    "Topic :: Software Development :: Libraries",
-    "Topic :: Software Development :: Libraries :: Python Modules",
+  "Development Status :: 3 - Alpha",
+  "Operating System :: Unix",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3 :: Only",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Topic :: System :: Distributed Computing",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 [project.optional-dependencies]
-ci = ["pycodestyle",
-      "pydocstyle",
-      "black",
-      "flake8",
-      "bandit",
-      "pylint",
-      "prospector",
-      "pytest",
-      "pytest-cov[all]",
-      "nbsphinx",
-      "nbsphinx-link",
-      "sphinx-material",
-      "sphinx-mdinclude"
+ci = [
+  "pycodestyle",
+  "pydocstyle",
+  "black",
+  "flake8",
+  "bandit",
+  "pylint",
+  "prospector",
+  "pytest",
+  "pytest-cov[all]",
+  "nbsphinx",
+  "nbsphinx-link",
+  "sphinx-material",
+  "sphinx-mdinclude",
 ]
 notebooks = ["jupyter"]
 qchip = ["qiboconnection>=0.12.0"]
-pycompss = ["pycompss",
-            "qiboconnection>=0.12.0"
-]
+pycompss = ["pycompss", "qiboconnection>=0.12.0"]
 
 [tool.setuptools.dynamic]
 version = { attr = "Qdislib.__version__" }
@@ -96,7 +86,7 @@ dependencies = { file = ["requirements.txt"] }
 where = ["."]
 include = ["Qdislib*"]
 exclude = ["notebooks"]
-namespaces = false  # to disable scanning PEP 420 namespaces (true by default)
+namespaces = false      # to disable scanning PEP 420 namespaces (true by default)
 
 [project.urls]
 Homepage = "https://Qdislib.bsc.es"
@@ -117,8 +107,7 @@ source = ["Qdislib"]
 command_line = "-m unittest discover -s tests/"
 
 [tool.bandit]
-exclude_dirs = ["notebooks/",
-                "scripts/"]
+exclude_dirs = ["notebooks/", "scripts/"]
 # tests = []
 # skips = [
 #     "B301",  # skips pickle
@@ -129,4 +118,4 @@ exclude_dirs = ["notebooks/",
 # ]
 
 [tool.bandit.assert_used]
-skips = ["*/test_*.py"]  # skips assertions in unittest files
+skips = ["*/test_*.py"] # skips assertions in unittest files

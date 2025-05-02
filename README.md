@@ -16,7 +16,7 @@
       <img src="https://badge.fury.io/py/qdislib.svg" alt="PyPI version" height="18">
   </a>
   <a href="https://badge.fury.io/py/qdislib">
-      <img src="https://img.shields.io/badge/python-3.6-blue.svg" alt="Python version" height="18">
+      <img src="https://img.shields.io/badge/python-3.7-blue.svg" alt="Python version" height="18">
   </a>
 </p>
 
@@ -27,14 +27,11 @@
     <a href="https://bit.ly/bsc-wdc-community">Slack</a>
 </b></p>
 
-
  **Table of content:**
 - [Description](#description)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Availability](#availability)
-- [Citing Qdislib](#citing-qdislib)
-  - [Bibtex:](#bibtex)
 - [URLs](#urls)
 - [Acknowledgements](#acknowledgements)
 - [License](#license)
@@ -45,14 +42,18 @@
 
 ## Requirements
 
-- Python >= 3.6
-- qibo == 0.1.12
+- Python >= 3.7
 - COMPSs >= 3.3
+
+Python packages required are defined in `requirements.txt`:
 
 ## Installation
 
-[TBD]
+Qdislib can be installed with the following command:
 
+```bash
+./install.sh
+```
 
 ## Availability
 
@@ -64,23 +65,23 @@ Supported architectures:
 - [IBM's Power 9](https://www.ibm.com/it-infrastructure/power/power9-b)
 
 
-## Citing Qdislib
+[//]: <> (## Citing Qdislib)
 
-If you use Qdislib in a scientific publication, we would appreciate you citing the following paper:
+[//]: <> (If you use Qdislib in a scientific publication, we would appreciate you citing the following paper:)
 
-[TBD]
+[//]: <> ([TBD])
 
-### Bibtex:
+[//]: <> (### Bibtex:)
 
-```latex
-@inproceedings{Qdislib,
-               title       = {{Title}},
-               author      = {Authors},
-               booktitle   = {Proceedings},
-               pages       = {1-2},
-               year        = {2025},
- }
-```
+[//]: <> (```latex)
+[//]: <> (@inproceedings{Qdislib,)
+[//]: <> (               title       = {{Title}},)
+[//]: <> (               author      = {Authors},)
+[//]: <> (               booktitle   = {Proceedings},)
+[//]: <> (               pages       = {1-2},)
+[//]: <> (               year        = {2025},)
+[//]: <> (})
+[//]: <> (```)
 
 
 ## URLs
