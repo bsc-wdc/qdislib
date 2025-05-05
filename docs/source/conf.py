@@ -148,22 +148,22 @@ html_favicon = '../logo.png'
 html_theme_options = {
 
     # Set the name of the project to appear in the navigation.
-    'nav_title': project,
+    'nav_title': 'Qdislib',
 
     # Set you GA account ID to enable tracking
     # 'google_analytics_account': 'UA-XXXXX',
 
     # Specify a base_url used to generate sitemap.xml. If not
     # specified, then no sitemap will be built.
-    'base_url': 'https://project.github.io/project',
+    'base_url': 'https://qdislib.readthedocs.io',
 
     # Set the color and the accent color
     'color_primary': 'purple',
     'color_accent': 'light-blue',
 
     # Set the repo location to get a badge with stats
-    'repo_url': 'https://github.com/project/project/',
-    'repo_name': project,
+    'repo_url': 'https://github.com/bsc-wdc/qdislib',
+    'repo_name': 'Qdislib',
 
     # Visible levels of the global TOC; -1 means unlimited
     'globaltoc_depth': 3,
@@ -243,7 +243,7 @@ man_pages = [
 #  dir menu entry, description, category)
 texinfo_documents = [
     (master_doc, 'Qdislib', 'Qdislib Documentation',
-     author, 'Qdislib', 'One line description of project.',
+     author, 'Qdislib', 'Quantum Distributed Library.',
      'Miscellaneous'),
 ]
 
