@@ -968,6 +968,9 @@ def _check_ibm_qc(max_time_ibm):
 
     proxies={"urls": urls}
 
+    token=""
+    instance=""
+
     service = QiskitRuntimeService(channel="ibm_cloud", token=token, instance=instance, proxies=proxies)
 
     #backend = service.least_busy(operational=True, simulator=False)
