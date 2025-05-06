@@ -11,7 +11,7 @@ source documentation-builder/bin/activate
 make clean
 sphinx-apidoc -o source ../Qdislib/ -f
 make html
-# make latexpdf  # Fails with latest versions, waiting to be patched.
+make latexpdf  # Fails with latest versions, waiting to be patched.
 
 # End step: deactivate environment
 deactivate

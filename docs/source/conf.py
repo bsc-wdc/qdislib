@@ -179,18 +179,177 @@ html_theme_options = {
 
 # -- Options for LaTeX output ---------------------------------------------
 
+latex_engine = 'xelatex'
+latex_additional_files = ['./_static/bsc_logo.jpg']
 latex_elements = {
     # The paper size ('letterpaper' or 'a4paper').
-    # 'papersize': 'letterpaper',
+    #
+    'papersize': 'a4paper',
+    'releasename':" ",
+    # Sonny, Lenny, Glenn, Conny, Rejne, Bjarne and Bjornstrup
+    # 'fncychap': '\\usepackage[Lenny]{fncychap}',
+    'fncychap': '\\usepackage{fncychap}',
+    'fontpkg': '\\usepackage{amsmath,amsfonts,amssymb,amsthm}',
 
+    'figure_align':'htbp',
     # The font size ('10pt', '11pt' or '12pt').
-    # 'pointsize': '10pt',
+    #
+    'pointsize': '10pt',
 
     # Additional stuff for the LaTeX preamble.
-    # 'preamble': '',
+    #
+    'preamble': r'''
+        %%%%%%%%%%%%%%%%%%%% PREAMBLE %%%%%%%%%%%%%%%%%%
+        %%% Add number to subsubsection 2=subsection, 3=subsubsection
+        %%% Below subsubsection is not good idea.
+        \setcounter{secnumdepth}{3}
 
+        %%% Table of content upto 2=subsection, 3=subsubsection
+        \setcounter{tocdepth}{2}
+
+        %%% Load packages
+        \usepackage{amsmath,amsfonts,amssymb,amsthm}
+        \usepackage{graphicx}
+        % \usepackage[strings]{underscore}
+        % \usepackage[T1]{fontenc}
+        % \usepackage{lmodern}
+        % \usepackage[utf8]{inputenc}
+
+        %%% Reduce spaces for Table of contents, figures and tables-
+        %%% It is used "\addtocontents{toc}{\vskip -1.2cm}" etc. in the document
+        \usepackage[notlot,nottoc,notlof]{}
+
+        \usepackage{color}
+        \usepackage{transparent}
+        \usepackage{eso-pic}
+        \usepackage{lipsum}
+
+        %%% Link at the footnote to go to the place of footnote in the text
+        \usepackage{footnotebackref}
+        \makeatletter
+        \LetLtxMacro{\BHFN@Old@footnotemark}{\@footnotemark}
+
+        \renewcommand*{\@footnotemark}{%
+            \refstepcounter{BackrefHyperFootnoteCounter}%
+            \xdef\BackrefFootnoteTag{bhfn:\theBackrefHyperFootnoteCounter}%
+            \label{\BackrefFootnoteTag}%
+            \BHFN@Old@footnotemark
+        }
+        \makeatother
+
+        %%% Spacing between line
+        \usepackage{setspace}
+        %%%% \onehalfspacing
+        %%%% \doublespacing
+        \singlespacing
+
+        %%% Datetime
+        \usepackage{datetime}
+        \newdateformat{MonthYearFormat}{%
+            \monthname[\THEMONTH], \THEYEAR}
+
+        %% RO, LE will not work for 'oneside' layout.
+        %% Change oneside to twoside in document class
+        \usepackage{fancyhdr}
+        \pagestyle{fancy}
+        \fancyhf{}
+
+        %%% Alternating Header for oneside
+        \fancyhead[L]{\ifthenelse{\isodd{\value{page}}}{ \small \nouppercase{\leftmark} }{}}
+        \fancyhead[R]{\ifthenelse{\isodd{\value{page}}}{}{ \small \nouppercase{\rightmark} }}
+
+        %%% Alternating Header for two side
+        %\fancyhead[RO]{\small \nouppercase{\rightmark}}
+        %\fancyhead[LE]{\small \nouppercase{\leftmark}}
+
+        %%% For oneside: change footer at right side. If you want to use Left and right then use same as header defined above.
+        \fancyfoot[R]{\ifthenelse{\isodd{\value{page}}}{{\tiny BSC-WDC Group} }{\href{http://www.bsc.es}{\tiny BSC}}}
+
+        %%% Alternating Footer for two side
+        %\fancyfoot[RO, RE]{\scriptsize BSC-WDC Group (support-compss@bsc.es)}
+
+        %%% page number
+        \fancyfoot[CO, CE]{\thepage}
+
+        \renewcommand{\headrulewidth}{0.5pt}
+        \renewcommand{\footrulewidth}{0.5pt}
+
+        \RequirePackage{tocbibind} %%% comment this to remove page number for following
+        \addto\captionsenglish{\renewcommand{\contentsname}{Table of contents}}
+        \addto\captionsenglish{\renewcommand{\listfigurename}{List of figures}}
+        \addto\captionsenglish{\renewcommand{\listtablename}{List of tables}}
+        % \addto\captionsenglish{\renewcommand{\chaptername}{Chapter}}
+
+        %%% Reduce spacing for itemize
+        \usepackage{enumitem}
+        \setlist{nosep}
+
+        %%% Quote Styles at the top of chapter
+        \usepackage{epigraph}
+        \setlength{\epigraphwidth}{0.8\columnwidth}
+        \newcommand{\chapterquote}[2]{\epigraphhead[60]{\epigraph{\textit{#1}}{\textbf {\textit{--#2}}}}}
+        %%% Quote for all places except Chapter
+        \newcommand{\sectionquote}[2]{{\quote{\textit{``#1''}}{\textbf {\textit{--#2}}}}}
+
+        %%%%%%%%%%%%%%%%%% END PREAMBLE %%%%%%%%%%%%%%%%%
+    ''',
+
+    'maketitle': r'''
+        \pagenumbering{Roman} %%% to avoid page 1 conflict with actual page 1
+
+        \begin{titlepage}
+            \centering
+
+            \vspace*{40mm} %%% * is used to give space from top
+            %%% \textbf{\Huge {Title over the logo}}
+
+            \vspace{0mm}
+            \begin{figure}[!h]
+             \centering
+             \includegraphics[scale=0.4]{logo.png}
+            \end{figure}
+
+            \vspace{0mm}
+            \Huge \textbf{{Qdislib Manual}}
+
+            \Large Workflows and Distributed Computing Group
+            % \vspace{0mm}
+
+            %% \vfill adds at the bottom
+            \vfill
+
+            \large  Last updated : \MonthYearFormat\today
+            \vspace*{5mm}
+
+            \normalsize \textit{Online version available at }{\href{https://qdislib.readthedocs.io/en/latest/}{Qdislib - ReadTheDocs}}
+            \vspace*{20mm}
+
+            \begin{figure}[!h]
+             \centering
+             \includegraphics[scale=0.3]{bsc_logo.jpg}
+            \end{figure}
+        \end{titlepage}
+
+        \clearpage
+        \pagenumbering{roman}
+        \tableofcontents
+        \listoffigures
+        \listoftables
+        \clearpage
+        \pagenumbering{arabic}
+
+        ''',
     # Latex figure (float) alignment
+    #
     # 'figure_align': 'htbp',
+    'sphinxsetup': \
+        'hmargin={0.7in,0.7in}, vmargin={1in,1in}, \
+        verbatimwithframe=true, \
+        TitleColor={rgb}{0,0,0}, \
+        HeaderFamily=\\rmfamily\\bfseries, \
+        InnerLinkColor={rgb}{0,0,1}, \
+        OuterLinkColor={rgb}{0,0,1}',
+        'tableofcontents':' ',
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
@@ -203,24 +362,22 @@ latex_documents = [
 
 # The name of an image file (relative to this directory) to place at the top of
 # the title page.
-# latex_logo = None
+latex_logo = '../logo.png'
 
-# For "manual" documents, if this is true, then toplevel headings are parts,
-# not chapters.
-# latex_use_parts = False
+# Disable xindy
+latex_use_xindy = False
 
 # If true, show page references after internal links.
-# latex_show_pagerefs = False
+latex_show_pagerefs = False
 
 # If true, show URL addresses after external links.
-# latex_show_urls = False
+latex_show_urls = 'footnote'
 
 # Documents to append as an appendix to all manuals.
-# latex_appendices = []
+latex_appendices = []
 
 # If false, no module index is generated.
-# latex_domain_indices = True
-
+latex_domain_indices = True
 
 # -- Options for manual page output ---------------------------------------
 
@@ -248,16 +405,16 @@ texinfo_documents = [
 ]
 
 # Documents to append as an appendix to all manuals.
-# texinfo_appendices = []
+texinfo_appendices = []
 
 # If false, no module index is generated.
-# texinfo_domain_indices = True
+texinfo_domain_indices = True
 
 # How to display URL addresses: 'footnote', 'no', or 'inline'.
-# texinfo_show_urls = 'footnote'
+texinfo_show_urls = 'footnote'
 
 # If true, do not generate a @detailmenu in the "Top" node's menu.
-# texinfo_no_detailmenu = False
+texinfo_no_detailmenu = False
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {'python': ('https://docs.python.org/3',
