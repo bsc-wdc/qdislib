@@ -26,6 +26,7 @@ This file contains all auxiliary graph classes and functions.
 import inspect
 import networkx
 import matplotlib.pyplot as plt
+import numpy as np
 import typing
 from qibo import models
 from qibo import gates
@@ -49,8 +50,8 @@ def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph
     """Convert a Qibo circuit into a directed acyclic graph (DAG) where each node represents a gate.
 
     This function constructs a DAG from a Qibo circuit. Each node in the graph corresponds to a gate in the circuit,
-    storing information such as gate type, applied qubits, and parameters. Edges represent qubit-based dependencies 
-    between gates, and optionally, nodes representing identity observables ("I") can be appended to sink nodes in 
+    storing information such as gate type, applied qubits, and parameters. Edges represent qubit-based dependencies
+    between gates, and optionally, nodes representing identity observables ("I") can be appended to sink nodes in
     the graph.
 
     :param circuit: Qibo :class:`Circuit` object to convert into a DAG.
@@ -144,10 +145,10 @@ def plot_dag(dag: networkx.DiGraph) -> None:
     """
     Visualize a directed acyclic graph (DAG) representation of a quantum circuit.
 
-    This function uses `matplotlib` and `networkx` to plot a DAG where each node represents 
-    a quantum gate and edges indicate qubit dependencies between gates. Edges can be colored 
+    This function uses `matplotlib` and `networkx` to plot a DAG where each node represents
+    a quantum gate and edges indicate qubit dependencies between gates. Edges can be colored
     differently based on the "color" attribute in the graph:
-    
+
     - **Blue**: Standard gate dependencies.
     - **Red (dotted)**: Additional or alternative dependencies (e.g., same qubit paths).
 
@@ -224,7 +225,7 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
     and reconstructs a Qibo circuit by adding gates in topological order. Optionally, it detects
     "Observable I" nodes and separates them from the circuit for measurement processing.
 
-    :param dag: A :class:`networkx.DiGraph` representing the quantum circuit DAG. Each node must 
+    :param dag: A :class:`networkx.DiGraph` representing the quantum circuit DAG. Each node must
                 contain `gate`, `qubits`, and `parameters` attributes.
     :param num_qubits: The number of qubits in the original circuit (used to initialize the circuit).
 
@@ -238,7 +239,7 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
         - `parameters`: A tuple of gate parameters (or `None` if not applicable).
 
     Notes:
-        - Measurement gates (e.g., `"Observable I"`) are excluded from reconstruction but their qubit 
+        - Measurement gates (e.g., `"Observable I"`) are excluded from reconstruction but their qubit
           indices are returned for postprocessing.
         - The reconstruction uses Python's `inspect` module to dynamically determine how to instantiate gates.
 
