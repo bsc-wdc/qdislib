@@ -30,10 +30,37 @@ import os
 import random
 
 from qibo import models, gates
-from pycompss.api.task import task
-from pycompss.api.api import compss_wait_on
-from pycompss.api.parameter import COLLECTION_IN
-from pycompss.api.parameter import COLLECTION_OUT
+
+try:
+    from pycompss.api.task import task
+    from pycompss.api.api import compss_wait_on
+    from pycompss.api.parameter import COLLECTION_IN
+    from pycompss.api.parameter import COLLECTION_OUT
+    pycompss_available = True
+except ImportError:
+    print("NO PYCOMPSS AVAILABLE")
+    # Define dummy decorators and functions to avoid breaking the code
+    def task(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    def compss_wait_on(obj):
+        return obj
+
+    def constraint(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    def implement(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    COLLECTION_IN = COLLECTION_OUT = None
+    pycompss_available = False
+
 from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
 from Qdislib.utils.graph_qibo import dag_to_circuit_qibo, _dag_to_circuit_qibo_subcircuits
 from Qdislib.utils.graph_qibo import _max_qubit

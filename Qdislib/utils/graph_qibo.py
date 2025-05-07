@@ -30,11 +30,20 @@ import typing
 from qibo import models
 from qibo import gates
 
-from pycompss.api.task import task
-from pycompss.api.parameter import INOUT
-from pycompss.api.constraint import *
-import numpy as np
+try:
+    from pycompss.api.task import task
+    from pycompss.api.parameter import INOUT
+    pycompss_available = True
+except ImportError:
+    print("NO PYCOMPSS AVAILABLE")
+    # Define dummy decorators and functions to avoid breaking the code
+    def task(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
 
+    INOUT = None
+    pycompss_available = False
 
 def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:
     """Convert a Qibo circuit into a directed acyclic graph (DAG) where each node represents a gate.
