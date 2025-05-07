@@ -17,3 +17,6 @@ ipywidgets>=8.1.5
 sphinx_mdinclude>=0.6.2
 sphinx-material>=0.0.36
 sphinx-autodoc-typehints
+sphinx-notfound-page
+sphinxemoji
+sphinx-version-warning

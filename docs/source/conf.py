@@ -67,6 +67,9 @@ extensions = [
     'nbsphinx_link',
     'sphinx_mdinclude',
     'sphinx_autodoc_typehints',
+    'notfound.extension',
+    'sphinxemoji.sphinxemoji',
+    'versionwarning.extension',
 ]
 
 nbsphinx_execute = 'never'
@@ -125,6 +128,18 @@ pygments_style = 'sphinx'
 
 # If true, `todo` and `todoList` produce output, else they produce nothing.
 todo_include_todos = False
+
+# sphinx-notfound-page
+notfound_context = {
+    "title": "Page Not Found",
+    "body": """
+<h1>Page Not Found</h1>
+
+<p>Sorry, we couldn't find that page.</p>
+
+<p>Try using the search box or go to the homepage.</p>
+""",
+}
 
 # -- Options for HTML output -------------------------------------------------
 
