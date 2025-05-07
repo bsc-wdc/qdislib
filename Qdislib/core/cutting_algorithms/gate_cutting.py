@@ -29,14 +29,38 @@ from qiskit_aer import AerSimulator
 from qiskit_aer.primitives import EstimatorV2 as Estimator
 from qiskit.primitives import BackendSamplerV2
 
-from pycompss.api.task import task
-from pycompss.api.api import compss_wait_on
-from pycompss.api.api import compss_barrier
-from pycompss.api.parameter import COLLECTION_IN
-from pycompss.api.parameter import COLLECTION_OUT
-from pycompss.api.constraint import constraint
-from pycompss.api.implement import implement
-from pycompss.api.api import compss_barrier
+
+try:
+    from pycompss.api.task import task
+    from pycompss.api.api import compss_wait_on
+    from pycompss.api.parameter import COLLECTION_IN
+    from pycompss.api.parameter import COLLECTION_OUT
+    from pycompss.api.constraint import constraint
+    from pycompss.api.implement import implement
+    pycompss_available = True
+except ImportError:
+    print("NO PYCOMPSS AVAILABLE")
+    # Define dummy decorators and functions to avoid breaking the code
+    def task(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    def compss_wait_on(obj):
+        return obj
+
+    def constraint(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    def implement(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    COLLECTION_IN = COLLECTION_OUT = None
+    pycompss_available = False
 
 import Qdislib
 from Qdislib.utils.graph_qibo import _update_qubits
@@ -71,8 +95,7 @@ def gate_cutting(
     gpu: bool = False,
     gpu_min_qubits: typing.Optional[int] = None,
     qpu: bool = False,
-    qpu_dict: typing.Optional[dict] = None,
-    max_time_ibm: int = 1800
+    qpu_dict: typing.Optional[dict] = None
 ):
     """
     Apply gate cutting to a quantum circuit to enable distributed smaller executions of subcircuits.
@@ -148,7 +171,7 @@ def gate_cutting(
     """
 
     if qpu and "IBM_Quantum" in qpu_dict:
-        batch, backend = _check_ibm_qc(max_time_ibm=max_time_ibm)
+        batch, backend = _check_ibm_qc()
     else:
         batch, backend = None, None
 
@@ -960,7 +983,7 @@ def _change_basis(circuit, observables):
 
 
 
-def _check_ibm_qc(max_time_ibm):
+def _check_ibm_qc():
     urls = {
       "http": "http://localhost:44433",
       "https": "http://localhost:44433"
@@ -971,13 +994,14 @@ def _check_ibm_qc(max_time_ibm):
     token = os.environ.get("IBM_QUANTUM_TOKEN")
     instance = os.environ.get("IBM_QUANTUM_INSTANCE")
     channel = os.environ.get("IBM_QUANTUM_CHANNEL")
+    max_time_ibm = os.environ.get("IBM_QUANTUM_MAX_TIME", 60)
 
     service = QiskitRuntimeService(channel=channel, token=token, instance=instance, proxies=proxies)
 
     #backend = service.least_busy(operational=True, simulator=False)
     backend = service.backend("ibm_marrakesh")
 
-    batch = Batch(backend=backend, max_time=max_time_ibm)
+    batch = Batch(backend=backend, max_time=int(max_time_ibm))
     print(batch)
     return batch, backend
 

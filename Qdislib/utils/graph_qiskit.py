@@ -32,8 +32,19 @@ from qiskit import ClassicalRegister
 
 from Qdislib.utils.graph_qibo import _update_qubits_serie
 
-from pycompss.api.task import task
-from pycompss.api.constraint import *
+try:
+    from pycompss.api.task import task
+    pycompss_available = True
+    
+except ImportError:
+    print("NO PYCOMPSS AVAILABLE")
+    # Define dummy decorators and functions to avoid breaking the code
+    def task(*args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+    
+    pycompss_available = False
 
 def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGraph:
     """Convert a Qiskit quantum circuit into a DAG where each node stores gate information.
