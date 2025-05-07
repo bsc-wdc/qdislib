@@ -5,14 +5,7 @@ Qdislib.api: Quantum Distributed Library API
 --------------------------------------------
 
 
-TODO: Add API methods
-
-
-Other functions
----------------
-
-:meth:`dislib.apply_along_axis <dislib.apply_along_axis>` - Applies a
-function to a ds-array along a given axis.
+This module provides the primary interface for interacting with the Quantum Distributed Library.
 
 
 Qdislib.core.cutting_algorithms: Circuit Cutting
@@ -55,7 +48,7 @@ Qdislib.utils: Utility functions
 :meth:`utils.exceptions <Qdislib.utils.exceptions>`
 - Qdislib exceptions.
 
-:meth:`utils.graph <Qdislib.utils.graph_qibo>`
+:meth:`utils.graph_qibo <Qdislib.utils.graph_qibo>`
 - Graph object and methods.
 
 :meth:`utils.graph_qiskit <Qdislib.utils.graph_qiskit>`

@@ -19,7 +19,7 @@ Qdislib is built on top of the `PyCOMPSs <https://www.bsc.es/research-and-develo
 With Qdislib, researchers and developers can:
 
 - Perform **gate** and **wire cutting** to decompose complex quantum circuits.
-- Leverage **GPU acceleration** using cuQuantum or Qibojit.
+- Leverage **GPU acceleration** using Qiskit Aer, cuQuantum or Qibojit.
 - Submit subcircuits to **remote QPUs** like IBM Quantum.
 - Work with circuits defined in both **Qibo** and **Qiskit**.
 - Automatically identify good cut points with `find_cut`.
@@ -77,7 +77,7 @@ Citing dislib
 
 If you use Qdislib in a scientific publication, we would appreciate citations to the following paper:
 
-\M. Tejedor, B. Casas, J. Conejero, A. Cervera-Lierta and R. M. Badia, "Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing" in *ArXiv*, 2025, pp. 1-12
+\M. Tejedor, B. Casas, J. Conejero, A. Cervera-Lierta and R. M. Badia, "Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing" in *https://arxiv.org/abs/2505.01184*, 2025, pp. 1-12
 
 Bibtex
 ......
@@ -87,7 +87,7 @@ Bibtex
    @inproceedings{Qdislib,
                title       = {{Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing}},
                author      = {Mar Tejedor and Berta Cervera and Javier Conejero and Alba Cervera-Lierta and Rosa M. Badia},
-               booktitle   = {ArXiv},
+               booktitle   = {https://arxiv.org/abs/2505.01184},
                pages       = {1-12},
                year        = {2025},
     }
