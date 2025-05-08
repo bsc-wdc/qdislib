@@ -36,13 +36,16 @@ try:
     from pycompss.api.api import compss_wait_on
     from pycompss.api.parameter import COLLECTION_IN
     from pycompss.api.parameter import COLLECTION_OUT
+
     pycompss_available = True
 except ImportError:
     print("NO PYCOMPSS AVAILABLE")
+
     # Define dummy decorators and functions to avoid breaking the code
     def task(*args, **kwargs):
         def decorator(func):
             return func
+
         return decorator
 
     def compss_wait_on(obj):
@@ -51,22 +54,30 @@ except ImportError:
     def constraint(*args, **kwargs):
         def decorator(func):
             return func
+
         return decorator
 
     def implement(*args, **kwargs):
         def decorator(func):
             return func
+
         return decorator
 
     COLLECTION_IN = COLLECTION_OUT = None
     pycompss_available = False
 
 from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
-from Qdislib.utils.graph_qibo import dag_to_circuit_qibo, _dag_to_circuit_qibo_subcircuits
+from Qdislib.utils.graph_qibo import (
+    dag_to_circuit_qibo,
+    _dag_to_circuit_qibo_subcircuits,
+)
 from Qdislib.utils.graph_qibo import _max_qubit
 from Qdislib.utils.graph_qibo import _update_qubits
 from Qdislib.utils.graph_qibo import _remove_red_edges
-from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag,_dag_to_circuit_qiskit_subcircuits
+from Qdislib.utils.graph_qiskit import (
+    circuit_qiskit_to_dag,
+    _dag_to_circuit_qiskit_subcircuits,
+)
 
 
 def wire_cutting(
@@ -76,7 +87,7 @@ def wire_cutting(
     observables: str = None,
     shots: int = 1024,
     backend: str = "numpy",
-    qpu: str = None
+    qpu: str = None,
 ):
     """
     Apply wire cutting to a quantum circuit to simplify its structure for distributed or hardware-constrained execution of subcircuits.
@@ -135,7 +146,7 @@ def wire_cutting(
         reconstruction = wire_cutting(qc, cuts, shots=2048, backend="qiskit")
     """
     if observables:
-        rand_qc = _change_basis(rand_qc,observables)
+        rand_qc = _change_basis(rand_qc, observables)
 
     if type(rand_qc) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         if observables:
@@ -148,7 +159,7 @@ def wire_cutting(
     elif type(rand_qc) == qibo.models.Circuit:
         if observables:
             if "I" in observables:
-                dag = circuit_qibo_to_dag(rand_qc,obs_I=observables)
+                dag = circuit_qibo_to_dag(rand_qc, obs_I=observables)
             else:
                 dag = circuit_qibo_to_dag(rand_qc)
         else:
@@ -170,14 +181,18 @@ def wire_cutting(
                 if s.has_edge(*c):
                     tmp_cuts.append(c)
             if tmp_cuts:
-                graphs = _generate_wire_cutting(s, tmp_cuts, num_qubits=num_qubits, qpu=qpu)
+                graphs = _generate_wire_cutting(
+                    s, tmp_cuts, num_qubits=num_qubits, qpu=qpu
+                )
                 graphs = _sum_results(graphs)
                 results.append(graphs)  # 1/(2**len(tmp_cuts))*sum(graphs)
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-                if qpu=="MN_Ona":
-                    expected_value = _expec_value_qibo_qpu(subcirc, shots, method=backend)
+                if qpu == "MN_Ona":
+                    expected_value = _expec_value_qibo_qpu(
+                        subcirc, shots, method=backend
+                    )
                 else:
                     expected_value = _execute_subcircuits(subcirc, shots, backend)
                 results.append(expected_value)
@@ -200,10 +215,10 @@ def wire_cutting(
         else:
             s_new, highest_qubit = _update_qubits(dag)
             subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-            if qpu=="MN_Ona":
+            if qpu == "MN_Ona":
                 final_recons = _expec_value_qibo_qpu(subcirc, shots, method=backend)
             else:
-                final_recons = _execute_subcircuits(subcirc,shots,backend)
+                final_recons = _execute_subcircuits(subcirc, shots, backend)
         return final_recons
 
 
@@ -213,7 +228,7 @@ def _generate_wire_cutting(
     num_qubits: int,
     shots: int = 10000,
     backend: str = "numpy",
-    qpu=None
+    qpu=None,
 ) -> typing.List[float]:
     """Replace a specific edge in the DAG with a source and end node.
 
@@ -311,10 +326,10 @@ def _generate_wire_cutting(
         for s in graph_components:
             s_new, highest_qubit = _update_qubits(s)
             subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-            if qpu=="MN_Ona":
+            if qpu == "MN_Ona":
                 expected_value = _expec_value_qibo_qpu(subcirc, shots, method=backend)
             else:
-                expected_value = _execute_subcircuits(subcirc,shots, backend)
+                expected_value = _execute_subcircuits(subcirc, shots, backend)
             exp_value.append(expected_value)
         exp_value = _change_sign(exp_value, index)
         reconstruction.append(exp_value)
@@ -464,7 +479,7 @@ def _execute_subcircuits(subcirc: typing.Any, shots=1024, backend="numpy") -> fl
     tmp = subcirc[1]
     subcirc = subcirc[0]
 
-    #print(subcirc.draw())
+    # print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -475,10 +490,10 @@ def _execute_subcircuits(subcirc: typing.Any, shots=1024, backend="numpy") -> fl
         for element in obs_I:
             observables[element] = "I"
 
-    #print(obs_I)
-   
+    # print(obs_I)
+
     observables = "".join(observables)
-    #print(observables)
+    # print(observables)
 
     qibo.set_backend(backend)
     subcirc.add(gates.M(*range(subcirc.nqubits)))  #
@@ -500,16 +515,17 @@ def _execute_subcircuits(subcirc: typing.Any, shots=1024, backend="numpy") -> fl
         expectation_value += contribution * (value / shots)
     return expectation_value
 
+
 @task(returns=1)
-def _expec_value_qibo_qpu(subcirc, shots=1024, method='numpy'):
-    
+def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
+
     if subcirc is None:
         return None
-    
+
     tmp = subcirc[1]
     subcirc = subcirc[0]
 
-    #print(subcirc.draw())
+    # print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -520,27 +536,30 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method='numpy'):
         for element in obs_I:
             observables[element] = "I"
 
-    #print(obs_I)
+    # print(obs_I)
 
     subcirc.add(gates.M(*range(subcirc.nqubits)))
-   
+
     observables = "".join(observables)
-    #print(observables)
+    # print(observables)
 
-
-    '''counter = 1  # Initialize counter
+    """counter = 1  # Initialize counter
     while os.path.exists(f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{counter}.pkl"):  # Check if file already exists
-        counter += 1'''
+        counter += 1"""
 
     unique_code = str(time.time_ns())  # Nanosecond precision timestamp
 
-    circuit_filename = f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{unique_code}.pkl"
-    result_filename = f"/home/bsc/bsc019635/ona_proves/subcircuits/result_{unique_code}.pkl"
+    circuit_filename = (
+        f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{unique_code}.pkl"
+    )
+    result_filename = (
+        f"/home/bsc/bsc019635/ona_proves/subcircuits/result_{unique_code}.pkl"
+    )
 
     # Save the circuit to the unique file
     with open(circuit_filename, "wb") as f:
         pickle.dump(subcirc, f)
-    
+
     print(f"Circuit saved: {circuit_filename}, waiting for {result_filename}...")
 
     while not os.path.exists(result_filename):
@@ -553,8 +572,8 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method='numpy'):
 
     freq = result.counts()
 
-    #os.remove(circuit_filename)  # Remove circuit file after processing
-    os.remove(result_filename)   # Remove result file after reading
+    # os.remove(circuit_filename)  # Remove circuit file after processing
+    os.remove(result_filename)  # Remove result file after reading
 
     expectation_value = 0
     for key, value in freq.items():
@@ -566,10 +585,10 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method='numpy'):
                 contribution *= 1
             else:
                 raise ValueError(f"Unsupported observable {obs}")
-        
+
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
-    #print(expectation_value)
+    # print(expectation_value)
     return expectation_value
 
 
@@ -598,8 +617,9 @@ def _change_sign(expectation_value, index):
     else:
         return expectation_value
 
+
 def _change_basis(circuit, observables):
-    for idx,i in enumerate(observables):
+    for idx, i in enumerate(observables):
         if i == "X":
             circuit.add(gates.H(idx))
         elif i == "Y":
@@ -612,9 +632,7 @@ def _change_basis(circuit, observables):
 
 
 def wire_cutting_subcircuits(
-    rand_qc: typing.Any,
-    cut: typing.List[typing.Any],
-    software = "qiskit"
+    rand_qc: typing.Any, cut: typing.List[typing.Any], software="qiskit"
 ):
     if type(rand_qc) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         dag = circuit_qiskit_to_dag(rand_qc)
@@ -636,13 +654,15 @@ def wire_cutting_subcircuits(
                 if s.has_edge(*c):
                     tmp_cuts.append(c)
             if tmp_cuts:
-                graphs = _generate_wire_cutting_subcircuits(s, tmp_cuts, num_qubits=num_qubits,software=software)
+                graphs = _generate_wire_cutting_subcircuits(
+                    s, tmp_cuts, num_qubits=num_qubits, software=software
+                )
                 subcircuits.append(graphs)
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 if software == "qibo":
                     subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
-                elif software=="qiskit":
+                elif software == "qiskit":
                     subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
                 else:
                     raise ValueError
@@ -651,23 +671,26 @@ def wire_cutting_subcircuits(
     else:
         num_qubits = _max_qubit(dag)
         if cut:
-            subcircuits = _generate_wire_cutting_subcircuits(dag, cut, num_qubits=num_qubits,software=software)
+            subcircuits = _generate_wire_cutting_subcircuits(
+                dag, cut, num_qubits=num_qubits, software=software
+            )
 
         else:
             s_new, highest_qubit = _update_qubits(dag)
             if software == "qibo":
                 subcircuits = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
-            elif software=="qiskit":
+            elif software == "qiskit":
                 subcircuits = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
             else:
                 raise ValueError
         return subcircuits
 
+
 def _generate_wire_cutting_subcircuits(
     dag: typing.Any,
     edges_to_replace: typing.List[typing.Tuple[str, str]],
     num_qubits: int,
-    software
+    software,
 ) -> typing.List[float]:
     """Replace a specific edge in the DAG with a source and end node.
 
@@ -762,12 +785,11 @@ def _generate_wire_cutting_subcircuits(
             graph_components,
         )
 
-        
         for s in graph_components:
             s_new, highest_qubit = _update_qubits(s)
             if software == "qibo":
                 subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
-            elif software=="qiskit":
+            elif software == "qiskit":
                 subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
             else:
                 raise ValueError

@@ -320,12 +320,12 @@ def draw_to_circuit(
 
         for idx in saved_qubit:
             # if list_multiple_gates[idx]:
-            '''print(
+            """print(
                 "Add gate: ",
                 list_multiple_gates[idx][0][0],
                 " qubit ",
                 list_multiple_gates[idx][0][1],
-            )'''
+            )"""
             circuit.add(
                 getattr(gates, list_multiple_gates[idx][0][0])(
                     *list_multiple_gates[idx][0][1]
@@ -335,87 +335,87 @@ def draw_to_circuit(
     return circuit
 
 
-def parse_qsim(fname: str, depth:int = 22):
-        """Produces a Qibo :class:`Circuit` based on a .qsim description of a circuit.
+def parse_qsim(fname: str, depth: int = 22):
+    """Produces a Qibo :class:`Circuit` based on a .qsim description of a circuit.
 
-        This function parses a .qsim file to create a quantum circuit based on the gate instructions
-        provided in the file. The .qsim file should contain gate operations for the quantum circuit.
-        The file should start with the number of qubits, followed by a series of lines specifying
-        gate operations in the format: `<moment> <gate> <qubit> [additional parameters]`. The function
-        also allows setting a `depth` parameter to limit the number of moments to process.
+    This function parses a .qsim file to create a quantum circuit based on the gate instructions
+    provided in the file. The .qsim file should contain gate operations for the quantum circuit.
+    The file should start with the number of qubits, followed by a series of lines specifying
+    gate operations in the format: `<moment> <gate> <qubit> [additional parameters]`. The function
+    also allows setting a `depth` parameter to limit the number of moments to process.
 
-        :param fname: Path to the .qsim file containing the quantum circuit description.
-        :param depth: Maximum number of moments (steps) to process from the .qsim file. Default is 22.
+    :param fname: Path to the .qsim file containing the quantum circuit description.
+    :param depth: Maximum number of moments (steps) to process from the .qsim file. Default is 22.
 
-        :return: A :class:`models.Circuit` object from Qibo containing the parsed gate operations.
+    :return: A :class:`models.Circuit` object from Qibo containing the parsed gate operations.
 
-        :raises ValueError: If the first line of the .qsim file cannot be converted to an integer
-                            representing the number of qubits.
+    :raises ValueError: If the first line of the .qsim file cannot be converted to an integer
+                        representing the number of qubits.
 
-        :example:
+    :example:
 
-        Suppose you have a `.qsim` file with the following content:
+    Suppose you have a `.qsim` file with the following content:
 
-        .. code-block:: text
+    .. code-block:: text
 
-            3
-            0 rz 0 0.5
-            1 x_1_2 1
-            2 rz 2 1.0
-            3 hz_1_2 0
-            4 fs 1 2
+        3
+        0 rz 0 0.5
+        1 x_1_2 1
+        2 rz 2 1.0
+        3 hz_1_2 0
+        4 fs 1 2
 
-        You can parse this file and create a circuit like this:
+    You can parse this file and create a circuit like this:
 
-        .. code-block:: python
+    .. code-block:: python
 
-            from mymodule import parse_qsim
+        from mymodule import parse_qsim
 
-            # Parse the .qsim file to create a quantum circuit
-            circuit = parse_qsim("path_to_qsim_file.qsim", depth=10)
+        # Parse the .qsim file to create a quantum circuit
+        circuit = parse_qsim("path_to_qsim_file.qsim", depth=10)
 
-            # Print the resulting circuit
-            print(circuit.draw())
-        """
+        # Print the resulting circuit
+        print(circuit.draw())
+    """
 
-        with open(fname, 'r') as f:
-            data = f.read()
-        print(data)
-        lines = data.strip().splitlines()
+    with open(fname, "r") as f:
+        data = f.read()
+    print(data)
+    lines = data.strip().splitlines()
 
-        try:
-            qcount = int(lines.pop(0))
-        except ValueError:
-            raise ValueError('First line should be qubit count')
+    try:
+        qcount = int(lines.pop(0))
+    except ValueError:
+        raise ValueError("First line should be qubit count")
 
-        c = models.Circuit(qcount)
+    c = models.Circuit(qcount)
 
-        for l in lines:
-            l = l.strip()
-            if l == '': continue
-            gdesc = l.split(' ')
+    for l in lines:
+        l = l.strip()
+        if l == "":
+            continue
+        gdesc = l.split(" ")
 
-            q = int(gdesc[2])
-            moment = int(gdesc[0])
-            if moment >= depth:
-                break
+        q = int(gdesc[2])
+        moment = int(gdesc[0])
+        if moment >= depth:
+            break
 
-            random_param = np.random.uniform(0, 2*np.pi)
-            if gdesc[1] == 'rz':
-                phase = float(gdesc[3]) / np.pi
-                c.add(gates.RZ(q, phase))
-            elif gdesc[1] == 'hz_1_2':
-                c.add(gates.H(q))
-            elif gdesc[1] == 'x_1_2':
-                c.add(gates.RX(q,theta=random_param))
-            elif gdesc[1] == 'y_1_2':
-                c.add(gates.RY(q, theta=random_param))
-            elif gdesc[1] == 'fs':
-                q1 = int(gdesc[3])
-                #theta = float(gdesc[4]) / np.pi
-                #phi = float(gdesc[5]) / np.pi
-                c.add(gates.CZ(q, q1))
+        random_param = np.random.uniform(0, 2 * np.pi)
+        if gdesc[1] == "rz":
+            phase = float(gdesc[3]) / np.pi
+            c.add(gates.RZ(q, phase))
+        elif gdesc[1] == "hz_1_2":
+            c.add(gates.H(q))
+        elif gdesc[1] == "x_1_2":
+            c.add(gates.RX(q, theta=random_param))
+        elif gdesc[1] == "y_1_2":
+            c.add(gates.RY(q, theta=random_param))
+        elif gdesc[1] == "fs":
+            q1 = int(gdesc[3])
+            # theta = float(gdesc[4]) / np.pi
+            # phi = float(gdesc[5]) / np.pi
+            c.add(gates.CZ(q, q1))
 
-
-        #c.gates = gates
-        return c
+    # c.gates = gates
+    return c

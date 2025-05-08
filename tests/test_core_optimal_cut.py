@@ -32,12 +32,13 @@ class CircuitTest(BaseTimedTestCase):
         import numpy as np
 
         import qibo
+
         qibo.set_backend("numpy")
-        
+
         circ = models.Circuit(2)
         circ.add(gates.H(0))
-        circ.add(gates.CZ(0,1))
-        circ.add(gates.RY(0,0.8))
+        circ.add(gates.CZ(0, 1))
+        circ.add(gates.RY(0, 0.8))
 
         cut = find_cut(circ, max_qubits=2, gate_cut=False)
         if cut == None:
@@ -54,29 +55,30 @@ class CircuitTest(BaseTimedTestCase):
         import numpy as np
 
         import qibo
+
         qibo.set_backend("numpy")
-        
+
         circuit = models.Circuit(4)
         circuit.add(gates.H(0))
         circuit.add(gates.H(1))
-        circuit.add(gates.CZ(0,1))
+        circuit.add(gates.CZ(0, 1))
         circuit.add(gates.H(1))
-        circuit.add(gates.CZ(1,2))
-        circuit.add(gates.RY(1,np.pi/5))
-        circuit.add(gates.RZ(2,np.pi/3))
-        circuit.add(gates.RZ(3,np.pi/2))
+        circuit.add(gates.CZ(1, 2))
+        circuit.add(gates.RY(1, np.pi / 5))
+        circuit.add(gates.RZ(2, np.pi / 3))
+        circuit.add(gates.RZ(3, np.pi / 2))
         circuit.add(gates.H(3))
-        circuit.add(gates.CZ(2,3))
+        circuit.add(gates.CZ(2, 3))
         circuit.add(gates.H(3))
 
         cut = find_cut(circuit, 3, gate_cut=False)
 
         reconstrucion = wire_cutting(circuit, cut)
-        analytical = analytical_solution(circuit,"ZZZZ")
+        analytical = analytical_solution(circuit, "ZZZZ")
 
-        if cut == [('CZ_5', 'RZ_7')] and abs(reconstrucion - analytical) < 0.2:
+        if cut == [("CZ_5", "RZ_7")] and abs(reconstrucion - analytical) < 0.2:
             self.assertTrue(True)
-            
+
         else:
             self.assertTrue(False)
 
@@ -89,27 +91,28 @@ class CircuitTest(BaseTimedTestCase):
         import numpy as np
 
         import qibo
+
         qibo.set_backend("numpy")
-        
+
         circuit = models.Circuit(4)
         circuit.add(gates.H(0))
         circuit.add(gates.H(1))
-        circuit.add(gates.CZ(0,1))
+        circuit.add(gates.CZ(0, 1))
         circuit.add(gates.H(1))
-        circuit.add(gates.CZ(1,2))
-        circuit.add(gates.RY(1,np.pi/5))
-        circuit.add(gates.RZ(2,np.pi/3))
-        circuit.add(gates.RZ(3,np.pi/2))
+        circuit.add(gates.CZ(1, 2))
+        circuit.add(gates.RY(1, np.pi / 5))
+        circuit.add(gates.RZ(2, np.pi / 3))
+        circuit.add(gates.RZ(3, np.pi / 2))
         circuit.add(gates.H(3))
-        circuit.add(gates.CZ(2,3))
+        circuit.add(gates.CZ(2, 3))
         circuit.add(gates.H(3))
 
         cut = find_cut(circuit, 2, wire_cut=False)
 
         reconstrucion = gate_cutting(dag=circuit, gates_cut=cut)
-        analytical = analytical_solution(circuit,"ZZZZ")
+        analytical = analytical_solution(circuit, "ZZZZ")
 
-        if cut == ['CZ_5'] and abs(reconstrucion - analytical) < 0.2:
+        if cut == ["CZ_5"] and abs(reconstrucion - analytical) < 0.2:
             self.assertTrue(True)
         else:
             self.assertTrue(False)
