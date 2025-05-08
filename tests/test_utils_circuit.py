@@ -52,7 +52,7 @@ class CircuitTest(BaseTimedTestCase):
         q4: ──RX─────RX──Z───Z─
         """
 
-        param = {4: [("RX",0.6),("RX",0.3)], 9: [("RX",0.2),("RX",0.8)]}
+        param = {4: [("RX", 0.6), ("RX", 0.3)], 9: [("RX", 0.2), ("RX", 0.8)]}
 
         circuit = draw_to_circuit(circuit_draw, param)
 
@@ -64,17 +64,18 @@ class CircuitTest(BaseTimedTestCase):
 
         import qibo
         from qibo import models, gates
+
         qibo.set_backend("numpy")
 
         circuit = models.Circuit(2)
         circuit.add(gates.H(0))
         circuit.add(gates.RY(1, 0.8))
         circuit.add(gates.H(1))
-        circuit.add(gates.CZ(0,1))
+        circuit.add(gates.CZ(0, 1))
         circuit.add(gates.H(1))
         circuit.add(gates.X(0))
 
-        solution = analytical_solution(circuit,"ZZ")
+        solution = analytical_solution(circuit, "ZZ")
 
         if abs(solution + 0.69) < 0.2:
             self.assertTrue(True)

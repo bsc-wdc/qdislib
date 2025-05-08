@@ -31,7 +31,7 @@ class CircuitTest(BaseTimedTestCase):
         from qiskit import QuantumCircuit
 
         qc = QuantumCircuit(2)
-        qc.h(0) 
+        qc.h(0)
         qc.cz(0, 1)
         qc.ry(0.8, 0)
 
@@ -39,15 +39,16 @@ class CircuitTest(BaseTimedTestCase):
         import numpy as np
 
         import qibo
+
         qibo.set_backend("numpy")
-        
+
         circ = models.Circuit(2)
         circ.add(gates.H(0))
-        circ.add(gates.CZ(0,1))
-        circ.add(gates.RY(0,0.8))
+        circ.add(gates.CZ(0, 1))
+        circ.add(gates.RY(0, 0.8))
 
         reconstruction = gate_cutting(qc, ["CZ_2"])
-        analytical = analytical_solution(circ,"ZZ")
+        analytical = analytical_solution(circ, "ZZ")
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
         else:
@@ -61,18 +62,19 @@ class CircuitTest(BaseTimedTestCase):
         import numpy as np
 
         import qibo
+
         qibo.set_backend("numpy")
-        
+
         circuit = models.Circuit(4)
         circuit.add(gates.H(0))
         circuit.add(gates.H(1))
-        circuit.add(gates.CZ(0,1))
+        circuit.add(gates.CZ(0, 1))
         circuit.add(gates.H(1))
-        circuit.add(gates.RY(1,np.pi/5))
-        circuit.add(gates.RZ(2,np.pi/3))
-        circuit.add(gates.RZ(3,np.pi/2))
+        circuit.add(gates.RY(1, np.pi / 5))
+        circuit.add(gates.RZ(2, np.pi / 3))
+        circuit.add(gates.RZ(3, np.pi / 2))
         circuit.add(gates.H(3))
-        circuit.add(gates.CZ(2,3))
+        circuit.add(gates.CZ(2, 3))
         circuit.add(gates.H(3))
 
         reconstruction = gate_cutting(circuit, ["CZ_3"])
