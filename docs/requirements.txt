@@ -20,3 +20,4 @@ sphinx-autodoc-typehints
 sphinx-notfound-page
 sphinxemoji
 sphinx-version-warning
+pystemmer<3.0.0
