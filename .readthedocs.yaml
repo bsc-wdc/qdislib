@@ -15,9 +15,9 @@ build:
 sphinx:
    configuration: docs/source/conf.py
 
-# # Build formats apart from html
-# formats:
-#   - pdf
+# Build formats apart from html
+formats:
+  - pdf
 
 # Python details
 python:
