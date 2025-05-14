@@ -16,3 +16,4 @@ qibo>=0.1.12
 networkx>=3.1
 matplotlib>=3.4.3
 pymetis>=2023.1
+scikit-learn

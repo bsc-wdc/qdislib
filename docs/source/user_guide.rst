@@ -13,7 +13,7 @@ Below is a basic example demonstrating how to construct a quantum circuit and ap
 .. code-block:: python
 
     from qibo import models, gates
-    import qd as qd  # qd is Qdislib
+    import Qdislib as qd  # qd is Qdislib
 
     # Build a 10-qubit circuit
     def entire_circuit():

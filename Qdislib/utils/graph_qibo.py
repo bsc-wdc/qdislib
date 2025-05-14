@@ -30,6 +30,7 @@ import numpy as np
 import typing
 from qibo import models
 from qibo import gates
+import numpy as np
 
 try:
     from pycompss.api.task import task

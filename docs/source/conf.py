@@ -157,8 +157,8 @@ html_static_path = ["_static"]
 
 html_css_files = ["custom.css"]
 
-html_logo = "../logo.png"
-html_favicon = "../logo.png"
+html_logo = '../logo.png'
+html_favicon = '../logo_favicon.png'
 
 # Material theme options (see theme.conf for more information)
 html_theme_options = {
