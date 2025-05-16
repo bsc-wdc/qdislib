@@ -67,7 +67,7 @@ except ImportError:
     COLLECTION_IN = COLLECTION_OUT = None
     pycompss_available = False
 
-import Qdislib
+
 from Qdislib.utils.graph_qibo import _update_qubits
 from Qdislib.utils.graph_qibo import _remove_red_edges
 from Qdislib.utils.graph_qibo import (
@@ -120,6 +120,7 @@ def gate_cutting(
     gpu_min_qubits: typing.Optional[int] = None,
     qpu: bool = False,
     qpu_dict: typing.Optional[dict] = None,
+    verbose: bool = False
 ):
     """
     Apply gate cutting to a quantum circuit to enable distributed smaller executions of subcircuits.
@@ -158,8 +159,8 @@ def gate_cutting(
     qpu_dict : dict, optional
         Dictionary specifying QPU backends and their maximum supported qubits.
         Example: `{"IBM_Quantum": 153, "MN_Ona": 5}`.
-    max_time_ibm : int, default=1800
-        Maximum allowed execution time (in seconds) for IBM Quantum batches.
+    verbose : bool, default=False
+        Receive information about middle steps
 
     Returns
     -------
@@ -249,10 +250,10 @@ def gate_cutting(
                     qpu_dict=qpu_dict,
                     batch=batch,
                     backend=backend,
+                    verbose=verbose
                 )
                 graphs = _sum_results(graphs)
-                results.append(graphs)  # 1/(2**len(tmp_cuts))*sum(graphs)
-                # subcircuits.append(subcircuit)
+                results.append(graphs)
             else:
                 _max_qubit = _max_qubits_graph(s)
                 s_new, highest_qubit = _update_qubits(s)
@@ -279,12 +280,13 @@ def gate_cutting(
                     )
                 results.append(expected_value)
         if sync:
-            results = compss_wait_on(results)
-        # Consider gate cutting within wire cutting:
-        # if gate_cutting:
-        #     final_recons = 1/2*sum(results)
-        # else:
+            results = compss_wait_on(results)          
         final_recons = 1 / (2 ** len(gates_cut)) * math.prod(results)
+        if verbose:
+            print("Multiply top and bottom expected value of subcircuits")
+            for idx, el in enumerate(results,start=1):
+                print(f"Subcircuit {idx} expected value: {el}")
+            print(f"Reconstructed original circuit expected value: {final_recons}")
         return final_recons
     else:
         # num_qubits = _max_qubit(dag)
@@ -300,10 +302,16 @@ def gate_cutting(
                 qpu_dict=qpu_dict,
                 batch=batch,
                 backend=backend,
+                verbose=verbose
             )
             if sync:
                 results = compss_wait_on(results)
             final_recons = 1 / (2 ** len(gates_cut)) * sum(results)
+            if verbose:
+                print("Multiply top and bottom expected value of subcircuits")
+                for idx, el in enumerate(results,start=1):
+                    print(f"Subcircuit {idx} expected value: {el}")
+                print(f"Reconstructed original circuit expected value: {final_recons}")
         else:
             _max_qubit = _max_qubits_graph(dag)
             s_new, highest_qubit = _update_qubits(dag)
@@ -326,6 +334,10 @@ def gate_cutting(
                 )
             else:
                 final_recons = _expec_value_qiskit(subcirc, shots, method=method)
+            if sync:
+                final_recons = compss_wait_on(final_recons)
+            if verbose:
+                print(f"No CUT performed, expected value circuit: {final_recons}")
         return final_recons
 
 
@@ -334,31 +346,21 @@ def _generate_cut(dag, gates_cut):
     dag_copy = _remove_red_edges(dag_copy)
     for index, gate_name in enumerate(gates_cut, start=1):
         target_qubits = dag_copy.nodes[gate_name]["qubits"]
-        # Find predecessor node with qubit 1
         pred_0 = find_nodes_with_qubit(
             dag_copy, gate_name, qubit=target_qubits[0], direction="predecessor"
         )
 
-        # Find predecessor node with qubit 2
         pred_1 = find_nodes_with_qubit(
             dag_copy, gate_name, qubit=target_qubits[1], direction="predecessor"
         )
 
-        # Find successor node with qubit 1
         succ_0 = find_nodes_with_qubit(
             dag_copy, gate_name, qubit=target_qubits[0], direction="successor"
         )
 
-        # Find successor node with qubit 2
         succ_1 = find_nodes_with_qubit(
             dag_copy, gate_name, qubit=target_qubits[1], direction="successor"
         )
-
-        # Output the results
-        # print(f"Predecessor nodes with qubit {target_qubits[0]}: {pred_0}")
-        # print(f"Predecessor nodes with qubit {target_qubits[1]}: {pred_1}")
-        # print(f"Successor nodes with qubit {target_qubits[0]}: {succ_0}")
-        # print(f"Successor nodes with qubit {target_qubits[1]}: {succ_1}")
 
         dag_copy.remove_node(gate_name)
 
@@ -558,17 +560,17 @@ def _change_sign_gate_cutting(expectation_value, index):
     expectation_value = math.prod(expectation_value)
     number = index
 
-    _change_sign = False
+    change_sign = False
 
     while number != 0:
         digit = number % 6  # Get the last digit
         if digit in {3, 5}:  # Check if the digit is 3, 5, or 7
-            _change_sign = not _change_sign  # Flip the sign change flag
+            change_sign = not change_sign  # Flip the sign change flag
         number //= 6  # Move to the next digit
-    # print(_change_sign)
+    # print(change_sign)
 
-    # If _change_sign is True, we flip the sign of the original number
-    if _change_sign:
+    # If change_sign is True, we flip the sign of the original number
+    if change_sign:
         return -expectation_value
     else:
         return expectation_value
@@ -585,6 +587,7 @@ def _execute_gate_cutting(
     qpu_dict=None,
     batch=None,
     backend=None,
+    verbose=False
 ):
     new_dag = _generate_cut(dag, gates_cut)
 
@@ -609,7 +612,6 @@ def _execute_gate_cutting(
 
     reconstruction = []
     for index in range(6 ** len(gates_cut)):
-
         copy_graph = new_dag.copy()
         copy_graph = _remove_red_edges(copy_graph)
 
@@ -634,6 +636,8 @@ def _execute_gate_cutting(
             # if s.nodes():
             _max_qubit = max_qubit_list[i]
             s_new, highest_qubit = _update_qubits(s)
+            if verbose:
+                print(f"SUBCIRCUIT {index*2+i}")
             if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= _max_qubit:
                 subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
             else:
@@ -654,7 +658,7 @@ def _execute_gate_cutting(
                     subcirc, shots=shots, batch=batch, backend=backend
                 )
             else:
-                exp = _expec_value_qiskit(subcirc, shots=shots, method=method)
+                exp = _expec_value_qiskit(subcirc, shots=shots, method=method, verbose=verbose)
             # print(exp)
             exp_values.append(exp)
 
@@ -754,7 +758,7 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
 @constraint(processors=[{"processorType": "CPU", "computingUnits": "1"}])
 @task(returns=1)
-def _expec_value_qiskit(qc, shots=1024, method="automatic"):
+def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
 
     if qc is None:
         return None
@@ -791,9 +795,11 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic"):
 
     try:
         subprocess.check_output("nvidia-smi")
-        print("Nvidia GPU detected!")
+        if verbose:
+            print("Nvidia GPU detected!")
     except:
-        print("No Nvidia GPU in system!")
+        if verbose:
+            print("No Nvidia GPU in system!")
 
     """target_gpus = [os.environ["COMPSS_BINDED_GPUS"]]
     print("TGPU ", target_gpus)
@@ -808,7 +814,9 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic"):
     # print('No Nvidia GPU in system!')
     # sampler = BackendSamplerV2(backend = AerSimulator())
     # pass_manager = generate_preset_pass_manager(0, AerSimulator())
-    print(method)
+    if verbose:
+        print("Simulation using CPUs")
+        print("Method: ",method)
     simulator = AerSimulator(
         device="CPU",
         method=method,
@@ -827,12 +835,14 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic"):
     # job = sampler.run([isa_circuit], shots=shots)
     job = simulator.run(qc, shots=shots)
     result = job.result()
-    print(f"backend: {result.backend_name}")
+    if verbose:
+        print(f"Backend: {result.backend_name}")
     # pub_result = result[0]
     # print("METADATA ", result)
     # counts = pub_result.data.meas.get_counts()
     counts = result.get_counts()
-    print(counts)
+    if verbose:
+        print(counts)
     expectation_value = 0
     for key, value in counts.items():
         contribution = 1
@@ -846,7 +856,9 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic"):
 
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
-    # print(expectation_value)
+    if verbose:
+        print("Expected Value: ", expectation_value)
+        print("\n")
     return expectation_value
 
 
@@ -1122,17 +1134,25 @@ def _check_ibm_qc():
 
     proxies = {"urls": urls}
 
-    token = os.environ.get("IBM_QUANTUM_TOKEN")
-    instance = os.environ.get("IBM_QUANTUM_INSTANCE")
-    channel = os.environ.get("IBM_QUANTUM_CHANNEL")
+    token = os.environ.get("IBM_QUANTUM_TOKEN", "")
+    instance = os.environ.get("IBM_QUANTUM_INSTANCE","")
+    channel = os.environ.get("IBM_QUANTUM_CHANNEL", "")
     max_time_ibm = os.environ.get("IBM_QUANTUM_MAX_TIME", 60)
+    quantum_chip = os.environ.get("IBM_QPU_NAME", "")
 
-    service = QiskitRuntimeService(
-        channel=channel, token=token, instance=instance, proxies=proxies
-    )
+    if channel == "ibm_quantum":
+        service = QiskitRuntimeService(
+            channel=channel, token=token, proxies=proxies
+        )
+    else:
+        service = QiskitRuntimeService(
+            token=token, instance=instance, proxies=proxies
+        )
 
-    # backend = service.least_busy(operational=True, simulator=False)
-    backend = service.backend("ibm_marrakesh")
+    if quantum_chip != "":
+        backend = service.backend(quantum_chip)
+    else:
+        backend = service.least_busy(operational=True, simulator=False)
 
     batch = Batch(backend=backend, max_time=int(max_time_ibm))
     print(batch)
@@ -1223,3 +1243,14 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
                 raise ValueError
             subcircuits.append(subcirc)
     return subcircuits
+
+def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts):
+    results = []
+    for index, exp_values in enumerate(expected_values):
+        result = _change_sign_gate_cutting(exp_values, index)
+        results.append(result)
+    
+    results = compss_wait_on(results)
+    final_recons = 1 / (2 ** number_cuts) * sum(results)
+    return final_recons
+

@@ -89,8 +89,7 @@ def wire_cutting(
     backend: str = "numpy",
     qpu: str = None,
 ):
-    """
-    Apply wire cutting to a quantum circuit to simplify its structure for distributed or hardware-constrained execution of subcircuits.
+    """Apply wire cutting to a quantum circuit to simplify its structure for distributed or hardware-constrained execution of subcircuits.
 
     Wire cutting removes specific connections (wires) between qubits, splitting the circuit into independent
     subcircuits. The function then reconstructs the expected value of the original circuit by combining the results
@@ -198,10 +197,6 @@ def wire_cutting(
                 results.append(expected_value)
         if sync:
             results = compss_wait_on(results)
-        # Consider gate cutting within wire cutting:
-        # if gate_cutting:
-        #     final_recons = 1/2*sum(results)
-        # else:
         final_recons = 1 / (2 ** len(cut)) * math.prod(results)
         return final_recons
     else:
