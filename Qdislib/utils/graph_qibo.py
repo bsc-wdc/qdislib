@@ -293,9 +293,9 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
             continue
 
         if gate_name == "MEASURE":
-            # qubits = node_data["qubits"]
-            # circuit.add(gates.M(*qubits, collapse=True))
-            # circuit.add(gates.RX(*qubits, theta=np.pi * output.symbols[0] / 4))
+            qubits = node_data["qubits"]
+            output = circuit.add(gates.M(*qubits, collapse=True))
+            circuit.add(gates.RX(*qubits, theta=np.pi * output.symbols[0] / 4))
             continue
 
         # Get the qubits this gate acts on

@@ -193,7 +193,7 @@ def wire_cutting(
                         subcirc, shots, method=backend
                     )
                 else:
-                    expected_value = _execute_subcircuits(subcirc, shots, backend)
+                    expected_value = _expec_value_qibo(subcirc, shots, backend)
                 results.append(expected_value)
         if sync:
             results = compss_wait_on(results)
@@ -213,7 +213,7 @@ def wire_cutting(
             if qpu == "MN_Ona":
                 final_recons = _expec_value_qibo_qpu(subcirc, shots, method=backend)
             else:
-                final_recons = _execute_subcircuits(subcirc, shots, backend)
+                final_recons = _expec_value_qibo(subcirc, shots, backend)
         return final_recons
 
 
@@ -324,7 +324,7 @@ def _generate_wire_cutting(
             if qpu == "MN_Ona":
                 expected_value = _expec_value_qibo_qpu(subcirc, shots, method=backend)
             else:
-                expected_value = _execute_subcircuits(subcirc, shots, backend)
+                expected_value = _expec_value_qibo(subcirc, shots, backend)
             exp_value.append(expected_value)
         exp_value = _change_sign(exp_value, index)
         reconstruction.append(exp_value)
@@ -464,15 +464,18 @@ def _sum_results(lst: typing.List[int]) -> int:
 
 
 @task(returns=1)
-def _execute_subcircuits(subcirc: typing.Any, shots=1024, backend="numpy") -> float:
+def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float:
     """Execute the given circuit.
 
     :param subcirc: Circuit to execute.
     :raises ValueError: If there is an unsupported observable.
     :return: The circuit expected value.
     """
-    tmp = subcirc[1]
-    subcirc = subcirc[0]
+    if type(subcirc) != qibo.models.circuit.Circuit:
+        tmp = subcirc[1]
+        subcirc = subcirc[0]
+    else:
+        tmp = None
 
     # print(subcirc.draw())
     if tmp:
@@ -790,3 +793,14 @@ def _generate_wire_cutting_subcircuits(
                 raise ValueError
             subcircuits.append(subcirc)
     return subcircuits
+
+def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts):
+    expected_values = [expected_values[i:i+2] for i in range(0, len(expected_values), 2)]
+    results = []
+    for index, exp_values in enumerate(expected_values):
+        result = _change_sign(exp_values, index)
+        results.append(result)
+    
+    results = compss_wait_on(results)
+    final_recons = 1 / (2 ** number_cuts) * sum(results)
+    return final_recons

@@ -345,7 +345,9 @@ def _dag_to_circuit_qiskit_subcircuits(dag, num_qubits):
                 clbit = qubits
                 tmp = getattr(circuit, gate_class)
                 tmp(*qubits, *clbit)
-                circuit.x(*qubits).c_if(*qubits, *clbit)
+                #circuit.x(*qubits).c_if(*qubits, *clbit)
+                with circuit.if_test((*qubits, *clbit)):
+                    circuit.x(*qubits)
             else:
                 tmp = getattr(circuit, gate_class)
                 tmp(*qubits)

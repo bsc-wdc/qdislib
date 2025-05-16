@@ -763,8 +763,12 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
     if qc is None:
         return None
 
-    tmp = qc[1]
-    subcirc = qc[0]
+    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
+        tmp = qc[1]
+        subcirc = qc[0]
+    else:
+        tmp = False
+        subcirc = qc
 
     # print(subcirc.draw())
     if tmp:
@@ -783,7 +787,7 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
     observables = "".join(observables)
     # print(observables)
 
-    qc, _ = qc
+    qc = subcirc
     num_qubits = qc.num_qubits
     observable = SparsePauliOp(observables)
     # params = [0.1] * qc.num_parameters
@@ -1245,6 +1249,7 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     return subcircuits
 
 def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts):
+    expected_values = [expected_values[i:i+2] for i in range(0, len(expected_values), 2)]
     results = []
     for index, exp_values in enumerate(expected_values):
         result = _change_sign_gate_cutting(exp_values, index)
