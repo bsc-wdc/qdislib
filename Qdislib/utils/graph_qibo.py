@@ -38,7 +38,7 @@ try:
 
     pycompss_available = True
 except ImportError:
-    print("NO PYCOMPSS AVAILABLE")
+    print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
 
     # Define dummy decorators and functions to avoid breaking the code
     def task(*args, **kwargs):

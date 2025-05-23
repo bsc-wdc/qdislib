@@ -40,9 +40,8 @@ try:
 
     pycompss_available = True
 except ImportError:
-    print("NO PYCOMPSS AVAILABLE")
+    print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
 
-    # Define dummy decorators and functions to avoid breaking the code
     def task(*args, **kwargs):
         def decorator(func):
             return func
@@ -87,7 +86,7 @@ from Qdislib.utils.graph_qibo import (
     _dag_to_circuit_qibo_subcircuits,
 )
 from Qdislib.core.cutting_algorithms.wire_cutting import _sum_results
-from Qdislib.core.find_cut.find_cut import find_nodes_with_qubit
+from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
 
 from qiskit_ibm_runtime import (
     QiskitRuntimeService,
@@ -346,19 +345,19 @@ def _generate_cut(dag, gates_cut):
     dag_copy = _remove_red_edges(dag_copy)
     for index, gate_name in enumerate(gates_cut, start=1):
         target_qubits = dag_copy.nodes[gate_name]["qubits"]
-        pred_0 = find_nodes_with_qubit(
+        pred_0 = _find_nodes_with_qubit(
             dag_copy, gate_name, qubit=target_qubits[0], direction="predecessor"
         )
 
-        pred_1 = find_nodes_with_qubit(
+        pred_1 = _find_nodes_with_qubit(
             dag_copy, gate_name, qubit=target_qubits[1], direction="predecessor"
         )
 
-        succ_0 = find_nodes_with_qubit(
+        succ_0 = _find_nodes_with_qubit(
             dag_copy, gate_name, qubit=target_qubits[0], direction="successor"
         )
 
-        succ_1 = find_nodes_with_qubit(
+        succ_1 = _find_nodes_with_qubit(
             dag_copy, gate_name, qubit=target_qubits[1], direction="successor"
         )
 
@@ -1142,7 +1141,7 @@ def _check_ibm_qc():
     instance = os.environ.get("IBM_QUANTUM_INSTANCE","")
     channel = os.environ.get("IBM_QUANTUM_CHANNEL", "")
     max_time_ibm = os.environ.get("IBM_QUANTUM_MAX_TIME", 60)
-    quantum_chip = os.environ.get("IBM_QPU_NAME", "")
+    quantum_chip = os.environ.get("IBM_QUANTUM_QPU_NAME", "")
 
     if channel == "ibm_quantum":
         service = QiskitRuntimeService(
