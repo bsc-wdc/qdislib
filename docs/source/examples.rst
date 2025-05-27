@@ -2,7 +2,11 @@ Examples
 ========
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :caption: Contents:
 
    notebooks/Qdislib_Notebook
+   notebooks/Qdislib_Hello_World
+   notebooks/Qdislib_IBM_QPU
+   
+

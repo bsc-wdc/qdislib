@@ -543,7 +543,6 @@ def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):
         else:
             raise TypeError
 
-    # updated_dag = _remove_red_edges(updated_dag)
     for i, c in enumerate(nx.connected_components(updated_dag.to_undirected())):
         new_subgraph = updated_dag.subgraph(c).copy()
         graph_components[i].add_nodes_from(new_subgraph.nodes(data=True))
@@ -563,10 +562,9 @@ def _change_sign_gate_cutting(expectation_value, index):
 
     while number != 0:
         digit = number % 6  # Get the last digit
-        if digit in {3, 5}:  # Check if the digit is 3, 5, or 7
+        if digit in {3, 5}:  # Check if the digit is 3, 5
             change_sign = not change_sign  # Flip the sign change flag
         number //= 6  # Move to the next digit
-    # print(change_sign)
 
     # If change_sign is True, we flip the sign of the original number
     if change_sign:
@@ -599,14 +597,7 @@ def _execute_gate_cutting(
     for s in S:
         _max_qubit = _max_qubits_graph(s)
         max_qubit_list.append(_max_qubit)
-    # plot_dag(new_dag)
-
-    """list_dags = []
-    for i in range(6**len(gates_cut)):
-        list_dags.append(new_dag.copy())"""
-
-    # print(list_dags)
-
+    
     bool_mult_qpu = True
 
     reconstruction = []
@@ -619,20 +610,11 @@ def _execute_gate_cutting(
         graph_components = []
         for i in range(num_components):
             graph_components.append(nx.DiGraph().copy())
-        # print(len(graph_components))
 
         graph = _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
-        # graph = compss_wait_on(graph)
-        # plot_dag(graph)
-
-        # for i in graph_components:
-        #    pass
-        # plot_dag(i)
 
         exp_values = []
         for i, s in enumerate(graph_components):
-            # print(s)
-            # if s.nodes():
             _max_qubit = max_qubit_list[i]
             s_new, highest_qubit = _update_qubits(s)
             if verbose:
@@ -641,9 +623,6 @@ def _execute_gate_cutting(
                 subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
             else:
                 subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-            # subcircuits.append(subcirc)
-            # subcirc = compss_wait_on(subcirc)
-            # print(subcirc.draw())
             if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= _max_qubit:
                 exp = _expec_value_qibo_qpu(subcirc, shots=shots, method=method)
             elif gpu and gpu_min_qubits <= _max_qubit and _max_qubit <= 30:
@@ -658,11 +637,8 @@ def _execute_gate_cutting(
                 )
             else:
                 exp = _expec_value_qiskit(subcirc, shots=shots, method=method, verbose=verbose)
-            # print(exp)
             exp_values.append(exp)
 
-        # exp_values = compss_wait_on(exp_values)
-        # print(exp_values)
         exp = _change_sign_gate_cutting(exp_values, index)
         reconstruction.append(exp)
 
@@ -670,12 +646,7 @@ def _execute_gate_cutting(
             bool_mult_qpu = False
         else:
             bool_mult_qpu = True
-        """if index % 5000 == 0:
-            compss_barrier()"""
 
-    # print(reconstruction)
-    # if subcircuits is not []:
-    #    subcircuits = [item for sublist in subcircuits for item in sublist if item is not None]
     return reconstruction
 
 
@@ -688,7 +659,6 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     tmp = subcirc[1]
     subcirc = subcirc[0]
 
-    # print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -699,16 +669,9 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
         for element in obs_I:
             observables[element] = "I"
 
-    # print(obs_I)
-
     subcirc.add(gates.M(*range(subcirc.nqubits)))
 
     observables = "".join(observables)
-    # print(observables)
-
-    """counter = 1  # Initialize counter
-    while os.path.exists(f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{counter}.pkl"):  # Check if file already exists
-        counter += 1"""
 
     unique_code = str(time.time_ns())
 
@@ -735,7 +698,6 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
     freq = result.counts()
 
-    # os.remove(circuit_filename)  # Remove circuit file after processing
     os.remove(result_filename)  # Remove result file after reading
 
     expectation_value = 0
@@ -751,7 +713,6 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
-    # print(expectation_value)
     return expectation_value
 
 
@@ -769,7 +730,6 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
         tmp = False
         subcirc = qc
 
-    # print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -781,16 +741,8 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
         for element in obs_I:
             observables[element] = "I"
 
-    # print(obs_I)
-
     observables = "".join(observables)
-    # print(observables)
-
     qc = subcirc
-    num_qubits = qc.num_qubits
-    observable = SparsePauliOp(observables)
-    # params = [0.1] * qc.num_parameters
-
     qc.measure_all()
 
     import subprocess
@@ -804,19 +756,6 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
         if verbose:
             print("No Nvidia GPU in system!")
 
-    """target_gpus = [os.environ["COMPSS_BINDED_GPUS"]]
-    print("TGPU ", target_gpus)
-    print("CUDA ", [os.environ["CUDA_VISIBLE_DEVICES"]])
-    print("DEVICES ", AerSimulator().available_devices())
-    print("METHODS ", AerSimulator().available_methods())"""
-
-    # sampler = BackendSamplerV2(backend = AerSimulator(method='statevector',device='GPU', cuStateVec_enable=True, batched_shots_gpu=True))
-    # pass_manager = generate_preset_pass_manager(0, AerSimulator(method='statevector',device='GPU', cuStateVec_enable=True, batched_shots_gpu=True))
-    # simulator = AerSimulator(device='GPU', method=method, cuStateVec_enable=True)
-    # except Exception: # this command not being found can raise quite a few different errors depending on the configuration
-    # print('No Nvidia GPU in system!')
-    # sampler = BackendSamplerV2(backend = AerSimulator())
-    # pass_manager = generate_preset_pass_manager(0, AerSimulator())
     if verbose:
         print("Simulation using CPUs")
         print("Method: ",method)
@@ -828,24 +767,15 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
         mps_parallel_threshold=1,
     )
 
-    # circ = transpile(qc, simulator)
-
-    # exact_estimator = Estimator()
-    # The circuit needs to be transpiled to the AerSimulator target
-
-    # isa_circuit = pass_manager.run(qc)
-    # pub = (isa_circuit, observable)
-    # job = sampler.run([isa_circuit], shots=shots)
     job = simulator.run(qc, shots=shots)
     result = job.result()
     if verbose:
         print(f"Backend: {result.backend_name}")
-    # pub_result = result[0]
-    # print("METADATA ", result)
-    # counts = pub_result.data.meas.get_counts()
+
     counts = result.get_counts()
     if verbose:
         print(counts)
+    
     expectation_value = 0
     for key, value in counts.items():
         contribution = 1
@@ -876,7 +806,6 @@ def _expec_value_qiskit_qpu(
     tmp = qc[1]
     subcirc = qc[0]
 
-    # print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -888,16 +817,9 @@ def _expec_value_qiskit_qpu(
         for element in obs_I:
             observables[element] = "I"
 
-    # print(obs_I)
-
     observables = "".join(observables)
-    # print(observables)
 
     qc, _ = qc
-    num_qubits = qc.num_qubits
-    observable = SparsePauliOp(observables)
-    # params = [0.1] * qc.num_parameters
-
     qc.measure_all()
 
     pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
@@ -943,7 +865,6 @@ def _expec_value_qiskit_gpu_implements(qc, shots=1024, method="automatic"):
     tmp = qc[1]
     subcirc = qc[0]
 
-    # print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -955,16 +876,9 @@ def _expec_value_qiskit_gpu_implements(qc, shots=1024, method="automatic"):
         for element in obs_I:
             observables[element] = "I"
 
-    # print(obs_I)
-
     observables = "".join(observables)
-    # print(observables)
 
     qc, _ = qc
-    num_qubits = qc.num_qubits
-    observable = SparsePauliOp(observables)
-    # params = [0.1] * qc.num_parameters
-
     qc.measure_all()
 
     import subprocess
@@ -975,38 +889,19 @@ def _expec_value_qiskit_gpu_implements(qc, shots=1024, method="automatic"):
         print("Nvidia GPU detected!")
     except (
         Exception
-    ):  # this command not being found can raise quite a few different errors depending on the configuration
+    ):
         print("No Nvidia GPU in system!")
 
-    target_gpus = [os.environ["COMPSS_BINDED_GPUS"]]
-    print("TGPU ", target_gpus)
-    print("CUDA ", [os.environ["CUDA_VISIBLE_DEVICES"]])
-    print("DEVICES ", AerSimulator().available_devices())
-    print("METHODS ", AerSimulator().available_methods())
-    # sampler = BackendSamplerV2(backend = AerSimulator(method='statevector',device='GPU', cuStateVec_enable=True, batched_shots_gpu=True))
-    # pass_manager = generate_preset_pass_manager(0, AerSimulator(method='statevector',device='GPU', cuStateVec_enable=True, batched_shots_gpu=True))
     simulator = AerSimulator(device="GPU", method=method, cuStateVec_enable=True)
-
-    # sampler = BackendSamplerV2(backend = AerSimulator())
-    # pass_manager = generate_preset_pass_manager(0, AerSimulator())
-    # simulator = AerSimulator(device='CPU', method=method)
 
     circ = transpile(qc, simulator)
 
-    # exact_estimator = Estimator()
-    # The circuit needs to be transpiled to the AerSimulator target
-
-    # isa_circuit = pass_manager.run(qc)
-    # pub = (isa_circuit, observable)
-    # job = sampler.run([isa_circuit], shots=shots)
     job = simulator.run(circ, shots=shots)
     result = job.result()
-    # print(f'backend: {result.backend_name}')
-    # pub_result = result[0]
-    # print("METADATA ", result)
-    # counts = pub_result.data.meas.get_counts()
+
     counts = result.get_counts()
     print(counts)
+
     expectation_value = 0
     for key, value in counts.items():
         contribution = 1
@@ -1020,7 +915,6 @@ def _expec_value_qiskit_gpu_implements(qc, shots=1024, method="automatic"):
 
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
-    # print(expectation_value)
     return expectation_value
 
 
@@ -1038,7 +932,6 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
     tmp = qc[1]
     subcirc = qc[0]
 
-    # print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -1050,16 +943,8 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
         for element in obs_I:
             observables[element] = "I"
 
-    # print(obs_I)
-
     observables = "".join(observables)
-    # print(observables)
-
     qc, _ = qc
-    num_qubits = qc.num_qubits
-    observable = SparsePauliOp(observables)
-    # params = [0.1] * qc.num_parameters
-
     qc.measure_all()
 
     import subprocess
@@ -1070,38 +955,19 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
         print("Nvidia GPU detected!")
     except (
         Exception
-    ):  # this command not being found can raise quite a few different errors depending on the configuration
+    ):
         print("No Nvidia GPU in system!")
 
-    target_gpus = [os.environ["COMPSS_BINDED_GPUS"]]
-    print("TGPU ", target_gpus)
-    print("CUDA ", [os.environ["CUDA_VISIBLE_DEVICES"]])
-    print("DEVICES ", AerSimulator().available_devices())
-    print("METHODS ", AerSimulator().available_methods())
-    # sampler = BackendSamplerV2(backend = AerSimulator(method='statevector',device='GPU', cuStateVec_enable=True, batched_shots_gpu=True))
-    # pass_manager = generate_preset_pass_manager(0, AerSimulator(method='statevector',device='GPU', cuStateVec_enable=True, batched_shots_gpu=True))
     simulator = AerSimulator(device="GPU", method=method, cuStateVec_enable=True)
-
-    # sampler = BackendSamplerV2(backend = AerSimulator())
-    # pass_manager = generate_preset_pass_manager(0, AerSimulator())
-    # simulator = AerSimulator(device='CPU', method=method)
 
     circ = transpile(qc, simulator)
 
-    # exact_estimator = Estimator()
-    # The circuit needs to be transpiled to the AerSimulator target
-
-    # isa_circuit = pass_manager.run(qc)
-    # pub = (isa_circuit, observable)
-    # job = sampler.run([isa_circuit], shots=shots)
     job = simulator.run(circ, shots=shots)
     result = job.result()
-    # print(f'backend: {result.backend_name}')
-    # pub_result = result[0]
-    # print("METADATA ", result)
-    # counts = pub_result.data.meas.get_counts()
+    
     counts = result.get_counts()
     print(counts)
+
     expectation_value = 0
     for key, value in counts.items():
         contribution = 1
@@ -1115,7 +981,6 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
 
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
-    # print(expectation_value)
     return expectation_value
 
 
@@ -1143,19 +1008,25 @@ def _check_ibm_qc():
     max_time_ibm = os.environ.get("IBM_QUANTUM_MAX_TIME", 60)
     quantum_chip = os.environ.get("IBM_QUANTUM_QPU_NAME", "")
 
+    print(quantum_chip)
+    
     if channel == "ibm_quantum":
         service = QiskitRuntimeService(
             channel=channel, token=token, proxies=proxies
         )
-    else:
+    elif channel == "ibm_cloud":
         service = QiskitRuntimeService(
-            token=token, instance=instance, proxies=proxies
+            channel=channel,token=token, instance=instance #, proxies=proxies
         )
+    else:
+        raise ValueError
 
     if quantum_chip != "":
         backend = service.backend(quantum_chip)
     else:
         backend = service.least_busy(operational=True, simulator=False)
+
+    print(backend.operation_names)
 
     batch = Batch(backend=backend, max_time=int(max_time_ibm))
     print(batch)
@@ -1164,7 +1035,55 @@ def _check_ibm_qc():
 
 def gate_cutting_subcircuits(
     dag: typing.Any, gates_cut: typing.List[typing.Any], software="qiskit"
-):
+): 
+    """
+    Partition a quantum circuit into subcircuits via gate cutting.
+
+    This function takes a quantum circuit (or its DAG representation) and a list of gates to cut.
+    It returns a set of subcircuits resulting from the cutting process. The function supports
+    circuits defined using either Qiskit or Qibo.
+
+    Parameters
+    ----------
+    dag : Union[qiskit.QuantumCircuit, qibo.models.Circuit, nx.Graph]
+        The input quantum circuit. It can be a Qiskit `QuantumCircuit`, a Qibo `Circuit`,
+        or a preprocessed DAG/networkx graph representation.
+
+    gates_cut : List[Any]
+        A list of gate identifiers (typically node references) to be used as cutting points
+        in the circuit. These gates are where the circuit will be split into subcircuits.
+
+    software : str, optional
+        The target software framework for the subcircuit output. Options are:
+        - `"qiskit"` (default): returns subcircuits as Qiskit `QuantumCircuit` objects
+        - `"qibo"`: returns subcircuits as Qibo `Circuit` objects
+
+    Returns
+    -------
+    Union[List[Any], Any]
+        A list of subcircuits needed to recostruct the original expected value. The type of each subcircuit depends on the `software` argument.
+
+    Raises
+    ------
+    ValueError
+        If an unsupported `software` value is provided.
+
+    Notes
+    -----
+    - If the input circuit contains multiple connected components, each component is processed separately.
+    - If no cuts are specified, the entire circuit is returned as one subcircuit after qubit reindexing.
+    - Internally, Qiskit and Qibo circuits are converted to DAGs using appropriate helper functions.
+    - This function relies on internal utilities such as `_execute_gate_cutting_subcircuits`, `_update_qubits`,
+      `_dag_to_circuit_qiskit_subcircuits`, and `_dag_to_circuit_qibo_subcircuits`.
+
+    Examples
+    --------
+    >>> qc = QuantumCircuit(2)
+    >>> qc.cx(0, 1)
+    >>> subcircuits = gate_cutting_subcircuits(qc, gates_cut=["CX_1"])
+    >>> for subcircuit in subcircuits:
+    >>>     print(subcircuit)
+    """
     if type(dag) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         dag = circuit_qiskit_to_dag(dag)
     elif type(dag) == qibo.models.Circuit:
@@ -1248,6 +1167,50 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     return subcircuits
 
 def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts):
+    """
+    Reconstruct the final expectation value from subcircuit results after gate cutting.
+
+    This function performs post-processing of expectation values obtained from
+    individually simulated or measured subcircuits. It applies the gate-cutting
+    sign correction and computes the final observable estimate according to the
+    number of cuts made in the original quantum circuit.
+
+    Parameters
+    ----------
+    expected_values : List[float]
+        A flat list of raw expectation values resulting from the execution
+        of subcircuits. It is expected to be of even length, as values are
+        grouped in pairs corresponding to measurement outcomes.
+
+    number_cuts : int
+        The total number of gate cuts performed in the original circuit.
+        This determines the normalization factor used in the final result.
+
+    Returns
+    -------
+    float
+        The final reconstructed expectation value of the original circuit,
+        computed as the sum of sign-adjusted subcircuit values divided by
+        2 raised to the power of the number of cuts.
+
+    Notes
+    -----
+    - The `expected_values` list is divided into pairs, and each pair is processed
+      using the `_change_sign_gate_cutting` function, which applies sign corrections
+      based on the cut structure.
+    - The computation uses `compss_wait_on()` to ensure all results are synchronized
+      before aggregation. This is relevant in distributed or parallel execution contexts (using PyCOMPSs).
+    - The final result scales by a factor of `1 / (2 ** number_cuts)`, consistent with
+      the probabilistic interpretation of cut circuits.
+
+    Examples
+    --------
+    >>> raw_values = [0.5, -0.5, 0.3, -0.3, 0.5, -0.5, 0.3, -0.3, 0.5, -0.5, 0.3, -0.3]
+    >>> number_of_cuts = 1
+    >>> reconstructed_value = gate_cutting_subcircuit_reconstruction(raw_values, number_of_cuts)
+    >>> print(reconstructed_value)
+    0.0
+    """
     expected_values = [expected_values[i:i+2] for i in range(0, len(expected_values), 2)]
     results = []
     for index, exp_values in enumerate(expected_values):

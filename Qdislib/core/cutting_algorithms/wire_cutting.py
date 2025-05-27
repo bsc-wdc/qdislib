@@ -41,7 +41,6 @@ try:
 except ImportError:
     print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
 
-    # Define dummy decorators and functions to avoid breaking the code
     def task(*args, **kwargs):
         def decorator(func):
             return func
@@ -184,7 +183,7 @@ def wire_cutting(
                     s, tmp_cuts, num_qubits=num_qubits, qpu=qpu
                 )
                 graphs = _sum_results(graphs)
-                results.append(graphs)  # 1/(2**len(tmp_cuts))*sum(graphs)
+                results.append(graphs)
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
@@ -360,13 +359,11 @@ def _generate_subcircuits_wire_cutting(
         # I 0
         if index == 0:
             updated_dag.nodes[f"O_{idx2}"]["gate"] = "Observable I"
-            # updated_dag.remove_node(f'O_{idx2}')
             updated_dag.remove_node(f"PS_{idx2}")
 
         # I 1
         elif index == 1:
             updated_dag.nodes[f"O_{idx2}"]["gate"] = "Observable I"
-            # updated_dag.remove_node(f'O_{idx2}')
             updated_dag.nodes[f"PS_{idx2}"]["gate"] = "X"
 
         # X +
@@ -449,7 +446,6 @@ def _generate_subcircuits_wire_cutting(
         new_subgraph = updated_dag.subgraph(c).copy()
         graph_components[i].add_nodes_from(new_subgraph.nodes(data=True))
         graph_components[i].add_edges_from(new_subgraph.edges(data=True), color="blue")
-
     return updated_dag
 
 
@@ -477,7 +473,6 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
     else:
         tmp = None
 
-    # print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -488,10 +483,7 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
         for element in obs_I:
             observables[element] = "I"
 
-    # print(obs_I)
-
     observables = "".join(observables)
-    # print(observables)
 
     qibo.set_backend(backend)
     subcirc.add(gates.M(*range(subcirc.nqubits)))  #
@@ -523,7 +515,6 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     tmp = subcirc[1]
     subcirc = subcirc[0]
 
-    # print(subcirc.draw())
     if tmp:
         obs_I = tmp
     else:
@@ -534,18 +525,11 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
         for element in obs_I:
             observables[element] = "I"
 
-    # print(obs_I)
-
     subcirc.add(gates.M(*range(subcirc.nqubits)))
 
     observables = "".join(observables)
-    # print(observables)
 
-    """counter = 1  # Initialize counter
-    while os.path.exists(f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{counter}.pkl"):  # Check if file already exists
-        counter += 1"""
-
-    unique_code = str(time.time_ns())  # Nanosecond precision timestamp
+    unique_code = str(time.time_ns())
 
     circuit_filename = (
         f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{unique_code}.pkl"
@@ -570,7 +554,6 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
     freq = result.counts()
 
-    # os.remove(circuit_filename)  # Remove circuit file after processing
     os.remove(result_filename)  # Remove result file after reading
 
     expectation_value = 0
@@ -586,7 +569,6 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
-    # print(expectation_value)
     return expectation_value
 
 
@@ -632,6 +614,62 @@ def _change_basis(circuit, observables):
 def wire_cutting_subcircuits(
     rand_qc: typing.Any, cut: typing.List[typing.Any], software="qiskit"
 ):
+    """
+    Partition a quantum circuit into subcircuits via wire (edge) cutting.
+
+    This function processes a quantum circuit by cutting specified wires (edges)
+    in its graph representation, generating subcircuits that simulate the behavior
+    of the original circuit. It supports circuits defined using Qiskit or Qibo, and
+    outputs the corresponding subcircuits in the chosen format.
+
+    Parameters
+    ----------
+    rand_qc : Union[qiskit.QuantumCircuit, qibo.models.Circuit, nx.Graph]
+        The quantum circuit to be cut. This can be a Qiskit `QuantumCircuit`,
+        a Qibo `Circuit`, or a DAG/networkx graph representation of the circuit.
+
+    cut : List[Tuple[Any, Any]]
+        A list of wire cuts represented as tuples of node pairs (edges) in the DAG.
+        Each tuple specifies a location in the circuit where the wire (qubit flow)
+        is to be cut.
+
+    software : str, optional
+        The target quantum software framework to return the subcircuits in.
+        Options:
+        - `"qiskit"` (default): returns Qiskit `QuantumCircuit` subcircuits.
+        - `"qibo"`: returns Qibo `Circuit` subcircuits.
+
+    Returns
+    -------
+    Union[List[Any], Any]
+        A list of subcircuits or circuit fragments resulting from the wire cutting process.
+        If the circuit is composed of multiple connected components, a list of subcircuits
+        for each component is returned. Otherwise, a single subcircuit or list of fragments
+        is returned based on whether any wire cuts were specified.
+
+    Raises
+    ------
+    ValueError
+        If an unsupported `software` option is provided.
+
+    Notes
+    -----
+    - If the input circuit consists of multiple disconnected components, each is processed separately.
+    - When `cut` is empty, the full circuit is returned as a single subcircuit with updated qubit indices.
+    - This function internally calls:
+        - `_generate_wire_cutting_subcircuits()` to perform actual wire cutting.
+        - `_dag_to_circuit_qiskit_subcircuits()` or `_dag_to_circuit_qibo_subcircuits()` for conversion.
+    - The function assumes that edges in `cut` exist in the graph; otherwise, they are ignored.
+
+    Examples
+    --------
+    >>> qc = QuantumCircuit(3)
+    >>> qc.cx(0, 1)
+    >>> qc.cx(1,2)
+    >>> subcircuits = wire_cutting_subcircuits(qc, cut=[("CX_", "CX_"")], software="qiskit")
+    >>> for subcircuit in subcircuits:
+    >>>     print(subcircuit)
+    """
     if type(rand_qc) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         dag = circuit_qiskit_to_dag(rand_qc)
     elif type(rand_qc) == qibo.models.Circuit:
@@ -795,6 +833,38 @@ def _generate_wire_cutting_subcircuits(
     return subcircuits
 
 def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts):
+    """
+    Reconstruct the expectation value of a quantum circuit from the individual 
+    expectation values of its subcircuits, based on wire cutting techniques.
+
+    This function assumes that the circuit was cut along a specified number of wires,
+    and each resulting subcircuit was simulated separately. The reconstruction process
+    involves:
+    - Grouping subcircuit results into pairs.
+    - Applying sign changes based on index parity.
+    - Averaging the results with a normalization factor dependent on the number of cuts.
+
+    Args:
+        expected_values (List[float]): A flat list of expectation values, where each
+            pair corresponds to one wire cut configuration (e.g., [E₀₀, E₀₁, E₁₀, E₁₁, ...]).
+        number_cuts (int): The number of wire cuts made in the original circuit. This 
+            determines the normalization factor used in the reconstruction.
+
+    Returns:
+        float: The reconstructed expectation value of the original (uncut) circuit.
+
+    Example:
+        >>> values = [0.8, -0.6, 0.7, -0.5, 0.8, -0.6, 0.7, -0.5, 0.8, -0.6, 0.7, -0.5, 0.8, -0.6, 0.7, -0.5]
+        >>> recons = wire_cutting_subcircuit_reconstruction(values, number_cuts=1)
+        >>> print(recons)
+        0.2
+
+    Note:
+        - The `_change_sign` function is used internally to alternate signs based on
+          the index to implement the inclusion-exclusion principle during reconstruction.
+        - The `compss_wait_on` function is used to wait for asynchronous computations 
+          (e.g., in distributed environments like PyCOMPSs).
+    """
     expected_values = [expected_values[i:i+2] for i in range(0, len(expected_values), 2)]
     results = []
     for index, exp_values in enumerate(expected_values):

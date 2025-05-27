@@ -38,13 +38,13 @@ group of the `Barcelona Supercomputing Center <http://www.bsc.es>`_.
 
 
 .. nbgallery::
-    :caption: This is a thumbnail gallery:
+    :caption: Start with our notebooks!
     :name: rst-gallery
     :glob:
-    :reversed:
 
     notebooks/Qdislib_Notebook
-
+    notebooks/Qdislib_Hello_World
+    notebooks/Qdislib_IBM_QPU
 
 Documentation
 -------------

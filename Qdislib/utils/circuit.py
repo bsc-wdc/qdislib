@@ -66,7 +66,7 @@ def analytical_solution(
     .. code-block:: python
 
         from qibo import models, gates
-        from mymodule import analytical_solution
+        import Qdislib as qd
 
         # Create a quantum circuit
         circuit = models.Circuit(3)
@@ -77,7 +77,7 @@ def analytical_solution(
         observables = "XZI"  # Apply Pauli-X to qubit 0, Z to qubit 1, Identity to qubit 2
 
         # Compute the analytical expectation value
-        result = analytical_solution(observables, circuit, verbose=True)
+        result = qd.analytical_solution(observables, circuit, verbose=True)
 
         print(f"Expectation value: {result}")
 
@@ -146,12 +146,6 @@ def _random_circuit(
             "Error: only the number of edges or the probability of adding an edge must be specified"
         )
 
-    # # Display the graph:
-    # adj_mat=graph.get_adjacency()
-    # fig, ax = plt.subplots()
-    # igraph.plot(graph, target=ax, vertex_label=range(qubits))
-    # graph.degree()
-
     edge_list = graph.get_edgelist()
 
     gates_pull = [gates.X, gates.H, gates.S, gates.T]  # pull of single-qubit gates
@@ -195,7 +189,7 @@ def draw_to_circuit(
     .. code-block:: python
 
         from qibo.models import Circuit
-        from mymodule import draw_to_circuit
+        import Qdislib as qd
 
         # Define the text representation of the quantum circuit
         text_rep = '''
@@ -207,7 +201,7 @@ def draw_to_circuit(
         '''
 
         # Convert the text drawing into a quantum circuit
-        circuit = draw_to_circuit(text_rep)
+        circuit = qd.draw_to_circuit(text_rep)
 
         # Print the resulting circuit
         print(circuit.draw())
@@ -255,7 +249,6 @@ def draw_to_circuit(
             parameter_tracker = 0
 
             char = qubit_state[step]
-            # for idx2, char in enumerate(qubit_state):
             if char != "─" and char != "|":
                 if char != "o":
                     if qubit_state[step + 1] == "─" and qubit_state[step - 1] == "─":
@@ -319,13 +312,6 @@ def draw_to_circuit(
                     saved_qubit.append(idx)
 
         for idx in saved_qubit:
-            # if list_multiple_gates[idx]:
-            """print(
-                "Add gate: ",
-                list_multiple_gates[idx][0][0],
-                " qubit ",
-                list_multiple_gates[idx][0][1],
-            )"""
             circuit.add(
                 getattr(gates, list_multiple_gates[idx][0][0])(
                     *list_multiple_gates[idx][0][1]
@@ -369,10 +355,10 @@ def parse_qsim(fname: str, depth: int = 22):
 
     .. code-block:: python
 
-        from mymodule import parse_qsim
+        import Qdislib as qd
 
         # Parse the .qsim file to create a quantum circuit
-        circuit = parse_qsim("path_to_qsim_file.qsim", depth=10)
+        circuit = qd.parse_qsim("path_to_qsim_file.qsim", depth=10)
 
         # Print the resulting circuit
         print(circuit.draw())
@@ -416,6 +402,4 @@ def parse_qsim(fname: str, depth: int = 22):
             # theta = float(gdesc[4]) / np.pi
             # phi = float(gdesc[5]) / np.pi
             c.add(gates.CZ(q, q1))
-
-    # c.gates = gates
     return c

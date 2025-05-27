@@ -40,7 +40,6 @@ try:
 except ImportError:
     print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
 
-    # Define dummy decorators and functions to avoid breaking the code
     def task(*args, **kwargs):
         def decorator(func):
             return func
@@ -63,7 +62,7 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
     :param circuit: A :class:`qiskit.QuantumCircuit` object representing the circuit to convert.
     :param obs_I: (Optional) A list of characters (e.g., `['X', 'I', 'Z', ...]`) where each entry corresponds
                   to a qubit, and an `"I"` indicates the insertion of an "Observable I" node at the end of
-                  the DAG path for that qubit.
+                  the DAG path for that qubit. Internal use for the workflow when cutting.
 
     :return: A :class:`networkx.DiGraph` representing the circuit DAG. Each node in the DAG has the following attributes:
              - `gate`: The name of the gate (string).
@@ -81,13 +80,13 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
         .. code-block:: python
 
             from qiskit import QuantumCircuit
-            from mymodule import circuit_qiskit_to_dag
+            import Qdislib as qd
 
             qc = QuantumCircuit(2)
             qc.h(0)
             qc.cx(0, 1)
 
-            dag = circuit_qiskit_to_dag(qc, obs_I=["I", "X"])
+            dag = qd.circuit_qiskit_to_dag(qc)
             print(dag.nodes(data=True))
     """
     # Create a directed graph
@@ -137,14 +136,10 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
                         dag.add_edge(pred_gate, gate_name, color="red")
     if obs_I:
         sinks = [node for node in dag.nodes if dag.out_degree(node) == 0]
-        # print(sinks)
         for idx, i in enumerate(obs_I):
             if i == "I":
-                # print(obs_I)
                 for elem in sinks:
                     if dag.nodes[elem].get("qubits") == (idx,):
-                        # print(dag.nodes[elem])
-                        # print(dag.nodes[elem].get("qubits"))
                         dag.add_node(
                             f"OBSI_{idx}",
                             gate="Observable I",
@@ -155,7 +150,6 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
     return dag
 
 
-# @constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
 @task(returns=1)
 def dag_to_circuit_qiskit(dag, num_qubits):
     """Reconstruct a Qiskit quantum circuit from a DAG representation.
@@ -187,9 +181,11 @@ def dag_to_circuit_qiskit(dag, num_qubits):
 
     Example:
         .. code-block:: python
-
-            dag = circuit_qiskit_to_dag(qiskit_circuit, obs_I=["I", "X"])
-            reconstructed_circuit, measurements = dag_to_circuit_qiskit(dag, num_qubits=2)
+            
+            import Qdislib as qd
+        
+            dag = qd.circuit_qiskit_to_dag(qiskit_circuit)
+            reconstructed_circuit, _ = qd.dag_to_circuit_qiskit(dag, num_qubits=2)
             print(reconstructed_circuit.draw())
     """
     if dag is None:
@@ -220,9 +216,10 @@ def dag_to_circuit_qiskit(dag, num_qubits):
         node_data = dag.nodes[node]
         gate_name = node_data["gate"]
 
-        # Skip the measurement nodes (we'll handle them separately)
+        # Skip the observable I nodes (we'll handle them separately)
         if gate_name == "Observable I":
             continue
+
         elif gate_name == "CNOT":
             gate_name = "cx"
             qubits = node_data["qubits"]
@@ -249,7 +246,6 @@ def dag_to_circuit_qiskit(dag, num_qubits):
         # Check if parameters are provided and the gate requires them
         if parameters:
             # Pass qubits and parameters if the gate requires both
-            # circuit.gate_class(parameters, *qubits)
             tmp = getattr(circuit, gate_class)
             tmp(*parameters, *qubits)
         else:
@@ -265,16 +261,6 @@ def dag_to_circuit_qiskit(dag, num_qubits):
                 # circuit.gate_class(*qubits)
                 tmp = getattr(circuit, gate_class)
                 tmp(*qubits)
-
-    # Optionally handle measurements, assuming all qubits are measured at the end
-    # obs_I = []
-    """for node in topo_order:
-        node_data = dag.nodes[node]
-        if node_data['gate'] == "Observable I":
-            obs_I.append(node_data['qubits'][0])
-            dag.remove_node(node)
-            #print(obs_I)
-            #circuit.add(gates.M(node_data['qubit']))"""
 
     if obs_I:
         return [circuit, obs_I]
@@ -311,7 +297,7 @@ def _dag_to_circuit_qiskit_subcircuits(dag, num_qubits):
         node_data = dag.nodes[node]
         gate_name = node_data["gate"]
 
-        # Skip the measurement nodes (we'll handle them separately)
+        # Skip the observable I nodes (we'll handle them separately)
         if gate_name == "Observable I":
             continue
         elif gate_name == "CNOT":
@@ -324,7 +310,6 @@ def _dag_to_circuit_qiskit_subcircuits(dag, num_qubits):
             continue
 
         # Get the qubits this gate acts on
-
         qubits = node_data["qubits"]
         parameters = node_data["parameters"]
 

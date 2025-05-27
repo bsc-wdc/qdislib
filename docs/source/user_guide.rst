@@ -122,10 +122,10 @@ Qdislib includes support for GPU-accelerated execution using `cuQuantum` (with Q
 - `gate_cutting`
 - `wire_cutting`
 
-To enable GPU execution, set the following environment variable before running your application:
+To enable GPU execution, set the following variable before running your application:
 
 .. code-block:: bash
 
-    export QDISLIB_GPU_AVAILABLE=True
+    reconstruction = qd.gate_cutting(circuit, cut, gpu=True, gpu_min_qubits=18)
 
 When enabled, Qdislib offloads eligible subcircuit simulations to GPU, while still coordinating the overall computation through CPU. This GPU usage is transparent to the user: memory transfers are handled internally and automatically

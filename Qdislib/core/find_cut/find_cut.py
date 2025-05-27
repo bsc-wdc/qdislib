@@ -31,7 +31,6 @@ try:
 except ImportError:
     print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
 
-    # Define dummy decorators and functions to avoid breaking the code
     def task(*args, **kwargs):
         def decorator(func):
             return func
@@ -151,18 +150,16 @@ def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=1
     best_cutset = []
 
     for _ in range(num_runs):
-        # print(len(graph.nodes))
-        # Step 2: Perform balanced partition using Kernighan-Lin
+        # Perform balanced partition using Kernighan-Lin
         partition = networkx.algorithms.community.kernighan_lin_bisection(
             graph.to_undirected()
         )
 
-        # Step 3: Extract the edges in the cut-set
+        # Extract the edges in the cut-set
         cutset = list(
             networkx.edge_boundary(graph, partition[0], partition[1], data=True)
         )
         cutset_size = len(cutset)
-        # cutset = [value[2]['gate'] for value in cutset]
         flag = False
         for ele in sorted(list(c) for c in partition):
             if max_qubits and len(ele) > max_qubits:
@@ -181,7 +178,6 @@ def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=1
 
     if best_cutset is not []:
         best_cutset = [el[2]["gate"] for el in best_cutset]
-        # best_cutset = [(u,v) for u,v,c in best_cutset]
     else:
         return [], []
     return best_partition, best_cutset
@@ -196,8 +192,7 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
     # Get multiple partitions at different levels of edge removal
     for i, partition in enumerate(communities):
         partition_list = list(partition)  # Convert partition to list of sets
-        # print(f"Partition {i+1}: {tuple(sorted(list(c) for c in partition_list))}")
-
+        
         # Find edges that are between different partitions
         cut_edges = []
         for u, v in graph.edges():
@@ -207,13 +202,8 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
             if component_u != component_v:
                 data = graph.get_edge_data(u, v)
                 gates_list = [value["gate"] for value in data.values()]
-
-                # gates_list = [(data[0],data[1])]
-
                 cut_edges = cut_edges + gates_list
-                # cut_edges = cut_edges + [(u,v)]
 
-        # print(f"Edges that need to be cut for Partition {i+1}: {cut_edges}")
         flag = True
         for ele in sorted(list(c) for c in partition_list):
             if max_qubits and len(ele) > max_qubits:
@@ -234,6 +224,7 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
 
     # Convert the graph to adjacency matrix form
     adjacency_matrix = networkx.to_numpy_array(graph)
+
     # Perform spectral clustering
     num_clusters = clusters  # Example: Find 3 components
     sc = SpectralClustering(
@@ -248,7 +239,6 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
 
     flag = False
     for cluster_id, nodes in clusters.items():
-        # print(f"Cluster {cluster_id}: {nodes}")
         if max_qubits and len(nodes) > max_qubits:
             flag = True
 
@@ -256,10 +246,6 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
         return [], []
 
     clusters = list(clusters.values())
-    # Output clusters (partitions)
-    # print("Partitions (clusters):")
-    # for cluster_id, nodes in clusters.items():
-    # print(f"Cluster {cluster_id}: {nodes}")
 
     # Find the cut edges: edges between nodes in different clusters
     cut_edges = []
@@ -294,7 +280,6 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
         if max_nodes_per_cluster and len(nodes) > max_nodes_per_cluster:
             print(f"Cluster {cluster_id} exceeds the max size.")
             return [], []
-            # You can apply further refinements here
 
     clusters = list(clusters.values())
     cut_edges = []
@@ -303,7 +288,6 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
         if parts[u] != parts[v]:
             data = graph.get_edge_data(u, v)
             gates_list = [value["gate"] for value in data.values()]
-            # gates_list = [value[2]['gate'] for value in data.values()]
             cut_edges = cut_edges + gates_list
     if max_cuts and len(cut_edges) > max_cuts:
         return [], []
@@ -398,7 +382,6 @@ def _find_cut_gate(
     final.append(best_sc_cutset)
     if verbose: print("\n")
 
-    # Perform partitioning with METIS
     if verbose:
         print("BEST METIS PARTITION: ",best_met_cutset)
         print("NUM COMPONENTS: ", len(best_met_partition))
@@ -656,21 +639,11 @@ def find_cut(
         during partitioning.
 
     implementation : str, default="qdislib"
-        Specifies the backend implementation to use for circuit partitioning.
-        Options:
-            - "qdislib": Uses graph-theoretical approaches (Kernighan-Lin, etc.)
-            - "ibm-ckt": Uses Qiskit's optimizer and hardware-aware constraints
+        Specifies the backend implementation to use for circuit partitioning. "qdislib": Uses graph-theoretical approaches (Kernighan-Lin, etc.) "ibm-ckt": Uses Qiskit's optimizer and hardware-aware constraints
 
     weights : dict, optional
         A dictionary specifying weights for the loss function used in Qdislib to evaluate
-        partitioning:
-            {
-                "w1": float        # weight for minimizing cuts
-
-                "w2": float         # weight for maximizing components
-
-                "w3": float         # weight for minimizing qubits per component
-            }
+        partitioning
 
     verbose : bool, default=False
         If True, prints detailed information about the partitioning process and outcomes.

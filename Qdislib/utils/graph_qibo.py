@@ -40,7 +40,6 @@ try:
 except ImportError:
     print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
 
-    # Define dummy decorators and functions to avoid breaking the code
     def task(*args, **kwargs):
         def decorator(func):
             return func
@@ -60,7 +59,7 @@ def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph
     the graph.
 
     :param circuit: Qibo :class:`Circuit` object to convert into a DAG.
-    :param obs_I: Optional iterable indicating which qubits have identity ("I") observables appended. Used for internal workflow for cutting. Default None.
+    :param obs_I: Optional iterable indicating which qubits have identity ("I") observables appended. Used for internal workflow when cutting. Default None.
 
     :return: A :class:`networkx.DiGraph` object where nodes represent gates and edges indicate gate dependencies.
 
@@ -77,7 +76,7 @@ def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph
 
             from qibo import models, gates
             import networkx as nx
-            from Qdislib.core.utils.graph_qibo import circuit_qibo_to_dag
+            import Qdislib as qd
 
             # Define a Qibo circuit
             c = models.Circuit(2)
@@ -85,7 +84,7 @@ def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph
             c.add(gates.CNOT(0, 1))
 
             # Convert it to a DAG
-            dag = circuit_qibo_to_dag(c)
+            dag = qd.circuit_qibo_to_dag(c)
 
             # Visualize or analyze the DAG
             print(dag.nodes(data=True))
@@ -132,14 +131,10 @@ def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph
 
     if obs_I:
         sinks = [node for node in dag.nodes if dag.out_degree(node) == 0]
-        # print(sinks)
         for idx, i in enumerate(obs_I):
             if i == "I":
-                # print(obs_I)
                 for elem in sinks:
                     if dag.nodes[elem].get("qubits") == (idx,):
-                        # print(dag.nodes[elem])
-                        # print(dag.nodes[elem].get("qubits"))
                         dag.add_node(
                             f"OBSI_{idx}",
                             gate="Observable I",
@@ -175,7 +170,7 @@ def plot_dag(dag: networkx.DiGraph) -> None:
         .. code-block:: python
 
             import networkx as nx
-            from Qdislib.core.utils.graph_qibo import circuit_qibo_to_dag, plot_dag
+            import Qdislib as qd
 
             # Define a Qibo circuit
             c = models.Circuit(2)
@@ -183,7 +178,7 @@ def plot_dag(dag: networkx.DiGraph) -> None:
             c.add(gates.CNOT(0, 1))
 
             # Convert it to a DAG
-            dag = circuit_qibo_to_dag(c)
+            dag = qd.circuit_qibo_to_dag(c)
 
             plot_dag(dag)
     """
@@ -229,7 +224,7 @@ def plot_dag(dag: networkx.DiGraph) -> None:
 @task(returns=1)
 def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circuit:
     """
-    Reconstruct a Qibo quantum circuit from a DAG representation.
+    Create a Qibo quantum circuit from a DAG representation.
 
     This function takes a directed acyclic graph (DAG) where each node represents a quantum gate,
     and reconstructs a Qibo circuit by adding gates in topological order. Optionally, it detects
@@ -241,7 +236,7 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
 
     :return: A list of two elements:
              - A :class:`qibo.models.Circuit` object reconstructed from the DAG.
-             - A list of qubit indices where "Observable I" measurements are applied (or `None` if not present).
+             - A list of qubit indices where "Observable I" measurements are applied (or `None` if not present). Used for internal workflow when cutting.
 
     Gate nodes must have the following format:
         - `gate`: Name of the gate (must match a class in `qibo.gates`).
@@ -255,12 +250,12 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
 
     Example:
         .. code-block:: python
-
-            from mymodule import dag_to_circuit_qibo
+            
+            import Qdislib as qd
             import networkx as nx
 
             dag = ...  # previously constructed DAG
-            circuit, observables = dag_to_circuit_qibo(dag, num_qubits=5)
+            circuit, observables = qd.dag_to_circuit_qibo(dag, num_qubits=5)
             print(circuit)
             print(observables)
     """
@@ -287,9 +282,8 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
         node_data = dag.nodes[node]
         gate_name = node_data["gate"].upper()
 
-        # Skip the measurement nodes (we'll handle them separately)
+        # Skip the observable I nodes (we'll handle them separately)
         if gate_name == "OBSERVABLE I":
-            # print(gate_name)
             continue
 
         if gate_name == "MEASURE":
@@ -333,8 +327,6 @@ def _max_qubit(graph: networkx.DiGraph) -> float:
     """
     # Initialize a variable to keep track of the highest Qubits value
     max_qubits = float("-inf")  # Start with the lowest possible number
-    # # It is possible to store the node:
-    # max_node = None  # Store the node with the highest qubit
 
     # Iterate over the nodes and check their 'Qubits' attribute
     for node, data in graph.nodes(data=True):
@@ -342,8 +334,7 @@ def _max_qubit(graph: networkx.DiGraph) -> float:
         for qubit in qubits:
             if qubit > max_qubits:
                 max_qubits = qubit
-                # # Keep track of the node with the highest Qubit value
-                # max_node = node
+                # Keep track of the node with the highest Qubit value
     return max_qubits
 
 
@@ -395,8 +386,6 @@ def _remove_red_edges(graph: networkx.DiGraph) -> networkx.DiGraph:
 
 def _count_missing_up_to(nums: typing.Set[int], max_num: int) -> int:
     """Retrieve the amount of missing numbers in the nums set.
-
-    # TODO: Maybe max_num is not necessary and can be taken from max(nums)
 
     :param nums: Set of numbers.
     :param max_num: Highest number in nums.

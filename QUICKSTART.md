@@ -28,7 +28,10 @@ Qdislib currently requires:
 * matplotlib >= 3.4.3
 * pymetis >= 2023.1.1
 
-While in order to use GPUs, cupy and/or pytorch are also required.
+While in order to use GPUs these libraries may also be required:
+* qiskit-aer-gpu >= 0.15
+* qiskit-aer-gpu-cu11 >= 0.17
+* qibojit >= 0.1
 
 #### Installation steps
 
