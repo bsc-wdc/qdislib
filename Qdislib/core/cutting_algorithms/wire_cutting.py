@@ -666,7 +666,7 @@ def wire_cutting_subcircuits(
     >>> qc = QuantumCircuit(3)
     >>> qc.cx(0, 1)
     >>> qc.cx(1,2)
-    >>> subcircuits = wire_cutting_subcircuits(qc, cut=[("CX_", "CX_"")], software="qiskit")
+    >>> subcircuits = wire_cutting_subcircuits(qc, cut=[("CX_1", "CX_2")], software="qiskit")
     >>> for subcircuit in subcircuits:
     >>>     print(subcircuit)
     """
