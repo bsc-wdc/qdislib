@@ -849,13 +849,14 @@ def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_
             pair corresponds to one wire cut configuration (e.g., [E₀₀, E₀₁, E₁₀, E₁₁, ...]).
         number_cuts (int): The number of wire cuts made in the original circuit. This 
             determines the normalization factor used in the reconstruction.
+        number_components (int): The number of independent parts the initial subcircuits has.
 
     Returns:
         float: The reconstructed expectation value of the original (uncut) circuit.
 
     Example:
         >>> values = [0.8, -0.6, 0.7, -0.5, 0.8, -0.6, 0.7, -0.5, 0.8, -0.6, 0.7, -0.5, 0.8, -0.6, 0.7, -0.5]
-        >>> recons = wire_cutting_subcircuit_reconstruction(values, number_cuts=1)
+        >>> recons = wire_cutting_subcircuit_reconstruction(values, number_cuts=1, number_components=2)
         >>> print(recons)
         0.2
 

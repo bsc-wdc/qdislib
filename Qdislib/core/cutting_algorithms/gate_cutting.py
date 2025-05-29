@@ -1184,6 +1184,9 @@ def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_
     number_cuts : int
         The total number of gate cuts performed in the original circuit.
         This determines the normalization factor used in the final result.
+    
+    number_components : int
+        The number of independent parts the initial subcircuits has.
 
     Returns
     -------
@@ -1206,7 +1209,7 @@ def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_
     --------
     >>> raw_values = [0.5, -0.5, 0.3, -0.3, 0.5, -0.5, 0.3, -0.3, 0.5, -0.5, 0.3, -0.3]
     >>> number_of_cuts = 1
-    >>> reconstructed_value = gate_cutting_subcircuit_reconstruction(raw_values, number_of_cuts)
+    >>> reconstructed_value = gate_cutting_subcircuit_reconstruction(raw_values, number_of_cuts, number_components=2)
     >>> print(reconstructed_value)
     0.0
     """
