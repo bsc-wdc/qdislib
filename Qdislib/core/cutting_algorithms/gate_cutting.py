@@ -288,7 +288,6 @@ def gate_cutting(
             print(f"Reconstructed original circuit expected value: {final_recons}")
         return final_recons
     else:
-        # num_qubits = _max_qubit(dag)
         if gates_cut:
             results = _execute_gate_cutting(
                 dag,
@@ -1166,7 +1165,7 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
             subcircuits.append(subcirc)
     return subcircuits
 
-def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts):
+def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_components=2):
     """
     Reconstruct the final expectation value from subcircuit results after gate cutting.
 
@@ -1211,13 +1210,16 @@ def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts):
     >>> print(reconstructed_value)
     0.0
     """
-    expected_values = [expected_values[i:i+2] for i in range(0, len(expected_values), 2)]
-    results = []
-    for index, exp_values in enumerate(expected_values):
-        result = _change_sign_gate_cutting(exp_values, index)
-        results.append(result)
-    
-    results = compss_wait_on(results)
-    final_recons = 1 / (2 ** number_cuts) * sum(results)
-    return final_recons
+    if number_cuts == 0:
+        return math.prod(expected_values)
+    else:
+        expected_values = [expected_values[i:i+number_components] for i in range(0, len(expected_values), number_components)]
+        results = []
+        for index, exp_values in enumerate(expected_values):
+            result = _change_sign_gate_cutting(exp_values, index)
+            results.append(result)
+        
+        results = compss_wait_on(results)
+        final_recons = 1 / (2 ** number_cuts) * sum(results)
+        return final_recons
 

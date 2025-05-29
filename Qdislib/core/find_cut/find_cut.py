@@ -93,14 +93,29 @@ def _find_nodes_with_qubit(
 
 def _circuit_to_qubit_graph(circuit):
     dag = networkx.MultiGraph()
-    for i in range(0, circuit.nqubits):
-        dag.add_node(i, gate=i)
 
-    for idx, gate in enumerate(circuit.queue, start=1):
-        if len(gate.qubits) > 1:
-            dag.add_edge(*gate.qubits, gate=f"{gate.__class__.__name__}_{idx}")
+    if type(circuit) == qibo.models.Circuit:
+        for i in range(0, circuit.nqubits):
+            dag.add_node(i, gate=i)
 
-    return dag
+        for idx, gate in enumerate(circuit.queue, start=1):
+            if len(gate.qubits) > 1:
+                dag.add_edge(*gate.qubits, gate=f"{gate.__class__.__name__}_{idx}")
+
+        return dag
+    else:
+        for i in range(0, circuit.num_qubits):
+            dag.add_node(i, gate=i)
+
+        for idx, gate in enumerate(circuit, start=1):
+            if len(gate.qubits) > 1:
+                qubits = ()
+                for i in gate.qubits:
+                    qubits = qubits + (i._index,)
+                name = gate.operation.name.upper()
+                dag.add_edge(*qubits, gate=f"{name}_{idx}")
+
+        return dag
 
 
 def _circuit_to_gate_graph(circuit):
@@ -112,36 +127,74 @@ def _circuit_to_gate_graph(circuit):
     # Create a directed graph
     dag = networkx.MultiGraph()
 
-    counter = 0
-    # Add gates to the DAG as nodes with unique identifiers
-    for gate_idx, gate in enumerate(circuit.queue, start=1):
+    if type(circuit) != qibo.models.Circuit:
+        counter = 0
+        # Add gates to the DAG as nodes with unique identifiers
+        for gate_idx, gate in enumerate(circuit, start=1):
 
-        if len(gate.qubits) < 2:
-            continue
+            if len(gate.qubits) < 2:
+                continue
 
-        # Unique identifier for each gate instance
-        gate_name = f"{gate.__class__.__name__}_{gate_idx}".upper()
+            # Unique identifier for each gate instance
+            name = gate.operation.name.upper()
+            gate_name = f"{name}_{gate_idx}".upper()
 
-        # Add the gate to the DAG, including the gate type, qubits, and parameters
-        dag.add_node(counter, gate=gate_name, qubits=gate.qubits)
+            # Add the gate to the DAG, including the gate type, qubits, and parameters
+            qubits = ()
+            for i in gate.qubits:
+                qubits = qubits + (i._index,)
 
-        # Connect gates based on qubit dependencies
-        for qubit in gate.qubits:
-            for pred_gate in reversed(list(dag.nodes)):
-                # Check if the qubit is in the node's qubits
-                pred_name = dag.nodes[pred_gate]["gate"]
-                if (
-                    dag.nodes[pred_gate].get("qubits")
-                    and qubit in dag.nodes[pred_gate]["qubits"]
-                    and counter != pred_gate
-                ):
-                    dag.add_edge(
-                        pred_gate, counter, gate=(f"{pred_name}", f"{gate_name}")
-                    )
-                    break
-        counter += 1
+            dag.add_node(counter, gate=gate_name, qubits=qubits)
 
-    return dag
+            # Connect gates based on qubit dependencies
+            for qubit in qubits:
+                for pred_gate in reversed(list(dag.nodes)):
+                    # Check if the qubit is in the node's qubits
+                    pred_name = dag.nodes[pred_gate]["gate"]
+                    if (
+                        dag.nodes[pred_gate].get("qubits")
+                        and qubit in dag.nodes[pred_gate]["qubits"]
+                        and counter != pred_gate
+                    ):
+                        dag.add_edge(
+                            pred_gate, counter, gate=(f"{pred_name}", f"{gate_name}")
+                        )
+                        break
+            counter += 1
+
+        return dag
+
+    else:
+        counter = 0
+        # Add gates to the DAG as nodes with unique identifiers
+        for gate_idx, gate in enumerate(circuit.queue, start=1):
+
+            if len(gate.qubits) < 2:
+                continue
+
+            # Unique identifier for each gate instance
+            gate_name = f"{gate.__class__.__name__}_{gate_idx}".upper()
+
+            # Add the gate to the DAG, including the gate type, qubits, and parameters
+            dag.add_node(counter, gate=gate_name, qubits=gate.qubits)
+
+            # Connect gates based on qubit dependencies
+            for qubit in gate.qubits:
+                for pred_gate in reversed(list(dag.nodes)):
+                    # Check if the qubit is in the node's qubits
+                    pred_name = dag.nodes[pred_gate]["gate"]
+                    if (
+                        dag.nodes[pred_gate].get("qubits")
+                        and qubit in dag.nodes[pred_gate]["qubits"]
+                        and counter != pred_gate
+                    ):
+                        dag.add_edge(
+                            pred_gate, counter, gate=(f"{pred_name}", f"{gate_name}")
+                        )
+                        break
+            counter += 1
+
+        return dag
 
 
 def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=10):
@@ -562,23 +615,59 @@ def _find_cut_wire(
         u_idx = int(u_idx)
         _, v_idx = v.split("_")
         v_idx = int(v_idx)
-        initial_gate = circuit.queue[u_idx - 1]
-        final_gate = circuit.queue[v_idx - 1]
+        if type(circuit) == qibo.models.Circuit:
+            initial_gate = circuit.queue[u_idx - 1]
+            final_gate = circuit.queue[v_idx - 1]
+        else:
+            initial_gate = circuit[u_idx - 1]
+            final_gate = circuit[v_idx - 1]
         flag = True
-        for idx, gate in enumerate(circuit.queue[u_idx : v_idx - 1], start=u_idx):
-            if len(gate.qubits) > 2:
-                pass
-            if set(gate.qubits).intersection(initial_gate.qubits, final_gate.qubits):
-                if initial_gate.name.upper() == "CX":
-                    initial_name = "CNOT"
-                else:
-                    initial_name = initial_gate.name.upper()
-                if gate.name.upper() == "CX":
-                    gate_name = "CNOT"
-                else:
-                    gate_name = gate.name.upper()
-                best_cut.append((f"{initial_name}_{u_idx}", f"{gate_name}_{idx+1}"))
-                flag = False
+        if type(circuit) == qibo.models.Circuit:
+            for idx, gate in enumerate(circuit.queue[u_idx : v_idx - 1], start=u_idx):
+                if len(gate.qubits) > 2:
+                    pass
+                if set(gate.qubits).intersection(initial_gate.qubits, final_gate.qubits):
+                    if initial_gate.name.upper() == "CX":
+                        initial_name = "CNOT"
+                    else:
+                        initial_name = initial_gate.name.upper()
+                    if gate.name.upper() == "CX":
+                        gate_name = "CNOT"
+                    else:
+                        gate_name = gate.name.upper()
+                    best_cut.append((f"{initial_name}_{u_idx}", f"{gate_name}_{idx+1}"))
+                    flag = False
+        else:
+            for idx, gate in enumerate(circuit[u_idx : v_idx - 1], start=u_idx):
+                if len(gate.qubits) > 2:
+                    pass
+                
+                qubits = ()
+                for i in gate.qubits:
+                    qubits = qubits + (i._index,)
+                
+                initial_qubits = ()
+                for i in initial_gate.qubits:
+                    initial_qubits = initial_qubits + (i._index,)
+                
+                final_qubits = ()
+                for i in final_gate.qubits:
+                    final_qubits = final_qubits + (i._index,)
+                
+                initial_name = initial_gate.operation.name.upper()
+                gate_name = gate.operation.name.upper()
+                if set(qubits).intersection(initial_qubits, final_qubits):
+                    if initial_name.upper() == "CX":
+                        initial_name = "CNOT"
+                    else:
+                        initial_name = initial_name.upper()
+                    if gate_name.upper() == "CX":
+                        gate_name = "CNOT"
+                    else:
+                        gate_name = gate_name.upper()
+                    best_cut.append((f"{initial_name}_{u_idx}", f"{gate_name}_{idx+1}"))
+                    flag = False
+
         if flag:
             best_cut.append(pair)
     

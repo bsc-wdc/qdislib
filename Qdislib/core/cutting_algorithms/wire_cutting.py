@@ -832,7 +832,7 @@ def _generate_wire_cutting_subcircuits(
             subcircuits.append(subcirc)
     return subcircuits
 
-def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts):
+def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_components=2):
     """
     Reconstruct the expectation value of a quantum circuit from the individual 
     expectation values of its subcircuits, based on wire cutting techniques.
@@ -865,12 +865,15 @@ def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts):
         - The `compss_wait_on` function is used to wait for asynchronous computations 
           (e.g., in distributed environments like PyCOMPSs).
     """
-    expected_values = [expected_values[i:i+2] for i in range(0, len(expected_values), 2)]
-    results = []
-    for index, exp_values in enumerate(expected_values):
-        result = _change_sign(exp_values, index)
-        results.append(result)
-    
-    results = compss_wait_on(results)
-    final_recons = 1 / (2 ** number_cuts) * sum(results)
-    return final_recons
+    if number_cuts == 0:
+        return math.prod(expected_values)
+    else:
+        expected_values = [expected_values[i:i+number_components] for i in range(0, len(expected_values), number_components)]
+        results = []
+        for index, exp_values in enumerate(expected_values):
+            result = _change_sign(exp_values, index)
+            results.append(result)
+        
+        results = compss_wait_on(results)
+        final_recons = 1 / (2 ** number_cuts) * sum(results)
+        return final_recons
