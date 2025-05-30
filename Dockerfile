@@ -1,4 +1,4 @@
-FROM compss/compss-tutorial:3.3
+FROM compss/compss-tutorial:3.3.3
 LABEL org.opencontainers.image.authors="support-compss@bsc.es"
 
 COPY . Qdislib/
