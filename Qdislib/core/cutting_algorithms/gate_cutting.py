@@ -738,6 +738,7 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
 
     if obs_I:
         for element in obs_I:
+            print(element)
             observables[element] = "I"
 
     observables = "".join(observables)
@@ -1083,6 +1084,7 @@ def gate_cutting_subcircuits(
     >>> for subcircuit in subcircuits:
     >>>     print(subcircuit)
     """
+
     if type(dag) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         dag = circuit_qiskit_to_dag(dag)
     elif type(dag) == qibo.models.Circuit:
@@ -1104,7 +1106,7 @@ def gate_cutting_subcircuits(
                 subcirc = _execute_gate_cutting_subcircuits(
                     dag, tmp_cuts, software=software
                 )
-                subcircuits.append(subcirc)
+                subcircuits = subcircuits + subcirc
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 if software == "qibo":

@@ -245,17 +245,16 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
     # Get multiple partitions at different levels of edge removal
     for i, partition in enumerate(communities):
         partition_list = list(partition)  # Convert partition to list of sets
-        
         # Find edges that are between different partitions
         cut_edges = []
-        for u, v in graph.edges():
+        for u, v, gate in graph.edges(data=True):
             # Check if nodes u and v belong to different components
             component_u = [c for c in partition_list if u in c][0]
             component_v = [c for c in partition_list if v in c][0]
             if component_u != component_v:
-                data = graph.get_edge_data(u, v)
-                gates_list = [value["gate"] for value in data.values()]
-                cut_edges = cut_edges + gates_list
+                #data = graph.get_edge_data(u, v)
+                #gates_list = tuple([value["gate"] for value in data.values()])
+                cut_edges = cut_edges + [gate['gate']]
 
         flag = True
         for ele in sorted(list(c) for c in partition_list):
@@ -268,7 +267,6 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
         return [], []
     elif cut_edges == []:
         return [], []
-
     return partition_list, cut_edges
 
 
@@ -302,11 +300,11 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
 
     # Find the cut edges: edges between nodes in different clusters
     cut_edges = []
-    for u, v in graph.edges():
+    for u, v, gate in graph.edges(data=True):
         if labels[u] != labels[v]:
-            data = graph.get_edge_data(u, v)
-            gates_list = [value["gate"] for value in data.values()]
-            cut_edges = cut_edges + gates_list
+            #data = graph.get_edge_data(u, v)
+            #gates_list = [value["gate"] for value in data.values()]
+            cut_edges = cut_edges + [gate["gate"]]
 
     if max_cuts and len(cut_edges) > max_cuts:
         return [], []
@@ -337,11 +335,11 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
     clusters = list(clusters.values())
     cut_edges = []
     cut_edges = []
-    for u, v in graph.edges():
+    for u, v, gate in graph.edges(data=True):
         if parts[u] != parts[v]:
-            data = graph.get_edge_data(u, v)
-            gates_list = [value["gate"] for value in data.values()]
-            cut_edges = cut_edges + gates_list
+            #data = graph.get_edge_data(u, v)
+            #gates_list = [value["gate"] for value in data.values()]
+            cut_edges = cut_edges + [gate["gate"]]
     if max_cuts and len(cut_edges) > max_cuts:
         return [], []
     elif cut_edges == []:
