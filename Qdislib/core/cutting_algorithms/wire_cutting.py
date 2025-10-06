@@ -78,6 +78,38 @@ from Qdislib.utils.graph_qiskit import (
     _dag_to_circuit_qiskit_subcircuits,
 )
 
+from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
+from Qdislib.utils.graph_cudaq import (
+    dag_to_circuit_cudaq,
+    _dag_to_circuit_cudaq_subcircuits,
+)
+
+
+from qiskit.circuit import QuantumCircuit
+from qibo.models import Circuit as QiboCircuit
+from cudaq.kernel.kernel_decorator import PyKernelDecorator
+
+
+def convert_to_dag(dag, observables=None):
+    type_map = {
+        QuantumCircuit: circuit_qiskit_to_dag,
+        QiboCircuit: circuit_qibo_to_dag,
+        PyKernelDecorator: circuit_cudaq_to_dag,
+    }
+
+    # Find the matching converter function based on type
+    converter = next((fn for t, fn in type_map.items() if isinstance(dag, t)), None)
+    if converter is None:
+        print(f"Unsupported circuit type: {type(dag).__name__}")
+        return dag  # Unknown type, return unchanged
+
+    kwargs = {}
+    if observables and "I" in observables:
+        kwargs["obs_I"] = observables
+
+    return converter(dag, **kwargs)
+
+
 
 def wire_cutting(
     rand_qc: typing.Any,
@@ -146,25 +178,7 @@ def wire_cutting(
     if observables:
         rand_qc = _change_basis(rand_qc, observables)
 
-    if type(rand_qc) == qiskit.circuit.quantumcircuit.QuantumCircuit:
-        if observables:
-            if "I" in observables:
-                dag = circuit_qiskit_to_dag(rand_qc, obs_I=observables)
-            else:
-                dag = circuit_qiskit_to_dag(rand_qc)
-        else:
-            dag = circuit_qiskit_to_dag(rand_qc)
-    elif type(rand_qc) == qibo.models.Circuit:
-        if observables:
-            if "I" in observables:
-                dag = circuit_qibo_to_dag(rand_qc, obs_I=observables)
-            else:
-                dag = circuit_qibo_to_dag(rand_qc)
-        else:
-            dag = circuit_qibo_to_dag(rand_qc)
-
-    else:
-        dag = rand_qc
+    dag = convert_to_dag(dag,observables)
 
     if networkx.number_connected_components(dag.to_undirected()) > 1:
         S = [

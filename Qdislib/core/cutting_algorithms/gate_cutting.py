@@ -23,6 +23,8 @@ import networkx as nx
 import math
 import numpy as np
 
+import cudaq
+
 from qiskit.quantum_info import SparsePauliOp
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
 from qiskit_aer import AerSimulator
@@ -85,6 +87,11 @@ from Qdislib.utils.graph_qibo import (
     circuit_qibo_to_dag,
     _dag_to_circuit_qibo_subcircuits,
 )
+from Qdislib.utils.graph_cudaq import (
+    dag_to_circuit_cudaq,
+    circuit_cudaq_to_dag,
+    _dag_to_circuit_cudaq_subcircuits,
+)
 from Qdislib.core.cutting_algorithms.wire_cutting import _sum_results
 from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
 
@@ -106,6 +113,30 @@ import pickle
 import os
 import time
 import typing
+
+
+from qiskit.circuit import QuantumCircuit
+from qibo.models import Circuit as QiboCircuit
+from cudaq.kernel.kernel_decorator import PyKernelDecorator
+
+def convert_to_dag(dag, observables=None):
+    type_map = {
+        QuantumCircuit: circuit_qiskit_to_dag,
+        QiboCircuit: circuit_qibo_to_dag,
+        PyKernelDecorator: circuit_cudaq_to_dag,
+    }
+
+    # Find the matching converter function based on type
+    converter = next((fn for t, fn in type_map.items() if isinstance(dag, t)), None)
+    if converter is None:
+        print(f"Unsupported circuit type: {type(dag).__name__}")
+        return dag  # Unknown type, return unchanged
+
+    kwargs = {}
+    if observables and "I" in observables:
+        kwargs["obs_I"] = observables
+
+    return converter(dag, **kwargs)
 
 
 def gate_cutting(
@@ -207,24 +238,7 @@ def gate_cutting(
     if gpu_min_qubits is None:
         gpu_min_qubits = 0
 
-    if type(dag) == qiskit.circuit.quantumcircuit.QuantumCircuit:
-        if observables:
-            if "I" in observables:
-                dag = circuit_qiskit_to_dag(dag, obs_I=observables)
-            else:
-                dag = circuit_qiskit_to_dag(dag)
-        else:
-            dag = circuit_qiskit_to_dag(dag)
-    elif type(dag) == qibo.models.Circuit:
-        if observables:
-            if "I" in observables:
-                dag = circuit_qibo_to_dag(dag, obs_I=observables)
-            else:
-                dag = circuit_qibo_to_dag(dag)
-        else:
-            dag = circuit_qibo_to_dag(dag)
-    else:
-        dag = dag
+    dag = convert_to_dag(dag,observables)
 
     if nx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -1113,6 +1127,8 @@ def gate_cutting_subcircuits(
                     subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
                 elif software == "qiskit":
                     subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
+                elif software == "cudaq":
+                    subcirc = _dag_to_circuit_cudaq_subcircuits(s_new, highest_qubit)
                 else:
                     raise ValueError
                 subcircuits.append(subcirc)
@@ -1128,6 +1144,8 @@ def gate_cutting_subcircuits(
                 subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
             elif software == "qiskit":
                 subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
+            elif software == "cudaq":
+                subcirc = _dag_to_circuit_cudaq_subcircuits(s_new, highest_qubit)
             else:
                 raise ValueError
         return subcirc
@@ -1162,6 +1180,8 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
                 subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
             elif software == "qiskit":
                 subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
+            elif software == "cudaq":
+                subcirc = _dag_to_circuit_cudaq_subcircuits(s_new, highest_qubit)
             else:
                 raise ValueError
             subcircuits.append(subcirc)
