@@ -314,9 +314,16 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
             circuit.add(gate_class(*qubits))
 
     if obs_I:
-        return [circuit, obs_I]
+        observables = ["Z"] * circuit.nqubits
+        for element in obs_I:
+            observables[element] = "I"
 
-    return [circuit, None]
+        observables = "".join(observables)
+        return [circuit, observables]
+
+    observables = ["Z"] * circuit.nqubits
+    observables = "".join(observables)
+    return [circuit, observables]
 
 
 def _max_qubit(graph: networkx.DiGraph) -> float:

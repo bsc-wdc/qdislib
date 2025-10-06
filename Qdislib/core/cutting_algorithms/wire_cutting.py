@@ -76,6 +76,7 @@ from Qdislib.utils.graph_qibo import _remove_red_edges
 from Qdislib.utils.graph_qiskit import (
     circuit_qiskit_to_dag,
     _dag_to_circuit_qiskit_subcircuits,
+    dag_to_circuit_qiskit
 )
 
 from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
@@ -178,7 +179,7 @@ def wire_cutting(
     if observables:
         rand_qc = _change_basis(rand_qc, observables)
 
-    dag = convert_to_dag(dag,observables)
+    dag = convert_to_dag(rand_qc,observables)
 
     if networkx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -482,22 +483,11 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
     :return: The circuit expected value.
     """
     if type(subcirc) != qibo.models.circuit.Circuit:
-        tmp = subcirc[1]
+        observables = subcirc[1]
         subcirc = subcirc[0]
     else:
-        tmp = None
-
-    if tmp:
-        obs_I = tmp
-    else:
-        obs_I = None
-    observables = ["Z"] * subcirc.nqubits
-
-    if obs_I:
-        for element in obs_I:
-            observables[element] = "I"
-
-    observables = "".join(observables)
+        observables = ["Z"] * subcirc.nqubits
+        observables = "".join(observables)
 
     qibo.set_backend(backend)
     subcirc.add(gates.M(*range(subcirc.nqubits)))  #
@@ -626,7 +616,7 @@ def _change_basis(circuit, observables):
 
 
 def wire_cutting_subcircuits(
-    rand_qc: typing.Any, cut: typing.List[typing.Any], software="qiskit"
+    rand_qc: typing.Any, cut: typing.List[typing.Any], observables=None, software="qiskit"
 ):
     """
     Partition a quantum circuit into subcircuits via wire (edge) cutting.
@@ -684,12 +674,16 @@ def wire_cutting_subcircuits(
     >>> for subcircuit in subcircuits:
     >>>     print(subcircuit)
     """
-    if type(rand_qc) == qiskit.circuit.quantumcircuit.QuantumCircuit:
-        dag = circuit_qiskit_to_dag(rand_qc)
-    elif type(rand_qc) == qibo.models.Circuit:
-        dag = circuit_qibo_to_dag(rand_qc)
-    else:
-        dag = rand_qc
+    if observables:
+        rand_qc = _change_basis(rand_qc, observables)
+
+    dag = convert_to_dag(rand_qc,observables)
+
+    dispatch_map = {
+    "qibo": dag_to_circuit_qibo,
+    "qiskit": dag_to_circuit_qiskit,
+    "cudaq": dag_to_circuit_cudaq,
+    }
 
     if networkx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -710,12 +704,10 @@ def wire_cutting_subcircuits(
                 subcircuits.append(graphs)
             else:
                 s_new, highest_qubit = _update_qubits(s)
-                if software == "qibo":
-                    subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
-                elif software == "qiskit":
-                    subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
-                else:
-                    raise ValueError
+                try:
+                    subcirc = dispatch_map[software](s_new, highest_qubit)
+                except KeyError:
+                    raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
                 subcircuits.append(subcirc)
         return subcircuits
     else:
@@ -727,12 +719,10 @@ def wire_cutting_subcircuits(
 
         else:
             s_new, highest_qubit = _update_qubits(dag)
-            if software == "qibo":
-                subcircuits = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
-            elif software == "qiskit":
-                subcircuits = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
-            else:
-                raise ValueError
+            try:
+                subcircuits = dispatch_map[software](s_new, highest_qubit)
+            except KeyError:
+                raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
         return subcircuits
 
 
@@ -813,6 +803,13 @@ def _generate_wire_cutting_subcircuits(
     for i in range(8 ** len(edges_to_replace)):
         graphs.append(dag.copy())
 
+
+    dispatch_map = {
+        "qibo": dag_to_circuit_qibo,
+        "qiskit": dag_to_circuit_qiskit,
+        "cudaq": dag_to_circuit_cudaq,
+    }
+
     subcircuits = []
     for index, graph in enumerate(graphs, start=0):
         copy_graph = graph.copy()
@@ -837,12 +834,10 @@ def _generate_wire_cutting_subcircuits(
 
         for s in graph_components:
             s_new, highest_qubit = _update_qubits(s)
-            if software == "qibo":
-                subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
-            elif software == "qiskit":
-                subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
-            else:
-                raise ValueError
+            try:
+                subcirc = dispatch_map[software](s_new, highest_qubit)
+            except KeyError:
+                raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
             subcircuits.append(subcirc)
     return subcircuits
 
