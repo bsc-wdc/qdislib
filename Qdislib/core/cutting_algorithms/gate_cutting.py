@@ -31,6 +31,7 @@ from qiskit_aer import AerSimulator
 from qiskit_aer.primitives import EstimatorV2 as Estimator
 from qiskit.primitives import BackendSamplerV2
 
+import re
 
 try:
     from pycompss.api.task import task
@@ -666,21 +667,12 @@ def _execute_gate_cutting(
 @task(returns=1)
 def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
-    if subcirc is None:
-        return None
-
-    tmp = subcirc[1]
-    subcirc = subcirc[0]
-
-    if tmp:
-        obs_I = tmp
+    if type(subcirc) != qibo.models.circuit.Circuit:
+        observables = subcirc[1]
+        subcirc = subcirc[0]
     else:
-        obs_I = None
-    observables = ["Z"] * subcirc.nqubits
-
-    if obs_I:
-        for element in obs_I:
-            observables[element] = "I"
+        observables = ["Z"] * subcirc.nqubits
+        observables = "".join(observables)
 
     subcirc.add(gates.M(*range(subcirc.nqubits)))
 
@@ -737,26 +729,13 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
         return None
 
     if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
-        tmp = qc[1]
+        observables = qc[1]
         subcirc = qc[0]
+        qc = subcirc
     else:
-        tmp = False
-        subcirc = qc
+        observables = ["Z"] * qc.num_qubits
+        observables = "".join(observables)
 
-    if tmp:
-        obs_I = tmp
-    else:
-        obs_I = None
-
-    observables = ["Z"] * subcirc.num_qubits
-
-    if obs_I:
-        for element in obs_I:
-            print(element)
-            observables[element] = "I"
-
-    observables = "".join(observables)
-    qc = subcirc
     qc.measure_all()
 
     import subprocess
@@ -817,23 +796,14 @@ def _expec_value_qiskit_qpu(
     if qc is None:
         return None
 
-    tmp = qc[1]
-    subcirc = qc[0]
-
-    if tmp:
-        obs_I = tmp
+    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
+        observables = qc[1]
+        subcirc = qc[0]
+        qc = subcirc
     else:
-        obs_I = None
+        observables = ["Z"] * qc.num_qubits
+        observables = "".join(observables)
 
-    observables = ["Z"] * subcirc.num_qubits
-
-    if obs_I:
-        for element in obs_I:
-            observables[element] = "I"
-
-    observables = "".join(observables)
-
-    qc, _ = qc
     qc.measure_all()
 
     pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
@@ -876,23 +846,14 @@ def _expec_value_qiskit_gpu_implements(qc, shots=1024, method="automatic"):
     if qc is None:
         return None
 
-    tmp = qc[1]
-    subcirc = qc[0]
-
-    if tmp:
-        obs_I = tmp
+    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
+        observables = qc[1]
+        subcirc = qc[0]
+        qc = subcirc
     else:
-        obs_I = None
+        observables = ["Z"] * qc.num_qubits
+        observables = "".join(observables)
 
-    observables = ["Z"] * subcirc.num_qubits
-
-    if obs_I:
-        for element in obs_I:
-            observables[element] = "I"
-
-    observables = "".join(observables)
-
-    qc, _ = qc
     qc.measure_all()
 
     import subprocess
@@ -943,22 +904,14 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
     if qc is None:
         return None
 
-    tmp = qc[1]
-    subcirc = qc[0]
-
-    if tmp:
-        obs_I = tmp
+    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
+        observables = qc[1]
+        subcirc = qc[0]
+        qc = subcirc
     else:
-        obs_I = None
+        observables = ["Z"] * qc.num_qubits
+        observables = "".join(observables)
 
-    observables = ["Z"] * subcirc.num_qubits
-
-    if obs_I:
-        for element in obs_I:
-            observables[element] = "I"
-
-    observables = "".join(observables)
-    qc, _ = qc
     qc.measure_all()
 
     import subprocess
@@ -1048,7 +1001,7 @@ def _check_ibm_qc():
 
 
 def gate_cutting_subcircuits(
-    dag: typing.Any, gates_cut: typing.List[typing.Any], software="qiskit"
+    dag: typing.Any, gates_cut: typing.List[typing.Any], observables=None, software="qiskit"
 ): 
     """
     Partition a quantum circuit into subcircuits via gate cutting.
@@ -1098,13 +1051,25 @@ def gate_cutting_subcircuits(
     >>> for subcircuit in subcircuits:
     >>>     print(subcircuit)
     """
+    pattern = re.compile(r"^[A-Za-z]+_\d+$")
 
-    if type(dag) == qiskit.circuit.quantumcircuit.QuantumCircuit:
-        dag = circuit_qiskit_to_dag(dag)
-    elif type(dag) == qibo.models.Circuit:
-        dag = circuit_qibo_to_dag(dag)
-    else:
-        dag = dag
+    if not isinstance(gates_cut, list) or not all(isinstance(g, str) for g in gates_cut):
+        raise ValueError("Invalid format of gates to cut: expected a list of strings.")
+    if not all(pattern.match(g) for g in gates_cut):
+        raise ValueError(
+            "Invalid gate name format: each entry must match '<GATE>_<NUMBER>', e.g. 'CX_1'."
+        )
+
+    if observables:
+        dag = _change_basis(dag, observables)
+
+    dag = convert_to_dag(dag,observables)
+
+    dispatch_map = {
+    "qibo": dag_to_circuit_qibo,
+    "qiskit": dag_to_circuit_qiskit,
+    "cudaq": dag_to_circuit_cudaq,
+    }
 
     if nx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -1123,14 +1088,10 @@ def gate_cutting_subcircuits(
                 subcircuits = subcircuits + subcirc
             else:
                 s_new, highest_qubit = _update_qubits(s)
-                if software == "qibo":
-                    subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
-                elif software == "qiskit":
-                    subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
-                elif software == "cudaq":
-                    subcirc = _dag_to_circuit_cudaq_subcircuits(s_new, highest_qubit)
-                else:
-                    raise ValueError
+                try:
+                    subcirc = dispatch_map[software](s_new, highest_qubit)
+                except KeyError:
+                    raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
                 subcircuits.append(subcirc)
         return subcircuits
     else:
@@ -1140,14 +1101,10 @@ def gate_cutting_subcircuits(
             )
         else:
             s_new, highest_qubit = _update_qubits(dag)
-            if software == "qibo":
-                subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
-            elif software == "qiskit":
-                subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
-            elif software == "cudaq":
-                subcirc = _dag_to_circuit_cudaq_subcircuits(s_new, highest_qubit)
-            else:
-                raise ValueError
+            try:
+                subcirc = dispatch_map[software](s_new, highest_qubit)
+            except KeyError:
+                raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
         return subcirc
 
 
@@ -1158,6 +1115,12 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
         new_dag.subgraph(c).copy()
         for c in nx.connected_components(new_dag.to_undirected())
     ]
+
+    dispatch_map = {
+    "qibo": dag_to_circuit_qibo,
+    "qiskit": dag_to_circuit_qiskit,
+    "cudaq": dag_to_circuit_cudaq,
+    }
 
     subcircuits = []
     for index in range(6 ** len(gates_cut)):
@@ -1176,14 +1139,10 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
         for i, s in enumerate(graph_components):
             s_new, highest_qubit = _update_qubits(s)
 
-            if software == "qibo":
-                subcirc = _dag_to_circuit_qibo_subcircuits(s_new, highest_qubit)
-            elif software == "qiskit":
-                subcirc = _dag_to_circuit_qiskit_subcircuits(s_new, highest_qubit)
-            elif software == "cudaq":
-                subcirc = _dag_to_circuit_cudaq_subcircuits(s_new, highest_qubit)
-            else:
-                raise ValueError
+            try:
+                subcirc = dispatch_map[software](s_new, highest_qubit)
+            except KeyError:
+                raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
             subcircuits.append(subcirc)
     return subcircuits
 

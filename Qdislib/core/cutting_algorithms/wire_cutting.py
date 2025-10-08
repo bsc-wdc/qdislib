@@ -29,7 +29,10 @@ import pickle
 import os
 import random
 
+import re
+
 from qibo import models, gates
+import cudaq
 
 try:
     from pycompss.api.task import task
@@ -83,6 +86,7 @@ from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
 from Qdislib.utils.graph_cudaq import (
     dag_to_circuit_cudaq,
     _dag_to_circuit_cudaq_subcircuits,
+    dag_to_circuit_cudaq_kernel
 )
 
 
@@ -482,15 +486,19 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
     :raises ValueError: If there is an unsupported observable.
     :return: The circuit expected value.
     """
+    if subcirc is None:
+        return None
+    
     if type(subcirc) != qibo.models.circuit.Circuit:
         observables = subcirc[1]
-        subcirc = subcirc[0]
+        qc = subcirc[0]
+        subcirc = qc
     else:
         observables = ["Z"] * subcirc.nqubits
         observables = "".join(observables)
-
+    
     qibo.set_backend(backend)
-    subcirc.add(gates.M(*range(subcirc.nqubits)))  #
+    subcirc.add(gates.M(*range(subcirc.nqubits)))
     result = subcirc(nshots=shots)
     freq = dict(result.frequencies(binary=True))
 
@@ -509,6 +517,41 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
         expectation_value += contribution * (value / shots)
     return expectation_value
 
+@task(returns=1)
+def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
+    """Execute the given circuit.
+
+    :param subcirc: Circuit to execute.
+    :raises ValueError: If there is an unsupported observable.
+    :return: The circuit expected value.
+    """
+    
+    if len(subcirc) > 1:
+        observables = subcirc[1]
+        tuple_dag = subcirc[0]
+    else:
+        observables = ["Z"] * subcirc.nqubits
+        observables = "".join(observables)
+
+    dag, num_qubits = tuple_dag
+    subcirc = dag_to_circuit_cudaq_kernel(dag, num_qubits)
+
+    freq = cudaq.sample(subcirc,shots_count=shots)
+
+    expectation_value = 0
+    for key, value in freq.items():
+        contribution = 1
+        for bit, obs in zip(key, observables):
+            if obs == "Z":
+                contribution *= (-1) ** int(bit)
+            elif obs == "I":
+                contribution *= 1
+            else:
+                raise ValueError(f"Unsupported observable {obs}")
+
+        # Add the contribution weighted by its frequency
+        expectation_value += contribution * (value / shots)
+    return expectation_value
 
 @task(returns=1)
 def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
@@ -516,18 +559,12 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     if subcirc is None:
         return None
 
-    tmp = subcirc[1]
-    subcirc = subcirc[0]
-
-    if tmp:
-        obs_I = tmp
+    if type(subcirc) != qibo.models.circuit.Circuit:
+        observables = subcirc[1]
+        subcirc = subcirc[0]
     else:
-        obs_I = None
-    observables = ["Z"] * subcirc.nqubits
-
-    if obs_I:
-        for element in obs_I:
-            observables[element] = "I"
+        observables = ["Z"] * subcirc.nqubits
+        observables = "".join(observables)
 
     subcirc.add(gates.M(*range(subcirc.nqubits)))
 
@@ -674,6 +711,18 @@ def wire_cutting_subcircuits(
     >>> for subcircuit in subcircuits:
     >>>     print(subcircuit)
     """
+    pattern = re.compile(r"^[A-Za-z]+_\d+$")  # e.g. CX_1, H_0, RZ_3
+
+    if not isinstance(cut, list):
+        raise ValueError("Invalid format of wire cuts: expected a list of tuples with two strings each.")
+    for t in cut:
+        if not (isinstance(t, tuple) and len(t) == 2 and all(isinstance(x, str) for x in t)):
+            raise ValueError("Invalid format of wire cuts: expected a list of tuples with two strings each.")
+        if not all(pattern.match(x) for x in t):
+            raise ValueError(
+                "Invalid wire name format: each string in wire_cut tuples must match '<GATE>_<NUMBER>', e.g. 'CX_1'."
+            )
+
     if observables:
         rand_qc = _change_basis(rand_qc, observables)
 
@@ -701,7 +750,7 @@ def wire_cutting_subcircuits(
                 graphs = _generate_wire_cutting_subcircuits(
                     s, tmp_cuts, num_qubits=num_qubits, software=software
                 )
-                subcircuits.append(graphs)
+                subcircuits = subcircuits + graphs
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 try:

@@ -134,168 +134,128 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
 
     return dag
 
-
-
-
+@task(returns=1)
 def dag_to_circuit_cudaq(dag: nx.DiGraph, num_qubits: int):
-    """
-    Reconstruct a CUDA-Q kernel from a DAG representation.
-
-    Args:
-        dag (networkx.DiGraph): DAG with nodes containing:
-            - 'gate': str, name of the gate
-            - 'qubits': tuple of qubit indices
-            - 'parameters': list of parameters (if any)
-        num_qubits (int): number of qubits in the circuit.
-
-    Returns:
-        kernel: a @cudaq.kernel function implementing the circuit.
-    """
     if dag is None:
         return None
 
     topo_order = list(nx.topological_sort(dag))
 
-    # Track observable I (to return separately)
+    # Extract "Observable I" nodes if present
     obs_I = []
     for node in topo_order:
         if dag.nodes[node]["gate"].upper() == "OBSERVABLE I":
             obs_I.append(dag.nodes[node]["qubits"][0])
             dag.remove_node(node)
-    
-    dag, highest_qubit, smalles_qubit = _update_qubits_serie(dag)
 
-    # Define the CUDA-Q kernel dynamically
-    @cudaq.kernel
-    def kernel():
-        q = cudaq.qvector(num_qubits)
+    if obs_I:
+        observables = ["Z"] * num_qubits
+        for element in obs_I:
+            observables[element] = "I"
 
-        for node in topo_order:
-            node_data = dag.nodes[node]
-            gate = node_data["gate"].upper()
-            qubits = node_data["qubits"]
-            params = node_data["parameters"]
+        observables = "".join(observables)
+        return [(dag, num_qubits), observables]
 
-            if gate == "OBSERVABLE I":
-                # skip (we only track it separately)
-                continue
-            if gate in ["CNOT", "CX"]:
-                ctrl, tgt = qubits
-                x.ctrl(q[ctrl], q[tgt])
-            elif gate == "CZ":
-                ctrl, tgt = qubits
-                z.ctrl(q[ctrl], q[tgt])
-            elif gate in ["MZ"]:
-                mz([q[i] for i in qubits])
-            elif gate == "MX":
-                mx([q[i] for i in qubits])
-            elif gate == "MY":
-                my([q[i] for i in qubits])
-            elif gate =="MEASURE":
-                # Execute measurement
-                result = mz([q[i] for i in qubits])
-                # Conditional X as in Qiskit if_test
+    observables = ["Z"] * num_qubits
+    observables = "".join(observables)
+    return [(dag, num_qubits), observables]
+
+#@task(returns=1)
+def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
+    """
+    Convert a DAG into a CUDA-Q kernel using the modern builder API.
+
+    Produces code like:
+        kernel = cudaq.make_kernel()
+        q = [kernel.qalloc() for _ in range(num_qubits)]
+        kernel.h(q[0])
+        result = kernel.mz(q[0])
+        kernel.if_result(result, lambda: kernel.x(q[1]))
+
+    Args:
+        dag: networkx.DiGraph with node attributes:
+            - 'gate': str (gate name)
+            - 'qubits': tuple of qubit indices
+            - 'parameters': list of parameters (if any)
+        num_qubits: int, total number of qubits
+
+    Returns:
+        [kernel, obs_I]
+    """
+    if dag is None:
+        return None
+
+    topo_order = list(nx.topological_sort(dag))
+
+    # Extract "Observable I" nodes if present
+    """obs_I = []
+    for node in topo_order:
+        if dag.nodes[node]["gate"].upper() == "OBSERVABLE I":
+            obs_I.append(dag.nodes[node]["qubits"][0])
+            dag.remove_node(node)"""
+
+    # Initialize CUDA-Q kernel
+    kernel = cudaq.make_kernel()
+
+    # Allocate qubits explicitly
+    q = [kernel.qalloc() for _ in range(num_qubits)]
+    # Traverse DAG
+    for node in nx.topological_sort(dag):
+        node_data = dag.nodes[node]
+        gate = node_data["gate"].upper()
+        qubits = node_data["qubits"]
+        params = node_data["parameters"]
+
+        # --- Common 1-qubit gates ---
+        if gate in ["H", "X", "Y", "Z", "T", "S", "SDG"]:
+            for qb in qubits:
+                getattr(kernel, gate.lower())(q[qb])
+
+        # --- Rotation gates ---
+        elif gate in ["RX", "RY", "RZ"]:
+            angle = params[0] if params else 0.0
+            for qb in qubits:
+                getattr(kernel, gate.lower())(angle, q[qb])
+
+        # --- Controlled gates ---
+        elif gate in ["CNOT", "CX"]:
+            ctrl, tgt = qubits
+            kernel.cx(q[ctrl], q[tgt])
+
+        elif gate == "CZ":
+            ctrl, tgt = qubits
+            kernel.cz(q[ctrl], q[tgt])
+
+        # --- Measurement gates ---
+        elif gate in ["MZ", "MX", "MY"]:
+            for qb in qubits:
+                getattr(kernel, gate.lower())(q[qb])
+
+        # --- Qiskit-style MEASURE → conditional ---
+        elif gate == "MEASURE":
+            for qb in qubits:
+                result = kernel.mz(q[qb])
                 if result:
-                    x([q[i] for i in qubits])
+                    kernel.h(q[qb])
 
-            else:
-                # generic gate: e.g. h, rx, ry, rz, x, z, etc.
-                gate_fn = globals().get(gate.lower())
-                if gate_fn is None:
-                    raise ValueError(f"Unsupported gate: {gate}")
+        else:
+            raise ValueError(f"Unsupported gate type: {gate}")
+    
+    """if obs_I:
+        observables = ["Z"] * num_qubits
+        for element in obs_I:
+            observables[element] = "I"
 
-                if params:
-                    gate_fn(*params, *[q[i] for i in qubits])
-                else:
-                    gate_fn(*[q[i] for i in qubits])
+        observables = "".join(observables)
+        return [kernel, observables]
 
-    return [kernel, obs_I if obs_I else None]
+    observables = ["Z"] * num_qubits
+    observables = "".join(observables)"""
+    return kernel
 
 
 
 @task(returns=1)
 def _dag_to_circuit_cudaq_subcircuits(dag: nx.DiGraph, num_qubits: int):
-    """
-    Reconstruct a CUDA-Q kernel from a DAG (subcircuit version).
-    
-    Args:
-        dag (networkx.DiGraph): DAG with nodes containing:
-            - 'gate': str, name of the gate
-            - 'qubits': tuple of qubit indices
-            - 'parameters': list of parameters (if any)
-        num_qubits (int): Number of qubits in the circuit.
-    
-    Returns:
-        kernel: A @cudaq.kernel function implementing the circuit.
-    """
-    if dag is None:
-        return None
 
-    # Topological order for dependency resolution
-    topo_order = list(nx.topological_sort(dag))
-
-    # Remove Observable I nodes (we don't encode them in CUDA-Q subcircuits)
-    for node in topo_order:
-        node_data = dag.nodes[node]
-        if node_data["gate"] == "Observable I":
-            dag.remove_node(node)
-
-    dag, highest_qubit, smalles_qubit = _update_qubits_serie(dag)
-    
-    topo_order = list(nx.topological_sort(dag))
-
-    @cudaq.kernel
-    def kernel():
-        q = cudaq.qvector(num_qubits)
-
-        for node in topo_order:
-            node_data = dag.nodes[node]
-            gate_name = node_data["gate"].upper()
-            qubits = node_data["qubits"]
-            params = node_data["parameters"]
-
-            # Skip Observable I
-            if gate_name == "OBSERVABLE I":
-                continue
-
-            # Special case: CNOT
-            if gate_name in ["CNOT", "CX"]:
-                ctrl, tgt = qubits
-                x.ctrl(q[ctrl], q[tgt])
-                continue
-
-            # Special case: CZ
-            if gate_name == "CZ":
-                ctrl, tgt = qubits
-                z.ctrl(q[ctrl], q[tgt])
-                continue
-
-            # Measurement handling
-            if gate_name == "MZ":
-                mz([q[i] for i in qubits])
-                continue
-            elif gate_name == "MX":
-                mx([q[i] for i in qubits])
-                continue
-            elif gate_name == "MY":
-                my([q[i] for i in qubits])
-                continue
-            elif gate_name == "MEASURE":
-                # Execute measurement
-                result = mz([q[i] for i in qubits])
-                # Conditional X as in Qiskit if_test
-                if result:
-                    x([q[i] for i in qubits])
-                continue
-
-            # Generic single- or multi-qubit gates (rx, ry, rz, h, x, y, z, etc.)
-            gate_fn = globals().get(gate_name.lower())
-            if gate_fn is None:
-                raise ValueError(f"Unsupported gate: {gate_name}")
-
-            if params:
-                gate_fn(*params, *[q[i] for i in qubits])
-            else:
-                gate_fn(*[q[i] for i in qubits])
-
-    return kernel
+    return 0

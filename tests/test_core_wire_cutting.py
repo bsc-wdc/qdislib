@@ -88,3 +88,179 @@ class CircuitTest(BaseTimedTestCase):
             self.assertTrue(True)
         else:
             self.assertTrue(False)
+    
+    def test_wire_cutting_qibo(self):
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+        from Qdislib.core.cutting_algorithms.wire_cutting import _expec_value_qibo
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting_subcircuits, wire_cutting_subcircuit_reconstruction
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        from qibo import models, gates
+        import numpy as np
+
+        import qibo
+
+        nqubits = 10
+        circuit = models.Circuit(nqubits)
+
+        circuit.add(gates.H(0))
+        circuit.add(gates.CZ(0, 1))
+        circuit.add(gates.CZ(2, 6))
+        circuit.add(gates.RZ(8, np.pi / 3))
+
+        circuit.add(gates.RY(3, np.pi / 5))
+        circuit.add(gates.RX(4, np.pi / 5))
+        circuit.add(gates.CZ(0, 2))
+        circuit.add(gates.CZ(5, 9))
+
+        circuit.add(gates.CZ(3, 5))
+        circuit.add(gates.CZ(3, 4))
+        circuit.add(gates.CZ(6, 7))
+        circuit.add(gates.RY(7, np.pi / 5))
+        circuit.add(gates.RZ(1, np.pi / 5))
+
+        circuit.add(gates.CZ(1, 5))
+        circuit.add(gates.RX(6, np.pi / 5))
+        circuit.add(gates.CZ(7, 8))
+
+        circuit.add(gates.H(9))
+
+        cut = find_cut(circuit, gate_cut=False)
+        print(cut)
+        subcircuits = wire_cutting_subcircuits(circuit, cut, software="qibo")
+
+        results = []
+        for subcircuit in subcircuits:
+            print(subcircuit)
+            # Execute individually each subcircuit
+            result = _expec_value_qibo(subcircuit)
+            results.append(result)
+        
+        #results = compss_wait_on(results)
+
+        reconstruction = wire_cutting_subcircuit_reconstruction(results,number_cuts=1)
+
+        analytical = analytical_solution(circuit, "Z"*circuit.nqubits)
+        if abs(reconstruction - analytical) < 0.2:
+            self.assertTrue(True)
+        else:
+            self.assertTrue(False)
+
+    
+    def test_wire_cutting_qiskit(self):
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+        from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting_subcircuits, wire_cutting_subcircuit_reconstruction
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        from qibo import models, gates
+        import numpy as np
+
+        import qibo
+
+        nqubits = 10
+        circuit = models.Circuit(nqubits)
+
+        circuit.add(gates.H(0))
+        circuit.add(gates.CZ(0, 1))
+        circuit.add(gates.CZ(2, 6))
+        circuit.add(gates.RZ(8, np.pi / 3))
+
+        circuit.add(gates.RY(3, np.pi / 5))
+        circuit.add(gates.RX(4, np.pi / 5))
+        circuit.add(gates.CZ(0, 2))
+        circuit.add(gates.CZ(5, 9))
+
+        circuit.add(gates.CZ(3, 5))
+        circuit.add(gates.CZ(3, 4))
+        circuit.add(gates.CZ(6, 7))
+        circuit.add(gates.RY(7, np.pi / 5))
+        circuit.add(gates.RZ(1, np.pi / 5))
+
+        circuit.add(gates.CZ(1, 5))
+        circuit.add(gates.RX(6, np.pi / 5))
+        circuit.add(gates.CZ(7, 8))
+
+        circuit.add(gates.H(9))
+
+        cut = find_cut(circuit, gate_cut=False)
+        print(cut)
+        subcircuits = wire_cutting_subcircuits(circuit, cut, software="qiskit")
+
+        results = []
+        for subcircuit in subcircuits:
+            # Execute individually each subcircuit
+            result = _expec_value_qiskit(subcircuit)
+            results.append(result)
+
+        reconstruction = wire_cutting_subcircuit_reconstruction(results,number_cuts=1)
+
+        analytical = analytical_solution(circuit, "Z"*circuit.nqubits)
+        if abs(reconstruction - analytical) < 0.2:
+            self.assertTrue(True)
+        else:
+            self.assertTrue(False)
+
+
+    def test_wire_cutting_cudaq(self):
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+        from Qdislib.core.cutting_algorithms.wire_cutting import _expec_value_cudaq
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting_subcircuits, wire_cutting_subcircuit_reconstruction
+        from pycompss.api.api import compss_wait_on
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        from qibo import models, gates
+        import numpy as np
+
+        import qibo
+
+        nqubits = 10
+        circuit = models.Circuit(nqubits)
+
+        circuit.add(gates.H(0))
+        circuit.add(gates.CZ(0, 1))
+        circuit.add(gates.CZ(2, 6))
+        circuit.add(gates.RZ(8, np.pi / 3))
+
+        circuit.add(gates.RY(3, np.pi / 5))
+        circuit.add(gates.RX(4, np.pi / 5))
+        circuit.add(gates.CZ(0, 2))
+        circuit.add(gates.CZ(5, 9))
+
+        circuit.add(gates.CZ(3, 5))
+        circuit.add(gates.CZ(3, 4))
+        circuit.add(gates.CZ(6, 7))
+        circuit.add(gates.RY(7, np.pi / 5))
+        circuit.add(gates.RZ(1, np.pi / 5))
+
+        circuit.add(gates.CZ(1, 5))
+        circuit.add(gates.RX(6, np.pi / 5))
+        circuit.add(gates.CZ(7, 8))
+
+        circuit.add(gates.H(9))
+
+        cut = find_cut(circuit, gate_cut=False)
+        print(cut)
+        subcircuits = wire_cutting_subcircuits(circuit, cut, software="cudaq")
+
+        #subcircuits = compss_wait_on(subcircuits)
+
+        results = []
+        for subcircuit in subcircuits:
+            # Execute individually each subcircuit
+            result = _expec_value_cudaq(subcircuit)
+            results.append(result)
+        
+        results = compss_wait_on(results)
+        print(results)
+
+        reconstruction = wire_cutting_subcircuit_reconstruction(results,number_cuts=1)
+
+        analytical = analytical_solution(circuit, "Z"*circuit.nqubits)
+        if abs(reconstruction - analytical) < 0.2:
+            self.assertTrue(True)
+        else:
+            self.assertTrue(False)

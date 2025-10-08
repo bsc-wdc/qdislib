@@ -263,8 +263,16 @@ def dag_to_circuit_qiskit(dag, num_qubits):
                 tmp(*qubits)
 
     if obs_I:
-        return [circuit, obs_I]
-    return [circuit, None]
+        observables = ["Z"] * num_qubits
+        for element in obs_I:
+            observables[element] = "I"
+
+        observables = "".join(observables)
+        return [circuit, observables]
+
+    observables = ["Z"] * num_qubits
+    observables = "".join(observables)
+    return [circuit, observables]
 
 
 @task(returns=1)
