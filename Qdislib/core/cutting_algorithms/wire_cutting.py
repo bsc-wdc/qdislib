@@ -310,12 +310,12 @@ def _generate_wire_cutting(
 
         copy_dag.remove_edges_from(red_edges)
 
-    graphs = []
+    """graphs = []
     for i in range(8 ** len(edges_to_replace)):
-        graphs.append(dag.copy())
+        graphs.append(dag.copy())"""
 
-    for index, graph in enumerate(graphs, start=0):
-        copy_graph = graph.copy()
+    for index in range(8 ** len(edges_to_replace)):
+        copy_graph = dag.copy()
 
         copy_graph = _remove_red_edges(copy_graph)
 
@@ -848,9 +848,9 @@ def _generate_wire_cutting_subcircuits(
 
         copy_dag.remove_edges_from(red_edges)
 
-    graphs = []
+    """graphs = []
     for i in range(8 ** len(edges_to_replace)):
-        graphs.append(dag.copy())
+        graphs.append(dag.copy())"""
 
 
     dispatch_map = {
@@ -860,8 +860,8 @@ def _generate_wire_cutting_subcircuits(
     }
 
     subcircuits = []
-    for index, graph in enumerate(graphs, start=0):
-        copy_graph = graph.copy()
+    for index in range(8 ** len(edges_to_replace)):
+        copy_graph = dag.copy()
 
         copy_graph = _remove_red_edges(copy_graph)
 
