@@ -29,6 +29,7 @@ import cudaq
 import re
 import json
 from Qdislib.utils.graph_qibo import _update_qubits_serie
+import sys
 
 try:
     from pycompss.api.task import task
@@ -136,6 +137,8 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
 
 @task(returns=1)
 def dag_to_circuit_cudaq(dag: nx.DiGraph, num_qubits: int):
+    sys.tracebacklimit = 1
+
     if dag is None:
         return None
 
@@ -182,6 +185,7 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
     Returns:
         [kernel, obs_I]
     """
+    sys.tracebacklimit = 1
     if dag is None:
         return None
 
@@ -257,5 +261,5 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
 
 @task(returns=1)
 def _dag_to_circuit_cudaq_subcircuits(dag: nx.DiGraph, num_qubits: int):
-
+    sys.tracebacklimit = 1
     return 0

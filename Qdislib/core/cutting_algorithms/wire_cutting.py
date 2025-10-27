@@ -33,6 +33,7 @@ import re
 
 from qibo import models, gates
 import cudaq
+import sys
 
 try:
     from pycompss.api.task import task
@@ -525,19 +526,26 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
     :raises ValueError: If there is an unsupported observable.
     :return: The circuit expected value.
     """
-    
+    sys.tracebacklimit = 1    
     if len(subcirc) > 1:
         observables = subcirc[1]
         tuple_dag = subcirc[0]
     else:
         observables = ["Z"] * subcirc.nqubits
         observables = "".join(observables)
+        tuple_dag = subcirc
 
     dag, num_qubits = tuple_dag
     subcirc = dag_to_circuit_cudaq_kernel(dag, num_qubits)
+    
+    try:
+        cudaq.set_target("nvidia")
+        print("Using GPU backend.")
+    except Exception:
+        cudaq.set_target("qpp-cpu")
+        print("GPU unavailable. Falling back to CPU backend.")
 
     freq = cudaq.sample(subcirc,shots_count=shots)
-
     expectation_value = 0
     for key, value in freq.items():
         contribution = 1
@@ -644,6 +652,8 @@ def _change_basis(circuit, observables):
         if i == "X":
             circuit.add(gates.H(idx))
         elif i == "Y":
+            circuit.add(gates.SDG(idx))
+            circuit.add(gates.H(idx))
             circuit.add(gates.SDG(idx))
             circuit.add(gates.H(idx))
         else:
@@ -924,9 +934,7 @@ def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_
         - The `compss_wait_on` function is used to wait for asynchronous computations 
           (e.g., in distributed environments like PyCOMPSs).
     """
-    if number_cuts == 0:
-        return math.prod(expected_values)
-    else:
+    if number_cuts != 0:
         expected_values = [expected_values[i:i+number_components] for i in range(0, len(expected_values), number_components)]
         results = []
         for index, exp_values in enumerate(expected_values):
@@ -934,5 +942,6 @@ def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_
             results.append(result)
         
         results = compss_wait_on(results)
+        print("RESULTS 2: ", results)
         final_recons = 1 / (2 ** number_cuts) * sum(results)
         return final_recons
