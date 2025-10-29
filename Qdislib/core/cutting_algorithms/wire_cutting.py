@@ -942,6 +942,5 @@ def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_
             results.append(result)
         
         results = compss_wait_on(results)
-        print("RESULTS 2: ", results)
         final_recons = 1 / (2 ** number_cuts) * sum(results)
         return final_recons
