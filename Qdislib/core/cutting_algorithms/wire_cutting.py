@@ -604,6 +604,9 @@ def _change_sign(expectation_value, index):
 
 def _change_basis(circuit, observables):
     is_qiskit = isinstance(circuit, qiskit.circuit.quantumcircuit.QuantumCircuit)
+    # Work on a copy so the caller's circuit is not mutated (basis-change gates
+    # would otherwise accumulate across calls and corrupt circuit reuse).
+    circuit = circuit.copy() if is_qiskit else circuit.copy(deep=True)
     for idx, i in enumerate(observables):
         if i == "X":
             if is_qiskit:

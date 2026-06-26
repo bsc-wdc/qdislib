@@ -36,6 +36,20 @@ from tests import BaseTimedTestCase
 qibo.set_backend("numpy")
 
 
+def exact_pauli_expectation(qibo_circuit, paulis):
+    """Independent oracle for a general Pauli string (supports I/X/Y/Z)."""
+    psi = qibo_circuit().state(numpy=True)
+    I = np.eye(2)
+    X = np.array([[0, 1], [1, 0]], dtype=complex)
+    Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+    Z = np.array([[1, 0], [0, -1]], dtype=complex)
+    table = {"I": I, "X": X, "Y": Y, "Z": Z}
+    op = np.array([[1]], dtype=complex)
+    for p in paulis:
+        op = np.kron(op, table[p])
+    return float(np.real(psi.conj() @ op @ psi))
+
+
 def exact_z_expectation(qibo_circuit, obs):
     """Independent oracle: <prod_q Z_q for obs[q]=='Z'> from the statevector.
 
@@ -125,6 +139,13 @@ class CuttingBugTest(BaseTimedTestCase):
         pairing. A blanket ``reversed(key)`` fixes this case but breaks
         reconstruction. The correct fix is a register-aware qubit->bit mapping
         that separates the two callers; see issue #1227.
+
+        NOTE: the same ``zip(key, observables)`` pattern appears at FIVE Qiskit
+        sites in gate_cutting.py (CPU ``_expec_value_qiskit`` ~781, the QPU freq
+        path ~705, ``_expec_value_qiskit_qpu`` ~838, and the two GPU variants
+        ~907/~973). Only the CPU path is covered here because the QPU/GPU paths
+        need hardware/CUDA. A real fix must address all five together, or the
+        GPU/QPU users silently keep the wrong-qubit mapping.
         """
         from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
 
@@ -280,3 +301,74 @@ class CuttingBugTest(BaseTimedTestCase):
         c.add(gates.RY(0, 0.8))
         analytical = exact_z_expectation(c, "Z")
         self.assertAlmostEqual(gate_cutting(c, [], shots=200000), analytical, delta=0.03)
+
+    def test_change_basis_does_not_mutate_input(self):
+        """gate_cutting with observables must not mutate the caller's circuit."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.ry(0.8, 0)
+        depth_before = qc.depth()
+        v1 = gate_cutting(qc, ["CZ_2"], observables="XX", shots=50000)
+        self.assertEqual(qc.depth(), depth_before, "input circuit was mutated")
+        # Reusing the same circuit must give the same answer (no gate accumulation).
+        v2 = gate_cutting(qc, ["CZ_2"], observables="XX", shots=50000)
+        self.assertAlmostEqual(v1, v2, delta=0.1)
+
+    def test_y_observable_matches_analytic(self):
+        """Y-basis change must yield the correct <Y..Y>, not just agree across backends."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
+
+        c = models.Circuit(2)
+        c.add(gates.RX(0, np.pi / 2))
+        c.add(gates.CZ(0, 1))
+        c.add(gates.RX(1, np.pi / 2))
+        analytical = exact_pauli_expectation(c, "YY")
+        recon = gate_cutting(c, ["CZ_2"], observables="YY", shots=200000)
+        self.assertAlmostEqual(recon, analytical, delta=0.04)
+
+    def test_two_cut_reconstruction(self):
+        """Gate cutting with k=2 cuts (6**2 subcircuit groups) reconstructs correctly."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
+
+        c = models.Circuit(3)
+        c.add(gates.H(0))            # 1
+        c.add(gates.H(1))            # 2
+        c.add(gates.CZ(0, 1))        # 3 -> CZ_3
+        c.add(gates.RY(1, 0.5))      # 4
+        c.add(gates.CZ(1, 2))        # 5 -> CZ_5
+        c.add(gates.RY(2, 0.3))      # 6
+        analytical = exact_z_expectation(c, "ZZZ")
+        recon = gate_cutting(c, ["CZ_3", "CZ_5"], shots=200000)
+        self.assertAlmostEqual(recon, analytical, delta=0.05)
+
+    def test_wire_cutting_multi_component_forwards_shots(self):
+        """The multi-component wire-cutting path must also forward shots."""
+        from Qdislib.core.cutting_algorithms import wire_cutting as wcmod
+
+        seen = []
+        original = wcmod._expec_value_qibo
+
+        def recorder(subcirc, shots, backend, *a, **k):
+            seen.append(shots)
+            return 0.0
+
+        wcmod._expec_value_qibo = recorder
+        try:
+            c = models.Circuit(4)
+            c.add(gates.H(0))           # component A (cuttable)
+            c.add(gates.H(1))
+            c.add(gates.CZ(0, 1))
+            c.add(gates.H(1))
+            c.add(gates.CZ(1, 2))
+            c.add(gates.RY(1, np.pi / 5))
+            c.add(gates.RY(3, 0.4))     # component B (isolated qubit 3)
+            wcmod.wire_cutting(c, [("CZ_3", "H_4")], shots=7777)
+        finally:
+            wcmod._expec_value_qibo = original
+
+        self.assertTrue(seen, "evaluator was never called")
+        self.assertTrue(all(s == 7777 for s in seen),
+                        f"multi-component path dropped shots, saw {set(seen)}")
