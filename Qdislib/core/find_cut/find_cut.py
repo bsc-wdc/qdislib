@@ -202,10 +202,16 @@ def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=1
     best_partition = []
     best_cutset = []
 
-    for _ in range(num_runs):
-        # Perform balanced partition using Kernighan-Lin
+    # Kernighan-Lin needs at least two nodes to bisect; bail out gracefully
+    # (like the other strategies) instead of letting networkx raise on min().
+    if graph.number_of_nodes() < 2:
+        return [], []
+
+    for run_idx in range(num_runs):
+        # Perform balanced partition using Kernighan-Lin.
+        # Seed per run for reproducibility while still exploring distinct partitions.
         partition = networkx.algorithms.community.kernighan_lin_bisection(
-            graph.to_undirected()
+            graph.to_undirected(), seed=run_idx
         )
 
         # Extract the edges in the cut-set
@@ -220,16 +226,15 @@ def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=1
         if max_cuts and cutset_size > max_cuts:
             flag = True
         if flag:
-            break
+            continue
 
         # If this cut-set is smaller, update the best partition and cut-set
         if cutset_size < best_cutset_size:
             best_cutset_size = cutset_size
             best_partition = partition
             best_cutset = cutset
-        best_cutset
 
-    if best_cutset is not []:
+    if best_cutset:
         best_cutset = [el[2]["gate"] for el in best_cutset]
     else:
         return [], []
@@ -275,13 +280,19 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
 def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
     from sklearn.cluster import SpectralClustering
 
+    # Spectral clustering requires 2 <= n_clusters <= n_samples; bail out
+    # gracefully (like the other strategies) instead of letting sklearn raise.
+    if clusters is None or clusters < 2 or clusters > graph.number_of_nodes():
+        return [], []
+
     # Convert the graph to adjacency matrix form
     adjacency_matrix = networkx.to_numpy_array(graph)
 
     # Perform spectral clustering
     num_clusters = clusters  # Example: Find 3 components
     sc = SpectralClustering(
-        n_clusters=num_clusters, affinity="precomputed", assign_labels="kmeans"
+        n_clusters=num_clusters, affinity="precomputed", assign_labels="kmeans",
+        random_state=0
     )
     labels = sc.fit_predict(adjacency_matrix)
 
@@ -770,7 +781,11 @@ def find_cut(
 
     if implementation == "qdislib":
         if max_qubits and not max_components:
-            max_components = circuit.nqubits // max_qubits + 1
+            # Qibo circuits expose ``nqubits``; Qiskit circuits expose ``num_qubits``.
+            n_qubits = getattr(circuit, "nqubits", None)
+            if n_qubits is None:
+                n_qubits = circuit.num_qubits
+            max_components = n_qubits // max_qubits + 1
         elif not max_qubits and not max_components:
             max_components = 2
 

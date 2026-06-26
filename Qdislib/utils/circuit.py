@@ -108,10 +108,15 @@ def analytical_solution(
 
     # We convert the expectation value in a symbolic Hamiltonian
     new_expectation_value = hamiltonians.SymbolicHamiltonian(expectation_value)
-    # Finally we compute the expectation value
-    exp_full_circuit = float(
-        new_expectation_value.expectation(state.state(numpy=True), normalize=False)
-    )
+    # Finally we compute the expectation value. The ``normalize`` keyword was
+    # removed in newer Qibo releases; detect it from the signature rather than
+    # catching TypeError (which could mask an unrelated error).
+    state_vector = state.state(numpy=True)
+    expectation = new_expectation_value.expectation
+    if "normalize" in inspect.signature(expectation).parameters:
+        exp_full_circuit = float(expectation(state_vector, normalize=False))
+    else:
+        exp_full_circuit = float(expectation(state_vector))
 
     if verbose:
         print(

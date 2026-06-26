@@ -308,7 +308,7 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
         # Check if parameters are provided and the gate requires them
         if parameters is not None and param_count > len(qubits):
             # Pass qubits and parameters if the gate requires both
-            circuit.add(gate_class(*qubits, parameters))
+            circuit.add(gate_class(*qubits, *parameters))
         else:
             # Otherwise, pass only the qubits
             circuit.add(gate_class(*qubits))
@@ -499,7 +499,7 @@ def _dag_to_circuit_qibo_subcircuits(
         # Check if parameters are provided and the gate requires them
         if parameters is not None and param_count > len(qubits):
             # Pass qubits and parameters if the gate requires both
-            circuit.add(gate_class(*qubits, parameters))
+            circuit.add(gate_class(*qubits, *parameters))
         else:
             # Otherwise, pass only the qubits
             circuit.add(gate_class(*qubits))
