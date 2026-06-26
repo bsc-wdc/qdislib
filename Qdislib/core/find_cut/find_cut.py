@@ -202,10 +202,11 @@ def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=1
     best_partition = []
     best_cutset = []
 
-    for _ in range(num_runs):
-        # Perform balanced partition using Kernighan-Lin
+    for run_idx in range(num_runs):
+        # Perform balanced partition using Kernighan-Lin.
+        # Seed per run for reproducibility while still exploring distinct partitions.
         partition = networkx.algorithms.community.kernighan_lin_bisection(
-            graph.to_undirected()
+            graph.to_undirected(), seed=run_idx
         )
 
         # Extract the edges in the cut-set
@@ -220,16 +221,15 @@ def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=1
         if max_cuts and cutset_size > max_cuts:
             flag = True
         if flag:
-            break
+            continue
 
         # If this cut-set is smaller, update the best partition and cut-set
         if cutset_size < best_cutset_size:
             best_cutset_size = cutset_size
             best_partition = partition
             best_cutset = cutset
-        best_cutset
 
-    if best_cutset is not []:
+    if best_cutset:
         best_cutset = [el[2]["gate"] for el in best_cutset]
     else:
         return [], []
@@ -281,7 +281,8 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
     # Perform spectral clustering
     num_clusters = clusters  # Example: Find 3 components
     sc = SpectralClustering(
-        n_clusters=num_clusters, affinity="precomputed", assign_labels="kmeans"
+        n_clusters=num_clusters, affinity="precomputed", assign_labels="kmeans",
+        random_state=0
     )
     labels = sc.fit_predict(adjacency_matrix)
 

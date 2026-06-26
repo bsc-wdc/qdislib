@@ -180,7 +180,8 @@ def wire_cutting(
                     tmp_cuts.append(c)
             if tmp_cuts:
                 graphs = _generate_wire_cutting(
-                    s, tmp_cuts, num_qubits=num_qubits, qpu=qpu
+                    s, tmp_cuts, num_qubits=num_qubits,
+                    shots=shots, backend=backend, qpu=qpu
                 )
                 graphs = _sum_results(graphs)
                 results.append(graphs)
@@ -201,7 +202,10 @@ def wire_cutting(
     else:
         num_qubits = _max_qubit(dag)
         if cut:
-            results = _generate_wire_cutting(dag, cut, num_qubits=num_qubits, qpu=qpu)
+            results = _generate_wire_cutting(
+                dag, cut, num_qubits=num_qubits,
+                shots=shots, backend=backend, qpu=qpu
+            )
 
             if sync:
                 results = compss_wait_on(results)
@@ -599,12 +603,20 @@ def _change_sign(expectation_value, index):
 
 
 def _change_basis(circuit, observables):
+    is_qiskit = isinstance(circuit, qiskit.circuit.quantumcircuit.QuantumCircuit)
     for idx, i in enumerate(observables):
         if i == "X":
-            circuit.add(gates.H(idx))
+            if is_qiskit:
+                circuit.h(idx)
+            else:
+                circuit.add(gates.H(idx))
         elif i == "Y":
-            circuit.add(gates.SDG(idx))
-            circuit.add(gates.H(idx))
+            if is_qiskit:
+                circuit.sdg(idx)
+                circuit.h(idx)
+            else:
+                circuit.add(gates.SDG(idx))
+                circuit.add(gates.H(idx))
         else:
             pass
 

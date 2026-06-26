@@ -194,6 +194,11 @@ def gate_cutting(
 
     """
 
+    if qpu_dict is None:
+        qpu_dict = {}
+    if gpu_min_qubits is None:
+        gpu_min_qubits = 0
+
     if qpu and "IBM_Quantum" in qpu_dict:
         batch, backend = _check_ibm_qc()
     else:
@@ -201,11 +206,6 @@ def gate_cutting(
 
     if observables:
         dag = _change_basis(dag, observables)
-
-    if qpu_dict is None:
-        qpu_dict = {}
-    if gpu_min_qubits is None:
-        gpu_min_qubits = 0
 
     if type(dag) == qiskit.circuit.quantumcircuit.QuantumCircuit:
         if observables:
@@ -239,7 +239,7 @@ def gate_cutting(
                     tmp_cuts.append(c)
             if tmp_cuts:
                 graphs = _execute_gate_cutting(
-                    dag,
+                    s,
                     tmp_cuts,
                     shots=shots,
                     method=method,
@@ -774,7 +774,7 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
     counts = result.get_counts()
     if verbose:
         print(counts)
-    
+
     expectation_value = 0
     for key, value in counts.items():
         contribution = 1
@@ -984,12 +984,20 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
 
 
 def _change_basis(circuit, observables):
+    is_qiskit = isinstance(circuit, qiskit.circuit.quantumcircuit.QuantumCircuit)
     for idx, i in enumerate(observables):
         if i == "X":
-            circuit.add(gates.H(idx))
+            if is_qiskit:
+                circuit.h(idx)
+            else:
+                circuit.add(gates.H(idx))
         elif i == "Y":
-            circuit.add(gates.SDG(idx))
-            circuit.add(gates.H(idx))
+            if is_qiskit:
+                circuit.sdg(idx)
+                circuit.h(idx)
+            else:
+                circuit.add(gates.SDG(idx))
+                circuit.add(gates.H(idx))
         else:
             pass
 
