@@ -372,3 +372,38 @@ class CuttingBugTest(BaseTimedTestCase):
         self.assertTrue(seen, "evaluator was never called")
         self.assertTrue(all(s == 7777 for s in seen),
                         f"multi-component path dropped shots, saw {set(seen)}")
+
+    def test_multiparam_gate_roundtrip(self):
+        """dag_to_circuit_qibo must unpack multi-parameter gates (U3/U2/U1)."""
+        from Qdislib.utils.graph_qibo import circuit_qibo_to_dag, dag_to_circuit_qibo
+
+        for g in (gates.U3(0, 0.3, 0.4, 0.5), gates.U2(0, 0.3, 0.4), gates.U1(0, 0.3)):
+            c = models.Circuit(1)
+            c.add(g)
+            rebuilt = dag_to_circuit_qibo(circuit_qibo_to_dag(c), 1)[0]
+            fidelity = abs(np.vdot(c().state(numpy=True), rebuilt().state(numpy=True)))
+            self.assertAlmostEqual(fidelity, 1.0, delta=1e-6,
+                                   msg=f"{g.__class__.__name__} did not round-trip")
+
+    def test_find_cut_accepts_qiskit_input(self):
+        """find_cut must not crash on a Qiskit circuit (num_qubits vs nqubits)."""
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.cz(1, 2)
+        cut = find_cut(qc, 2, gate_cut=False)
+        self.assertTrue(cut, "find_cut returned no cut for a cuttable Qiskit circuit")
+
+    def test_find_cut_small_graph_no_crash(self):
+        """find_cut must return gracefully (not crash) on tiny/sparse circuits."""
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        # Single 2-qubit gate -> the wire (gate) graph has one node; the KL and
+        # spectral partitioners must not raise on it.
+        c = models.Circuit(2)
+        c.add(gates.H(0))
+        c.add(gates.CZ(0, 1))
+        cut = find_cut(c, 2, gate_cut=False)
+        self.assertIsInstance(cut, list)
