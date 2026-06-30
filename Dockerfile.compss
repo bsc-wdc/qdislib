@@ -4,6 +4,7 @@
 # Build (override COMPSS_IMAGE with whichever COMPSs image you have):
 #   docker build -f Dockerfile.compss \
 #       --build-arg COMPSS_IMAGE=compss/compss-tutorial:3.3.3 -t qdislib-compss .
+#   # also test the CUDA-Q backend:  --build-arg QDISLIB_EXTRAS=all
 #
 # Run the COMPSs test harness (example app + unittest suite via runcompss):
 #   docker run --rm qdislib-compss
@@ -15,17 +16,20 @@
 ARG COMPSS_IMAGE=compss/compss-tutorial:3.3.3
 FROM ${COMPSS_IMAGE}
 
+# SDK backend extras to install. Default is qibo+qiskit; pass
+# --build-arg QDISLIB_EXTRAS=all to also include cudaq (verified under runcompss).
+ARG QDISLIB_EXTRAS=qibo,qiskit
+
 COPY . /Qdislib/
 WORKDIR /Qdislib
 
 ENV PYTHONPATH=$PYTHONPATH:/Qdislib:/opt/COMPSs/Bindings/python/3/
 ENV LC_ALL=C.UTF-8
 
-# Qdislib core + Qibo & Qiskit backends. Qibo drives the example app; add
-# '[all]' instead if the base image can install cudaq.
+# Qdislib + the selected SDK backend extras (see QDISLIB_EXTRAS above).
 RUN python3 -m pip install --upgrade \
     --trusted-host pypi.org --trusted-host files.pythonhosted.org \
-    '/Qdislib/[qibo,qiskit]'
+    "/Qdislib/[${QDISLIB_EXTRAS}]"
 
 # Default: run the example app and the unittest suite under runcompss.
 CMD ["bash", "scripts/run_compss_tests.sh"]

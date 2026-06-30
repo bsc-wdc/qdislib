@@ -108,12 +108,14 @@ following rules before you submit a pull request:
   To validate that path, run Qdislib under `runcompss` inside a COMPSs image:
 
   ```bash
-  # Build (override COMPSS_IMAGE with whichever COMPSs image you have):
+  # Build (override COMPSS_IMAGE with whichever COMPSs image you have).
+  # Default backends are qibo+qiskit; add cudaq with --build-arg QDISLIB_EXTRAS=all.
   docker build -f Dockerfile.compss \
       --build-arg COMPSS_IMAGE=compss/compss-tutorial:3.3.3 -t qdislib-compss .
 
-  # Run the example app + unittest suite under runcompss:
-  docker run --rm qdislib-compss
+  # Run the example app + unittest suite under runcompss (QDISLIB_SOFTWARE picks
+  # the backend for the example app: qibo, qiskit or cudaq):
+  docker run --rm -e QDISLIB_SOFTWARE=qibo qdislib-compss
 
   # ...or interactively:
   docker run --rm -it qdislib-compss bash

@@ -65,7 +65,7 @@ qiskit = [
   "qiskit_aer>=0.15.1",
   "qiskit-ibm-runtime>=0.20.0",   # only needed for the IBM Quantum QPU path
 ]
-cudaq = ["cudaq>=0.14.0"]
+cudaq = ["cudaq"]   # unpinned: the cudaq meta-package selects a CUDA/CPU variant per platform, and a hard pin can request an unpublished one
 all = ["Qdislib[qibo,qiskit,cudaq]"]
 ci = [
   "pycodestyle",
