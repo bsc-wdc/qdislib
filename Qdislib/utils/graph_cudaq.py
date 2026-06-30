@@ -249,6 +249,19 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
     if dag is None:
         return None
 
+    # Extract "Observable I" nodes (identity-observed qubits) before building the
+    # kernel: they are not gates, and their positions become "I" in the per-qubit
+    # observable string returned alongside the kernel.
+    obs_I = []
+    for node in list(nx.topological_sort(dag)):
+        if dag.nodes[node]["gate"].upper() == "OBSERVABLE I":
+            obs_I.append(dag.nodes[node]["qubits"][0])
+            dag.remove_node(node)
+    observables = ["Z"] * num_qubits
+    for qubit in obs_I:
+        observables[qubit] = "I"
+    observables = "".join(observables)
+
     # Initialize CUDA-Q kernel
     kernel = cudaq.make_kernel()
 
@@ -298,4 +311,4 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
         else:
             raise ValueError(f"Unsupported gate type: {gate}")
 
-    return kernel
+    return [kernel, observables]
