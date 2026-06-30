@@ -23,16 +23,34 @@ Qdislib circuit utils.
 This file contains all auxiliary circuit classes and functions.
 """
 
+from __future__ import annotations  # defer annotation eval so qibo can be optional
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "analytical_solution",
+    "draw_to_circuit",
+    "parse_qsim",
+]
+
 import igraph
 import inspect
 import numpy as np
-import qibo
 import random
 import typing
 from collections import defaultdict
-from qibo import models  # , callbacks
-from qibo import gates
-from qibo import hamiltonians
+
+try:
+    import qibo
+    from qibo import models, gates, hamiltonians
+
+    qibo_available = True
+except ImportError:  # qibo is optional; functions that need it fail when called
+    qibo = models = gates = hamiltonians = None
+    qibo_available = False
+
 from Qdislib.utils.exceptions import QdislibException
 
 
@@ -104,17 +122,22 @@ def analytical_solution(
 
     expectation_value = np.prod(final)
     if verbose:
-        print(expectation_value)
+        logger.info(expectation_value)
 
-    # We convert the expectation value in a symbolic Hamiltonian
-    new_expectation_value = hamiltonians.SymbolicHamiltonian(expectation_value)
-    # Finally we compute the expectation value
+    # Build the observable as a symbolic Hamiltonian and evaluate <psi|H|psi>
+    # directly from its dense matrix, rather than via
+    # SymbolicHamiltonian.expectation(), whose signature changed across qibo
+    # releases (0.2.x: (state, normalize=...); 0.3.x: (circuit, nshots=...)).
+    # The matrix form is version-agnostic.
+    hamiltonian = hamiltonians.SymbolicHamiltonian(expectation_value)
+    statevector = np.asarray(state.state(numpy=True))
     exp_full_circuit = float(
-        new_expectation_value.expectation(state.state(numpy=True), normalize=False)
+        np.real(np.conj(statevector) @ (hamiltonian.matrix @ statevector))
     )
 
     if verbose:
-        print(
+        logger.info(
+            "%s %s %s %s",
             "The expectation value of",
             expectation_value,
             "in the entire circuit is ",
@@ -249,9 +272,13 @@ def draw_to_circuit(
             parameter_tracker = 0
 
             char = qubit_state[step]
+            # Treat out-of-range neighbours (first/last column) as empty wire so
+            # a gate at the circuit boundary does not raise IndexError.
+            prev_char = qubit_state[step - 1] if step > 0 else "─"
+            next_char = qubit_state[step + 1] if step + 1 < len(qubit_state) else "─"
             if char != "─" and char != "|":
                 if char != "o":
-                    if qubit_state[step + 1] == "─" and qubit_state[step - 1] == "─":
+                    if next_char == "─" and prev_char == "─":
                         tmp = char
                         gate_name = tmp
                         qubits = idx
@@ -275,10 +302,12 @@ def draw_to_circuit(
                             # Otherwise, pass only the qubits
                             circuit.add(gate_class(qubits))
 
-                    elif qubit_state[step - 1] == "─" and qubit_state[step + 1] != "─":
+                    elif prev_char == "─" and next_char != "─":
                         tmp = ""
                         for i in range(step, num_steps):
-                            if qubit_state[i + 1] == "─":
+                            if (
+                                qubit_state[i + 1] if i + 1 < len(qubit_state) else "─"
+                            ) == "─":
                                 tmp = tmp + qubit_state[i]
 
                                 gate_name = tmp
@@ -366,7 +395,7 @@ def parse_qsim(fname: str, depth: int = 22):
 
     with open(fname, "r") as f:
         data = f.read()
-    print(data)
+    logger.info(data)
     lines = data.strip().splitlines()
 
     try:
@@ -387,16 +416,17 @@ def parse_qsim(fname: str, depth: int = 22):
         if moment >= depth:
             break
 
-        random_param = np.random.uniform(0, 2 * np.pi)
         if gdesc[1] == "rz":
             phase = float(gdesc[3]) / np.pi
             c.add(gates.RZ(q, phase))
         elif gdesc[1] == "hz_1_2":
             c.add(gates.H(q))
         elif gdesc[1] == "x_1_2":
-            c.add(gates.RX(q, theta=random_param))
+            # x_1_2 is the sqrt-X gate (X**0.5), i.e. a pi/2 rotation about X.
+            c.add(gates.RX(q, theta=np.pi / 2))
         elif gdesc[1] == "y_1_2":
-            c.add(gates.RY(q, theta=random_param))
+            # y_1_2 is the sqrt-Y gate (Y**0.5), i.e. a pi/2 rotation about Y.
+            c.add(gates.RY(q, theta=np.pi / 2))
         elif gdesc[1] == "fs":
             q1 = int(gdesc[3])
             # theta = float(gdesc[4]) / np.pi

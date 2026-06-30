@@ -21,11 +21,22 @@
 Qdislib exception utils.
 
 This file contains all auxiliary exceptions.
+
+:class:`QdislibException` is the base class for every Qdislib-specific error, so
+``except QdislibException`` catches them all. The concrete errors also subclass
+the matching built-in (e.g. :class:`ValueError`), so existing
+``except ValueError`` handlers keep working.
 """
+
+__all__ = [
+    "QdislibException",
+    "UnsupportedBackendError",
+    "InvalidCutError",
+]
 
 
 class QdislibException(Exception):
-    """Generic Qdislib exception class."""
+    """Base class for all Qdislib-specific exceptions."""
 
     def __init__(self, message: str) -> None:
         """Create a new QdislibException instance.
@@ -34,3 +45,17 @@ class QdislibException(Exception):
         """
         msg = f"Qdislib Exception: {message}"
         super().__init__(msg)
+
+
+class UnsupportedBackendError(QdislibException, ValueError):
+    """Raised when an unknown quantum-software backend (``software``) is requested.
+
+    Also a :class:`ValueError` for backward compatibility.
+    """
+
+
+class InvalidCutError(QdislibException, ValueError):
+    """Raised when a cut specification (gates to cut or wire cuts) is malformed.
+
+    Also a :class:`ValueError` for backward compatibility.
+    """
