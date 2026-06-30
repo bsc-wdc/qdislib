@@ -20,6 +20,14 @@ Qdislib.utils.circuit module
    :undoc-members:
    :show-inheritance:
 
+Qdislib.utils.circuit\_cache module
+-----------------------------------
+
+.. automodule:: Qdislib.utils.circuit_cache
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Qdislib.utils.exceptions module
 -------------------------------
 

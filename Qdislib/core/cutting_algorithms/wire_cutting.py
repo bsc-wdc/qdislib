@@ -491,6 +491,52 @@ def _sum_results(lst: typing.List[int]) -> int:
 
 
 @task(returns=1)
+def _counts_qibo(qc, shots=1024, backend="numpy"):
+    """Simulate a Qibo circuit and return its measurement counts (frequencies).
+
+    Appends a measurement on every qubit in place -- so the circuit is single-use
+    (evaluate once); deep-copying is not viable here as it severs the symbol
+    binding that gate-cut collapse measurements rely on -- then runs it.
+
+    :param qc: A Qibo ``Circuit``.
+    :param shots: Number of measurement shots.
+    :param backend: Qibo backend name.
+    :return: A ``{bitstring: count}`` dict (qubit-0-first keys).
+    """
+    qibo.set_backend(backend)
+    qc.add(gates.M(*range(qc.nqubits)))
+    result = qc(nshots=shots)
+    return dict(result.frequencies(binary=True))
+
+
+def _expectation_from_counts_qibo(freq, observables, shots=1024):
+    """Compute ``<O>`` for a Z/I Pauli string from Qibo measurement counts.
+
+    Qibo frequency keys are already qubit-0-first bit strings, so they align
+    directly with the observable string.
+
+    :param freq: A ``{bitstring: count}`` dict as returned by :func:`_counts_qibo`.
+    :param observables: Per-qubit Pauli string over ``{I, Z}``.
+    :param shots: Number of shots the counts were drawn from.
+    :raises ValueError: If an unsupported observable character is encountered.
+    :return: The expectation value.
+    """
+    expectation_value = 0
+    for key, value in freq.items():
+        contribution = 1
+        for bit, obs in zip(key, observables):
+            if obs == "Z":
+                contribution *= (-1) ** int(bit)
+            elif obs == "I":
+                contribution *= 1
+            else:
+                raise ValueError(f"Unsupported observable {obs}")
+
+        # Add the contribution weighted by its frequency
+        expectation_value += contribution * (value / shots)
+    return expectation_value
+
+
 def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float:
     """Execute the given circuit.
 
@@ -504,19 +550,44 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
     if type(subcirc) != qibo.models.circuit.Circuit:
         observables = subcirc[1]
         qc = subcirc[0]
-        subcirc = qc
     else:
-        observables = ["Z"] * subcirc.nqubits
-        observables = "".join(observables)
+        observables = "Z" * subcirc.nqubits
+        qc = subcirc
 
-    qibo.set_backend(backend)
-    # Note: this appends measurements in place, so each subcircuit is single-use
-    # (evaluate once). Deep-copying is not viable here: it severs the symbol
-    # binding that gate-cut collapse measurements rely on.
-    subcirc.add(gates.M(*range(subcirc.nqubits)))
-    result = subcirc(nshots=shots)
-    freq = dict(result.frequencies(binary=True))
+    freq = _counts_qibo(qc, shots, backend)
+    return _expectation_from_counts_qibo(freq, observables, shots)
 
+
+def _counts_cudaq(kernel, shots=1024):
+    """Sample a CUDA-Q kernel and return its measurement counts.
+
+    Selects the GPU (``nvidia``) target when available, falling back to CPU
+    (``qpp-cpu``).
+
+    :param kernel: A built CUDA-Q kernel.
+    :param shots: Number of measurement shots.
+    :return: A ``{bitstring: count}`` dict.
+    """
+    try:
+        cudaq.set_target("nvidia")
+        logger.info("Using GPU backend.")
+    except Exception:
+        cudaq.set_target("qpp-cpu")
+        logger.info("GPU unavailable. Falling back to CPU backend.")
+
+    freq = cudaq.sample(kernel, shots_count=shots)
+    return {str(key): int(value) for key, value in freq.items()}
+
+
+def _expectation_from_counts_cudaq(freq, observables, shots=1024):
+    """Compute ``<O>`` for a Z/I Pauli string from CUDA-Q measurement counts.
+
+    :param freq: A ``{bitstring: count}`` dict as returned by :func:`_counts_cudaq`.
+    :param observables: Per-qubit Pauli string over ``{I, Z}``.
+    :param shots: Number of shots the counts were drawn from.
+    :raises ValueError: If an unsupported observable character is encountered.
+    :return: The expectation value.
+    """
     expectation_value = 0
     for key, value in freq.items():
         contribution = 1
@@ -569,28 +640,8 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
     else:
         subcirc = payload
 
-    try:
-        cudaq.set_target("nvidia")
-        logger.info("Using GPU backend.")
-    except Exception:
-        cudaq.set_target("qpp-cpu")
-        logger.info("GPU unavailable. Falling back to CPU backend.")
-
-    freq = cudaq.sample(subcirc, shots_count=shots)
-    expectation_value = 0
-    for key, value in freq.items():
-        contribution = 1
-        for bit, obs in zip(key, observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
-            elif obs == "I":
-                contribution *= 1
-            else:
-                raise ValueError(f"Unsupported observable {obs}")
-
-        # Add the contribution weighted by its frequency
-        expectation_value += contribution * (value / shots)
-    return expectation_value
+    freq = _counts_cudaq(subcirc, shots)
+    return _expectation_from_counts_cudaq(freq, observables, shots)
 
 
 @task(returns=1)
@@ -956,8 +1007,18 @@ def wire_cutting_subcircuit_reconstruction(
         >>> values = [0.8, -0.6, 0.7, -0.5] * 4
         >>> wire_cutting_subcircuit_reconstruction(values, number_cuts=1, number_components=2)
     """
+    # Resolve any deferred (cache placeholder-hit) results once all subcircuit
+    # tasks have finished: synchronise to the master, then refresh each
+    # PendingResult from the now-populated cache. Doing this after the barrier
+    # (rather than inside the per-group sign tasks) avoids worker starvation when
+    # a deferred key's owner is still running in another group.
+    from Qdislib.utils.circuit_cache import _resolve_value
+
+    expected_values = compss_wait_on(expected_values)
+    expected_values = [_resolve_value(v) for v in expected_values]
+
     if number_cuts == 0:
-        return math.prod(expected_values)
+        return math.prod([v for v in expected_values if v is not None])
 
     expected_values = [
         expected_values[i : i + number_components]
