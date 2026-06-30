@@ -32,6 +32,13 @@ from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
 from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
 from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
 from Qdislib.utils.runtime import task, compss_wait_on, pycompss_available
+from Qdislib.utils.circuit_cache import (
+    semantic_key,
+    default_circuit_cache,
+    is_pending,
+    PendingResult,
+    _PENDING,
+)
 
 # Each SDK is optional. When one is absent its circuit class is replaced by a
 # placeholder sentinel so the type dispatch below stays valid (no real object is
@@ -339,18 +346,216 @@ def _run_native(circuit, software, shots):
     return _expec_value_cudaq(circuit, shots)
 
 
+def _unpack_native(subcircuit):
+    """Split a native subcircuit into ``(circuit, observables, software)``.
+
+    Accepts a bare circuit or a ``[circuit, observables]`` pair and infers the
+    backend from the circuit type. ``observables`` defaults to an all-``Z`` string
+    of the right width; ``software`` is ``"cudaq"`` for anything not recognised as
+    Qibo/Qiskit (a built kernel or a legacy ``(dag, num_qubits)`` payload).
+    """
+    payload = subcircuit
+    observables = None
+    if (
+        isinstance(subcircuit, (list, tuple))
+        and len(subcircuit) == 2
+        and isinstance(subcircuit[1], str)
+    ):
+        payload, observables = subcircuit[0], subcircuit[1]
+
+    if isinstance(payload, QiboCircuit):
+        software = "qibo"
+        if observables is None:
+            observables = "Z" * payload.nqubits
+    elif isinstance(payload, QuantumCircuit):
+        software = "qiskit"
+        if observables is None:
+            observables = "Z" * payload.num_qubits
+    else:
+        software = "cudaq"
+    return payload, observables, software
+
+
+def _simulate_counts(circuit, software, shots):
+    """Simulate a native circuit and return its raw measurement counts."""
+    from Qdislib.core.cutting_algorithms.wire_cutting import (
+        _counts_qibo,
+        _counts_cudaq,
+    )
+    from Qdislib.core.cutting_algorithms.gate_cutting import _counts_qiskit
+
+    if software == "qibo":
+        return _counts_qibo(circuit, shots)
+    if software == "qiskit":
+        return _counts_qiskit(circuit, shots)
+    return _counts_cudaq(circuit, shots)
+
+
+def _expectation_from_counts(counts, observables, software, shots):
+    """Derive an expectation value from cached counts for the given backend."""
+    from Qdislib.core.cutting_algorithms.wire_cutting import (
+        _expectation_from_counts_qibo,
+        _expectation_from_counts_cudaq,
+    )
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _expectation_from_counts_qiskit,
+    )
+
+    if software == "qibo":
+        return _expectation_from_counts_qibo(counts, observables, shots)
+    if software == "qiskit":
+        return _expectation_from_counts_qiskit(counts, observables, shots)
+    return _expectation_from_counts_cudaq(counts, observables, shots)
+
+
+class _SimContext:
+    """A subcircuit plus the simulation primitives a ``CacheStrategy`` may call.
+
+    Passed to the strategy hooks so they can decide what to compute on a miss
+    (the expectation directly, raw counts, or a custom payload) without knowing
+    the backend.
+    """
+
+    def __init__(self, circuit, subcircuit, observables, software, shots):
+        self.circuit = circuit
+        self.subcircuit = subcircuit
+        self.observables = observables
+        self.software = software
+        self.shots = shots
+
+    def run_native(self):
+        """Expectation value via the backend evaluator (the non-cached path)."""
+        return _run_native(self.subcircuit, self.software, self.shots)
+
+    def counts(self):
+        """Raw measurement counts for the circuit."""
+        return _simulate_counts(self.circuit, self.software, self.shots)
+
+    def expectation_from_counts(self, counts):
+        """Expectation value derived from ``counts`` for this observable."""
+        return _expectation_from_counts(
+            counts, self.observables, self.software, self.shots
+        )
+
+
+def _resolve_strategy(cache_mode):
+    """Turn a ``cache_mode`` (string or ``CacheStrategy``) into a strategy."""
+    from Qdislib.utils.circuit_cache import (
+        CacheStrategy,
+        CountsStrategy,
+        ExpectationStrategy,
+    )
+
+    if isinstance(cache_mode, CacheStrategy):
+        return cache_mode
+    if cache_mode == "expectation":
+        return ExpectationStrategy()
+    if cache_mode == "counts":
+        return CountsStrategy()
+    raise ValueError(
+        f"Unknown cache_mode {cache_mode!r}; expected 'expectation', 'counts', "
+        "or a CacheStrategy instance."
+    )
+
+
+def _safe_get(cache, key):
+    """Read from the cache, treating any backend error as a miss."""
+    try:
+        return cache.get(key)
+    except Exception as exc:  # a cache fault must never break the computation
+        logger.warning("Cache lookup failed for key %s (%s).", key, exc)
+        return None
+
+
+def _safe_put(cache, key, value):
+    """Store in the cache, swallowing (and logging) any backend error."""
+    try:
+        cache.put(key, value)
+    except Exception as exc:  # a cache fault must never break the computation
+        logger.warning("Cache store failed for key %s (%s).", key, exc)
+
+
+def _safe_delete(cache, key):
+    """Remove a key from the cache, swallowing (and logging) any backend error."""
+    try:
+        cache.delete(key)
+    except Exception as exc:
+        logger.warning("Cache delete failed for key %s (%s).", key, exc)
+
+
+def _cached_expectation(subcircuit, shots, cache, cache_mode):
+    """Get-or-simulate one subcircuit's expectation value through ``cache``.
+
+    Computes the semantic key from the circuit and, on a hit, returns the stored
+    result without simulating. The ``cache_mode`` strategy decides what is stored
+    and how a hit is turned back into an expectation (see
+    :class:`~Qdislib.utils.circuit_cache.CacheStrategy`); the built-in
+    ``"expectation"`` and ``"counts"`` modes, or any custom ``CacheStrategy``.
+
+    Under PyCOMPSs a miss first reserves the key with a placeholder so other
+    concurrent tasks on the same fragment defer (returning a
+    :class:`~Qdislib.utils.circuit_cache.PendingResult`, resolved at
+    reconstruction) instead of all re-simulating -- without this, the hit rate
+    collapses under high concurrency. Caching never changes the result: a circuit
+    with no computable key (PyZX absent, an unparsable gate, a CUDA-Q kernel that
+    won't translate) or a store error falls back to a direct simulation.
+    """
+    circuit, observables, software = _unpack_native(subcircuit)
+
+    key = semantic_key(circuit, software)
+    if key is None:
+        return _run_native(subcircuit, software, shots)
+
+    strategy = _resolve_strategy(cache_mode)
+    sim = _SimContext(circuit, subcircuit, observables, software, shots)
+    cache_key = strategy.make_key(key, sim)
+
+    cached = _safe_get(cache, cache_key)
+    if cached is not None:
+        if is_pending(cached):
+            # Another task reserved this key and is still computing it; defer and
+            # resolve at reconstruction, when COMPSs guarantees it has finished.
+            return PendingResult(
+                cache, cache_key, strategy, observables, software, shots
+            )
+        try:
+            return strategy.load(cached, sim)
+        except Exception as exc:  # corrupt/incompatible entry -> recompute
+            logger.warning(
+                "Cached value for %s unusable (%s); recomputing.", cache_key, exc
+            )
+
+    # Miss. Under PyCOMPSs, reserve the key with a placeholder first so other
+    # concurrent tasks on the same fragment defer instead of all re-simulating.
+    reserved = pycompss_available
+    if reserved:
+        _safe_put(cache, cache_key, _PENDING)
+    try:
+        value_to_store, result = strategy.store(sim)
+    except Exception:
+        if reserved:
+            _safe_delete(cache, cache_key)  # release the reservation for a retry
+        raise
+    _safe_put(cache, cache_key, value_to_store)
+    return result
+
+
 @task(returns=1)
-def _evaluate_subcircuit(subcircuit, shots):
+def _evaluate_subcircuit(subcircuit, shots, cache=None, cache_mode="expectation"):
     """Build and evaluate a :class:`Subcircuit` in a single task.
 
     Materialising and running in one task keeps the fragile native circuit
     (Qibo symbol / CUDA-Q kernel) inside one process; only the picklable DAG
-    crossed the task boundary to get here.
+    crossed the task boundary to get here. When a ``cache`` is supplied the
+    lookup happens here too, on the worker, so a hit skips the build+simulate.
     """
-    return _run_native(subcircuit.to_circuit(), subcircuit.software, shots)
+    native = subcircuit.to_circuit()
+    if cache is None:
+        return _run_native(native, subcircuit.software, shots)
+    return _cached_expectation(native, shots, cache, cache_mode)
 
 
-def expectation_value(subcircuit, shots=1024):
+def expectation_value(subcircuit, shots=1024, cache=None, cache_mode="expectation"):
     """Evaluate one cut subcircuit's expectation value, dispatching on its type.
 
     Convenience wrapper for the recommended workflow::
@@ -363,16 +568,36 @@ def expectation_value(subcircuit, shots=1024):
     :class:`Subcircuit` (returned under PyCOMPSs), which is built and run in a
     single task, or a native backend circuit (returned in serial).
 
+    Pass ``cache`` to skip re-simulating semantically-equivalent subcircuits via
+    the ZX/Weisfeiler-Lehman cache (see :mod:`Qdislib.utils.circuit_cache`)::
+
+        cache = qd.default_circuit_cache()      # PSCO/Redis under PyCOMPSs
+        values = [qd.expectation_value(s, cache=cache) for s in subcircuits]
+
     :param subcircuit: A :class:`Subcircuit`, a native circuit, or
         ``[circuit, observables]``.
     :param shots: Number of measurement shots.
+    :param cache: A :class:`~Qdislib.utils.circuit_cache.CircuitCache` to enable
+        semantic caching, or ``True`` to use
+        :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`. ``None`` (the
+        default) disables caching. Caching never changes the result.
+    :param cache_mode: ``"expectation"`` (default) caches per-subcircuit
+        expectations keyed by semantic hash + observable; ``"counts"`` caches raw
+        measurement counts keyed by the semantic hash and re-derives the
+        expectation (maximal reuse, matching the paper).
     :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
     """
     if subcircuit is None:  # empty component produced by a cut; contributes nothing
         return None
 
+    if cache is True:
+        cache = default_circuit_cache()
+
     if isinstance(subcircuit, Subcircuit):
-        return _evaluate_subcircuit(subcircuit, shots)
+        return _evaluate_subcircuit(subcircuit, shots, cache, cache_mode)
+
+    if cache is not None:
+        return _cached_expectation(subcircuit, shots, cache, cache_mode)
 
     # Native circuit (serial path): detect the backend from the payload type.
     from Qdislib.core.cutting_algorithms.wire_cutting import (

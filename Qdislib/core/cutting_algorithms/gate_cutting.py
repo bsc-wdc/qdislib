@@ -756,21 +756,19 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
 @constraint(processors=[{"processorType": "CPU", "computingUnits": "1"}])
 @task(returns=1)
-def _expec_value_qiskit(qc, shots=1024, method="automatic", verbose=False):
+def _counts_qiskit(qc, shots=1024, method="automatic", verbose=False):
+    """Simulate a Qiskit circuit with Aer and return its measurement counts.
 
-    if qc is None:
-        return None
+    Appends ``measure_all`` in place -- so the circuit is single-use (evaluate
+    once), consistent with the Qibo evaluator -- then runs it on the CPU Aer
+    simulator.
 
-    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
-        observables = qc[1]
-        subcirc = qc[0]
-        qc = subcirc
-    else:
-        observables = ["Z"] * qc.num_qubits
-        observables = "".join(observables)
-
-    # Note: measure_all() mutates in place, so each subcircuit is single-use
-    # (evaluate once), consistent with the Qibo evaluator.
+    :param qc: A Qiskit ``QuantumCircuit``.
+    :param shots: Number of measurement shots.
+    :param method: Aer simulation method.
+    :param verbose: When ``True``, log backend/method details.
+    :return: The Aer ``get_counts()`` dict (keys are ``"<measure-all reg> ..."``).
+    """
     qc.measure_all()
 
     import subprocess
@@ -802,7 +800,18 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic", verbose=False):
     counts = result.get_counts()
     if verbose:
         logger.info(counts)
+    return counts
 
+
+def _expectation_from_counts_qiskit(counts, observables, shots=1024):
+    """Compute ``<O>`` for a Z/I Pauli string from Qiskit measurement counts.
+
+    :param counts: The ``get_counts()`` dict from :func:`_counts_qiskit`.
+    :param observables: Per-qubit Pauli string over ``{I, Z}``.
+    :param shots: Number of shots the counts were drawn from.
+    :raises ValueError: If an unsupported observable character is encountered.
+    :return: The expectation value.
+    """
     expectation_value = 0
     for key, value in counts.items():
         contribution = 1
@@ -820,6 +829,22 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic", verbose=False):
 
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
+    return expectation_value
+
+
+def _expec_value_qiskit(qc, shots=1024, method="automatic", verbose=False):
+
+    if qc is None:
+        return None
+
+    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
+        observables = qc[1]
+        qc = qc[0]
+    else:
+        observables = "Z" * qc.num_qubits
+
+    counts = _counts_qiskit(qc, shots=shots, method=method, verbose=verbose)
+    expectation_value = _expectation_from_counts_qiskit(counts, observables, shots)
     if verbose:
         logger.info("%s %s", "Expected Value: ", expectation_value)
         logger.info("\n")
@@ -1219,8 +1244,18 @@ def gate_cutting_subcircuit_reconstruction(
     >>> print(reconstructed_value)
     0.0
     """
+    # Resolve any deferred (cache placeholder-hit) results once all subcircuit
+    # tasks have finished: synchronise to the master, then refresh each
+    # PendingResult from the now-populated cache. Doing this after the barrier
+    # (rather than inside the per-group sign tasks) avoids worker starvation when
+    # a deferred key's owner is still running in another group.
+    from Qdislib.utils.circuit_cache import _resolve_value
+
+    expected_values = compss_wait_on(expected_values)
+    expected_values = [_resolve_value(v) for v in expected_values]
+
     if number_cuts == 0:
-        return math.prod(expected_values)
+        return math.prod([v for v in expected_values if v is not None])
     else:
         expected_values = [
             expected_values[i : i + number_components]
