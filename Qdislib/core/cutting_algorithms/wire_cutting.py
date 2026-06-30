@@ -107,6 +107,7 @@ from Qdislib.utils.backends import (
     convert_to_dag,
     change_basis_dag,
     normalize_observables,
+    make_subcircuit,
     CutSubcircuits,
 )
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
@@ -271,8 +272,14 @@ def _expand_wire_cuts(dag, edges_to_replace):
     return wire_cuts
 
 
+@task(returns=1)
 def _build_and_run_subcircuit(component, software, shots, backend, qpu):
     """Build one subcircuit in the chosen backend and return its expectation value.
+
+    Made a single task so that, under PyCOMPSs, the native circuit is built **and**
+    executed in one worker process: the picklable component DAG crosses the task
+    boundary, never the fragile native circuit (Qibo collapse symbol / CUDA-Q
+    kernel). The inner ``dag_to_circuit_*`` / ``_expec_value_*`` calls run inline.
 
     Backend-agnostic execution dispatch: the subcircuit is built with the
     matching ``dag_to_circuit_*`` and evaluated with the matching
@@ -384,7 +391,10 @@ def _generate_wire_cutting(
     return reconstruction
 
 
-@task(returns=1, graph_components=COLLECTION_OUT)
+# Plain function (not a @task): the wire-cut substitution is cheap graph surgery,
+# run on the master, populating graph_components in place with concrete DiGraphs.
+# Keeping it task-free (no COLLECTION_OUT futures) lets the generated subcircuits
+# be wrapped as serializable Subcircuit objects under PyCOMPSs.
 def _generate_subcircuits_wire_cutting(
     updated_dag: typing.Any,
     num_qubits: int,
@@ -563,16 +573,33 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
     :raises ValueError: If there is an unsupported observable.
     :return: The circuit expected value.
     """
-    if len(subcirc) > 1:
-        observables = subcirc[1]
-        tuple_dag = subcirc[0]
+    # Accept either an already-built kernel (``[kernel, observables]`` -- the
+    # materialised/serial form) or a legacy ``[(dag, num_qubits), observables]``
+    # payload whose kernel must still be built here.
+    if (
+        isinstance(subcirc, (list, tuple))
+        and len(subcirc) == 2
+        and isinstance(subcirc[1], str)
+    ):
+        payload, observables = subcirc[0], subcirc[1]
     else:
-        observables = ["Z"] * subcirc.nqubits
-        observables = "".join(observables)
-        tuple_dag = subcirc
+        payload, observables = subcirc, None
 
-    dag, num_qubits = tuple_dag
-    subcirc = dag_to_circuit_cudaq_kernel(dag, num_qubits)
+    if (
+        isinstance(payload, tuple)
+        and len(payload) == 2
+        and hasattr(payload[0], "nodes")
+    ):
+        # Legacy payload: build the kernel here. Keep the observable string that
+        # came with the payload (its DAG is already Observable-I-stripped, so the
+        # kernel builder would otherwise recompute an all-Z observable).
+        subcirc, kernel_observables = dag_to_circuit_cudaq_kernel(
+            payload[0], payload[1]
+        )
+        if observables is None:
+            observables = kernel_observables
+    else:
+        subcirc = payload
 
     try:
         cudaq.set_target("nvidia")
@@ -794,10 +821,11 @@ def wire_cutting_subcircuits(
     if observables:
         dag = change_basis_dag(dag, observables)
 
+    # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
     dispatch_map = {
-        "qibo": dag_to_circuit_qibo,
-        "qiskit": dag_to_circuit_qiskit,
-        "cudaq": dag_to_circuit_cudaq,
+        "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
+        "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
+        "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
     }
 
     if networkx.number_connected_components(dag.to_undirected()) > 1:
@@ -891,10 +919,11 @@ def _generate_wire_cutting_subcircuits(
         dag.add_edge(source, f"O_{index}", color="blue")
         dag.add_edge(f"PS_{index}", target, color="blue")
 
+    # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
     dispatch_map = {
-        "qibo": dag_to_circuit_qibo,
-        "qiskit": dag_to_circuit_qiskit,
-        "cudaq": dag_to_circuit_cudaq,
+        "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
+        "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
+        "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
     }
 
     subcircuits = []

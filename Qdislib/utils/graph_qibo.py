@@ -365,8 +365,10 @@ def _max_qubit(graph: networkx.DiGraph) -> float:
     return max_qubits
 
 
-# @constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
-@task(returns=2, s=INOUT)
+# Not a @task: it is a cheap in-place qubit reindex. As a plain function it runs
+# inline inside the per-subcircuit task (all-in-one) and returns a concrete graph
+# on the master (3-step), so its result can be wrapped in a serializable
+# Subcircuit without a fragile compss_wait_on of an INOUT task output.
 def _update_qubits(
     s: typing.List[typing.Any],
 ) -> typing.Tuple[typing.List[typing.Any], float]:

@@ -132,6 +132,7 @@ from Qdislib.utils.backends import (
     convert_to_dag,
     change_basis_dag,
     normalize_observables,
+    make_subcircuit,
     CutSubcircuits,
 )
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
@@ -425,8 +426,10 @@ def _decimal_to_base6(num):
     return base6
 
 
-# @constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
-@task(returns=1, graph_components=COLLECTION_OUT)
+# Plain function (not a @task): the gate-cut substitution is cheap graph surgery,
+# run on the master, populating graph_components in place with concrete DiGraphs.
+# Keeping it task-free (no COLLECTION_OUT futures) lets the generated subcircuits
+# be wrapped as serializable Subcircuit objects under PyCOMPSs.
 def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):
 
     base6_rep = _decimal_to_base6(index)
@@ -602,6 +605,7 @@ def _change_sign_gate_cutting(expectation_value, index):
         return expectation_value
 
 
+@task(returns=1)
 def _build_and_run_gate_subcircuit(
     component,
     max_qubit,
@@ -617,6 +621,11 @@ def _build_and_run_gate_subcircuit(
     verbose=False,
 ):
     """Build one gate-cut subcircuit and return its expectation value.
+
+    A single task so that, under PyCOMPSs, the native circuit is built **and**
+    executed in one worker process (only the picklable component DAG crosses the
+    task boundary, never the fragile Qibo collapse-symbol circuit / CUDA-Q
+    kernel); the inner ``dag_to_circuit_*`` / ``_expec_value_*`` calls run inline.
 
     Routes to a QPU or GPU when one is configured and large enough for the
     subcircuit; otherwise builds and runs on the chosen ``software`` backend
@@ -1097,10 +1106,11 @@ def gate_cutting_subcircuits(
     if observables:
         dag = change_basis_dag(dag, observables)
 
+    # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
     dispatch_map = {
-        "qibo": dag_to_circuit_qibo,
-        "qiskit": dag_to_circuit_qiskit,
-        "cudaq": dag_to_circuit_cudaq,
+        "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
+        "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
+        "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
     }
 
     number_cuts = len(gates_cut)
@@ -1151,10 +1161,11 @@ def gate_cutting_subcircuits(
 def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     new_dag = _generate_cut(dag, gates_cut)
 
+    # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
     dispatch_map = {
-        "qibo": dag_to_circuit_qibo,
-        "qiskit": dag_to_circuit_qiskit,
-        "cudaq": dag_to_circuit_cudaq,
+        "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
+        "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
+        "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
     }
 
     subcircuits = []

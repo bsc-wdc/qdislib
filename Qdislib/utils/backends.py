@@ -31,6 +31,7 @@ import logging
 from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
 from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
 from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
+from Qdislib.utils.runtime import task, compss_wait_on, pycompss_available
 
 # Each SDK is optional. When one is absent its circuit class is replaced by a
 # placeholder sentinel so the type dispatch below stays valid (no real object is
@@ -56,6 +57,7 @@ __all__ = [
     "num_qubits",
     "expectation_value",
     "normalize_observables",
+    "Subcircuit",
     "CutSubcircuits",
 ]
 
@@ -244,35 +246,140 @@ def num_qubits(circuit):
     return max(indices) + 1 if indices else 0
 
 
-def expectation_value(subcircuit, shots=1024):
-    """Evaluate one cut subcircuit's expectation value, dispatching on its backend.
+def _materialize(dag, num_qubits, software):
+    """Build the native backend circuit for a subcircuit DAG.
 
-    Convenience wrapper for the recommended workflow, so the caller does not have
-    to pick the backend-specific evaluator by hand::
-
-        subcircuits = qd.gate_cutting_subcircuits(circuit, cut, software="qibo")
-        values = [qd.expectation_value(s) for s in subcircuits]
-        result = subcircuits.reconstruct(values)
-
-    The backend is detected from the subcircuit produced by
-    :func:`gate_cutting_subcircuits` / :func:`wire_cutting_subcircuits`: a Qibo
-    ``Circuit`` is run with the Qibo simulator, a Qiskit ``QuantumCircuit`` with
-    Qiskit Aer, and a ``(dag, num_qubits)`` payload with CUDA-Q.
-
-    :param subcircuit: A subcircuit ``[payload, observables]`` (or a bare circuit).
-    :param shots: Number of measurement shots.
-    :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
+    Returns ``[circuit, observables]`` where ``circuit`` is a Qibo ``Circuit``, a
+    Qiskit ``QuantumCircuit`` or a CUDA-Q kernel. Used to produce the serial
+    subcircuits and to rebuild a :class:`Subcircuit` in the process that runs it.
     """
-    # Evaluators live in the cutting modules; import lazily to avoid an import
-    # cycle (those modules import this one).
+    from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
+    from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+    from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
+    from Qdislib.utils.exceptions import UnsupportedBackendError
+
+    builders = {
+        "qibo": dag_to_circuit_qibo,
+        "qiskit": dag_to_circuit_qiskit,
+        "cudaq": dag_to_circuit_cudaq_kernel,
+    }
+    if software not in builders:
+        raise UnsupportedBackendError(
+            f"Unsupported software backend: '{software}'. "
+            f"Expected one of {list(builders)}."
+        )
+    return builders[software](dag, num_qubits)
+
+
+class Subcircuit:
+    """A serializable cut subcircuit: a DAG plus the metadata to rebuild it.
+
+    A native Qibo or CUDA-Q subcircuit cannot be serialized (the Qibo collapse
+    measurement carries a symbol bound to its own circuit, and a CUDA-Q kernel is
+    JIT-compiled from source), so it cannot be shipped to a remote PyCOMPSs task.
+    This wrapper instead carries the backend-neutral ``dag`` (plain nodes/edges,
+    fully picklable) and builds the native circuit **on demand, in the process
+    that evaluates it** -- so nothing fragile ever crosses a task boundary.
+
+    :func:`gate_cutting_subcircuits` / :func:`wire_cutting_subcircuits` return
+    these under PyCOMPSs; in serial they return the native circuits directly.
+    Both forms are accepted by :func:`expectation_value`.
+    """
+
+    def __init__(self, dag, num_qubits, software):
+        self.dag = dag
+        self.num_qubits = num_qubits
+        self.software = software
+
+    def to_circuit(self):
+        """Materialize the native backend circuit ``[circuit, observables]``."""
+        return _materialize(self.dag, self.num_qubits, self.software)
+
+    def __repr__(self):
+        return f"Subcircuit(software={self.software!r}, num_qubits={self.num_qubits})"
+
+
+def make_subcircuit(dag, num_qubits, software):
+    """Return the per-subcircuit object handed back by the ``*_subcircuits`` API.
+
+    In serial this is the **native backend circuit** (convenient to inspect or
+    draw). Under PyCOMPSs it is a serializable :class:`Subcircuit` wrapper, so it
+    can be shipped to remote tasks and evaluated there.
+    """
+    from Qdislib.utils.exceptions import UnsupportedBackendError
+
+    if software not in ("qibo", "qiskit", "cudaq"):
+        raise UnsupportedBackendError(
+            f"Unsupported software backend: '{software}'. "
+            "Expected one of ['qibo', 'qiskit', 'cudaq']."
+        )
+    if pycompss_available:
+        # The DAG/qubit count come from @task helpers (e.g. _update_qubits), so
+        # under COMPSs they are futures; resolve them to concrete values before
+        # wrapping. These dag-prep tasks are cheap -- the expensive circuit build
+        # and execution still happen later, in the per-subcircuit eval task.
+        dag = compss_wait_on(dag)
+        num_qubits = compss_wait_on(num_qubits)
+        return Subcircuit(dag, num_qubits, software)
+    return _materialize(dag, num_qubits, software)
+
+
+def _run_native(circuit, software, shots):
+    """Evaluate an already-built native subcircuit with the matching evaluator."""
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _expec_value_qibo,
         _expec_value_cudaq,
     )
     from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
 
+    if software == "qibo":
+        return _expec_value_qibo(circuit, shots)
+    if software == "qiskit":
+        return _expec_value_qiskit(circuit, shots)
+    return _expec_value_cudaq(circuit, shots)
+
+
+@task(returns=1)
+def _evaluate_subcircuit(subcircuit, shots):
+    """Build and evaluate a :class:`Subcircuit` in a single task.
+
+    Materialising and running in one task keeps the fragile native circuit
+    (Qibo symbol / CUDA-Q kernel) inside one process; only the picklable DAG
+    crossed the task boundary to get here.
+    """
+    return _run_native(subcircuit.to_circuit(), subcircuit.software, shots)
+
+
+def expectation_value(subcircuit, shots=1024):
+    """Evaluate one cut subcircuit's expectation value, dispatching on its type.
+
+    Convenience wrapper for the recommended workflow::
+
+        subcircuits = qd.gate_cutting_subcircuits(circuit, cut, software="qibo")
+        values = [qd.expectation_value(s) for s in subcircuits]
+        result = subcircuits.reconstruct(values)
+
+    Accepts both forms produced by the ``*_subcircuits`` functions: a serializable
+    :class:`Subcircuit` (returned under PyCOMPSs), which is built and run in a
+    single task, or a native backend circuit (returned in serial).
+
+    :param subcircuit: A :class:`Subcircuit`, a native circuit, or
+        ``[circuit, observables]``.
+    :param shots: Number of measurement shots.
+    :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
+    """
     if subcircuit is None:  # empty component produced by a cut; contributes nothing
         return None
+
+    if isinstance(subcircuit, Subcircuit):
+        return _evaluate_subcircuit(subcircuit, shots)
+
+    # Native circuit (serial path): detect the backend from the payload type.
+    from Qdislib.core.cutting_algorithms.wire_cutting import (
+        _expec_value_qibo,
+        _expec_value_cudaq,
+    )
+    from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
 
     payload = subcircuit
     if (
@@ -286,7 +393,7 @@ def expectation_value(subcircuit, shots=1024):
         return _expec_value_qibo(subcircuit, shots)
     if isinstance(payload, QuantumCircuit):
         return _expec_value_qiskit(subcircuit, shots)
-    # CUDA-Q subcircuits carry a ``(dag, num_qubits)`` payload.
+    # CUDA-Q: a built kernel or a legacy ``(dag, num_qubits)`` payload.
     return _expec_value_cudaq(subcircuit, shots)
 
 
