@@ -79,7 +79,20 @@ napoleon_google_docstring = False
 napoleon_use_param = False
 napoleon_use_ivar = True
 
-autodoc_mock_imports = ["pycompss"]
+# Mock heavy/optional/platform-specific deps so autodoc can import every module
+# without installing them. The optional quantum SDKs are import-guarded in the
+# source, but mocking keeps the docs build fast and avoids platform issues
+# (e.g. cudaq / pymetis wheels) on Read the Docs.
+autodoc_mock_imports = [
+    "pycompss",
+    "qibo",
+    "qiskit",
+    "qiskit_aer",
+    "qiskit_addon_cutting",
+    "qiskit_ibm_runtime",
+    "cudaq",
+    "pymetis",
+]
 autodoc_preserve_defaults = True
 autodoc_function_signature_with_arguments_on_newline = True
 
@@ -89,7 +102,7 @@ templates_path = ["_templates"]
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ["Qdislib.classes.rst"]
+exclude_patterns = []
 
 
 # The suffix(es) of source filenames.

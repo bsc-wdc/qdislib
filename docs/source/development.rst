@@ -20,9 +20,9 @@ Follow these steps when drafting a new release:
 
 3. Create and switch to a new branch named ``release-X.Y``.
 
-4. Update the release number accordingly in the
-   `VERSION <https://github.com/bsc-wdc/Qdislib/blob/master/VERSION>`_
-   file.
+4. Update the release number accordingly in ``Qdislib/__init__.py`` (the
+   ``__version__`` attribute); the build reads it dynamically via
+   ``pyproject.toml``.
 
 5. Update the required PyCOMPSs version in the
    `quickstart guide <https://github.com/bsc-wdc/Qdislib/blob/master/QUICKSTART.md>`_
