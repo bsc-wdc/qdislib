@@ -19,8 +19,12 @@
 
 """Main Quantum Distributed Library package."""
 
+import logging
 
 __version__ = "1.0.0"
 
+# Attach a NullHandler so the library never emits "no handlers" warnings and
+# stays silent unless the host application configures logging itself.
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 from Qdislib.api import *

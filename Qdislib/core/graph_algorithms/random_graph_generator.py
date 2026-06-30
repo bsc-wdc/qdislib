@@ -21,7 +21,8 @@
 
 import networkx
 import random
-import matplotlib.pyplot as plt
+
+__all__ = ["generate_random_graph"]
 
 
 def generate_random_graph(
@@ -32,10 +33,11 @@ def generate_random_graph(
     :param num_nodes: The number of nodes in the graph.
     :param probability: The probability of creating an edge between any pair of nodes.
     :param seed: Random seed.
-    :param draw: Plot the generated random graph.
+    :param draw: Plot the generated random graph (requires matplotlib).
     :return: The generated graph with num_nodes nodes.
     """
-    random.seed(seed)
+    # Use a local RNG so we don't perturb the global ``random`` state.
+    rng = random.Random(seed)
 
     # Create an empty graph
     random_graph = networkx.Graph()
@@ -46,7 +48,7 @@ def generate_random_graph(
     # Add edges randomly based on the given probability
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
-            if random.random() < probability:
+            if rng.random() < probability:
                 random_graph.add_edge(i, j)
 
     # Ensure the graph is connected (Optional step)
@@ -54,10 +56,12 @@ def generate_random_graph(
     if not networkx.is_connected(random_graph) and num_nodes > 1:
         # Keep adding random edges until the graph becomes connected
         while not networkx.is_connected(random_graph):
-            u, v = random.sample(range(num_nodes), 2)
+            u, v = rng.sample(range(num_nodes), 2)
             random_graph.add_edge(u, v)
 
     if draw:
+        import matplotlib.pyplot as plt  # lazy: only needed when plotting
+
         plt.figure(figsize=(8, 6))
         pos = networkx.spring_layout(
             random_graph
