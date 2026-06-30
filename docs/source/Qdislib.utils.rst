@@ -4,6 +4,14 @@ Qdislib.utils package
 Submodules
 ----------
 
+Qdislib.utils.backends module
+-----------------------------
+
+.. automodule:: Qdislib.utils.backends
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Qdislib.utils.circuit module
 ----------------------------
 
@@ -32,6 +40,14 @@ Qdislib.utils.graph\_qiskit module
 ----------------------------------
 
 .. automodule:: Qdislib.utils.graph_qiskit
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.utils.graph\_cudaq module
+---------------------------------
+
+.. automodule:: Qdislib.utils.graph_cudaq
    :members:
    :undoc-members:
    :show-inheritance:

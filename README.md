@@ -27,6 +27,7 @@
 - [Description](#description)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Quickstart](#quickstart)
 - [Availability](#availability)
 - [URLs](#urls)
 - [Acknowledgements](#acknowledgements)
@@ -43,7 +44,7 @@ With Qdislib, researchers and developers can:
 - Perform **gate** and **wire cutting** to decompose complex quantum circuits.
 - Leverage **GPU acceleration** using cuQuantum or Qibojit.
 - Submit subcircuits to **remote QPUs** like IBM Quantum.
-- Work with circuits defined in both **Qibo** and **Qiskit**.
+- Work with circuits defined in **Qibo**, **Qiskit**, and **CUDA-Q**.
 - Automatically identify good cut points with `find_cut`.
 - Extract and manipulate subcircuits independently.
 
@@ -60,17 +61,62 @@ and it is being developed by the [Workflows and Distributed Computing](<https://
 ## Requirements
 
 - Python >= 3.10
-- COMPSs >= 3.3
+- At least one quantum SDK backend — **Qibo**, **Qiskit**, or **CUDA-Q** — installed as an extra (see below)
+- *(optional)* COMPSs >= 3.3 for distributed execution on HPC; without it, Qdislib runs serially
 
-Python packages required are defined in `requirements.txt`:
+The core Python dependencies are listed in `requirements.txt`; the quantum SDK
+backends are optional extras declared in `pyproject.toml`.
 
 ## Installation
 
-Qdislib can be installed with the following command:
+Install Qdislib together with at least one backend extra:
 
 ```bash
-pip3 install qdislib
+pip3 install "qdislib[qibo]"      # or [qiskit], [cudaq], or [all]
 ```
+
+Installing the bare package (`pip3 install qdislib`) pulls only the core
+dependencies — you need a backend extra to run circuits.
+
+## Quickstart
+
+The recommended way to use Qdislib is the **three-step circuit-cutting workflow**:
+generate subcircuits, evaluate each one in your own loop, then recombine the
+results. Evaluating the subcircuits yourself is the whole point — that loop is
+where you dispatch to a simulator, a GPU, or a real QPU, batch them, or cache
+results, all while Qdislib handles the cutting and the reconstruction.
+
+```python
+import Qdislib as qd
+from qibo import models, gates
+
+# A small example circuit (works the same with Qiskit or CUDA-Q circuits).
+circuit = models.Circuit(2)
+circuit.add(gates.H(0))
+circuit.add(gates.CZ(0, 1))
+circuit.add(gates.RY(0, 0.8))
+
+# 1. Cut the circuit into independently executable subcircuits.
+#    Use find_cut to discover good cut points automatically.
+subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"], software="qibo")
+
+# 2. Evaluate each subcircuit — this loop is yours to control.
+values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
+
+# 3. Recombine into the original circuit's expectation value.
+result = subcircuits.reconstruct(values)
+print(result)  # ≈ -0.717
+```
+
+`qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")], software="qibo")` works
+the same way for **wire cutting**. The `software` argument (`"qibo"`, `"qiskit"`
+or `"cudaq"`) selects the backend the subcircuits are emitted for; it must match
+the backend you evaluate them on.
+
+If you'd rather not manage the loop, the all-in-one `qd.gate_cutting(...)` and
+`qd.wire_cutting(...)` run the cut, execution and reconstruction in a single call
+— convenient for quick experiments, but the three-step workflow above is the
+flexible, production-oriented path.
 
 ## Availability
 

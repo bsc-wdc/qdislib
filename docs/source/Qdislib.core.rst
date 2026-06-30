@@ -10,7 +10,6 @@ Subpackages
    Qdislib.core.cutting_algorithms
    Qdislib.core.find_cut
    Qdislib.core.graph_algorithms
-   Qdislib.core.qubit_mapping
 
 Module contents
 ---------------

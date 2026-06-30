@@ -1,6 +1,12 @@
 pip
-typing
 typing-extensions
+# Light core deps so autodoc can import Qdislib (heavy SDKs + pymetis are mocked
+# via autodoc_mock_imports in conf.py).
+numpy
+networkx
+matplotlib
+igraph
+scikit-learn
 Sphinx>=8.0.2,<9.0.0
 sphinxcontrib.contentui==0.2.5
 nbsphinx>=0.9.5

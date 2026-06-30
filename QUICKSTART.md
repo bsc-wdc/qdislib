@@ -8,30 +8,20 @@ a manual installation, or you can download our ready-to-use docker image.
 
 #### Dependencies
 
-Qdislib currently requires:
+Qdislib's core dependencies (installed automatically with `pip install qdislib`)
+are: `numpy`, `networkx`, `matplotlib`, `igraph`, `pymetis` and `scikit-learn`.
 
-* PyCOMPSs >= 3.3
-* rustworkx >= 0.15.0
-* numpy >= 1.17,<3
-* scipy >= 1.5
-* sympy >= 1.3
-* dill >= 0.3
-* python-dateutil >= 2.8.0
-* stevedore >= 3.0.0
-* typing-extensions
-* symengine >= 0.11,<0.14
-* igraph >= 0.11.8
-* qiskit >= 1.1.0
-* qiskit_aer >= 0.15.1
-* qibo >= 0.1.12
-* networkx >= 3.1
-* matplotlib >= 3.4.3
-* pymetis >= 2023.1.1
+In addition you need **at least one quantum SDK backend**, installed as an
+optional extra:
 
-While in order to use GPUs these libraries may also be required:
-* qiskit-aer-gpu >= 0.15
-* qiskit-aer-gpu-cu11 >= 0.17
-* qibojit >= 0.1
+* `pip install "qdislib[qibo]"`   — Qibo
+* `pip install "qdislib[qiskit]"` — Qiskit (+ Aer, qiskit-addon-cutting, IBM runtime)
+* `pip install "qdislib[cudaq]"`  — CUDA-Q
+* `pip install "qdislib[all]"`    — all of the above
+
+For distributed execution on HPC you also need **PyCOMPSs >= 3.3** (see the
+installation steps below). GPU acceleration may additionally require
+`qiskit-aer-gpu` (with Qiskit) or `qibojit` (with Qibo).
 
 #### Installation steps
 
@@ -40,21 +30,26 @@ While in order to use GPUs these libraries may also be required:
 
 2. Install PyCOMPSs following these [instructions](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation.html).
 
-3. Install the latest Qdislib version with ``pip3 install Qdislib``.
-   * **IMPORTANT:** Qdislib requires the ``pycompss`` Python module. However, this command will **NOT** install the module automatically. The module should be available after manually installing PyCOMPSs following the instructions in step 2. For more information on this, see [this issue](https://github.com/bsc-wdc/dislib/issues/190).
+3. Install the latest Qdislib version together with a backend extra, e.g.
+   ``pip3 install "Qdislib[qibo]"`` (see Dependencies above for the options).
+   * **IMPORTANT:** Qdislib uses the ``pycompss`` Python module for distributed
+     execution, but it is **not** installed automatically by pip. It becomes
+     available after manually installing PyCOMPSs (step 2). Without PyCOMPSs,
+     Qdislib still runs correctly in serial mode.
 
-4. You can check that everything works fine by running one of our examples:
+4. Check that everything works by running the three-step circuit-cutting
+   workflow from the [Quickstart](https://qdislib.readthedocs.io/en/latest/quickstart.html):
 
-    * Download the latest source code [here](https://github.com/bsc-wdc/Qdislib/releases/latest).
+    ```python
+    import Qdislib as qd
+    from qibo import models, gates
 
-    * Extract the contents of the tar package.
+    circuit = models.Circuit(2)
+    circuit.add(gates.H(0)); circuit.add(gates.CZ(0, 1)); circuit.add(gates.RY(0, 0.8))
 
-    ```bash
-    tar xzvf Qdislib-X.Y.Z.tar.gz
+    subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"], software="qibo")
+    values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
+    print(subcircuits.reconstruct(values))  # ≈ -0.717
     ```
 
-    * Run an example application.
-
-    ```bash
-    runcompss Qdislib-X.Y.Z/examples/app.py
-    ```
+   To run distributed on PyCOMPSs, launch your script with ``runcompss your_app.py``.

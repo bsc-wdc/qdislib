@@ -7,6 +7,7 @@ Examples
 
    notebooks/Qdislib_Notebook
    notebooks/Qdislib_Hello_World
+   notebooks/Qdislib_CUDAQ
    notebooks/Qdislib_IBM_QPU
    
 

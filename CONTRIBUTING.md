@@ -56,7 +56,15 @@ Pull Request Checklist
 We recommended that your contribution complies with the
 following rules before you submit a pull request:
 
-- **Run the tests** before attempting to merge. You can run them locally with:
+- **Run the tests** before attempting to merge. The quickest way (serial, no
+  PyCOMPSs required — this is what CI uses) is:
+
+  ```bash
+  pip install ".[qibo,qiskit,ci]"
+  python3 -m unittest discover -s tests/
+  ```
+
+  To run them under PyCOMPSs as on the cluster:
 
   ```bash
   cd scripts
@@ -85,8 +93,9 @@ following rules before you submit a pull request:
   cd ..
   ```
 
-- **Docker image**. All tests and code checks are run inside a docker image.
-  If you want to run the tests in the same environment that travis will use:
+- **Continuous integration**. Tests, coverage and style checks run automatically
+  in GitLab CI (see ``.gitlab-ci.yml``). To reproduce the full check suite inside
+  the docker image locally:
 
   ```bash
   docker build --tag bscwdc/Qdislib .

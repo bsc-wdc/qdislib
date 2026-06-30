@@ -45,9 +45,10 @@ all Qdislib algorithms and operations are internally parallelized using PyCOMPSs
 How to run Qdislib
 ------------------
 
-Qdislib can be installed and used as a regular Python library. However,
-because it relies on PyCOMPSs to parallelize its tasks, you must execute Qdislib applications
-with the `runcompss` or `enqueue_compss` command-line tools provided by PyCOMPSs:
+Qdislib can be installed and used as a regular Python library, and runs
+**serially** out of the box (``python my_Qdislib_application.py``). PyCOMPSs is
+optional: when it is installed, Qdislib transparently parallelizes its tasks,
+and you launch applications with the `runcompss` or `enqueue_compss` tools:
 
 .. code-block:: bash
 
@@ -78,33 +79,45 @@ To simplify the cutting process, Qdislib provides the `find_cut` utility to auto
 
 .. code-block:: python
 
-    cut = qd.find_cut(circuit)                       # Gate cand wire utting suggestion
+    cut = qd.find_cut(circuit)                       # Gate and wire cutting suggestion
     wire_cut = qd.find_cut(circuit, gate_cut=False)  # Wire cutting suggestion
     gate_cut = qd.find_cut(circuit, wire_cut=False)  # Gate cutting suggestion
 
 The returned list contains candidate gate names or gate pairs that are suitable cut points.
 
-**Subcircuit Generation Only**
+**Recommended workflow: generate → evaluate → reconstruct**
 
-In addition to executing the full gate or wire cutting workflow, Qdislib also allows users to **only extract the subcircuits** without performing expectation value reconstruction. This enables:
+The recommended way to use Qdislib is the **three-step workflow**: generate the
+subcircuits, evaluate each one in your own loop, then recombine the results.
+Owning the evaluation loop is the point — that is where you dispatch to a
+simulator, a GPU, or a real QPU, batch, or cache, while Qdislib handles the
+cutting and the reconstruction. This enables:
 
 - Custom execution of subcircuits (e.g., submitting to specific quantum devices).
 - Saving/loading subcircuits for delayed simulation.
 - Manual post-processing outside Qdislib.
 
-You can generate and retrieve subcircuits using:
-
 .. code-block:: python
 
-    # For gate cutting
-    subcircuits = qd.gate_cutting_subcircuits(circuit, gate_cut)
+    # 1. Cut the circuit into independently executable subcircuits.
+    #    software is one of "qibo", "qiskit" or "cudaq".
+    subcircuits = qd.gate_cutting_subcircuits(circuit, gate_cut, software="qibo")
+    # (or qd.wire_cutting_subcircuits(circuit, wire_cut, software="qibo"))
 
-    # For wire cutting
-    subcircuits = qd.wire_cutting_subcircuits(circuit, wire_cut)
+    # 2. Evaluate each subcircuit — this loop is yours to control.
+    values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
 
-The returned `subcircuits` list contains all subcomponents resulting from the cutting process. These can be simulated independently using Qiskit, Qibo, or submitted to QPUs.
+    # 3. Recombine into the original circuit's expectation value.
+    result = subcircuits.reconstruct(values)
 
-This modular structure gives users fine-grained control over hybrid quantum-classical workflows.
+The returned ``subcircuits`` object behaves like a list of subcomponents (so it
+can be iterated, indexed and executed independently using Qibo, Qiskit, CUDA-Q,
+or submitted to QPUs) and additionally carries the cut metadata needed by
+:meth:`~Qdislib.utils.backends.CutSubcircuits.reconstruct`.
+
+If you prefer a single call, ``qd.gate_cutting(...)`` / ``qd.wire_cutting(...)``
+run the cut, execution and reconstruction together. This modular structure gives
+users fine-grained control over hybrid quantum-classical workflows.
 
 
 Resource Allocation
