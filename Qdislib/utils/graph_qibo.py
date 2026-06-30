@@ -23,14 +23,31 @@ Qdislib graph utils.
 This file contains all auxiliary graph classes and functions.
 """
 
+from __future__ import annotations  # defer annotation eval so qibo can be optional
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "circuit_qibo_to_dag",
+    "dag_to_circuit_qibo",
+    "plot_dag",
+]
+
 import inspect
 import networkx
 import matplotlib.pyplot as plt
 import numpy as np
 import typing
-from qibo import models
-from qibo import gates
-import numpy as np
+
+try:
+    from qibo import models, gates
+
+    qibo_available = True
+except ImportError:  # qibo is optional; functions that need it fail when called
+    models = gates = None
+    qibo_available = False
 
 try:
     from pycompss.api.task import task
@@ -38,7 +55,7 @@ try:
 
     pycompss_available = True
 except ImportError:
-    print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
+    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
 
     def task(*args, **kwargs):
         def decorator(func):
@@ -250,7 +267,7 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
 
     Example:
         .. code-block:: python
-            
+
             import Qdislib as qd
             import networkx as nx
 
@@ -259,6 +276,9 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
             print(circuit)
             print(observables)
     """
+    if dag is None:  # empty component (e.g. a qubit touched only by the cut gate)
+        return None
+
     # Traverse the DAG in topological order
     topo_order = list(networkx.topological_sort(dag))
 
@@ -289,7 +309,7 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
         if gate_name == "MEASURE":
             qubits = node_data["qubits"]
             output = circuit.add(gates.M(*qubits, collapse=True))
-            circuit.add(gates.RX(*qubits, theta=np.pi * output.symbols[0] / 4))
+            circuit.add(gates.RX(*qubits, theta=np.pi * (1 - output.symbols[0])))
             continue
 
         # Get the qubits this gate acts on
@@ -434,13 +454,11 @@ def _update_qubits_serie(
     return s, highest_qubit, smallest_qubit
 
 
-def _max_qubits_graph(
-    s: typing.List[typing.Any],
-) -> typing.Tuple[typing.List[typing.Any], int, int]:
-    """Update the given serie of qubits.
+def _max_qubits_graph(s: typing.Any) -> int:
+    """Return the number of distinct qubits touched by the gates in a DAG.
 
-    :param s: Input qubit serie.
-    :return: Updated qubit serie, highest qubit value and lowest qubit value.
+    :param s: A circuit DAG whose nodes carry a ``"qubits"`` attribute.
+    :return: The qubit count (highest contiguous qubit index after compaction).
     """
     my_set = set()
     for node, data in s.nodes(data=True):
@@ -448,67 +466,4 @@ def _max_qubits_graph(
             my_set.add(qubit)
 
     highest_qubit = max(my_set) + 1 - _count_missing_up_to(my_set, max(my_set))
-    smallest_qubit = min(my_set) - _count_missing_up_to(my_set, min(my_set))
     return highest_qubit
-
-
-@task(returns=1)
-def _dag_to_circuit_qibo_subcircuits(
-    dag: networkx.DiGraph, num_qubits: int
-) -> models.Circuit:
-    # Traverse the DAG in topological order
-    topo_order = list(networkx.topological_sort(dag))
-
-    # Optionally handle measurements, assuming all qubits are measured at the end
-    obs_I = []
-    for node in topo_order:
-        node_data = dag.nodes[node]
-        if node_data["gate"] == "Observable I":
-            # print(node)
-            obs_I.append(node_data["qubits"][0])
-            dag.remove_node(node)
-
-    dag, highest_qubit, smalles_qubit = _update_qubits_serie(dag)
-
-    # Create an empty Qibo circuit
-    circuit = models.Circuit(highest_qubit)
-
-    topo_order = list(networkx.topological_sort(dag))
-
-    for node in topo_order:
-        node_data = dag.nodes[node]
-        gate_name = node_data["gate"].upper()
-
-        # Skip the measurement nodes (we'll handle them separately)
-        if gate_name == "OBSERVABLE I":
-            # print(gate_name)
-            continue
-
-        if gate_name == "MEASURE":
-            qubits = node_data["qubits"]
-            output = circuit.add(gates.M(*qubits, collapse=True))
-            circuit.add(gates.RX(*qubits, theta=np.pi * output.symbols[0] / 4))
-            continue
-
-        # Get the qubits this gate acts on
-        qubits = node_data["qubits"]
-        parameters = node_data["parameters"]
-
-        # Get the gate class from the qibo.gates module
-        gate_class = getattr(gates, gate_name)
-
-        # Get the signature of the gate's __init__ method
-        signature = inspect.signature(gate_class.__init__)
-
-        # Count the number of required positional arguments (excluding 'self')
-        param_count = len(signature.parameters) - 1  # exclude 'self'
-
-        # Check if parameters are provided and the gate requires them
-        if parameters is not None and param_count > len(qubits):
-            # Pass qubits and parameters if the gate requires both
-            circuit.add(gate_class(*qubits, parameters))
-        else:
-            # Otherwise, pass only the qubits
-            circuit.add(gate_class(*qubits))
-
-    return circuit

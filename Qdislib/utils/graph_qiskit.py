@@ -23,12 +23,26 @@ Qdislib qiskit graph utils.
 This file contains all auxiliary qiskit graph classes and functions.
 """
 
-import inspect
+from __future__ import annotations  # defer annotation eval so qiskit can be optional
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "circuit_qiskit_to_dag",
+    "dag_to_circuit_qiskit",
+]
+
 import networkx
 
-from qiskit import QuantumCircuit
-from qiskit import QuantumRegister
-from qiskit import ClassicalRegister
+try:
+    from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
+
+    qiskit_available = True
+except ImportError:  # qiskit is optional; functions that need it fail when called
+    QuantumCircuit = QuantumRegister = ClassicalRegister = None
+    qiskit_available = False
 
 from Qdislib.utils.graph_qibo import _update_qubits_serie
 
@@ -38,7 +52,7 @@ try:
     pycompss_available = True
 
 except ImportError:
-    print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
+    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
 
     def task(*args, **kwargs):
         def decorator(func):
@@ -175,15 +189,15 @@ def dag_to_circuit_qiskit(dag, num_qubits):
     Notes:
         - Observable I nodes are removed from the DAG and recorded separately as classical measurement placeholders.
         - The function uses a topological sort of the DAG to ensure gate application respects dependencies.
-        - Special handling is implemented for CNOT gates, converting them to a CZ+H pattern for compatibility.
+        - The controlled-X gate is accepted under either name (Qibo's ``CNOT`` or Qiskit/CUDA-Q's ``CX``) and emitted as Qiskit's ``cx``.
         - If a `measure` gate is encountered, classical control flow (via `c_if`) is assumed.
         - The function assumes all remaining qubits are measured at the end unless otherwise specified.
 
     Example:
         .. code-block:: python
-            
+
             import Qdislib as qd
-        
+
             dag = qd.circuit_qiskit_to_dag(qiskit_circuit)
             reconstructed_circuit, _ = qd.dag_to_circuit_qiskit(dag, num_qubits=2)
             print(reconstructed_circuit.draw())
@@ -220,13 +234,11 @@ def dag_to_circuit_qiskit(dag, num_qubits):
         if gate_name == "Observable I":
             continue
 
-        elif gate_name == "CNOT":
-            gate_name = "cx"
-            qubits = node_data["qubits"]
-
-            circuit.h(qubits[1])
-            circuit.cz(*qubits)
-            circuit.h(qubits[1])
+        # Two-qubit controlled-X: Qibo names it CNOT, Qiskit/CUDA-Q name it CX.
+        # Emit Qiskit's native cx so all three backends keep this gate as-is
+        # (reconstruction runs after cutting, so no CZ decomposition is needed).
+        elif gate_name.upper() in ("CNOT", "CX"):
+            circuit.cx(*node_data["qubits"])
             continue
 
         # Get the qubits this gate acts on
@@ -234,33 +246,20 @@ def dag_to_circuit_qiskit(dag, num_qubits):
         qubits = node_data["qubits"]
         parameters = node_data["parameters"]
 
-        # Get the gate class from the qibo.gates module
-        gate_class = gate_name.lower()
+        # Qiskit method name for this gate (e.g. "cz", "rz", "measure").
+        gate_method = gate_name.lower()
 
-        # Get the signature of the gate's __init__ method
-        signature = inspect.signature(gate_class.__init__)
-
-        # Count the number of required positional arguments (excluding 'self')
-        param_count = len(signature.parameters) - 1  # exclude 'self'
-
-        # Check if parameters are provided and the gate requires them
         if parameters:
-            # Pass qubits and parameters if the gate requires both
-            tmp = getattr(circuit, gate_class)
-            tmp(*parameters, *qubits)
+            getattr(circuit, gate_method)(*parameters, *qubits)
+        elif gate_method == "measure":
+            # Gate-cut measure: measure, then force the qubit to |1> (matches the
+            # Qibo/CUDA-Q gate-cut measure convention).
+            clbit = qubits
+            getattr(circuit, gate_method)(*qubits, *clbit)
+            with circuit.if_test((*qubits, *clbit)):
+                circuit.x(*qubits)
         else:
-            if gate_class == "measure":
-                clbit = qubits
-                tmp = getattr(circuit, gate_class)
-                tmp(*qubits, *clbit)
-                #circuit.x(*qubits).c_if(*qubits, *clbit)
-                with circuit.if_test((*qubits, *clbit)):
-                    circuit.x(*qubits)
-            else:
-                # Otherwise, pass only the qubits
-                # circuit.gate_class(*qubits)
-                tmp = getattr(circuit, gate_class)
-                tmp(*qubits)
+            getattr(circuit, gate_method)(*qubits)
 
     if obs_I:
         observables = ["Z"] * num_qubits
@@ -273,76 +272,3 @@ def dag_to_circuit_qiskit(dag, num_qubits):
     observables = ["Z"] * num_qubits
     observables = "".join(observables)
     return [circuit, observables]
-
-
-@task(returns=1)
-def _dag_to_circuit_qiskit_subcircuits(dag, num_qubits):
-    if dag is None:
-        return None
-
-    topo_order = list(networkx.topological_sort(dag))
-
-    # Optionally handle measurements, assuming all qubits are measured at the end
-    obs_I = []
-    for node in topo_order:
-        node_data = dag.nodes[node]
-        if node_data["gate"] == "Observable I":
-            # print(node)
-            obs_I.append(node_data["qubits"][0])
-            dag.remove_node(node)
-
-    dag, highest_qubit, smalles_qubit = _update_qubits_serie(dag)
-
-    # Create an empty Qibo circuit
-    qreg_q = QuantumRegister(num_qubits, "q")
-    creg_c = ClassicalRegister(num_qubits, "c")
-    circuit = QuantumCircuit(qreg_q, creg_c)
-
-    # Traverse the DAG in topological order
-    topo_order = list(networkx.topological_sort(dag))
-
-    for node in topo_order:
-        node_data = dag.nodes[node]
-        gate_name = node_data["gate"]
-
-        # Skip the observable I nodes (we'll handle them separately)
-        if gate_name == "Observable I":
-            continue
-        elif gate_name == "CNOT":
-            gate_name = "cx"
-            qubits = node_data["qubits"]
-
-            circuit.h(qubits[1])
-            circuit.cz(*qubits)
-            circuit.h(qubits[1])
-            continue
-
-        # Get the qubits this gate acts on
-        qubits = node_data["qubits"]
-        parameters = node_data["parameters"]
-
-        # Get the gate class from the qibo.gates module
-        gate_class = gate_name.lower()
-
-        # Get the signature of the gate's __init__ method
-        signature = inspect.signature(gate_class.__init__)
-
-        # Count the number of required positional arguments (excluding 'self')
-        param_count = len(signature.parameters) - 1  # exclude 'self'
-
-        if parameters:
-            tmp = getattr(circuit, gate_class)
-            tmp(*parameters, *qubits)
-        else:
-            if gate_class == "measure":
-                clbit = qubits
-                tmp = getattr(circuit, gate_class)
-                tmp(*qubits, *clbit)
-                #circuit.x(*qubits).c_if(*qubits, *clbit)
-                with circuit.if_test((*qubits, *clbit)):
-                    circuit.x(*qubits)
-            else:
-                tmp = getattr(circuit, gate_class)
-                tmp(*qubits)
-
-    return circuit

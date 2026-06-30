@@ -18,18 +18,34 @@
 # -*- coding: utf-8 -*-
 
 """
-Qdislib qiskit graph utils.
+Qdislib CUDA-Q graph utils.
 
-This file contains all auxiliary qiskit graph classes and functions.
+This file contains all auxiliary CUDA-Q graph classes and functions.
 """
 
-import inspect
-import networkx as nx
-import cudaq
-import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "circuit_cudaq_to_dag",
+    "dag_to_circuit_cudaq",
+    "dag_to_circuit_cudaq_kernel",
+]
+
+import ast
 import json
-from Qdislib.utils.graph_qibo import _update_qubits_serie
-import sys
+import math
+import networkx as nx
+import numpy as np
+
+try:
+    import cudaq
+
+    cudaq_available = True
+except ImportError:
+    cudaq = None
+    cudaq_available = False
 
 try:
     from pycompss.api.task import task
@@ -37,7 +53,7 @@ try:
     pycompss_available = True
 
 except ImportError:
-    print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
+    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
 
     def task(*args, **kwargs):
         def decorator(func):
@@ -48,55 +64,107 @@ except ImportError:
     pycompss_available = False
 
 
+def _cudaq_gate_name(call):
+    """Upper-cased gate name for a CUDA-Q gate call AST node, or ``None``.
 
+    Handles plain calls (``h(...)`` -> ``"H"``) and the controlled-gate attribute
+    syntax (``x.ctrl(c, t)`` -> ``"CX"``, ``z.ctrl(c, t)`` -> ``"CZ"``). Returns
+    ``None`` for non-gate calls such as ``cudaq.qvector(...)``.
+    """
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id.upper()
+    if (
+        isinstance(func, ast.Attribute)
+        and func.attr == "ctrl"
+        and isinstance(func.value, ast.Name)
+    ):
+        base = func.value.id.upper()
+        return {"X": "CX", "Z": "CZ"}.get(base, "C" + base)
+    return None
+
+
+def _eval_cudaq_param(node):
+    """Best-effort evaluation of a numeric gate-parameter expression node.
+
+    Supports literals and expressions such as ``np.pi / 2`` / ``math.pi``;
+    returns ``None`` if the value cannot be resolved to a float.
+    """
+    try:
+        value = eval(  # noqa: S307 - trusted kernel source, restricted namespace
+            compile(ast.Expression(node), "<cudaq-param>", "eval"),
+            {"np": np, "numpy": np, "math": math, "pi": math.pi},
+        )
+        return float(value)
+    except Exception:
+        return None
 
 
 def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
-    """
-    Convert a CUDA-Q kernel into a DAG by parsing its Python source.
+    """Convert a CUDA-Q kernel into a Qdislib DAG.
+
+    The kernel's Python source (``kernel.to_json()["funcSrc"]``) is parsed with
+    the :mod:`ast` module rather than scanned with regular expressions, so it is
+    robust to formatting/comments, the qubit-register variable name, expression
+    parameters (e.g. ``np.pi / 2``) and the ``gate.ctrl(...)`` controlled syntax.
+
+    :param kernel: A CUDA-Q kernel (``PyKernelDecorator``).
+    :param obs_I: Optional observable string; each ``"I"`` appends an identity
+        observable sink node on that qubit (internal use when cutting).
+    :return: A :class:`networkx.DiGraph` whose nodes carry ``gate`` (upper-cased
+        name), ``qubits`` (tuple of ints) and ``parameters`` (list of floats),
+        with blue (nearest-predecessor) and red (other-predecessor) edges.
     """
     dag = nx.DiGraph()
 
-    # Grab source code from kernel JSON
-    kjson = kernel.to_json()
-    if isinstance(kjson, str):
-        kjson = json.loads(kjson)
-    src = kjson["funcSrc"].splitlines()
+    payload = kernel.to_json()
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    tree = ast.parse(payload["funcSrc"])
+    func = next(
+        (node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None
+    )
+    if func is None:
+        return dag
 
     gate_idx = 0
-    for line in src:
-        line = line.strip()
-        if not line or line.startswith("@") or line.startswith("def") or line.startswith("q =") or line.startswith("b0"):
+    for statement in func.body:
+        # Gate operations are bare calls (``h(q[0])``) or measurement
+        # assignments (``m = mz(q[0])``); everything else is skipped.
+        if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
+            call = statement.value
+        elif isinstance(statement, ast.Assign) and isinstance(
+            statement.value, ast.Call
+        ):
+            call = statement.value
+        else:
             continue
 
-        # Match gates: e.g., h(q[0]), cx(q[0], q[1]), rx(1.57, q[0])
-        m = re.match(r"([a-zA-Z_][a-zA-Z0-9_]*)\((.*)\)", line)
-        if not m:
+        name = _cudaq_gate_name(call)
+        if name is None:
             continue
 
-        op_name = m.group(1).upper()
-        args = m.group(2)
+        # Subscript arguments (``q[i]``) are qubits; the rest are parameters.
+        qubits, parameters = [], []
+        for arg in call.args:
+            if isinstance(arg, ast.Subscript):
+                index = arg.slice.value if isinstance(arg.slice, ast.Constant) else None
+                if isinstance(index, int):
+                    qubits.append(index)
+            else:
+                value = _eval_cudaq_param(arg)
+                if value is not None:
+                    parameters.append(value)
 
-        # Extract qubit indices: q[0], q[1], etc.
-        qubits = tuple(int(idx) for idx in re.findall(r"q\[(\d+)\]", args))
-
-        # Remove q[...] parts, keep only potential numeric literals
-        args_clean = re.sub(r"q\[\d+\]", "", args)
-        params = [float(x) for x in re.findall(r"[-+]?\d*\.\d+|\d+", args_clean)]
+        if not qubits:  # e.g. cudaq.qvector(...) or a whole-register op -> skip
+            continue
 
         gate_idx += 1
-        gate_name = f"{op_name}_{gate_idx}"
+        gate_name = f"{name}_{gate_idx}"
+        dag.add_node(gate_name, gate=name, qubits=tuple(qubits), parameters=parameters)
 
-        dag.add_node(
-            gate_name,
-            gate=op_name,
-            qubits=qubits,
-            parameters=params
-        )
-
-         # --- Add edges based on qubit dependencies ---
+        # Blue edges: nearest preceding gate on each shared qubit.
         for qubit in qubits:
-            # Blue edges: connect to the nearest preceding gate on the same qubit
             for pred_gate in reversed(list(dag.nodes)):
                 if (
                     dag.nodes[pred_gate].get("qubits")
@@ -106,8 +174,8 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
                     dag.add_edge(pred_gate, gate_name, color="blue")
                     break
 
+        # Red edges: other earlier gates on a shared qubit, if not already linked.
         for qubit in qubits:
-            # Red edges: connect to all earlier gates on the same qubit that aren't already connected
             for pred_gate in reversed(list(dag.nodes)):
                 if (
                     dag.nodes[pred_gate].get("qubits")
@@ -117,28 +185,24 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
                 ):
                     dag.add_edge(pred_gate, gate_name, color="red")
 
-    # Handle Observable I insertion
+    # Append identity-observable sink nodes when requested.
     if obs_I:
         sinks = [n for n in dag.nodes if dag.out_degree(n) == 0]
-        for idx, i in enumerate(obs_I):
-            if i == "I":
-                for elem in sinks:
-                    if dag.nodes[elem].get("qubits") == (idx,):
+        for idx, observable in enumerate(obs_I):
+            if observable == "I":
+                for sink in sinks:
+                    if dag.nodes[sink].get("qubits") == (idx,):
                         obs_node = f"OBSI_{idx}"
                         dag.add_node(
-                            obs_node,
-                            gate="Observable I",
-                            qubits=(idx,),
-                            parameters=[]
+                            obs_node, gate="Observable I", qubits=(idx,), parameters=[]
                         )
-                        dag.add_edge(elem, obs_node, color="blue")
+                        dag.add_edge(sink, obs_node, color="blue")
 
     return dag
 
+
 @task(returns=1)
 def dag_to_circuit_cudaq(dag: nx.DiGraph, num_qubits: int):
-    sys.tracebacklimit = 1
-
     if dag is None:
         return None
 
@@ -163,40 +227,27 @@ def dag_to_circuit_cudaq(dag: nx.DiGraph, num_qubits: int):
     observables = "".join(observables)
     return [(dag, num_qubits), observables]
 
-#@task(returns=1)
+
+# @task(returns=1)
 def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
     """
     Convert a DAG into a CUDA-Q kernel using the modern builder API.
 
-    Produces code like:
+    Produces code like::
+
         kernel = cudaq.make_kernel()
         q = [kernel.qalloc() for _ in range(num_qubits)]
         kernel.h(q[0])
         result = kernel.mz(q[0])
         kernel.if_result(result, lambda: kernel.x(q[1]))
 
-    Args:
-        dag: networkx.DiGraph with node attributes:
-            - 'gate': str (gate name)
-            - 'qubits': tuple of qubit indices
-            - 'parameters': list of parameters (if any)
-        num_qubits: int, total number of qubits
-
-    Returns:
-        [kernel, obs_I]
+    :param dag: networkx.DiGraph whose nodes carry ``gate`` (str), ``qubits``
+        (tuple of indices) and ``parameters`` (list) attributes.
+    :param num_qubits: Total number of qubits.
+    :return: ``[kernel, observables]``.
     """
-    sys.tracebacklimit = 1
     if dag is None:
         return None
-
-    topo_order = list(nx.topological_sort(dag))
-
-    # Extract "Observable I" nodes if present
-    """obs_I = []
-    for node in topo_order:
-        if dag.nodes[node]["gate"].upper() == "OBSERVABLE I":
-            obs_I.append(dag.nodes[node]["qubits"][0])
-            dag.remove_node(node)"""
 
     # Initialize CUDA-Q kernel
     kernel = cudaq.make_kernel()
@@ -235,31 +286,16 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
             for qb in qubits:
                 getattr(kernel, gate.lower())(q[qb])
 
-        # --- Qiskit-style MEASURE → conditional ---
+        # --- Gate-cut MEASURE: collapse the qubit, then force it to |1> so it
+        # --- contributes -1, matching the Qiskit/Qibo gate-cut convention
+        # --- (qiskit: measure + "if c==0: x"; qibo: M(collapse) + RX(pi*(1-m))).
         elif gate == "MEASURE":
             for qb in qubits:
-                result = kernel.mz(q[qb])
-                if result:
-                    kernel.h(q[qb])
+                kernel.mz(q[qb])
+                kernel.reset(q[qb])
+                kernel.x(q[qb])
 
         else:
             raise ValueError(f"Unsupported gate type: {gate}")
-    
-    """if obs_I:
-        observables = ["Z"] * num_qubits
-        for element in obs_I:
-            observables[element] = "I"
 
-        observables = "".join(observables)
-        return [kernel, observables]
-
-    observables = ["Z"] * num_qubits
-    observables = "".join(observables)"""
     return kernel
-
-
-
-@task(returns=1)
-def _dag_to_circuit_cudaq_subcircuits(dag: nx.DiGraph, num_qubits: int):
-    sys.tracebacklimit = 1
-    return 0
