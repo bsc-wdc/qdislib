@@ -19,21 +19,41 @@
 
 """Wire cutting algorithms."""
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "wire_cutting",
+    "wire_cutting_subcircuits",
+    "wire_cutting_subcircuit_reconstruction",
+]
+
 import math
 import networkx
-import qibo
-import qiskit
 import typing
 import time
 import pickle
 import os
-import random
 
 import re
 
-from qibo import models, gates
-import cudaq
-import sys
+try:
+    import qibo
+    from qibo import gates
+
+    qibo_available = True
+except ImportError:  # qibo is optional; functions that need it fail when called
+    qibo = gates = None
+    qibo_available = False
+
+try:
+    import cudaq
+
+    cudaq_available = True
+except ImportError:
+    cudaq = None
+    cudaq_available = False
 
 try:
     from pycompss.api.task import task
@@ -43,7 +63,7 @@ try:
 
     pycompss_available = True
 except ImportError:
-    print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
+    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
 
     def task(*args, **kwargs):
         def decorator(func):
@@ -69,52 +89,22 @@ except ImportError:
     COLLECTION_IN = COLLECTION_OUT = None
     pycompss_available = False
 
-from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
 from Qdislib.utils.graph_qibo import (
     dag_to_circuit_qibo,
-    _dag_to_circuit_qibo_subcircuits,
+    _max_qubit,
+    _update_qubits,
+    _remove_red_edges,
 )
-from Qdislib.utils.graph_qibo import _max_qubit
-from Qdislib.utils.graph_qibo import _update_qubits
-from Qdislib.utils.graph_qibo import _remove_red_edges
-from Qdislib.utils.graph_qiskit import (
-    circuit_qiskit_to_dag,
-    _dag_to_circuit_qiskit_subcircuits,
-    dag_to_circuit_qiskit
-)
+from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
 
-from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
 from Qdislib.utils.graph_cudaq import (
     dag_to_circuit_cudaq,
-    _dag_to_circuit_cudaq_subcircuits,
-    dag_to_circuit_cudaq_kernel
+    dag_to_circuit_cudaq_kernel,
 )
 
 
-from qiskit.circuit import QuantumCircuit
-from qibo.models import Circuit as QiboCircuit
-from cudaq.kernel.kernel_decorator import PyKernelDecorator
-
-
-def convert_to_dag(dag, observables=None):
-    type_map = {
-        QuantumCircuit: circuit_qiskit_to_dag,
-        QiboCircuit: circuit_qibo_to_dag,
-        PyKernelDecorator: circuit_cudaq_to_dag,
-    }
-
-    # Find the matching converter function based on type
-    converter = next((fn for t, fn in type_map.items() if isinstance(dag, t)), None)
-    if converter is None:
-        print(f"Unsupported circuit type: {type(dag).__name__}")
-        return dag  # Unknown type, return unchanged
-
-    kwargs = {}
-    if observables and "I" in observables:
-        kwargs["obs_I"] = observables
-
-    return converter(dag, **kwargs)
-
+from Qdislib.utils.backends import convert_to_dag, CutSubcircuits
+from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
 
 
 def wire_cutting(
@@ -125,6 +115,7 @@ def wire_cutting(
     shots: int = 1024,
     backend: str = "numpy",
     qpu: str = None,
+    software: str = "qibo",
 ):
     """Apply wire cutting to a quantum circuit to simplify its structure for distributed or hardware-constrained execution of subcircuits.
 
@@ -150,6 +141,8 @@ def wire_cutting(
         Backend to simulate or execute the circuits (e.g., "numpy").
     qpu : optional
         If specified (e.g., `"MN_Ona"`), indicates execution on a Quantum Processing Unit.
+    software : str, default="qibo"
+        Backend used to build and execute the subcircuits: "qibo", "qiskit" or "cudaq".
 
     Returns
     -------
@@ -160,7 +153,7 @@ def wire_cutting(
     -----
     - If the input circuit has multiple disconnected components, they are processed independently.
     - Each cut doubles the number of circuit evaluations required.
-    - The final expectation value is scaled by \(1/2^{n_{\text{cuts}}}\) where \(n_{\text{cuts}}\) is the number of cuts.
+    - The final expectation value is scaled by 1 / 2^(number of cuts).
     - GPU/QPU execution is supported if properly configured.
     - If no cuts are provided, the circuit is executed directly.
 
@@ -184,7 +177,7 @@ def wire_cutting(
     if observables:
         rand_qc = _change_basis(rand_qc, observables)
 
-    dag = convert_to_dag(rand_qc,observables)
+    dag = convert_to_dag(rand_qc, observables)
 
     if networkx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -192,6 +185,7 @@ def wire_cutting(
             for c in networkx.connected_components(dag.to_undirected())
         ]
         results = []
+        total_wire_cuts = 0
         for s in S:
             num_qubits = _max_qubit(s)
             tmp_cuts = []
@@ -199,152 +193,168 @@ def wire_cutting(
                 if s.has_edge(*c):
                     tmp_cuts.append(c)
             if tmp_cuts:
+                cut_wires = _expand_wire_cuts(s, tmp_cuts)
+                total_wire_cuts += len(cut_wires)
                 graphs = _generate_wire_cutting(
-                    s, tmp_cuts, num_qubits=num_qubits, qpu=qpu
+                    s, cut_wires, num_qubits=num_qubits, qpu=qpu, software=software
                 )
                 graphs = _sum_results(graphs)
                 results.append(graphs)
             else:
-                s_new, highest_qubit = _update_qubits(s)
-                subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-                if qpu == "MN_Ona":
-                    expected_value = _expec_value_qibo_qpu(
-                        subcirc, shots, method=backend
-                    )
-                else:
-                    expected_value = _expec_value_qibo(subcirc, shots, backend)
-                results.append(expected_value)
+                results.append(
+                    _build_and_run_subcircuit(s, software, shots, backend, qpu)
+                )
         if sync:
             results = compss_wait_on(results)
-        final_recons = 1 / (2 ** len(cut)) * math.prod(results)
+        final_recons = 1 / (2**total_wire_cuts) * math.prod(results)
         return final_recons
     else:
         num_qubits = _max_qubit(dag)
         if cut:
-            results = _generate_wire_cutting(dag, cut, num_qubits=num_qubits, qpu=qpu)
+            cut_wires = _expand_wire_cuts(dag, cut)
+            results = _generate_wire_cutting(
+                dag, cut_wires, num_qubits=num_qubits, qpu=qpu, software=software
+            )
 
             if sync:
                 results = compss_wait_on(results)
-            final_recons = 1 / (2 ** len(cut)) * sum(results)
+            final_recons = 1 / (2 ** len(cut_wires)) * sum(results)
         else:
-            s_new, highest_qubit = _update_qubits(dag)
-            subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-            if qpu == "MN_Ona":
-                final_recons = _expec_value_qibo_qpu(subcirc, shots, method=backend)
-            else:
-                final_recons = _expec_value_qibo(subcirc, shots, backend)
+            final_recons = _build_and_run_subcircuit(dag, software, shots, backend, qpu)
         return final_recons
+
+
+def _expand_wire_cuts(dag, edges_to_replace):
+    """Expand each ``(source, target)`` cut into one entry per shared qubit.
+
+    A wire cut severs a single qubit line. When the two gates of a cut share more
+    than one qubit, separating them requires cutting *each* shared wire, so this
+    expands the pair into one ``(source, target, qubit)`` single-wire cut per
+    shared qubit (the common case of a single shared qubit yields one entry,
+    unchanged).
+
+    :param dag: The circuit DAG (nodes carry a ``qubits`` attribute).
+    :param edges_to_replace: List of ``(source, target)`` gate-name pairs.
+    :return: List of ``(source, target, qubit)`` single-wire cuts.
+    """
+    wire_cuts = []
+    for source, target in edges_to_replace:
+        shared = sorted(
+            set(dag.nodes[source].get("qubits", ()))
+            & set(dag.nodes[target].get("qubits", ()))
+        )
+        for qubit in shared:
+            wire_cuts.append((source, target, qubit))
+    return wire_cuts
+
+
+def _build_and_run_subcircuit(component, software, shots, backend, qpu):
+    """Build one subcircuit in the chosen backend and return its expectation value.
+
+    Backend-agnostic execution dispatch: the subcircuit is built with the
+    matching ``dag_to_circuit_*`` and evaluated with the matching
+    ``_expec_value_*``. A QPU target ("MN_Ona") overrides the software choice.
+
+    :param component: A connected-component DAG of the (already cut) circuit.
+    :param software: Execution backend: "qibo", "qiskit" or "cudaq".
+    :param shots: Number of measurement shots.
+    :param backend: Qibo simulation backend (only used when ``software == "qibo"``).
+    :param qpu: Optional QPU target (e.g. "MN_Ona").
+    :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
+    """
+    s_new, highest_qubit = _update_qubits(component)
+
+    if qpu == "MN_Ona":
+        subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
+        return _expec_value_qibo_qpu(subcirc, shots, method=backend)
+    if software == "qibo":
+        subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
+        return _expec_value_qibo(subcirc, shots, backend)
+    if software == "qiskit":
+        # Imported here to avoid a circular import (gate_cutting imports this module).
+        from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
+
+        subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
+        return _expec_value_qiskit(subcirc, shots)
+    if software == "cudaq":
+        subcirc = dag_to_circuit_cudaq(s_new, highest_qubit)
+        return _expec_value_cudaq(subcirc, shots)
+
+    raise UnsupportedBackendError(
+        f"Unsupported software backend: '{software}'. "
+        "Expected 'qibo', 'qiskit' or 'cudaq'."
+    )
 
 
 def _generate_wire_cutting(
     dag: typing.Any,
-    edges_to_replace: typing.List[typing.Tuple[str, str]],
+    wire_cuts: typing.List[typing.Tuple[str, str, int]],
     num_qubits: int,
     shots: int = 10000,
     backend: str = "numpy",
     qpu=None,
+    software: str = "qibo",
 ) -> typing.List[float]:
-    """Replace a specific edge in the DAG with a source and end node.
+    """Apply wire cuts to the DAG and evaluate the reconstruction terms.
 
-    :param dag: The directed acyclic graph (DAG) to modify.
-    :param edge_to_replace: The edge to remove (tuple of nodes).
-    :param num_qubits: The current number of qubits in the circuit.
-    :return: The updated dag (the modified DAG with new source and end nodes).
+    Each wire cut ``(source, target, qubit)`` replaces the wire carrying ``qubit``
+    from ``source`` to ``target`` with a measure node ``O_i`` (on the original
+    qubit) and a prepare node ``PS_i`` (on a fresh qubit line), so the two sides
+    become independent. The wire-cutting identity is then expanded over the
+    ``8`` measure/prepare basis terms per cut, giving ``8 ** n_cuts`` sign-adjusted
+    products to sum.
+
+    :param dag: The circuit DAG to modify (mutated in place).
+    :param wire_cuts: Single-wire cuts as ``(source, target, qubit)`` tuples
+        (see :func:`_expand_wire_cuts`).
+    :param num_qubits: Highest qubit index in the circuit; fresh qubit lines are
+        numbered above it.
+    :return: List of ``8 ** len(wire_cuts)`` reconstruction terms.
     """
-    reconstruction = []
-    for index, edge_to_replace in enumerate(edges_to_replace, start=1):
-        # Extract the nodes of the edge to be replaced
-        source, target = edge_to_replace
+    for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
+        # The shared edge is removed once; further wires between the same pair
+        # are already disconnected.
+        if dag.has_edge(source, target):
+            dag.remove_edge(source, target)
 
-        # Remove the original edge
-        dag.remove_edge(source, target)
+        # Relabel this qubit on the target and its successors onto a fresh line so
+        # the prepared (PS) side is disconnected from the measured (O) side.
+        successors = [node for node in dag.nodes if dag.has_edge(target, node)]
+        for node in [target] + successors:
+            node_qubits = dag.nodes[node].get("qubits")
+            if node_qubits and qubit in node_qubits:
+                dag.nodes[node]["qubits"] = tuple(
+                    num_qubits + index if q == qubit else q for q in node_qubits
+                )
 
-        source_gate_info = dag.nodes[source]
-
-        target_gate_info = dag.nodes[target]
-
-        common_qubit = list(
-            set(target_gate_info.get("qubits")).intersection(
-                set(source_gate_info.get("qubits"))
-            )
-        )
-
-        successors = []
-        # Iterate over all nodes in the graph
-        for node in dag.nodes:
-            if dag.has_edge(target, node):
-                successors.append(node)
-
-        # Include the target node itself
-        nodes = [target] + successors
-
-        for successor in nodes:
-            qubits = dag.nodes[successor].get("qubits")
-            for qubit in qubits:
-
-                if common_qubit[0] is qubit:
-                    temp_list = list(dag.nodes[successor].get("qubits"))
-
-                    # Replace the common element with the new value
-                    for i, element in enumerate(temp_list):
-                        if element == common_qubit[0]:
-                            temp_list[i] = num_qubits + index
-
-                    updated_tuple = tuple(temp_list)
-                    dag.nodes[successor]["qubits"] = updated_tuple
-
-        dag.add_node(f"O_{index}", gate="S", qubits=common_qubit, parameters=())
-
-        # Add the new end node with the same properties as the target node
+        dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
         dag.add_node(
             f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
         )
-
         dag.add_edge(source, f"O_{index}", color="blue")
         dag.add_edge(f"PS_{index}", target, color="blue")
 
-        copy_dag = dag.copy()
-        red_edges = []
-        for ed in dag.edges:
-            if dag.get_edge_data(ed[0], ed[1])["color"] == "red":
-                red_edges.append(ed)
-
-        copy_dag.remove_edges_from(red_edges)
-
-    """graphs = []
-    for i in range(8 ** len(edges_to_replace)):
-        graphs.append(dag.copy())"""
-
-    for index in range(8 ** len(edges_to_replace)):
-        copy_graph = dag.copy()
-
-        copy_graph = _remove_red_edges(copy_graph)
+    reconstruction = []
+    for index in range(8 ** len(wire_cuts)):
+        copy_graph = _remove_red_edges(dag.copy())
 
         num_components = networkx.number_connected_components(
             copy_graph.to_undirected()
         )
+        graph_components = [networkx.DiGraph().copy() for _ in range(num_components)]
 
-        graph_components = []
-        for i in range(num_components):
-            graph_components.append(networkx.DiGraph().copy())
-
-        graph = _generate_subcircuits_wire_cutting(
+        _generate_subcircuits_wire_cutting(
             copy_graph,
-            num_qubits + len(edges_to_replace),
+            num_qubits + len(wire_cuts),
             index,
-            edges_to_replace,
+            wire_cuts,
             graph_components,
         )
 
-        exp_value = []
-        for s in graph_components:
-            s_new, highest_qubit = _update_qubits(s)
-            subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-            if qpu == "MN_Ona":
-                expected_value = _expec_value_qibo_qpu(subcirc, shots, method=backend)
-            else:
-                expected_value = _expec_value_qibo(subcirc, shots, backend)
-            exp_value.append(expected_value)
+        exp_value = [
+            _build_and_run_subcircuit(s, software, shots, backend, qpu)
+            for s in graph_components
+        ]
         exp_value = _change_sign(exp_value, index)
         reconstruction.append(exp_value)
 
@@ -459,7 +469,7 @@ def _generate_subcircuits_wire_cutting(
             updated_dag.nodes[f"PS_{idx2}"]["gate"] = "X"
 
         else:
-            Exception("Something went wrong preparing the combinations")
+            raise ValueError(f"Unexpected wire-cut substitution index: {index}")
 
     updated_dag = _remove_red_edges(updated_dag)
     for i, c in enumerate(networkx.connected_components(updated_dag.to_undirected())):
@@ -489,7 +499,7 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
     """
     if subcirc is None:
         return None
-    
+
     if type(subcirc) != qibo.models.circuit.Circuit:
         observables = subcirc[1]
         qc = subcirc[0]
@@ -497,8 +507,11 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
     else:
         observables = ["Z"] * subcirc.nqubits
         observables = "".join(observables)
-    
+
     qibo.set_backend(backend)
+    # Note: this appends measurements in place, so each subcircuit is single-use
+    # (evaluate once). Deep-copying is not viable here: it severs the symbol
+    # binding that gate-cut collapse measurements rely on.
     subcirc.add(gates.M(*range(subcirc.nqubits)))
     result = subcirc(nshots=shots)
     freq = dict(result.frequencies(binary=True))
@@ -518,6 +531,7 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
         expectation_value += contribution * (value / shots)
     return expectation_value
 
+
 @task(returns=1)
 def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
     """Execute the given circuit.
@@ -526,7 +540,6 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
     :raises ValueError: If there is an unsupported observable.
     :return: The circuit expected value.
     """
-    sys.tracebacklimit = 1    
     if len(subcirc) > 1:
         observables = subcirc[1]
         tuple_dag = subcirc[0]
@@ -537,15 +550,15 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
 
     dag, num_qubits = tuple_dag
     subcirc = dag_to_circuit_cudaq_kernel(dag, num_qubits)
-    
+
     try:
         cudaq.set_target("nvidia")
-        print("Using GPU backend.")
+        logger.info("Using GPU backend.")
     except Exception:
         cudaq.set_target("qpp-cpu")
-        print("GPU unavailable. Falling back to CPU backend.")
+        logger.info("GPU unavailable. Falling back to CPU backend.")
 
-    freq = cudaq.sample(subcirc,shots_count=shots)
+    freq = cudaq.sample(subcirc, shots_count=shots)
     expectation_value = 0
     for key, value in freq.items():
         contribution = 1
@@ -560,6 +573,7 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
     return expectation_value
+
 
 @task(returns=1)
 def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
@@ -580,18 +594,21 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
     unique_code = str(time.time_ns())
 
-    circuit_filename = (
-        f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{unique_code}.pkl"
+    # File-based handoff to the QPU bridge. Defaults to the original cluster
+    # path for backwards compatibility, but can be overridden via the
+    # QDISLIB_SUBCIRCUITS_DIR environment variable.
+    subcircuits_dir = os.environ.get(
+        "QDISLIB_SUBCIRCUITS_DIR", "/home/bsc/bsc019635/ona_proves/subcircuits"
     )
-    result_filename = (
-        f"/home/bsc/bsc019635/ona_proves/subcircuits/result_{unique_code}.pkl"
-    )
+    os.makedirs(subcircuits_dir, exist_ok=True)
+    circuit_filename = os.path.join(subcircuits_dir, f"circuit_{unique_code}.pkl")
+    result_filename = os.path.join(subcircuits_dir, f"result_{unique_code}.pkl")
 
     # Save the circuit to the unique file
     with open(circuit_filename, "wb") as f:
         pickle.dump(subcirc, f)
 
-    print(f"Circuit saved: {circuit_filename}, waiting for {result_filename}...")
+    logger.info(f"Circuit saved: {circuit_filename}, waiting for {result_filename}...")
 
     while not os.path.exists(result_filename):
         time.sleep(1)  # Check every second
@@ -599,7 +616,7 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     # Load the circuit from the file
     with open(result_filename, "rb") as f:
         result = pickle.load(f)
-        print(f"Received result from {result_filename}: {result}")
+        logger.info(f"Received result from {result_filename}: {result}")
 
     freq = result.counts()
 
@@ -629,6 +646,7 @@ def _change_sign(expectation_value, index):
     :param index: Number to be used to determine if the sign has to be changed.
     :return: The expected value.
     """
+    expectation_value = [x for x in expectation_value if x is not None]
     expectation_value = math.prod(expectation_value)
     number = index
 
@@ -648,12 +666,15 @@ def _change_sign(expectation_value, index):
 
 
 def _change_basis(circuit, observables):
+    # Rotate each requested Pauli observable into the computational (Z) basis so
+    # it can be read out with a standard Z measurement:
+    #   X -> H            (H Z H  = X)
+    #   Y -> S-dagger, H  (H S^t Z S H = Y)
+    # Anything else (Z / I) needs no rotation.
     for idx, i in enumerate(observables):
         if i == "X":
             circuit.add(gates.H(idx))
         elif i == "Y":
-            circuit.add(gates.SDG(idx))
-            circuit.add(gates.H(idx))
             circuit.add(gates.SDG(idx))
             circuit.add(gates.H(idx))
         else:
@@ -663,85 +684,116 @@ def _change_basis(circuit, observables):
 
 
 def wire_cutting_subcircuits(
-    rand_qc: typing.Any, cut: typing.List[typing.Any], observables=None, software="qiskit"
+    rand_qc: typing.Any,
+    cut: typing.List[typing.Any],
+    observables=None,
+    software="qiskit",
 ):
     """
     Partition a quantum circuit into subcircuits via wire (edge) cutting.
 
-    This function processes a quantum circuit by cutting specified wires (edges)
-    in its graph representation, generating subcircuits that simulate the behavior
-    of the original circuit. It supports circuits defined using Qiskit or Qibo, and
-    outputs the corresponding subcircuits in the chosen format.
+    This is the entry point of the **recommended three-step workflow**: generate
+    the subcircuits, evaluate each one (in your own loop, on whatever backend or
+    hardware you like), then recombine the results. It gives you full control over
+    *how* each subcircuit is executed, unlike :func:`wire_cutting`, which runs the
+    whole pipeline in one call::
+
+        import Qdislib as qd
+
+        # 1. Cut the circuit into independently executable subcircuits.
+        subcircuits = qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")], software="qibo")
+
+        # 2. Evaluate each subcircuit (here with the built-in helper, but this
+        #    loop is yours: dispatch to real QPUs, batch, cache, etc.).
+        values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
+
+        # 3. Recombine into the original circuit's expectation value.
+        result = subcircuits.reconstruct(values)
+
+    The cut metadata (number of cuts/components) is carried by the returned object,
+    so :meth:`~Qdislib.utils.backends.CutSubcircuits.reconstruct` needs nothing else.
 
     Parameters
     ----------
-    rand_qc : Union[qiskit.QuantumCircuit, qibo.models.Circuit, nx.Graph]
-        The quantum circuit to be cut. This can be a Qiskit `QuantumCircuit`,
-        a Qibo `Circuit`, or a DAG/networkx graph representation of the circuit.
+    rand_qc : Union[qiskit.QuantumCircuit, qibo.models.Circuit, cudaq.PyKernelDecorator, nx.Graph]
+        The quantum circuit to be cut. This can be a Qiskit ``QuantumCircuit``, a
+        Qibo ``Circuit``, a CUDA-Q kernel, or an already-built DAG/networkx graph.
 
-    cut : List[Tuple[Any, Any]]
-        A list of wire cuts represented as tuples of node pairs (edges) in the DAG.
-        Each tuple specifies a location in the circuit where the wire (qubit flow)
-        is to be cut.
+    cut : List[Tuple[str, str]]
+        Wire cuts as tuples of the two gate identifiers (``"<GATE>_<INDEX>"``) that
+        the cut wire runs between, e.g. ``("H_1", "CZ_2")``. Use
+        :func:`~Qdislib.find_cut` to discover good candidates.
+
+    observables : str, optional
+        Per-qubit observable string (e.g. ``"ZZ"``). When given, the measurement
+        basis is rotated accordingly before cutting. Defaults to the all-``Z``
+        observable.
 
     software : str, optional
-        The target quantum software framework to return the subcircuits in.
-        Options:
-        - `"qiskit"` (default): returns Qiskit `QuantumCircuit` subcircuits.
-        - `"qibo"`: returns Qibo `Circuit` subcircuits.
+        The backend the subcircuits are emitted for, which must match the backend
+        used to evaluate them:
+        - ``"qiskit"`` (default): Qiskit ``QuantumCircuit`` objects
+        - ``"qibo"``: Qibo ``Circuit`` objects
+        - ``"cudaq"``: CUDA-Q ``(dag, num_qubits)`` payloads
 
     Returns
     -------
-    Union[List[Any], Any]
-        A list of subcircuits or circuit fragments resulting from the wire cutting process.
-        If the circuit is composed of multiple connected components, a list of subcircuits
-        for each component is returned. Otherwise, a single subcircuit or list of fragments
-        is returned based on whether any wire cuts were specified.
+    CutSubcircuits
+        A ``list`` subclass holding every subcircuit needed to reconstruct the
+        original expectation value (iterate/index it like a list), plus the
+        ``number_cuts``/``number_components`` metadata and a
+        :meth:`~Qdislib.utils.backends.CutSubcircuits.reconstruct` method.
 
     Raises
     ------
     ValueError
-        If an unsupported `software` option is provided.
+        If ``cut`` is malformed or an unsupported ``software`` option is provided.
 
     Notes
     -----
-    - If the input circuit consists of multiple disconnected components, each is processed separately.
-    - When `cut` is empty, the full circuit is returned as a single subcircuit with updated qubit indices.
-    - This function internally calls:
-        - `_generate_wire_cutting_subcircuits()` to perform actual wire cutting.
-        - `_dag_to_circuit_qiskit_subcircuits()` or `_dag_to_circuit_qibo_subcircuits()` for conversion.
-    - The function assumes that edges in `cut` exist in the graph; otherwise, they are ignored.
+    - If the circuit has multiple disconnected components, each is processed separately.
+    - When ``cut`` is empty the whole circuit is returned as a single subcircuit with
+      updated qubit indices.
+    - Edges in ``cut`` are assumed to exist in the graph; otherwise they are ignored.
 
     Examples
     --------
-    >>> qc = QuantumCircuit(3)
-    >>> qc.cx(0, 1)
-    >>> qc.cx(1,2)
-    >>> subcircuits = wire_cutting_subcircuits(qc, cut=[("CX_1", "CX_2")], software="qiskit")
-    >>> for subcircuit in subcircuits:
-    >>>     print(subcircuit)
+    >>> import Qdislib as qd
+    >>> from qibo import models, gates
+    >>> circuit = models.Circuit(2)
+    >>> circuit.add(gates.H(0)); circuit.add(gates.CZ(0, 1)); circuit.add(gates.RY(0, 0.8))
+    >>> subcircuits = qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")], software="qibo")
+    >>> values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
+    >>> subcircuits.reconstruct(values)  # doctest: +SKIP
+    -0.717...
     """
     pattern = re.compile(r"^[A-Za-z]+_\d+$")  # e.g. CX_1, H_0, RZ_3
 
     if not isinstance(cut, list):
-        raise ValueError("Invalid format of wire cuts: expected a list of tuples with two strings each.")
+        raise InvalidCutError(
+            "Invalid format of wire cuts: expected a list of tuples with two strings each."
+        )
     for t in cut:
-        if not (isinstance(t, tuple) and len(t) == 2 and all(isinstance(x, str) for x in t)):
-            raise ValueError("Invalid format of wire cuts: expected a list of tuples with two strings each.")
+        if not (
+            isinstance(t, tuple) and len(t) == 2 and all(isinstance(x, str) for x in t)
+        ):
+            raise InvalidCutError(
+                "Invalid format of wire cuts: expected a list of tuples with two strings each."
+            )
         if not all(pattern.match(x) for x in t):
-            raise ValueError(
+            raise InvalidCutError(
                 "Invalid wire name format: each string in wire_cut tuples must match '<GATE>_<NUMBER>', e.g. 'CX_1'."
             )
 
     if observables:
         rand_qc = _change_basis(rand_qc, observables)
 
-    dag = convert_to_dag(rand_qc,observables)
+    dag = convert_to_dag(rand_qc, observables)
 
     dispatch_map = {
-    "qibo": dag_to_circuit_qibo,
-    "qiskit": dag_to_circuit_qiskit,
-    "cudaq": dag_to_circuit_cudaq,
+        "qibo": dag_to_circuit_qibo,
+        "qiskit": dag_to_circuit_qiskit,
+        "cudaq": dag_to_circuit_cudaq,
     }
 
     if networkx.number_connected_components(dag.to_undirected()) > 1:
@@ -750,39 +802,49 @@ def wire_cutting_subcircuits(
             for c in networkx.connected_components(dag.to_undirected())
         ]
         subcircuits = []
+        number_cuts = 0
         for s in S:
             num_qubits = _max_qubit(s)
-            tmp_cuts = []
-            for c in cut:
-                if s.has_edge(*c):
-                    tmp_cuts.append(c)
+            tmp_cuts = [c for c in cut if s.has_edge(*c)]
             if tmp_cuts:
-                graphs = _generate_wire_cutting_subcircuits(
+                number_cuts += len(_expand_wire_cuts(s, tmp_cuts))
+                subcircuits += _generate_wire_cutting_subcircuits(
                     s, tmp_cuts, num_qubits=num_qubits, software=software
                 )
-                subcircuits = subcircuits + graphs
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 try:
-                    subcirc = dispatch_map[software](s_new, highest_qubit)
+                    subcircuits.append(dispatch_map[software](s_new, highest_qubit))
                 except KeyError:
-                    raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
-                subcircuits.append(subcirc)
-        return subcircuits
+                    raise UnsupportedBackendError(
+                        f"Unsupported software backend: '{software}'. "
+                        f"Expected one of {list(dispatch_map.keys())}."
+                    )
     else:
         num_qubits = _max_qubit(dag)
         if cut:
+            number_cuts = len(_expand_wire_cuts(dag, cut))
             subcircuits = _generate_wire_cutting_subcircuits(
                 dag, cut, num_qubits=num_qubits, software=software
             )
-
         else:
+            number_cuts = 0
             s_new, highest_qubit = _update_qubits(dag)
             try:
-                subcircuits = dispatch_map[software](s_new, highest_qubit)
+                subcircuits = [dispatch_map[software](s_new, highest_qubit)]
             except KeyError:
-                raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
-        return subcircuits
+                raise UnsupportedBackendError(
+                    f"Unsupported software backend: '{software}'. "
+                    f"Expected one of {list(dispatch_map.keys())}."
+                )
+
+    number_components = max(1, len(subcircuits) // (8**number_cuts))
+    return CutSubcircuits(
+        subcircuits,
+        number_cuts=number_cuts,
+        number_components=number_components,
+        reconstructor=wire_cutting_subcircuit_reconstruction,
+    )
 
 
 def _generate_wire_cutting_subcircuits(
@@ -790,78 +852,40 @@ def _generate_wire_cutting_subcircuits(
     edges_to_replace: typing.List[typing.Tuple[str, str]],
     num_qubits: int,
     software,
-) -> typing.List[float]:
-    """Replace a specific edge in the DAG with a source and end node.
+) -> typing.List[typing.Any]:
+    """Apply wire cuts to the DAG and build the resulting subcircuits.
 
-    :param dag: The directed acyclic graph (DAG) to modify.
-    :param edge_to_replace: The edge to remove (tuple of nodes).
-    :param num_qubits: The current number of qubits in the circuit.
-    :return: The updated dag (the modified DAG with new source and end nodes).
+    Mirrors :func:`_generate_wire_cutting` but returns subcircuits (in the chosen
+    ``software`` backend) instead of evaluating them. Each ``(source, target)``
+    cut is expanded to one cut per shared qubit (see :func:`_expand_wire_cuts`),
+    so two gates sharing several qubits are separated correctly.
+
+    :param dag: The circuit DAG to modify (mutated in place).
+    :param edges_to_replace: List of ``(source, target)`` gate-name cut pairs.
+    :param num_qubits: Highest qubit index; fresh qubit lines are numbered above it.
+    :param software: Target backend ("qibo", "qiskit" or "cudaq").
+    :return: Flat list of subcircuits across all ``8 ** n_cuts`` basis terms.
     """
-    reconstruction = []
-    for index, edge_to_replace in enumerate(edges_to_replace, start=1):
-        # Extract the nodes of the edge to be replaced
-        source, target = edge_to_replace
+    wire_cuts = _expand_wire_cuts(dag, edges_to_replace)
 
-        # Remove the original edge
-        dag.remove_edge(source, target)
+    for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
+        if dag.has_edge(source, target):
+            dag.remove_edge(source, target)
 
-        source_gate_info = dag.nodes[source]
+        successors = [node for node in dag.nodes if dag.has_edge(target, node)]
+        for node in [target] + successors:
+            node_qubits = dag.nodes[node].get("qubits")
+            if node_qubits and qubit in node_qubits:
+                dag.nodes[node]["qubits"] = tuple(
+                    num_qubits + index if q == qubit else q for q in node_qubits
+                )
 
-        target_gate_info = dag.nodes[target]
-
-        common_qubit = list(
-            set(target_gate_info.get("qubits")).intersection(
-                set(source_gate_info.get("qubits"))
-            )
-        )
-
-        successors = []
-        # Iterate over all nodes in the graph
-        for node in dag.nodes:
-            if dag.has_edge(target, node):
-                successors.append(node)
-
-        # Include the target node itself
-        nodes = [target] + successors
-
-        for successor in nodes:
-            qubits = dag.nodes[successor].get("qubits")
-            for qubit in qubits:
-
-                if common_qubit[0] is qubit:
-                    temp_list = list(dag.nodes[successor].get("qubits"))
-
-                    # Replace the common element with the new value
-                    for i, element in enumerate(temp_list):
-                        if element == common_qubit[0]:
-                            temp_list[i] = num_qubits + index
-
-                    updated_tuple = tuple(temp_list)
-                    dag.nodes[successor]["qubits"] = updated_tuple
-
-        dag.add_node(f"O_{index}", gate="S", qubits=common_qubit, parameters=())
-
-        # Add the new end node with the same properties as the target node
+        dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
         dag.add_node(
             f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
         )
-
         dag.add_edge(source, f"O_{index}", color="blue")
         dag.add_edge(f"PS_{index}", target, color="blue")
-
-        copy_dag = dag.copy()
-        red_edges = []
-        for ed in dag.edges:
-            if dag.get_edge_data(ed[0], ed[1])["color"] == "red":
-                red_edges.append(ed)
-
-        copy_dag.remove_edges_from(red_edges)
-
-    """graphs = []
-    for i in range(8 ** len(edges_to_replace)):
-        graphs.append(dag.copy())"""
-
 
     dispatch_map = {
         "qibo": dag_to_circuit_qibo,
@@ -870,24 +894,19 @@ def _generate_wire_cutting_subcircuits(
     }
 
     subcircuits = []
-    for index in range(8 ** len(edges_to_replace)):
-        copy_graph = dag.copy()
-
-        copy_graph = _remove_red_edges(copy_graph)
+    for index in range(8 ** len(wire_cuts)):
+        copy_graph = _remove_red_edges(dag.copy())
 
         num_components = networkx.number_connected_components(
             copy_graph.to_undirected()
         )
+        graph_components = [networkx.DiGraph().copy() for _ in range(num_components)]
 
-        graph_components = []
-        for i in range(num_components):
-            graph_components.append(networkx.DiGraph().copy())
-
-        graph = _generate_subcircuits_wire_cutting(
+        _generate_subcircuits_wire_cutting(
             copy_graph,
-            num_qubits + len(edges_to_replace),
+            num_qubits + len(wire_cuts),
             index,
-            edges_to_replace,
+            wire_cuts,
             graph_components,
         )
 
@@ -896,51 +915,58 @@ def _generate_wire_cutting_subcircuits(
             try:
                 subcirc = dispatch_map[software](s_new, highest_qubit)
             except KeyError:
-                raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
+                raise UnsupportedBackendError(
+                    f"Unsupported software backend: '{software}'. "
+                    f"Expected one of {list(dispatch_map.keys())}."
+                )
             subcircuits.append(subcirc)
     return subcircuits
 
-def wire_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_components=2):
+
+def wire_cutting_subcircuit_reconstruction(
+    expected_values, number_cuts, number_components=2
+):
     """
-    Reconstruct the expectation value of a quantum circuit from the individual 
+    Reconstruct the expectation value of a quantum circuit from the individual
     expectation values of its subcircuits, based on wire cutting techniques.
 
     This function assumes that the circuit was cut along a specified number of wires,
     and each resulting subcircuit was simulated separately. The reconstruction process
     involves:
+
     - Grouping subcircuit results into pairs.
     - Applying sign changes based on index parity.
     - Averaging the results with a normalization factor dependent on the number of cuts.
 
-    Args:
-        expected_values (List[float]): A flat list of expectation values, where each
-            pair corresponds to one wire cut configuration (e.g., [E₀₀, E₀₁, E₁₀, E₁₁, ...]).
-        number_cuts (int): The number of wire cuts made in the original circuit. This 
-            determines the normalization factor used in the reconstruction.
-        number_components (int): The number of independent parts the initial subcircuits has.
+    In the recommended workflow you don't call this directly: the object returned
+    by :func:`wire_cutting_subcircuits` already carries ``number_cuts`` and
+    ``number_components``, so ``subcircuits.reconstruct(values)`` forwards here for
+    you. Call this function explicitly only when reconstructing from values whose
+    cut metadata you are tracking yourself.
 
-    Returns:
-        float: The reconstructed expectation value of the original (uncut) circuit.
+    :param expected_values: A flat list of expectation values, where each group of
+        ``number_components`` corresponds to one wire-cut configuration.
+    :param number_cuts: The number of wire cuts made in the original circuit; this
+        sets the ``1 / 2^(number_cuts)`` normalization factor.
+    :param number_components: The number of independent parts the subcircuits split into.
+    :return: The reconstructed expectation value of the original (uncut) circuit.
 
     Example:
-        >>> values = [0.8, -0.6, 0.7, -0.5, 0.8, -0.6, 0.7, -0.5, 0.8, -0.6, 0.7, -0.5, 0.8, -0.6, 0.7, -0.5]
-        >>> recons = wire_cutting_subcircuit_reconstruction(values, number_cuts=1, number_components=2)
-        >>> print(recons)
-        0.2
-
-    Note:
-        - The `_change_sign` function is used internally to alternate signs based on
-          the index to implement the inclusion-exclusion principle during reconstruction.
-        - The `compss_wait_on` function is used to wait for asynchronous computations 
-          (e.g., in distributed environments like PyCOMPSs).
+        >>> values = [0.8, -0.6, 0.7, -0.5] * 4
+        >>> wire_cutting_subcircuit_reconstruction(values, number_cuts=1, number_components=2)
     """
-    if number_cuts != 0:
-        expected_values = [expected_values[i:i+number_components] for i in range(0, len(expected_values), number_components)]
-        results = []
-        for index, exp_values in enumerate(expected_values):
-            result = _change_sign(exp_values, index)
-            results.append(result)
-        
-        results = compss_wait_on(results)
-        final_recons = 1 / (2 ** number_cuts) * sum(results)
-        return final_recons
+    if number_cuts == 0:
+        return math.prod(expected_values)
+
+    expected_values = [
+        expected_values[i : i + number_components]
+        for i in range(0, len(expected_values), number_components)
+    ]
+    results = []
+    for index, exp_values in enumerate(expected_values):
+        result = _change_sign(exp_values, index)
+        results.append(result)
+
+    results = compss_wait_on(results)
+    final_recons = 1 / (2**number_cuts) * sum(results)
+    return final_recons

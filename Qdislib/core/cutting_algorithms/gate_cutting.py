@@ -19,17 +19,25 @@
 
 """Gate cutting algorithms."""
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "gate_cutting",
+    "gate_cutting_subcircuits",
+    "gate_cutting_subcircuit_reconstruction",
+]
+
 import networkx as nx
 import math
 import numpy as np
 
-import cudaq
-
-from qiskit.quantum_info import SparsePauliOp
-from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-from qiskit_aer import AerSimulator
-from qiskit_aer.primitives import EstimatorV2 as Estimator
-from qiskit.primitives import BackendSamplerV2
+try:
+    from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+    from qiskit_aer import AerSimulator
+except ImportError:  # qiskit / qiskit-aer are optional
+    generate_preset_pass_manager = AerSimulator = None
 
 import re
 
@@ -43,7 +51,7 @@ try:
 
     pycompss_available = True
 except ImportError:
-    print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
+    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
 
     def task(*args, **kwargs):
         def decorator(func):
@@ -70,44 +78,48 @@ except ImportError:
     pycompss_available = False
 
 
-from Qdislib.utils.graph_qibo import _update_qubits
-from Qdislib.utils.graph_qibo import _remove_red_edges
 from Qdislib.utils.graph_qibo import (
     _update_qubits,
-    circuit_qibo_to_dag,
-    plot_dag,
+    _remove_red_edges,
     _max_qubits_graph,
-)
-from Qdislib.utils.graph_qiskit import (
-    dag_to_circuit_qiskit,
-    circuit_qiskit_to_dag,
-    _dag_to_circuit_qiskit_subcircuits,
-)
-from Qdislib.utils.graph_qibo import (
     dag_to_circuit_qibo,
-    circuit_qibo_to_dag,
-    _dag_to_circuit_qibo_subcircuits,
 )
-from Qdislib.utils.graph_cudaq import (
-    dag_to_circuit_cudaq,
-    circuit_cudaq_to_dag,
-    _dag_to_circuit_cudaq_subcircuits,
+from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq
+from Qdislib.core.cutting_algorithms.wire_cutting import (
+    _sum_results,
+    _expec_value_qibo,
+    _expec_value_cudaq,
 )
-from Qdislib.core.cutting_algorithms.wire_cutting import _sum_results
 from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
 
-from qiskit_ibm_runtime import (
-    QiskitRuntimeService,
-    Batch,
-    SamplerV2 as Sampler,
-    EstimatorV2 as Estimator,
-)
+try:
+    from qiskit_ibm_runtime import (
+        QiskitRuntimeService,
+        Batch,
+        SamplerV2 as Sampler,
+    )
+except ImportError:  # qiskit-ibm-runtime optional (only used for IBM QPU)
+    QiskitRuntimeService = Batch = Sampler = None
 
 
-import qiskit
-import qibo
-from qibo import gates
-from qiskit import transpile
+try:
+    import qiskit
+    from qiskit import transpile
+
+    qiskit_available = True
+except ImportError:  # qiskit is optional; functions that need it fail when called
+    qiskit = transpile = None
+    qiskit_available = False
+
+try:
+    import qibo
+    from qibo import gates
+
+    qibo_available = True
+except ImportError:  # qibo is optional; functions that need it fail when called
+    qibo = gates = None
+    qibo_available = False
 
 
 import pickle
@@ -116,28 +128,8 @@ import time
 import typing
 
 
-from qiskit.circuit import QuantumCircuit
-from qibo.models import Circuit as QiboCircuit
-from cudaq.kernel.kernel_decorator import PyKernelDecorator
-
-def convert_to_dag(dag, observables=None):
-    type_map = {
-        QuantumCircuit: circuit_qiskit_to_dag,
-        QiboCircuit: circuit_qibo_to_dag,
-        PyKernelDecorator: circuit_cudaq_to_dag,
-    }
-
-    # Find the matching converter function based on type
-    converter = next((fn for t, fn in type_map.items() if isinstance(dag, t)), None)
-    if converter is None:
-        print(f"Unsupported circuit type: {type(dag).__name__}")
-        return dag  # Unknown type, return unchanged
-
-    kwargs = {}
-    if observables and "I" in observables:
-        kwargs["obs_I"] = observables
-
-    return converter(dag, **kwargs)
+from Qdislib.utils.backends import convert_to_dag, CutSubcircuits
+from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
 
 
 def gate_cutting(
@@ -151,7 +143,8 @@ def gate_cutting(
     gpu_min_qubits: typing.Optional[int] = None,
     qpu: bool = False,
     qpu_dict: typing.Optional[dict] = None,
-    verbose: bool = False
+    software: str = "qiskit",
+    verbose: bool = False,
 ):
     """
     Apply gate cutting to a quantum circuit to enable distributed smaller executions of subcircuits.
@@ -190,6 +183,9 @@ def gate_cutting(
     qpu_dict : dict, optional
         Dictionary specifying QPU backends and their maximum supported qubits.
         Example: `{"IBM_Quantum": 153, "MN_Ona": 5}`.
+    software : str, default="qiskit"
+        Backend used to build and execute the subcircuits when no QPU/GPU
+        applies: "qiskit", "qibo" or "cudaq".
     verbose : bool, default=False
         Receive information about middle steps
 
@@ -226,6 +222,12 @@ def gate_cutting(
 
     """
 
+    # Normalise optional dict/int args before they are indexed below.
+    if qpu_dict is None:
+        qpu_dict = {}
+    if gpu_min_qubits is None:
+        gpu_min_qubits = 0
+
     if qpu and "IBM_Quantum" in qpu_dict:
         batch, backend = _check_ibm_qc()
     else:
@@ -234,12 +236,7 @@ def gate_cutting(
     if observables:
         dag = _change_basis(dag, observables)
 
-    if qpu_dict is None:
-        qpu_dict = {}
-    if gpu_min_qubits is None:
-        gpu_min_qubits = 0
-
-    dag = convert_to_dag(dag,observables)
+    dag = convert_to_dag(dag, observables)
 
     if nx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -254,7 +251,7 @@ def gate_cutting(
                     tmp_cuts.append(c)
             if tmp_cuts:
                 graphs = _execute_gate_cutting(
-                    dag,
+                    s,
                     tmp_cuts,
                     shots=shots,
                     method=method,
@@ -264,43 +261,38 @@ def gate_cutting(
                     qpu_dict=qpu_dict,
                     batch=batch,
                     backend=backend,
-                    verbose=verbose
+                    verbose=verbose,
+                    software=software,
                 )
                 graphs = _sum_results(graphs)
                 results.append(graphs)
             else:
-                _max_qubit = _max_qubits_graph(s)
-                s_new, highest_qubit = _update_qubits(s)
-                subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-                if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= _max_qubit:
-                    expected_value = _expec_value_qibo_qpu(
-                        subcirc, shots=shots, method=method
+                results.append(
+                    _build_and_run_gate_subcircuit(
+                        s,
+                        _max_qubits_graph(s),
+                        software,
+                        shots,
+                        method,
+                        gpu,
+                        gpu_min_qubits,
+                        qpu,
+                        qpu_dict,
+                        batch,
+                        backend,
+                        verbose,
                     )
-                elif gpu and gpu_min_qubits <= _max_qubit and _max_qubit <= 30:
-                    expected_value = _expec_value_qiskit_gpu(
-                        subcirc, shots=shots, method=method
-                    )
-                elif (
-                    qpu
-                    and "IBM_Quantum" in qpu_dict
-                    and qpu_dict["IBM_Quantum"] >= _max_qubit
-                ):
-                    expected_value = _expec_value_qiskit_qpu(
-                        subcirc, shots=shots, batch=batch, backend=backend
-                    )
-                else:
-                    expected_value = _expec_value_qiskit(
-                        subcirc, shots=shots, method=method
-                    )
-                results.append(expected_value)
+                )
         if sync:
-            results = compss_wait_on(results)          
+            results = compss_wait_on(results)
         final_recons = 1 / (2 ** len(gates_cut)) * math.prod(results)
         if verbose:
-            print("Multiply top and bottom expected value of subcircuits")
-            for idx, el in enumerate(results,start=1):
-                print(f"Subcircuit {idx} expected value: {el}")
-            print(f"Reconstructed original circuit expected value: {final_recons}")
+            logger.info("Multiply top and bottom expected value of subcircuits")
+            for idx, el in enumerate(results, start=1):
+                logger.info(f"Subcircuit {idx} expected value: {el}")
+            logger.info(
+                f"Reconstructed original circuit expected value: {final_recons}"
+            )
         return final_recons
     else:
         if gates_cut:
@@ -315,42 +307,38 @@ def gate_cutting(
                 qpu_dict=qpu_dict,
                 batch=batch,
                 backend=backend,
-                verbose=verbose
+                verbose=verbose,
+                software=software,
             )
             if sync:
                 results = compss_wait_on(results)
             final_recons = 1 / (2 ** len(gates_cut)) * sum(results)
             if verbose:
-                print("Multiply top and bottom expected value of subcircuits")
-                for idx, el in enumerate(results,start=1):
-                    print(f"Subcircuit {idx} expected value: {el}")
-                print(f"Reconstructed original circuit expected value: {final_recons}")
+                logger.info("Multiply top and bottom expected value of subcircuits")
+                for idx, el in enumerate(results, start=1):
+                    logger.info(f"Subcircuit {idx} expected value: {el}")
+                logger.info(
+                    f"Reconstructed original circuit expected value: {final_recons}"
+                )
         else:
-            _max_qubit = _max_qubits_graph(dag)
-            s_new, highest_qubit = _update_qubits(dag)
-            subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-            if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= _max_qubit:
-                final_recons = _expec_value_qibo_qpu(
-                    subcirc, shots=shots, method=method
-                )
-            elif gpu and gpu_min_qubits <= _max_qubit and _max_qubit <= 30:
-                final_recons = _expec_value_qiskit_gpu(
-                    subcirc, shots=shots, method=method
-                )
-            elif (
-                qpu
-                and "IBM_Quantum" in qpu_dict
-                and qpu_dict["IBM_Quantum"] >= _max_qubit
-            ):
-                final_recons = _expec_value_qiskit_qpu(
-                    subcirc, shots=shots, batch=batch, backend=backend
-                )
-            else:
-                final_recons = _expec_value_qiskit(subcirc, shots, method=method)
+            final_recons = _build_and_run_gate_subcircuit(
+                dag,
+                _max_qubits_graph(dag),
+                software,
+                shots,
+                method,
+                gpu,
+                gpu_min_qubits,
+                qpu,
+                qpu_dict,
+                batch,
+                backend,
+                verbose,
+            )
             if sync:
                 final_recons = compss_wait_on(final_recons)
             if verbose:
-                print(f"No CUT performed, expected value circuit: {final_recons}")
+                logger.info(f"No CUT performed, expected value circuit: {final_recons}")
         return final_recons
 
 
@@ -555,7 +543,7 @@ def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):
             updated_dag.add_edge(f"SUBS2_{idx2}", f"SUBS22_{idx2}", color="blue")
 
         else:
-            raise TypeError
+            raise ValueError(f"Unexpected gate-cut substitution index: {idx}")
 
     for i, c in enumerate(nx.connected_components(updated_dag.to_undirected())):
         new_subgraph = updated_dag.subgraph(c).copy()
@@ -587,6 +575,56 @@ def _change_sign_gate_cutting(expectation_value, index):
         return expectation_value
 
 
+def _build_and_run_gate_subcircuit(
+    component,
+    max_qubit,
+    software,
+    shots,
+    method,
+    gpu,
+    gpu_min_qubits,
+    qpu,
+    qpu_dict,
+    batch,
+    backend,
+    verbose=False,
+):
+    """Build one gate-cut subcircuit and return its expectation value.
+
+    Routes to a QPU or GPU when one is configured and large enough for the
+    subcircuit; otherwise builds and runs on the chosen ``software`` backend
+    (Qiskit Aer / Qibo / CUDA-Q).
+
+    :param component: A connected-component DAG of the cut circuit.
+    :param max_qubit: Qubit count of the component (for device-size checks).
+    :param software: CPU-simulation backend ("qiskit", "qibo" or "cudaq").
+    :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
+    """
+    qpu_dict = qpu_dict or {}
+    s_new, highest_qubit = _update_qubits(component)
+
+    if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= max_qubit:
+        subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
+        return _expec_value_qibo_qpu(subcirc, shots=shots, method=method)
+    if gpu and gpu_min_qubits <= max_qubit and max_qubit <= 30:
+        subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
+        return _expec_value_qiskit_gpu(subcirc, shots=shots, method=method)
+    if qpu and "IBM_Quantum" in qpu_dict and qpu_dict["IBM_Quantum"] >= max_qubit:
+        subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
+        return _expec_value_qiskit_qpu(
+            subcirc, shots=shots, batch=batch, backend=backend
+        )
+
+    if software == "qibo":
+        subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
+        return _expec_value_qibo(subcirc, shots, "numpy")
+    if software == "cudaq":
+        subcirc = dag_to_circuit_cudaq(s_new, highest_qubit)
+        return _expec_value_cudaq(subcirc, shots)
+    subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
+    return _expec_value_qiskit(subcirc, shots=shots, method=method, verbose=verbose)
+
+
 def _execute_gate_cutting(
     dag,
     gates_cut,
@@ -598,7 +636,8 @@ def _execute_gate_cutting(
     qpu_dict=None,
     batch=None,
     backend=None,
-    verbose=False
+    verbose=False,
+    software="qiskit",
 ):
     new_dag = _generate_cut(dag, gates_cut)
 
@@ -611,8 +650,6 @@ def _execute_gate_cutting(
     for s in S:
         _max_qubit = _max_qubits_graph(s)
         max_qubit_list.append(_max_qubit)
-    
-    bool_mult_qpu = True
 
     reconstruction = []
     for index in range(6 ** len(gates_cut)):
@@ -625,41 +662,32 @@ def _execute_gate_cutting(
         for i in range(num_components):
             graph_components.append(nx.DiGraph().copy())
 
-        graph = _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
+        # Populates graph_components in place (one DiGraph per component).
+        _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
 
         exp_values = []
         for i, s in enumerate(graph_components):
-            _max_qubit = max_qubit_list[i]
-            s_new, highest_qubit = _update_qubits(s)
             if verbose:
-                print(f"SUBCIRCUIT {index*2+i}")
-            if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= _max_qubit:
-                subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-            else:
-                subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-            if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= _max_qubit:
-                exp = _expec_value_qibo_qpu(subcirc, shots=shots, method=method)
-            elif gpu and gpu_min_qubits <= _max_qubit and _max_qubit <= 30:
-                exp = _expec_value_qiskit_gpu(subcirc, shots=shots, method=method)
-            elif (
-                qpu
-                and "IBM_Quantum" in qpu_dict
-                and qpu_dict["IBM_Quantum"] >= _max_qubit
-            ):
-                exp = _expec_value_qiskit_qpu(
-                    subcirc, shots=shots, batch=batch, backend=backend
+                logger.info(f"SUBCIRCUIT {index*2+i}")
+            exp_values.append(
+                _build_and_run_gate_subcircuit(
+                    s,
+                    max_qubit_list[i],
+                    software,
+                    shots,
+                    method,
+                    gpu,
+                    gpu_min_qubits,
+                    qpu,
+                    qpu_dict,
+                    batch,
+                    backend,
+                    verbose,
                 )
-            else:
-                exp = _expec_value_qiskit(subcirc, shots=shots, method=method, verbose=verbose)
-            exp_values.append(exp)
+            )
 
         exp = _change_sign_gate_cutting(exp_values, index)
         reconstruction.append(exp)
-
-        if bool_mult_qpu:
-            bool_mult_qpu = False
-        else:
-            bool_mult_qpu = True
 
     return reconstruction
 
@@ -680,18 +708,21 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
     unique_code = str(time.time_ns())
 
-    circuit_filename = (
-        f"/home/bsc/bsc019635/ona_proves/subcircuits/circuit_{unique_code}.pkl"
+    # File-based handoff to the QPU bridge. Defaults to the original cluster
+    # path for backwards compatibility, but can be overridden via the
+    # QDISLIB_SUBCIRCUITS_DIR environment variable.
+    subcircuits_dir = os.environ.get(
+        "QDISLIB_SUBCIRCUITS_DIR", "/home/bsc/bsc019635/ona_proves/subcircuits"
     )
-    result_filename = (
-        f"/home/bsc/bsc019635/ona_proves/subcircuits/result_{unique_code}.pkl"
-    )
+    os.makedirs(subcircuits_dir, exist_ok=True)
+    circuit_filename = os.path.join(subcircuits_dir, f"circuit_{unique_code}.pkl")
+    result_filename = os.path.join(subcircuits_dir, f"result_{unique_code}.pkl")
 
     # Save the circuit to the unique file
     with open(circuit_filename, "wb") as f:
         pickle.dump(subcirc, f)
 
-    print(f"Circuit saved: {circuit_filename}, waiting for {result_filename}...")
+    logger.info(f"Circuit saved: {circuit_filename}, waiting for {result_filename}...")
 
     while not os.path.exists(result_filename):
         time.sleep(1)  # Check every second
@@ -699,7 +730,7 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     # Load the circuit from the file
     with open(result_filename, "rb") as f:
         result = pickle.load(f)
-        print(f"Received result from {result_filename}: {result}")
+        logger.info(f"Received result from {result_filename}: {result}")
 
     freq = result.counts()
 
@@ -723,7 +754,7 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
 @constraint(processors=[{"processorType": "CPU", "computingUnits": "1"}])
 @task(returns=1)
-def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
+def _expec_value_qiskit(qc, shots=1024, method="automatic", verbose=False):
 
     if qc is None:
         return None
@@ -736,22 +767,23 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
         observables = ["Z"] * qc.num_qubits
         observables = "".join(observables)
 
+    # Note: measure_all() mutates in place, so each subcircuit is single-use
+    # (evaluate once), consistent with the Qibo evaluator.
     qc.measure_all()
 
     import subprocess
-    import os
 
     try:
         subprocess.check_output("nvidia-smi")
         if verbose:
-            print("Nvidia GPU detected!")
-    except:
+            logger.info("Nvidia GPU detected!")
+    except Exception:
         if verbose:
-            print("No Nvidia GPU in system!")
+            logger.info("No Nvidia GPU in system!")
 
     if verbose:
-        print("Simulation using CPUs")
-        print("Method: ",method)
+        logger.info("Simulation using CPUs")
+        logger.info("%s %s", "Method: ", method)
     simulator = AerSimulator(
         device="CPU",
         method=method,
@@ -763,12 +795,12 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
     job = simulator.run(qc, shots=shots)
     result = job.result()
     if verbose:
-        print(f"Backend: {result.backend_name}")
+        logger.info(f"Backend: {result.backend_name}")
 
     counts = result.get_counts()
     if verbose:
-        print(counts)
-    
+        logger.info(counts)
+
     expectation_value = 0
     for key, value in counts.items():
         contribution = 1
@@ -783,8 +815,8 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic",verbose=False):
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
     if verbose:
-        print("Expected Value: ", expectation_value)
-        print("\n")
+        logger.info("%s %s", "Expected Value: ", expectation_value)
+        logger.info("\n")
     return expectation_value
 
 
@@ -811,11 +843,11 @@ def _expec_value_qiskit_qpu(
 
     sampler = Sampler(mode=batch)
     job = sampler.run([isa_circuit])
-    print(f"job id: {job.job_id()}")
+    logger.info(f"job id: {job.job_id()}")
     job_result = job.result()
-    print(job_result)
+    logger.info(job_result)
     pub_result = job_result[0].data.meas.get_counts()
-    print(pub_result)
+    logger.info(pub_result)
 
     expectation_value = 0
     for key, value in pub_result.items():
@@ -831,65 +863,6 @@ def _expec_value_qiskit_qpu(
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
     # print(expectation_value)
-    return expectation_value
-
-
-# @implement(source_class="Qdislib.core.cutting_algorithms.gate_cutting", method="_expec_value_qiskit")
-@constraint(
-    processors=[
-        {"processorType": "CPU", "computingUnits": "1"},
-        {"processorType": "GPU", "computingUnits": "1"},
-    ]
-)
-@task(returns=1)
-def _expec_value_qiskit_gpu_implements(qc, shots=1024, method="automatic"):
-    if qc is None:
-        return None
-
-    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
-        observables = qc[1]
-        subcirc = qc[0]
-        qc = subcirc
-    else:
-        observables = ["Z"] * qc.num_qubits
-        observables = "".join(observables)
-
-    qc.measure_all()
-
-    import subprocess
-    import os
-
-    try:
-        subprocess.check_output("nvidia-smi")
-        print("Nvidia GPU detected!")
-    except (
-        Exception
-    ):
-        print("No Nvidia GPU in system!")
-
-    simulator = AerSimulator(device="GPU", method=method, cuStateVec_enable=True)
-
-    circ = transpile(qc, simulator)
-
-    job = simulator.run(circ, shots=shots)
-    result = job.result()
-
-    counts = result.get_counts()
-    print(counts)
-
-    expectation_value = 0
-    for key, value in counts.items():
-        contribution = 1
-        for bit, obs in zip(key, observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
-            elif obs == "I":
-                contribution *= 1
-            else:
-                raise ValueError(f"Unsupported observable {obs}")
-
-        # Add the contribution weighted by its frequency
-        expectation_value += contribution * (value / shots)
     return expectation_value
 
 
@@ -915,15 +888,12 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
     qc.measure_all()
 
     import subprocess
-    import os
 
     try:
         subprocess.check_output("nvidia-smi")
-        print("Nvidia GPU detected!")
-    except (
-        Exception
-    ):
-        print("No Nvidia GPU in system!")
+        logger.info("Nvidia GPU detected!")
+    except Exception:
+        logger.info("No Nvidia GPU in system!")
 
     simulator = AerSimulator(device="GPU", method=method, cuStateVec_enable=True)
 
@@ -931,9 +901,9 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
 
     job = simulator.run(circ, shots=shots)
     result = job.result()
-    
+
     counts = result.get_counts()
-    print(counts)
+    logger.info(counts)
 
     expectation_value = 0
     for key, value in counts.items():
@@ -970,106 +940,145 @@ def _check_ibm_qc():
     proxies = {"urls": urls}
 
     token = os.environ.get("IBM_QUANTUM_TOKEN", "")
-    instance = os.environ.get("IBM_QUANTUM_INSTANCE","")
+    instance = os.environ.get("IBM_QUANTUM_INSTANCE", "")
     channel = os.environ.get("IBM_QUANTUM_CHANNEL", "")
     max_time_ibm = os.environ.get("IBM_QUANTUM_MAX_TIME", 60)
     quantum_chip = os.environ.get("IBM_QUANTUM_QPU_NAME", "")
 
-    print(quantum_chip)
-    
+    logger.info(quantum_chip)
+
     if channel == "ibm_quantum":
-        service = QiskitRuntimeService(
-            channel=channel, token=token, proxies=proxies
-        )
+        service = QiskitRuntimeService(channel=channel, token=token, proxies=proxies)
     elif channel == "ibm_cloud":
         service = QiskitRuntimeService(
-            channel=channel,token=token, instance=instance #, proxies=proxies
+            channel=channel, token=token, instance=instance  # , proxies=proxies
         )
     else:
-        raise ValueError
+        raise ValueError(f"Unsupported IBM Runtime channel: {channel!r}")
 
     if quantum_chip != "":
         backend = service.backend(quantum_chip)
     else:
         backend = service.least_busy(operational=True, simulator=False)
 
-    print(backend.operation_names)
+    logger.info(backend.operation_names)
 
     batch = Batch(backend=backend, max_time=int(max_time_ibm))
-    print(batch)
+    logger.info(batch)
     return batch, backend
 
 
 def gate_cutting_subcircuits(
-    dag: typing.Any, gates_cut: typing.List[typing.Any], observables=None, software="qiskit"
-): 
+    dag: typing.Any,
+    gates_cut: typing.List[typing.Any],
+    observables=None,
+    software="qiskit",
+):
     """
     Partition a quantum circuit into subcircuits via gate cutting.
 
-    This function takes a quantum circuit (or its DAG representation) and a list of gates to cut.
-    It returns a set of subcircuits resulting from the cutting process. The function supports
-    circuits defined using either Qiskit or Qibo.
+    This is the entry point of the **recommended three-step workflow**: generate
+    the subcircuits, evaluate each one (in your own loop, on whatever backend or
+    hardware you like), then recombine the results. It gives you full control over
+    *how* each subcircuit is executed, unlike :func:`gate_cutting`, which runs the
+    whole pipeline in one call::
+
+        import Qdislib as qd
+
+        # 1. Cut the circuit into independently executable subcircuits.
+        subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"], software="qibo")
+
+        # 2. Evaluate each subcircuit (here with the built-in helper, but this
+        #    loop is yours: dispatch to real QPUs, batch, cache, etc.).
+        values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
+
+        # 3. Recombine into the original circuit's expectation value.
+        result = subcircuits.reconstruct(values)
+
+    The cut metadata (number of cuts/components) is carried by the returned object,
+    so :meth:`~Qdislib.utils.backends.CutSubcircuits.reconstruct` needs nothing else.
 
     Parameters
     ----------
-    dag : Union[qiskit.QuantumCircuit, qibo.models.Circuit, nx.Graph]
-        The input quantum circuit. It can be a Qiskit `QuantumCircuit`, a Qibo `Circuit`,
-        or a preprocessed DAG/networkx graph representation.
+    dag : Union[qiskit.QuantumCircuit, qibo.models.Circuit, cudaq.PyKernelDecorator, nx.Graph]
+        The input quantum circuit. It can be a Qiskit ``QuantumCircuit``, a Qibo
+        ``Circuit``, a CUDA-Q kernel, or an already-built DAG/networkx graph.
 
-    gates_cut : List[Any]
-        A list of gate identifiers (typically node references) to be used as cutting points
-        in the circuit. These gates are where the circuit will be split into subcircuits.
+    gates_cut : List[str]
+        Gate identifiers (``"<GATE>_<INDEX>"``, e.g. ``"CZ_2"``) marking where the
+        circuit is split into subcircuits. Use :func:`~Qdislib.find_cut` to discover
+        good candidates.
+
+    observables : str, optional
+        Per-qubit observable string (e.g. ``"ZZ"``). When given, the measurement
+        basis is rotated accordingly before cutting; ``"I"`` entries become identity
+        observables. Defaults to the all-``Z`` observable.
 
     software : str, optional
-        The target software framework for the subcircuit output. Options are:
-        - `"qiskit"` (default): returns subcircuits as Qiskit `QuantumCircuit` objects
-        - `"qibo"`: returns subcircuits as Qibo `Circuit` objects
+        The backend the subcircuits are emitted for, which must match the backend
+        used to evaluate them:
+        - ``"qiskit"`` (default): Qiskit ``QuantumCircuit`` objects
+        - ``"qibo"``: Qibo ``Circuit`` objects
+        - ``"cudaq"``: CUDA-Q ``(dag, num_qubits)`` payloads
 
     Returns
     -------
-    Union[List[Any], Any]
-        A list of subcircuits needed to recostruct the original expected value. The type of each subcircuit depends on the `software` argument.
+    CutSubcircuits
+        A ``list`` subclass holding every subcircuit needed to reconstruct the
+        original expectation value (iterate/index it like a list), plus the
+        ``number_cuts``/``number_components`` metadata and a
+        :meth:`~Qdislib.utils.backends.CutSubcircuits.reconstruct` method.
 
     Raises
     ------
     ValueError
-        If an unsupported `software` value is provided.
+        If ``gates_cut`` is malformed or an unsupported ``software`` value is given.
 
     Notes
     -----
-    - If the input circuit contains multiple connected components, each component is processed separately.
-    - If no cuts are specified, the entire circuit is returned as one subcircuit after qubit reindexing.
-    - Internally, Qiskit and Qibo circuits are converted to DAGs using appropriate helper functions.
-    - This function relies on internal utilities such as `_execute_gate_cutting_subcircuits`, `_update_qubits`,
-      `_dag_to_circuit_qiskit_subcircuits`, and `_dag_to_circuit_qibo_subcircuits`.
+    - If the circuit has multiple connected components, each is processed separately.
+    - If ``gates_cut`` is empty the whole circuit is returned as a single subcircuit
+      after qubit reindexing.
+    - To pass the values to :func:`gate_cutting_subcircuit_reconstruction` directly
+      instead of via :meth:`reconstruct`, use ``subcircuits.number_cuts`` and
+      ``subcircuits.number_components``.
 
     Examples
     --------
-    >>> qc = QuantumCircuit(2)
-    >>> qc.cx(0, 1)
-    >>> subcircuits = gate_cutting_subcircuits(qc, gates_cut=["CX_1"])
-    >>> for subcircuit in subcircuits:
-    >>>     print(subcircuit)
+    >>> import Qdislib as qd
+    >>> from qibo import models, gates
+    >>> circuit = models.Circuit(2)
+    >>> circuit.add(gates.H(0)); circuit.add(gates.CZ(0, 1)); circuit.add(gates.RY(0, 0.8))
+    >>> subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"], software="qibo")
+    >>> values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
+    >>> subcircuits.reconstruct(values)  # doctest: +SKIP
+    -0.717...
     """
     pattern = re.compile(r"^[A-Za-z]+_\d+$")
 
-    if not isinstance(gates_cut, list) or not all(isinstance(g, str) for g in gates_cut):
-        raise ValueError("Invalid format of gates to cut: expected a list of strings.")
+    if not isinstance(gates_cut, list) or not all(
+        isinstance(g, str) for g in gates_cut
+    ):
+        raise InvalidCutError(
+            "Invalid format of gates to cut: expected a list of strings."
+        )
     if not all(pattern.match(g) for g in gates_cut):
-        raise ValueError(
+        raise InvalidCutError(
             "Invalid gate name format: each entry must match '<GATE>_<NUMBER>', e.g. 'CX_1'."
         )
 
     if observables:
         dag = _change_basis(dag, observables)
 
-    dag = convert_to_dag(dag,observables)
+    dag = convert_to_dag(dag, observables)
 
     dispatch_map = {
-    "qibo": dag_to_circuit_qibo,
-    "qiskit": dag_to_circuit_qiskit,
-    "cudaq": dag_to_circuit_cudaq,
+        "qibo": dag_to_circuit_qibo,
+        "qiskit": dag_to_circuit_qiskit,
+        "cudaq": dag_to_circuit_cudaq,
     }
+
+    number_cuts = len(gates_cut)
 
     if nx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -1077,49 +1086,50 @@ def gate_cutting_subcircuits(
         ]
         subcircuits = []
         for s in S:
-            tmp_cuts = []
-            for c in gates_cut:
-                if s.has_node(c):
-                    tmp_cuts.append(c)
+            tmp_cuts = [c for c in gates_cut if s.has_node(c)]
             if tmp_cuts:
-                subcirc = _execute_gate_cutting_subcircuits(
-                    dag, tmp_cuts, software=software
+                subcircuits += _execute_gate_cutting_subcircuits(
+                    s, tmp_cuts, software=software
                 )
-                subcircuits = subcircuits + subcirc
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 try:
-                    subcirc = dispatch_map[software](s_new, highest_qubit)
+                    subcircuits.append(dispatch_map[software](s_new, highest_qubit))
                 except KeyError:
-                    raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
-                subcircuits.append(subcirc)
-        return subcircuits
+                    raise UnsupportedBackendError(
+                        f"Unsupported software backend: '{software}'. "
+                        f"Expected one of {list(dispatch_map.keys())}."
+                    )
+    elif gates_cut:
+        subcircuits = _execute_gate_cutting_subcircuits(
+            dag, gates_cut, software=software
+        )
     else:
-        if gates_cut:
-            subcirc = _execute_gate_cutting_subcircuits(
-                dag, gates_cut, software=software
+        s_new, highest_qubit = _update_qubits(dag)
+        try:
+            subcircuits = [dispatch_map[software](s_new, highest_qubit)]
+        except KeyError:
+            raise UnsupportedBackendError(
+                f"Unsupported software backend: '{software}'. "
+                f"Expected one of {list(dispatch_map.keys())}."
             )
-        else:
-            s_new, highest_qubit = _update_qubits(dag)
-            try:
-                subcirc = dispatch_map[software](s_new, highest_qubit)
-            except KeyError:
-                raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
-        return subcirc
+
+    number_components = max(1, len(subcircuits) // (6**number_cuts))
+    return CutSubcircuits(
+        subcircuits,
+        number_cuts=number_cuts,
+        number_components=number_components,
+        reconstructor=gate_cutting_subcircuit_reconstruction,
+    )
 
 
 def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     new_dag = _generate_cut(dag, gates_cut)
 
-    S = [
-        new_dag.subgraph(c).copy()
-        for c in nx.connected_components(new_dag.to_undirected())
-    ]
-
     dispatch_map = {
-    "qibo": dag_to_circuit_qibo,
-    "qiskit": dag_to_circuit_qiskit,
-    "cudaq": dag_to_circuit_cudaq,
+        "qibo": dag_to_circuit_qibo,
+        "qiskit": dag_to_circuit_qiskit,
+        "cudaq": dag_to_circuit_cudaq,
     }
 
     subcircuits = []
@@ -1134,7 +1144,8 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
         for i in range(num_components):
             graph_components.append(nx.DiGraph().copy())
 
-        graph = _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
+        # Populates graph_components in place (one DiGraph per component).
+        _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
 
         for i, s in enumerate(graph_components):
             s_new, highest_qubit = _update_qubits(s)
@@ -1142,11 +1153,17 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
             try:
                 subcirc = dispatch_map[software](s_new, highest_qubit)
             except KeyError:
-                raise ValueError(f"Unsupported software backend: '{software}'. "f"Expected one of {list(dispatch_map.keys())}.")
+                raise UnsupportedBackendError(
+                    f"Unsupported software backend: '{software}'. "
+                    f"Expected one of {list(dispatch_map.keys())}."
+                )
             subcircuits.append(subcirc)
     return subcircuits
 
-def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_components=2):
+
+def gate_cutting_subcircuit_reconstruction(
+    expected_values, number_cuts, number_components=2
+):
     """
     Reconstruct the final expectation value from subcircuit results after gate cutting.
 
@@ -1155,17 +1172,23 @@ def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_
     sign correction and computes the final observable estimate according to the
     number of cuts made in the original quantum circuit.
 
+    In the recommended workflow you don't call this directly: the object returned
+    by :func:`gate_cutting_subcircuits` already carries ``number_cuts`` and
+    ``number_components``, so ``subcircuits.reconstruct(values)`` forwards here for
+    you. Call this function explicitly only when reconstructing from values whose
+    cut metadata you are tracking yourself.
+
     Parameters
     ----------
     expected_values : List[float]
         A flat list of raw expectation values resulting from the execution
-        of subcircuits. It is expected to be of even length, as values are
-        grouped in pairs corresponding to measurement outcomes.
+        of subcircuits, in the same order as the subcircuits were generated.
+        Values are grouped into chunks of ``number_components``.
 
     number_cuts : int
         The total number of gate cuts performed in the original circuit.
         This determines the normalization factor used in the final result.
-    
+
     number_components : int
         The number of independent parts the initial subcircuits has.
 
@@ -1197,13 +1220,15 @@ def gate_cutting_subcircuit_reconstruction(expected_values, number_cuts, number_
     if number_cuts == 0:
         return math.prod(expected_values)
     else:
-        expected_values = [expected_values[i:i+number_components] for i in range(0, len(expected_values), number_components)]
+        expected_values = [
+            expected_values[i : i + number_components]
+            for i in range(0, len(expected_values), number_components)
+        ]
         results = []
         for index, exp_values in enumerate(expected_values):
             result = _change_sign_gate_cutting(exp_values, index)
             results.append(result)
-        
-        results = compss_wait_on(results)
-        final_recons = 1 / (2 ** number_cuts) * sum(results)
-        return final_recons
 
+        results = compss_wait_on(results)
+        final_recons = 1 / (2**number_cuts) * sum(results)
+        return final_recons

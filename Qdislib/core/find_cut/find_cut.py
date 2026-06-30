@@ -19,6 +19,12 @@
 
 """Find cut algorithms."""
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["find_cut"]
+
 import networkx
 import typing
 
@@ -29,7 +35,7 @@ try:
     pycompss_available = True
 
 except ImportError:
-    print("PyCOMPSs is NOT installed. Proceeding with serial execution (no parallelism).")
+    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
 
     def task(*args, **kwargs):
         def decorator(func):
@@ -42,26 +48,36 @@ except ImportError:
 
     pycompss_available = False
 
-from Qdislib.utils.graph_qibo import _update_qubits
-from Qdislib.utils.graph_qibo import _update_qubits_serie
-from Qdislib.utils.graph_qibo import _remove_red_edges
+try:
+    import qibo
 
-import qibo
-import qiskit
+    qibo_available = True
+except ImportError:  # qibo is optional
+    qibo = None
+    qibo_available = False
+
+try:
+    import qiskit
+    import qiskit.qasm2
+
+    qiskit_available = True
+except ImportError:  # qiskit is optional
+    qiskit = None
+    qiskit_available = False
+
 import pymetis
 
-import matplotlib.pyplot as plt
+from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+from Qdislib.utils.backends import iter_gates, num_qubits
 
-from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
-from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag, dag_to_circuit_qiskit
-
-import qiskit.qasm2
-
-from qiskit_addon_cutting.automated_cut_finding import (
-    find_cuts,
-    OptimizationParameters,
-    DeviceConstraints,
-)
+try:
+    from qiskit_addon_cutting.automated_cut_finding import (
+        find_cuts,
+        OptimizationParameters,
+        DeviceConstraints,
+    )
+except ImportError:  # qiskit-addon-cutting optional (only the ibm-ckt path)
+    find_cuts = OptimizationParameters = DeviceConstraints = None
 
 
 def _find_nodes_with_qubit(
@@ -74,7 +90,7 @@ def _find_nodes_with_qubit(
 
     :param graph: Graph.
     :param node: Node.
-    :param qubit: Qbit.
+    :param qubit: Qubit.
     :param direction: Direction, defaults to "predecessor".
     :raises ValueError: Unexpected direction error. Must be "predecessor" or "successor".
     :return: List of nodes with qubit.
@@ -92,109 +108,73 @@ def _find_nodes_with_qubit(
 
 
 def _circuit_to_qubit_graph(circuit):
-    dag = networkx.MultiGraph()
+    """Build the qubit-connectivity graph used for *gate* cut finding.
 
-    if type(circuit) == qibo.models.Circuit:
-        for i in range(0, circuit.nqubits):
-            dag.add_node(i, gate=i)
+    Nodes are qubits and each multi-qubit gate becomes an edge between the qubits
+    it couples, labelled with the gate's ``NAME_index`` identifier. Partitioning
+    this graph and cutting the edges that cross the partition is exactly gate
+    cutting. Backend-agnostic (Qibo / Qiskit / CUDA-Q) via :func:`iter_gates`.
 
-        for idx, gate in enumerate(circuit.queue, start=1):
-            if len(gate.qubits) > 1:
-                dag.add_edge(*gate.qubits, gate=f"{gate.__class__.__name__}_{idx}")
+    Parallel edges are intentional here: two distinct gates acting on the same
+    qubit pair are two distinct gate cuts, so both belong in the cut-set.
 
-        return dag
-    else:
-        for i in range(0, circuit.num_qubits):
-            dag.add_node(i, gate=i)
+    :param circuit: A Qibo, Qiskit or CUDA-Q circuit.
+    :return: A :class:`networkx.MultiGraph` of qubit connectivity.
+    """
+    graph = networkx.MultiGraph()
+    for qubit in range(num_qubits(circuit)):
+        graph.add_node(qubit, gate=qubit)
 
-        for idx, gate in enumerate(circuit, start=1):
-            if len(gate.qubits) > 1:
-                qubits = ()
-                for i in gate.qubits:
-                    qubits = qubits + (i._index,)
-                name = gate.operation.name.upper()
-                dag.add_edge(*qubits, gate=f"{name}_{idx}")
+    for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
+        if len(qubits) > 1:
+            graph.add_edge(*qubits, gate=f"{name}_{index}")
 
-        return dag
+    return graph
 
 
 def _circuit_to_gate_graph(circuit):
-    """Convert a Qibo circuit to a DAG where each node stores gate information.
+    """Build the gate-dependency graph used for *wire* cut finding.
 
-    :param circuit: The Qibo circuit to transform.
-    :return: A directed acyclic graph (DAG) with nodes containing gate information.
+    Nodes are the circuit's multi-qubit gates; an edge links a gate to the most
+    recent earlier gate that shares a qubit with it. Cutting an edge corresponds
+    to a wire cut between those two gates. Backend-agnostic (Qibo / Qiskit /
+    CUDA-Q) via :func:`iter_gates`.
+
+    A pair of gates is connected by at most one edge. When two consecutive gates
+    share more than one qubit, adding one edge per shared qubit would create
+    duplicate parallel edges carrying the same ``(pred, gate)`` label; those
+    duplicates inflate the cut-set size and yield spurious repeated wire cuts.
+    The ``has_edge`` guard below keeps a single edge per gate pair.
+
+    :param circuit: A Qibo, Qiskit or CUDA-Q circuit.
+    :return: A :class:`networkx.MultiGraph` whose nodes carry ``gate`` (name) and
+        ``qubits`` attributes, and whose edges carry a ``(pred_name, gate_name)``
+        ``gate`` label.
     """
-    # Create a directed graph
-    dag = networkx.MultiGraph()
+    graph = networkx.MultiGraph()
 
-    if type(circuit) != qibo.models.Circuit:
-        counter = 0
-        # Add gates to the DAG as nodes with unique identifiers
-        for gate_idx, gate in enumerate(circuit, start=1):
+    node_id = 0
+    for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
+        if len(qubits) < 2:
+            continue
 
-            if len(gate.qubits) < 2:
-                continue
+        gate_name = f"{name}_{index}"
+        graph.add_node(node_id, gate=gate_name, qubits=qubits)
 
-            # Unique identifier for each gate instance
-            name = gate.operation.name.upper()
-            gate_name = f"{name}_{gate_idx}".upper()
+        # Connect to the nearest earlier gate on each shared qubit, but never add
+        # more than one edge between the same pair of gates (see docstring).
+        for qubit in qubits:
+            for pred in reversed(list(graph.nodes)):
+                pred_qubits = graph.nodes[pred].get("qubits")
+                if pred_qubits and qubit in pred_qubits and pred != node_id:
+                    if not graph.has_edge(pred, node_id):
+                        pred_name = graph.nodes[pred]["gate"]
+                        graph.add_edge(pred, node_id, gate=(pred_name, gate_name))
+                    break
 
-            # Add the gate to the DAG, including the gate type, qubits, and parameters
-            qubits = ()
-            for i in gate.qubits:
-                qubits = qubits + (i._index,)
+        node_id += 1
 
-            dag.add_node(counter, gate=gate_name, qubits=qubits)
-
-            # Connect gates based on qubit dependencies
-            for qubit in qubits:
-                for pred_gate in reversed(list(dag.nodes)):
-                    # Check if the qubit is in the node's qubits
-                    pred_name = dag.nodes[pred_gate]["gate"]
-                    if (
-                        dag.nodes[pred_gate].get("qubits")
-                        and qubit in dag.nodes[pred_gate]["qubits"]
-                        and counter != pred_gate
-                    ):
-                        dag.add_edge(
-                            pred_gate, counter, gate=(f"{pred_name}", f"{gate_name}")
-                        )
-                        break
-            counter += 1
-
-        return dag
-
-    else:
-        counter = 0
-        # Add gates to the DAG as nodes with unique identifiers
-        for gate_idx, gate in enumerate(circuit.queue, start=1):
-
-            if len(gate.qubits) < 2:
-                continue
-
-            # Unique identifier for each gate instance
-            gate_name = f"{gate.__class__.__name__}_{gate_idx}".upper()
-
-            # Add the gate to the DAG, including the gate type, qubits, and parameters
-            dag.add_node(counter, gate=gate_name, qubits=gate.qubits)
-
-            # Connect gates based on qubit dependencies
-            for qubit in gate.qubits:
-                for pred_gate in reversed(list(dag.nodes)):
-                    # Check if the qubit is in the node's qubits
-                    pred_name = dag.nodes[pred_gate]["gate"]
-                    if (
-                        dag.nodes[pred_gate].get("qubits")
-                        and qubit in dag.nodes[pred_gate]["qubits"]
-                        and counter != pred_gate
-                    ):
-                        dag.add_edge(
-                            pred_gate, counter, gate=(f"{pred_name}", f"{gate_name}")
-                        )
-                        break
-            counter += 1
-
-        return dag
+    return graph
 
 
 def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=10):
@@ -203,10 +183,16 @@ def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=1
     best_cutset = []
 
     for _ in range(num_runs):
-        # Perform balanced partition using Kernighan-Lin
-        partition = networkx.algorithms.community.kernighan_lin_bisection(
-            graph.to_undirected()
-        )
+        # Perform balanced partition using Kernighan-Lin. On graphs too small to
+        # bisect (e.g. a circuit with one or two gates) networkx raises
+        # ValueError ("min() arg is an empty sequence"); treat that as a run that
+        # produced no valid partition rather than crashing find_cut.
+        try:
+            partition = networkx.algorithms.community.kernighan_lin_bisection(
+                graph.to_undirected()
+            )
+        except ValueError:
+            continue
 
         # Extract the edges in the cut-set
         cutset = list(
@@ -219,17 +205,18 @@ def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=1
                 flag = True
         if max_cuts and cutset_size > max_cuts:
             flag = True
+        # This run violates the qubit/cut budget: skip it and try the next
+        # random partition rather than abandoning the whole search.
         if flag:
-            break
+            continue
 
         # If this cut-set is smaller, update the best partition and cut-set
         if cutset_size < best_cutset_size:
             best_cutset_size = cutset_size
             best_partition = partition
             best_cutset = cutset
-        best_cutset
 
-    if best_cutset is not []:
+    if best_cutset:
         best_cutset = [el[2]["gate"] for el in best_cutset]
     else:
         return [], []
@@ -242,6 +229,9 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
     # Perform Girvan-Newman community detection
     communities = girvan_newman(graph)
 
+    # Defaults in case no partition is produced (e.g. a graph with < 2 nodes,
+    # where girvan_newman yields nothing and the loop body never runs).
+    partition_list, cut_edges = [], []
     # Get multiple partitions at different levels of edge removal
     for i, partition in enumerate(communities):
         partition_list = list(partition)  # Convert partition to list of sets
@@ -252,9 +242,9 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
             component_u = [c for c in partition_list if u in c][0]
             component_v = [c for c in partition_list if v in c][0]
             if component_u != component_v:
-                #data = graph.get_edge_data(u, v)
-                #gates_list = tuple([value["gate"] for value in data.values()])
-                cut_edges = cut_edges + [gate['gate']]
+                # data = graph.get_edge_data(u, v)
+                # gates_list = tuple([value["gate"] for value in data.values()])
+                cut_edges = cut_edges + [gate["gate"]]
 
         flag = True
         for ele in sorted(list(c) for c in partition_list):
@@ -273,11 +263,15 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
 def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
     from sklearn.cluster import SpectralClustering
 
+    # Spectral clustering requires at least as many nodes as requested clusters;
+    # clamp so an over-large target can never raise (needs n_samples >= n_clusters).
+    num_clusters = min(clusters, graph.number_of_nodes())
+    if num_clusters < 2:
+        return [], []
+
     # Convert the graph to adjacency matrix form
     adjacency_matrix = networkx.to_numpy_array(graph)
 
-    # Perform spectral clustering
-    num_clusters = clusters  # Example: Find 3 components
     sc = SpectralClustering(
         n_clusters=num_clusters, affinity="precomputed", assign_labels="kmeans"
     )
@@ -302,8 +296,8 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
     cut_edges = []
     for u, v, gate in graph.edges(data=True):
         if labels[u] != labels[v]:
-            #data = graph.get_edge_data(u, v)
-            #gates_list = [value["gate"] for value in data.values()]
+            # data = graph.get_edge_data(u, v)
+            # gates_list = [value["gate"] for value in data.values()]
             cut_edges = cut_edges + [gate["gate"]]
 
     if max_cuts and len(cut_edges) > max_cuts:
@@ -314,9 +308,13 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
 
 
 def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
+    # Clamp the partition count to the number of nodes (METIS needs nparts <= n).
+    num_clusters = min(num_clusters, graph.number_of_nodes())
+    if num_clusters < 2:
+        return [], []
+
     # Convert the NetworkX graph to a format suitable for METIS
     adjacency_list = []
-
     for node in graph.nodes():
         neighbors = list(graph.neighbors(node))
         adjacency_list.append(neighbors)
@@ -329,16 +327,15 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
     # Check for cluster size constraint violations
     for cluster_id, nodes in clusters.items():
         if max_nodes_per_cluster and len(nodes) > max_nodes_per_cluster:
-            print(f"Cluster {cluster_id} exceeds the max size.")
+            logger.info(f"Cluster {cluster_id} exceeds the max size.")
             return [], []
 
     clusters = list(clusters.values())
     cut_edges = []
-    cut_edges = []
     for u, v, gate in graph.edges(data=True):
         if parts[u] != parts[v]:
-            #data = graph.get_edge_data(u, v)
-            #gates_list = [value["gate"] for value in data.values()]
+            # data = graph.get_edge_data(u, v)
+            # gates_list = [value["gate"] for value in data.values()]
             cut_edges = cut_edges + [gate["gate"]]
     if max_cuts and len(cut_edges) > max_cuts:
         return [], []
@@ -347,332 +344,190 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
     return clusters, cut_edges
 
 
+def _score_candidates(candidates, weights=None, verbose=False):
+    """Pick the lowest-scoring partitioning candidate.
+
+    Each candidate maps a method name to a ``(partition, cut_set)`` pair produced
+    by one of the graph-partitioning helpers. The objective (lower is better)
+    balances three terms::
+
+        score = | w1 * cut_size  +  w2 * num_components  +  w3 * largest_component |
+
+    rewarding few cuts, more components, and small (balanced) components.
+
+    :param candidates: Ordered mapping ``{name: (partition, cut_set)}``.
+    :param weights: Optional overrides for the ``w1``/``w2``/``w3`` coefficients.
+    :param verbose: Log each candidate's score.
+    :return: ``(best_cut_set, best_score, best_partition)`` for the winner.
+    """
+    weights = weights or {}
+    w1 = weights.get("w1", 100)  # cut size            (minimize)
+    w2 = weights.get("w2", -1)  # number of components (maximize)
+    w3 = weights.get("w3", 1)  # largest component   (minimize -> balance)
+    if verbose:
+        logger.info("Using weights: w1=%s, w2=%s, w3=%s", w1, w2, w3)
+
+    best_score = float("inf")
+    best_cut_set = []
+    best_partition = []
+    for name, (partition, cut_set) in candidates.items():
+        largest_component = max(
+            [len(component) for component in partition] + [float("-inf")]
+        )
+        score = abs(w1 * len(cut_set) + w2 * len(partition) + w3 * largest_component)
+        if verbose:
+            logger.info(
+                "%s: cut_set=%s components=%s largest=%s score=%s",
+                name,
+                cut_set,
+                len(partition),
+                largest_component,
+                score,
+            )
+        if score < best_score:
+            best_score = score
+            best_cut_set = cut_set
+            best_partition = partition
+    return best_cut_set, best_score, best_partition
+
+
+def _plot_partition(graph, partition):
+    """Draw a partitioned circuit graph (debug aid, only used when verbose)."""
+    import matplotlib.pyplot as plt
+
+    pos = networkx.spring_layout(graph)
+    plt.figure(figsize=(12, 12))
+    colors = ["orange", "purple", "green", "red", "blue"]
+    for i, component in enumerate(partition):
+        networkx.draw_networkx_nodes(
+            graph,
+            pos,
+            nodelist=list(component),
+            node_color=colors[i % len(colors)],
+            node_size=200,
+            alpha=0.5,
+        )
+    networkx.draw_networkx_edges(graph, pos, alpha=0.5)
+    networkx.draw_networkx_labels(graph, pos)
+    plt.title("Graph Partition Visualization")
+    plt.show()
+
+
 @task(returns=2)
 def _find_cut_gate(
-    circuit, max_qubits=None, max_cuts=None, max_components=None, weights=None, verbose=False
+    circuit,
+    max_qubits=None,
+    max_cuts=None,
+    max_components=None,
+    weights=None,
+    verbose=False,
 ):
-    if verbose: print("FIND GATE CUT \n")
+    """Find the best *gate* cut for ``circuit`` by partitioning its qubit graph.
 
-    # Gate cutting
-    dag = _circuit_to_qubit_graph(circuit)
-    best_kl_partition, best_kl_cutset = _find_best_kernighan_lin_partition(
-        graph=dag, max_qubits=max_qubits, max_cuts=max_cuts
-    )
-    best_gn_partition, best_gn_cutset = _find_best_girvan_newman_cutset(
-        dag, max_qubits, max_cuts=max_cuts
-    )
-    best_sc_partition, best_sc_cutset = _find_best_spectral_clustering(
-        dag, clusters=max_components, max_qubits=max_qubits, max_cuts=max_cuts
-    )
-    best_met_partition, best_met_cutset = _metis_partition(
-        dag,
-        num_clusters=max_components,
-        max_nodes_per_cluster=max_qubits,
-        max_cuts=max_cuts,
-    )
+    Builds the qubit-connectivity graph, runs the four partitioning strategies
+    (Kernighan-Lin, Girvan-Newman, spectral clustering, METIS) and keeps the
+    lowest-scoring cut. Backend-agnostic (Qibo / Qiskit / CUDA-Q).
 
-    # Ensure weights is a dictionary, even if None is passed
-    weights = weights or {}
-
-    # Weights for the objective function
-    w1 = weights.get("w1", 100)   # Weight for cut size (minimize this)
-    w2 = weights.get("w2", -1)    # Weight for number of components (maximize this)
-    w3 = weights.get("w3", 1)     # Weight for balanced graphs (minimize this)
-
+    :return: ``(best_cut, best_score)`` where ``best_cut`` is a list of gate
+        identifiers such as ``["CZ_3"]``.
+    """
     if verbose:
-        print(f"Using weights: w1={w1}, w2={w2}, w3={w3} \n")
+        logger.info("Finding best gate cut")
 
-    results = []
-    final = []
+    graph = _circuit_to_qubit_graph(circuit)
+    candidates = {
+        "Kernighan-Lin": _find_best_kernighan_lin_partition(
+            graph=graph, max_qubits=max_qubits, max_cuts=max_cuts
+        ),
+        "Girvan-Newman": _find_best_girvan_newman_cutset(
+            graph, max_qubits, max_cuts=max_cuts
+        ),
+        "Spectral clustering": _find_best_spectral_clustering(
+            graph, clusters=max_components, max_qubits=max_qubits, max_cuts=max_cuts
+        ),
+        "METIS": _metis_partition(
+            graph,
+            num_clusters=max_components,
+            max_nodes_per_cluster=max_qubits,
+            max_cuts=max_cuts,
+        ),
+    }
 
-    if verbose:
-        print("BEST KERNIGHAM LIN PARTITION: ",best_kl_cutset)
-        print("NUM COMPONENTS: ", len(best_kl_partition))
-    qubit_diff = []
-    for el in best_kl_partition:
-        qubit_diff.append(len(el))
-    qubit_diff.append(float("-inf"))
-    if verbose: print("MAX QUBITS: ", max(qubit_diff))
-    score = (
-        w1 * len(best_kl_cutset) + w2 * len(best_kl_partition) + w3 * max(qubit_diff)
+    best_cut, best_score, best_partition = _score_candidates(
+        candidates, weights, verbose
     )
-    if verbose: print("SCORE: ", score)
-    results.append(abs(score))
-    final.append(best_kl_cutset)
-    if verbose: print("\n")
-
     if verbose:
-        print("BEST GERMAN NEWMAN PARTITION: ", best_gn_cutset)
-        print("NUM COMPONENTS: ", len(best_gn_partition))
-    qubit_diff = []
-    for el in best_gn_partition:
-        qubit_diff.append(len(el))
-    qubit_diff.append(float("-inf"))
-    if verbose: print("MAX QUBITS: ", max(qubit_diff))
-    score = (
-        w1 * len(best_gn_cutset) + w2 * len(best_gn_partition) + w3 * max(qubit_diff)
-    )
-    if verbose: print("SCORE: ", score)
-    results.append(abs(score))
-    final.append(best_gn_cutset)
-    if verbose: print("\n")
-
-    if verbose:
-        print("BEST SPECTRAL DECOMPOSITION PARTITION: ", best_sc_cutset)
-        print("NUM COMPONENTS: ", len(best_sc_partition))
-    qubit_diff = []
-    for el in best_sc_partition:
-        qubit_diff.append(len(el))
-    qubit_diff.append(float("-inf"))
-    if verbose: print("MAX QUBITS: ", max(qubit_diff))
-    score = (
-        w1 * len(best_sc_cutset) + w2 * len(best_sc_partition) + w3 * max(qubit_diff)
-    )
-    if verbose: print("SCORE: ", score)
-    results.append(abs(score))
-    final.append(best_sc_cutset)
-    if verbose: print("\n")
-
-    if verbose:
-        print("BEST METIS PARTITION: ",best_met_cutset)
-        print("NUM COMPONENTS: ", len(best_met_partition))
-    qubit_diff = []
-    for el in best_met_partition:
-        qubit_diff.append(len(el))
-    qubit_diff.append(float("-inf"))
-    if verbose: print("MAX QUBITS: ", max(qubit_diff))
-    score = (
-        w1 * len(best_met_cutset) + w2 * len(best_met_partition) + w3 * max(qubit_diff)
-    )
-    if verbose: print("SCORE: ", score)
-    results.append(abs(score))
-    final.append(best_met_cutset)
-    if verbose: print("\n")
-
-    if verbose: print(results)
-    best_score = min(results)
-    best_cut = final[results.index(best_score)]
-    if verbose: print("BEST GATE CUT: ", best_cut)
-    if verbose: print("BEST GATE SCORE: ", best_score)
-    if verbose: print("\n")
-
-    if verbose:
-        import matplotlib.pyplot as plt
-
-        # Plot the graph with partition
-        pos = networkx.spring_layout(dag)  # Positions for all nodes
-        plt.figure(figsize=(12, 12))
-
-        # Get the best partition (assuming the best partition is the one corresponding to the best cut)
-        best_partition = None
-        if results.index(best_score) == 0:
-            best_partition = best_kl_partition
-        elif results.index(best_score) == 1:
-            best_partition = best_gn_partition
-        elif results.index(best_score) == 2:
-            best_partition = best_sc_partition
-        else:
-            best_partition = best_met_partition
-
-        # Assign colors to partitions
-        colors = ["orange", "purple", "green", "red", "blue"]
-        for i, partition in enumerate(best_partition):
-            networkx.draw_networkx_nodes(
-                dag,
-                pos,
-                nodelist=partition,
-                node_color=colors[i % len(colors)],
-                node_size=200,
-                alpha=0.5,
-            )
-
-        # Draw the edges and labels
-        networkx.draw_networkx_edges(dag, pos, alpha=0.5)
-        networkx.draw_networkx_labels(dag, pos)
-
-        # Display the plot
-        plt.title("Graph Partition Visualization")
-        plt.show()
+        logger.info("Best gate cut: %s (score %s)", best_cut, best_score)
+        _plot_partition(graph, best_partition)
     return best_cut, best_score
 
 
 @task(returns=2)
 def _find_cut_wire(
-    circuit, max_qubits=None, max_cuts=None, max_components=None, weights=None, verbose=False
+    circuit,
+    max_qubits=None,
+    max_cuts=None,
+    max_components=None,
+    weights=None,
+    verbose=False,
 ):
-    if verbose: print("Wire Cutting \n")
-    # Wire cutting
-    dag = _circuit_to_gate_graph(circuit)
+    """Find the best *wire* cut for ``circuit`` by partitioning its gate graph.
 
-    best_kl_partition, best_kl_cutset = _find_best_kernighan_lin_partition(
-        graph=dag, max_qubits=max_qubits, max_cuts=max_cuts
-    )
-    if verbose: print("KERNIGHAN DONE...")
-    best_gn_partition, best_gn_cutset = _find_best_girvan_newman_cutset(
-        dag, max_qubits=max_qubits, max_cuts=max_cuts
-    )
-    if verbose: print("GIRVAN NEWMAN DONE...")
-    best_sc_partition, best_sc_cutset = _find_best_spectral_clustering(
-        dag, clusters=max_components, max_qubits=max_qubits, max_cuts=max_cuts
-    )
-    if verbose: print("SPECTRAL CLUSTERING DONE...")
-    best_met_partition, best_met_cutset = _metis_partition(
-        dag,
-        num_clusters=max_components,
-        max_nodes_per_cluster=max_qubits,
-        max_cuts=max_cuts,
-    )
-    if verbose: print("METIS DONE...")
-    if verbose: print("\n")
+    Builds the gate-dependency graph, runs the four partitioning strategies and
+    keeps the lowest-scoring cut. The winning cut-set (pairs of gate identifiers)
+    is then refined into concrete wire cuts: for each pair, any gate sitting
+    between the two endpoints that shares a qubit with both becomes the actual
+    cut location. Backend-agnostic (Qibo / Qiskit / CUDA-Q).
 
-    # Ensure weights is a dictionary, even if None is passed
-    weights = weights or {}
-
-    # Weights for the objective function
-    w1 = weights.get("w1", 100)   # Weight for cut size (minimize this)
-    w2 = weights.get("w2", -1)    # Weight for number of components (maximize this)
-    w3 = weights.get("w3", 1)     # Weight for balanced graphs (minimize this)
-
+    :return: ``(best_cut, best_score)`` where ``best_cut`` is a list of
+        ``(source_gate, target_gate)`` identifier pairs.
+    """
     if verbose:
-        print(f"Using weights: w1={w1}, w2={w2}, w3={w3} \n")
+        logger.info("Finding best wire cut")
 
-    results = []
-    final = []
+    graph = _circuit_to_gate_graph(circuit)
+    candidates = {
+        "Kernighan-Lin": _find_best_kernighan_lin_partition(
+            graph=graph, max_qubits=max_qubits, max_cuts=max_cuts
+        ),
+        "Girvan-Newman": _find_best_girvan_newman_cutset(
+            graph, max_qubits=max_qubits, max_cuts=max_cuts
+        ),
+        "Spectral clustering": _find_best_spectral_clustering(
+            graph, clusters=max_components, max_qubits=max_qubits, max_cuts=max_cuts
+        ),
+        "METIS": _metis_partition(
+            graph,
+            num_clusters=max_components,
+            max_nodes_per_cluster=max_qubits,
+            max_cuts=max_cuts,
+        ),
+    }
 
-    if verbose:
-        print("BEST KERNIGHAM LIN PARTITION: ",best_kl_cutset)
-        print("NUM COMPONENTS: ", len(best_kl_partition))
-    qubit_diff = []
-    for el in best_kl_partition:
-        qubit_diff.append(len(el))
-    qubit_diff.append(float("-inf"))
-    if verbose: print("MAX QUBITS: ", max(qubit_diff))
-    score = (
-        w1 * len(best_kl_cutset) + w2 * len(best_kl_partition) + w3 * max(qubit_diff)
-    )
-    if verbose: print("SCORE: ", score)
-    results.append(abs(score))
-    final.append(best_kl_cutset)
-    if verbose: print("\n")
+    cut_set, best_score, _ = _score_candidates(candidates, weights, verbose)
 
-    if verbose:
-        print("BEST GERMAN NEWMAN PARTITION: ", best_gn_cutset)
-        print("NUM COMPONENTS: ", len(best_gn_partition))
-    qubit_diff = []
-    for el in best_gn_partition:
-        qubit_diff.append(len(el))
-    qubit_diff.append(float("-inf"))
-    if verbose: print("MAX QUBITS: ", max(qubit_diff))
-    score = (
-        w1 * len(best_gn_cutset) + w2 * len(best_gn_partition) + w3 * max(qubit_diff)
-    )
-    if verbose: print("SCORE: ", score)
-    results.append(abs(score))
-    final.append(best_gn_cutset)
-    if verbose: print("\n")
-
-    if verbose:
-        print("BEST SPECTRAL DECOMPOSITION PARTITION: ", best_sc_cutset)
-        print("NUM COMPONENTS: ", len(best_sc_partition))
-    qubit_diff = []
-    for el in best_sc_partition:
-        qubit_diff.append(len(el))
-    qubit_diff.append(float("-inf"))
-    if verbose: print("MAX QUBITS: ", max(qubit_diff))
-    score = (
-        w1 * len(best_sc_cutset) + w2 * len(best_sc_partition) + w3 * max(qubit_diff)
-    )
-    if verbose: print("SCORE: ", score)
-    results.append(abs(score))
-    final.append(best_sc_cutset)
-    if verbose: print("\n")
-
-    if verbose:
-        print("BEST METIS PARTITION: ",best_met_cutset)
-        print("NUM COMPONENTS: ", len(best_met_partition))
-    qubit_diff = []
-    for el in best_met_partition:
-        qubit_diff.append(len(el))
-    qubit_diff.append(float("-inf"))
-    if verbose: print("MAX QUBITS: ", max(qubit_diff))
-    score = (
-        w1 * len(best_met_cutset) + w2 * len(best_met_partition) + w3 * max(qubit_diff)
-    )
-    if verbose: print("SCORE: ", score)
-    results.append(abs(score))
-    final.append(best_met_cutset)
-    if verbose: print("\n")
-
-    best_score = min(results)
-    index_best_score = results.index(best_score)
-    cut = final[index_best_score]
+    # Refine each cut pair into a concrete wire cut: locate a gate between the
+    # two endpoints that shares a qubit with both, and cut just after it.
+    gates = iter_gates(circuit)
     best_cut = []
-    for pair in cut:
-        u, v = pair
-        _, u_idx = u.split("_")
-        u_idx = int(u_idx)
-        _, v_idx = v.split("_")
-        v_idx = int(v_idx)
-        if type(circuit) == qibo.models.Circuit:
-            initial_gate = circuit.queue[u_idx - 1]
-            final_gate = circuit.queue[v_idx - 1]
-        else:
-            initial_gate = circuit[u_idx - 1]
-            final_gate = circuit[v_idx - 1]
-        flag = True
-        if type(circuit) == qibo.models.Circuit:
-            for idx, gate in enumerate(circuit.queue[u_idx : v_idx - 1], start=u_idx):
-                if len(gate.qubits) > 2:
-                    pass
-                if set(gate.qubits).intersection(initial_gate.qubits, final_gate.qubits):
-                    if initial_gate.name.upper() == "CX":
-                        initial_name = "CNOT"
-                    else:
-                        initial_name = initial_gate.name.upper()
-                    if gate.name.upper() == "CX":
-                        gate_name = "CNOT"
-                    else:
-                        gate_name = gate.name.upper()
-                    best_cut.append((f"{initial_name}_{u_idx}", f"{gate_name}_{idx+1}"))
-                    flag = False
-        else:
-            for idx, gate in enumerate(circuit[u_idx : v_idx - 1], start=u_idx):
-                if len(gate.qubits) > 2:
-                    pass
-                
-                qubits = ()
-                for i in gate.qubits:
-                    qubits = qubits + (i._index,)
-                
-                initial_qubits = ()
-                for i in initial_gate.qubits:
-                    initial_qubits = initial_qubits + (i._index,)
-                
-                final_qubits = ()
-                for i in final_gate.qubits:
-                    final_qubits = final_qubits + (i._index,)
-                
-                initial_name = initial_gate.operation.name.upper()
-                gate_name = gate.operation.name.upper()
-                if set(qubits).intersection(initial_qubits, final_qubits):
-                    if initial_name.upper() == "CX":
-                        initial_name = "CNOT"
-                    else:
-                        initial_name = initial_name.upper()
-                    if gate_name.upper() == "CX":
-                        gate_name = "CNOT"
-                    else:
-                        gate_name = gate_name.upper()
-                    best_cut.append((f"{initial_name}_{u_idx}", f"{gate_name}_{idx+1}"))
-                    flag = False
+    for source, target in cut_set:
+        source_idx = int(source.split("_")[1])
+        target_idx = int(target.split("_")[1])
+        _, source_qubits = gates[source_idx - 1]
+        _, target_qubits = gates[target_idx - 1]
 
-        if flag:
-            best_cut.append(pair)
-    
-    if verbose: 
-        print("BEST WIRE CUT: ", best_cut)
-        print("BEST WIRE SCORE: ", best_score)
-        print("\n")
+        refined = False
+        for idx, (gate_name, gate_qubits) in enumerate(
+            gates[source_idx : target_idx - 1], start=source_idx
+        ):
+            if set(gate_qubits).intersection(source_qubits, target_qubits):
+                best_cut.append((source, f"{gate_name}_{idx + 1}"))
+                refined = True
+        if not refined:
+            best_cut.append((source, target))
+
+    if verbose:
+        logger.info("Best wire cut: %s (score %s)", best_cut, best_score)
     return best_cut, best_score
 
 
@@ -680,12 +535,11 @@ def find_cut(
     circuit,
     max_qubits=None,
     max_cuts=None,
-    max_components=None,
     wire_cut=True,
     gate_cut=True,
     implementation="qdislib",
     weights=None,
-    verbose=False
+    verbose=False,
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
@@ -697,7 +551,7 @@ def find_cut(
     and the number of resulting components. It supports both wire cutting and gate cutting
     strategies, which are evaluated through multiple graph partitioning techniques
     (Kernighan-Lin, Girvan-Newman, Spectral Decomposition, METIS). It scores all possible options
-    with a loss function and the decide wich cut id better for that specific circuit and constraints.
+    with a loss function and then decides which cut is better for that specific circuit and constraints.
 
     Parameters
     ----------
@@ -706,16 +560,13 @@ def find_cut(
 
     max_qubits : int, optional
         Maximum number of qubits allowed per subcircuit. Helps enforce hardware
-        constraints (e.g., maximum qubits per QPU). If not set, a default is derived
-        from the circuit.
+        constraints (e.g., maximum qubits per QPU). When given, it also determines
+        how many subcircuits the clustering strategies aim for
+        (``ceil(num_qubits / max_qubits)``); otherwise a simple bisection is used.
 
     max_cuts : int, optional
         Maximum number of cuts permitted across the circuit. Controls the complexity
         and computational overhead of the partitioning.
-
-    max_components : int, optional
-        Maximum number of subcircuits (components) that can be generated. Defaults to 2
-        or computed from `max_qubits` if not provided.
 
     wire_cut : bool, default=True
         Whether to consider wire cuts (cutting dependencies between gates)
@@ -767,9 +618,14 @@ def find_cut(
     """
 
     if implementation == "qdislib":
-        if max_qubits and not max_components:
-            max_components = circuit.nqubits // max_qubits + 1
-        elif not max_qubits and not max_components:
+        # Target number of subcircuits for the clustering-based strategies
+        # (spectral, METIS). Derived from max_qubits when given (enough pieces so
+        # each fits the qubit budget), otherwise a simple bisection. The
+        # clustering helpers clamp this to the graph size, so it is only an upper
+        # bound and can never request more clusters than there are nodes.
+        if max_qubits:
+            max_components = max(2, -(-num_qubits(circuit) // max_qubits))
+        else:
             max_components = 2
 
         if gate_cut:
@@ -779,7 +635,7 @@ def find_cut(
                 max_cuts=max_cuts,
                 max_components=max_components,
                 weights=weights,
-                verbose=verbose
+                verbose=verbose,
             )
 
         if wire_cut:
@@ -789,7 +645,7 @@ def find_cut(
                 max_cuts=max_cuts,
                 max_components=max_components,
                 weights=weights,
-                verbose=verbose
+                verbose=verbose,
             )
 
         if gate_cut and wire_cut:
@@ -804,7 +660,7 @@ def find_cut(
             cut_wire = compss_wait_on(cut_wire)
             score_wire = compss_wait_on(score_wire)
         else:
-            raise NameError
+            raise ValueError("Enable at least one of wire_cut or gate_cut.")
 
         if wire_cut and gate_cut:
             if score_gate < score_wire:
@@ -818,13 +674,13 @@ def find_cut(
         elif wire_cut:
             return cut_wire
         else:
-            raise TypeError
+            raise ValueError("Enable at least one of wire_cut or gate_cut.")
 
     elif implementation == "ibm-ckt":
-        if type(circuit) == qibo.models.Circuit:
+        if qibo_available and isinstance(circuit, qibo.models.Circuit):
             qasm_str = circuit.to_qasm()
             circuit = qiskit.qasm2.loads(qasm_str)
-        elif type(circuit) == networkx.DiGraph:
+        elif isinstance(circuit, networkx.DiGraph):
             circuit = dag_to_circuit_qiskit(circuit)
 
         # Specify settings for the cut-finding optimizer
@@ -841,13 +697,13 @@ def find_cut(
             circuit, optimization_settings, device_constraints
         )
         if verbose:
-            print(
+            logger.info(
                 f'Found solution using {len(metadata["cuts"])} cuts with a sampling '
                 f'overhead of {metadata["sampling_overhead"]}.\n'
                 f'Lowest cost solution found: {metadata["minimum_reached"]}.'
             )
             for cut in metadata["cuts"]:
-                print(f"{cut[0]} at circuit instruction index {cut[1]}")
+                logger.info(f"{cut[0]} at circuit instruction index {cut[1]}")
             cut_circuit.draw("mpl", scale=0.8, fold=-1)
 
         list_gates_cut = []
@@ -855,5 +711,6 @@ def find_cut(
             if cut[0] == "Gate Cut":
                 gate_name = circuit.data[cut[1]].operation.name.upper()
                 list_gates_cut.append(f"{gate_name}_{cut[1]+1}")
-        if verbose: print(list_gates_cut)
+        if verbose:
+            logger.info(list_gates_cut)
         return list_gates_cut
