@@ -41,41 +41,7 @@ except ImportError:  # qiskit / qiskit-aer are optional
 
 import re
 
-try:
-    from pycompss.api.task import task
-    from pycompss.api.api import compss_wait_on
-    from pycompss.api.parameter import COLLECTION_IN
-    from pycompss.api.parameter import COLLECTION_OUT
-    from pycompss.api.constraint import constraint
-    from pycompss.api.implement import implement
-
-    pycompss_available = True
-except ImportError:
-    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
-
-    def task(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    def compss_wait_on(obj):
-        return obj
-
-    def constraint(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    def implement(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    COLLECTION_IN = COLLECTION_OUT = None
-    pycompss_available = False
+from Qdislib.utils.runtime import task, compss_wait_on, constraint, COLLECTION_IN
 
 
 from Qdislib.utils.graph_qibo import (

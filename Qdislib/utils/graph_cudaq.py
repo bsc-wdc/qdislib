@@ -47,21 +47,7 @@ except ImportError:
     cudaq = None
     cudaq_available = False
 
-try:
-    from pycompss.api.task import task
-
-    pycompss_available = True
-
-except ImportError:
-    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
-
-    def task(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    pycompss_available = False
+from Qdislib.utils.runtime import task
 
 
 def _cudaq_gate_name(call):

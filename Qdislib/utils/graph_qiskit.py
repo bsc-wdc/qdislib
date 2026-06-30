@@ -46,21 +46,7 @@ except ImportError:  # qiskit is optional; functions that need it fail when call
 
 from Qdislib.utils.graph_qibo import _update_qubits_serie
 
-try:
-    from pycompss.api.task import task
-
-    pycompss_available = True
-
-except ImportError:
-    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
-
-    def task(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    pycompss_available = False
+from Qdislib.utils.runtime import task
 
 
 def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGraph:
