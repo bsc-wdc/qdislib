@@ -19,7 +19,12 @@
 
 """Utils Circuit Unit tests."""
 
+import importlib.util
+import unittest
+
 from tests import BaseTimedTestCase
+
+CUDAQ_AVAILABLE = importlib.util.find_spec("cudaq") is not None
 
 
 class CircuitTest(BaseTimedTestCase):
@@ -85,12 +90,15 @@ class CircuitTest(BaseTimedTestCase):
             self.assertTrue(True)
         else:
             self.assertTrue(False)
-    
+
     def test_gate_cutting_qibo(self):
         from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
         from Qdislib.utils.circuit import analytical_solution
         from Qdislib.core.cutting_algorithms.wire_cutting import _expec_value_qibo
-        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting_subcircuits, gate_cutting_subcircuit_reconstruction
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            gate_cutting_subcircuits,
+            gate_cutting_subcircuit_reconstruction,
+        )
         from Qdislib.core.find_cut.find_cut import find_cut
 
         from qibo import models, gates
@@ -132,23 +140,25 @@ class CircuitTest(BaseTimedTestCase):
             # Execute individually each subcircuit
             result = _expec_value_qibo(subcircuit)
             results.append(result)
-        
-        #results = compss_wait_on(results)
 
-        reconstruction = gate_cutting_subcircuit_reconstruction(results,number_cuts=1)
+        # results = compss_wait_on(results)
 
-        analytical = analytical_solution(circuit, "Z"*circuit.nqubits)
+        reconstruction = gate_cutting_subcircuit_reconstruction(results, number_cuts=1)
+
+        analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
         else:
             self.assertTrue(False)
 
-    
     def test_gate_cutting_qiskit(self):
         from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
         from Qdislib.utils.circuit import analytical_solution
         from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
-        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting_subcircuits, gate_cutting_subcircuit_reconstruction
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            gate_cutting_subcircuits,
+            gate_cutting_subcircuit_reconstruction,
+        )
         from Qdislib.core.find_cut.find_cut import find_cut
 
         from qibo import models, gates
@@ -191,21 +201,24 @@ class CircuitTest(BaseTimedTestCase):
             result = _expec_value_qiskit(subcircuit)
             results.append(result)
 
-        reconstruction = gate_cutting_subcircuit_reconstruction(results,number_cuts=1)
+        reconstruction = gate_cutting_subcircuit_reconstruction(results, number_cuts=1)
 
-        analytical = analytical_solution(circuit, "Z"*circuit.nqubits)
+        analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
         else:
             self.assertTrue(False)
 
-
+    @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq not installed")
     def test_gate_cutting_cudaq(self):
         from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
         from Qdislib.utils.circuit import analytical_solution
         from Qdislib.core.cutting_algorithms.wire_cutting import _expec_value_cudaq
-        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting_subcircuits, gate_cutting_subcircuit_reconstruction
-        from pycompss.api.api import compss_wait_on
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            gate_cutting_subcircuits,
+            gate_cutting_subcircuit_reconstruction,
+        )
+        from Qdislib.utils.runtime import compss_wait_on
         from Qdislib.core.find_cut.find_cut import find_cut
 
         from qibo import models, gates
@@ -242,20 +255,20 @@ class CircuitTest(BaseTimedTestCase):
         print(cut)
         subcircuits = gate_cutting_subcircuits(circuit, cut, software="cudaq")
 
-        #subcircuits = compss_wait_on(subcircuits)
+        # subcircuits = compss_wait_on(subcircuits)
 
         results = []
         for subcircuit in subcircuits:
             # Execute individually each subcircuit
             result = _expec_value_cudaq(subcircuit)
             results.append(result)
-        
+
         results = compss_wait_on(results)
         print(results)
 
-        reconstruction = gate_cutting_subcircuit_reconstruction(results,number_cuts=1)
+        reconstruction = gate_cutting_subcircuit_reconstruction(results, number_cuts=1)
 
-        analytical = analytical_solution(circuit, "Z"*circuit.nqubits)
+        analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
         else:

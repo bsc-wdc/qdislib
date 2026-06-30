@@ -1,0 +1,101 @@
+# GitLab CI for Qdislib.
+#
+# PyCOMPSs is intentionally NOT installed here: the tests run in the serial
+# fallback (see Qdislib/utils/runtime.py), which is what stock CI runners
+# support. The quantum SDKs are optional extras, installed per job.
+
+stages:
+  - lint
+  - test
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+
+# ---------------------------------------------------------------------------
+# Lint
+# ---------------------------------------------------------------------------
+lint:
+  stage: lint
+  image: python:3.11
+  script:
+    - python -m pip install --upgrade pip black
+    - black --check Qdislib/ tests/
+
+# ---------------------------------------------------------------------------
+# Test matrix (Qibo + Qiskit backends) across supported Python versions.
+# The existing test suite builds circuits with Qibo, so Qibo is always present;
+# cudaq tests skip automatically when cudaq is absent.
+# ---------------------------------------------------------------------------
+.test:
+  stage: test
+  script:
+    - python -m pip install --upgrade pip
+    - pip install ".[qibo,qiskit,ci]"
+    - python -m unittest discover -s tests/ -v
+
+test:py3.10:
+  extends: .test
+  image: python:3.10
+
+test:py3.11:
+  extends: .test
+  image: python:3.11
+
+test:py3.12:
+  extends: .test
+  image: python:3.12
+
+# ---------------------------------------------------------------------------
+# Coverage (Qibo + Qiskit). Enforces the fail_under floor set in pyproject.toml.
+# ---------------------------------------------------------------------------
+coverage:
+  stage: test
+  image: python:3.11
+  script:
+    - python -m pip install --upgrade pip
+    - pip install ".[qibo,qiskit,ci]"
+    - coverage run -m unittest discover -s tests/
+    - coverage report
+    - coverage xml
+  coverage: '/TOTAL.+?(\d+\%)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+# ---------------------------------------------------------------------------
+# Optional-import hardening: the library must import with only ONE SDK present.
+# ---------------------------------------------------------------------------
+import-smoke:qibo:
+  stage: test
+  image: python:3.11
+  script:
+    - python -m pip install --upgrade pip
+    - pip install ".[qibo]"
+    - python -c "import Qdislib; print('qibo-only import OK')"
+
+import-smoke:qiskit:
+  stage: test
+  image: python:3.11
+  script:
+    - python -m pip install --upgrade pip
+    - pip install ".[qiskit]"
+    - python -c "import Qdislib; print('qiskit-only import OK')"
+
+# ---------------------------------------------------------------------------
+# CUDA-Q (CPU backend). The wheel may be unavailable on some runners, so this
+# job is allowed to fail without blocking the pipeline.
+# ---------------------------------------------------------------------------
+test:cudaq:
+  stage: test
+  image: python:3.11
+  script:
+    - python -m pip install --upgrade pip
+    - pip install ".[all,ci]"
+    - python -m unittest discover -s tests/ -v
+  allow_failure: true
