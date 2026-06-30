@@ -85,3 +85,10 @@ __pycache__/
 
 # Ignore building virtual environment
 documentation-builder/
+
+# Virtual environments
+.venv/
+.venv*/
+venv/
+env/
+ENV/

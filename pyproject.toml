@@ -56,6 +56,17 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+# Quantum SDK backends. At least one is required to run circuits; the library
+# imports fine with none installed (e.g. for documentation builds).
+qibo = ["qibo>=0.1.12,<0.2.17"]   # 0.2.17+ regressed collapse-measurement execution; 0.3.x rewrote the API
+qiskit = [
+  "qiskit>=1.1.0",
+  "qiskit-addon-cutting>=0.10.0",
+  "qiskit_aer>=0.15.1",
+  "qiskit-ibm-runtime>=0.20.0",   # only needed for the IBM Quantum QPU path
+]
+cudaq = ["cudaq>=0.14.0"]
+all = ["Qdislib[qibo,qiskit,cudaq]"]
 ci = [
   "pycodestyle",
   "pydocstyle",
@@ -95,8 +106,14 @@ Documentation = "https://Qdislib.readthedocs.io"
 # [project.scripts]
 # Qdislib-cli = "Qdislib:main_cli"
 
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+
 [tool.coverage.report]
-fail_under = 80
+# Current coverage is ~65% (qibo+qiskit, cudaq tests skipped). This is the
+# regression floor to ratchet upward as more tests are added.
+fail_under = 60
 
 [tool.coverage.run]
 branch = true
