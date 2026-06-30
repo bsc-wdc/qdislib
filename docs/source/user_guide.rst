@@ -120,6 +120,30 @@ run the cut, execution and reconstruction together. This modular structure gives
 users fine-grained control over hybrid quantum-classical workflows.
 
 
+Observables
+-----------
+
+The ``observables`` argument accepts a per-qubit Pauli string over
+``X``, ``Y``, ``Z`` and ``I`` (identity), e.g. ``"ZIZ"``. ``X`` and ``Y`` terms
+are measured by rotating into the Z basis automatically, on any backend.
+
+You can also pass a **weighted sum of Pauli operators** (a Hamiltonian),
+evaluated as ``<sum_i c_i P_i> = sum_i c_i <P_i>`` — either as a list of
+``(coefficient, pauli_string)`` pairs or as a ``{pauli_string: coefficient}``
+mapping:
+
+.. code-block:: python
+
+    # <0.5 ZZ> + <1.0 XI> - <0.3 IZ>
+    hamiltonian = [(0.5, "ZZ"), (1.0, "XI"), (-0.3, "IZ")]
+    result = qd.gate_cutting(circuit, cut, observables=hamiltonian)
+
+    # equivalently, as a mapping
+    result = qd.gate_cutting(circuit, cut, observables={"ZZ": 0.5, "XI": 1.0, "IZ": -0.3})
+
+The same forms work with ``qd.wire_cutting`` and ``qd.analytical_solution``.
+
+
 Resource Allocation
 -------------------
 
