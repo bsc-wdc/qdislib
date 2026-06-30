@@ -52,6 +52,7 @@ except ImportError:  # qibo is optional; functions that need it fail when called
     qibo_available = False
 
 from Qdislib.utils.exceptions import QdislibException
+from Qdislib.utils.backends import normalize_observables
 
 
 def analytical_solution(
@@ -107,43 +108,37 @@ def analytical_solution(
     """
 
     state = circuit()
-    counter = 0
-    final = []
-    for i in observables:
-        if i == "Z":
-            final.append(qibo.symbols.Z(counter))
-        if i == "X":
-            final.append(qibo.symbols.X(counter))
-        if i == "Y":
-            final.append(qibo.symbols.Y(counter))
-        if i == "I":
-            final.append(qibo.symbols.I(counter))
-        counter = counter + 1
+    statevector = np.asarray(state.state(numpy=True))
 
-    expectation_value = np.prod(final)
-    if verbose:
-        logger.info(expectation_value)
+    symbol_of = {
+        "Z": qibo.symbols.Z,
+        "X": qibo.symbols.X,
+        "Y": qibo.symbols.Y,
+        "I": qibo.symbols.I,
+    }
 
-    # Build the observable as a symbolic Hamiltonian and evaluate <psi|H|psi>
-    # directly from its dense matrix, rather than via
+    # Evaluate <psi|H|psi> directly from each term's dense matrix, rather than via
     # SymbolicHamiltonian.expectation(), whose signature changed across qibo
     # releases (0.2.x: (state, normalize=...); 0.3.x: (circuit, nshots=...)).
-    # The matrix form is version-agnostic.
-    hamiltonian = hamiltonians.SymbolicHamiltonian(expectation_value)
-    statevector = np.asarray(state.state(numpy=True))
-    exp_full_circuit = float(
-        np.real(np.conj(statevector) @ (hamiltonian.matrix @ statevector))
-    )
-
-    if verbose:
-        logger.info(
-            "%s %s %s %s",
-            "The expectation value of",
-            expectation_value,
-            "in the entire circuit is ",
-            exp_full_circuit,
+    # The matrix form is version-agnostic. ``observables`` may be a single Pauli
+    # string or a weighted sum of them; normalize_observables handles both.
+    total = 0.0
+    for coeff, pauli in normalize_observables(observables):
+        term = np.prod([symbol_of[ch](qubit) for qubit, ch in enumerate(pauli)])
+        hamiltonian = hamiltonians.SymbolicHamiltonian(term)
+        term_value = float(
+            np.real(np.conj(statevector) @ (hamiltonian.matrix @ statevector))
         )
-    return exp_full_circuit
+        if verbose:
+            logger.info(
+                "Term %s (coefficient %s) expectation value: %s",
+                pauli,
+                coeff,
+                term_value,
+            )
+        total += coeff * term_value
+
+    return total
 
 
 def _random_circuit(

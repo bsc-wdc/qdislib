@@ -128,7 +128,12 @@ import time
 import typing
 
 
-from Qdislib.utils.backends import convert_to_dag, CutSubcircuits
+from Qdislib.utils.backends import (
+    convert_to_dag,
+    change_basis_dag,
+    normalize_observables,
+    CutSubcircuits,
+)
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
 
 
@@ -222,6 +227,29 @@ def gate_cutting(
 
     """
 
+    # A weighted sum of Pauli observables (a Hamiltonian) is evaluated term by
+    # term: <sum_i c_i P_i> = sum_i c_i <P_i>. Each term reuses the single
+    # Pauli-string path below. A plain string (or None) skips this and runs once.
+    if observables is not None and not isinstance(observables, str):
+        total = 0.0
+        for coeff, pauli in normalize_observables(observables):
+            base = dag.copy() if isinstance(dag, nx.Graph) else dag
+            total += coeff * gate_cutting(
+                base,
+                gates_cut,
+                observables=pauli,
+                shots=shots,
+                method=method,
+                sync=sync,
+                gpu=gpu,
+                gpu_min_qubits=gpu_min_qubits,
+                qpu=qpu,
+                qpu_dict=qpu_dict,
+                software=software,
+                verbose=verbose,
+            )
+        return total
+
     # Normalise optional dict/int args before they are indexed below.
     if qpu_dict is None:
         qpu_dict = {}
@@ -233,10 +261,9 @@ def gate_cutting(
     else:
         batch, backend = None, None
 
-    if observables:
-        dag = _change_basis(dag, observables)
-
     dag = convert_to_dag(dag, observables)
+    if observables:
+        dag = change_basis_dag(dag, observables)
 
     if nx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -804,7 +831,11 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic", verbose=False):
     expectation_value = 0
     for key, value in counts.items():
         contribution = 1
-        for bit, obs in zip(key, observables):
+        # Qiskit get_counts() keys are "<measure-all reg> <other regs>" with the
+        # measure-all register first and little-endian (qubit 0 is the last bit);
+        # take that register and reverse it to align with the qubit-0-first
+        # observable string.
+        for bit, obs in zip(reversed(key.split()[0]), observables):
             if obs == "Z":
                 contribution *= (-1) ** int(bit)
             elif obs == "I":
@@ -852,7 +883,11 @@ def _expec_value_qiskit_qpu(
     expectation_value = 0
     for key, value in pub_result.items():
         contribution = 1
-        for bit, obs in zip(key, observables):
+        # Qiskit get_counts() keys are "<measure-all reg> <other regs>" with the
+        # measure-all register first and little-endian (qubit 0 is the last bit);
+        # take that register and reverse it to align with the qubit-0-first
+        # observable string.
+        for bit, obs in zip(reversed(key.split()[0]), observables):
             if obs == "Z":
                 contribution *= (-1) ** int(bit)
             elif obs == "I":
@@ -908,7 +943,11 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
     expectation_value = 0
     for key, value in counts.items():
         contribution = 1
-        for bit, obs in zip(key, observables):
+        # Qiskit get_counts() keys are "<measure-all reg> <other regs>" with the
+        # measure-all register first and little-endian (qubit 0 is the last bit);
+        # take that register and reverse it to align with the qubit-0-first
+        # observable string.
+        for bit, obs in zip(reversed(key.split()[0]), observables):
             if obs == "Z":
                 contribution *= (-1) ** int(bit)
             elif obs == "I":
@@ -919,19 +958,6 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
     return expectation_value
-
-
-def _change_basis(circuit, observables):
-    for idx, i in enumerate(observables):
-        if i == "X":
-            circuit.add(gates.H(idx))
-        elif i == "Y":
-            circuit.add(gates.SDG(idx))
-            circuit.add(gates.H(idx))
-        else:
-            pass
-
-    return circuit
 
 
 def _check_ibm_qc():
@@ -1067,10 +1093,9 @@ def gate_cutting_subcircuits(
             "Invalid gate name format: each entry must match '<GATE>_<NUMBER>', e.g. 'CX_1'."
         )
 
-    if observables:
-        dag = _change_basis(dag, observables)
-
     dag = convert_to_dag(dag, observables)
+    if observables:
+        dag = change_basis_dag(dag, observables)
 
     dispatch_map = {
         "qibo": dag_to_circuit_qibo,
