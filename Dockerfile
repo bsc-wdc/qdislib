@@ -5,7 +5,9 @@ COPY . Qdislib/
 
 ENV PYTHONPATH=$PYTHONPATH:/Qdislib:/opt/COMPSs/Bindings/python/3/
 ENV LC_ALL=C.UTF-8
-RUN python3 -m pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --upgrade /Qdislib/
+# Install with the Qibo + Qiskit backends (SDKs are optional extras; use [all]
+# to additionally pull cudaq where the target image supports it).
+RUN python3 -m pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --upgrade '/Qdislib/[qibo,qiskit]'
 
 ENV COMPSS_LOAD_SOURCE false
 
