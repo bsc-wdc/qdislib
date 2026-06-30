@@ -55,6 +55,7 @@ __all__ = [
     "iter_gates",
     "num_qubits",
     "expectation_value",
+    "normalize_observables",
     "CutSubcircuits",
 ]
 
@@ -91,6 +92,92 @@ def convert_to_dag(circuit, observables=None):
         kwargs["obs_I"] = observables
 
     return converter(circuit, **kwargs)
+
+
+def normalize_observables(observables):
+    """Normalize an observable specification into ``[(coefficient, pauli_string), ...]``.
+
+    Lets the cutting routines accept a **weighted sum of Pauli operators** (a
+    Hamiltonian), not just a single per-qubit Pauli string, since
+    ``<sum_i c_i P_i> = sum_i c_i <P_i>``. Accepted forms:
+
+    - a single Pauli string, e.g. ``"ZZI"`` -> ``[(1.0, "ZZI")]``;
+    - a mapping ``{pauli_string: coefficient}``, e.g. ``{"ZZ": 0.5, "XI": -1.0}``;
+    - an iterable of ``(coefficient, pauli_string)`` pairs, e.g.
+      ``[(0.5, "ZZ"), (-1.0, "XI")]``.
+
+    :param observables: A Pauli string, mapping, or iterable of weighted terms.
+    :return: A list of ``(float, str)`` ``(coefficient, pauli_string)`` terms.
+    :raises ValueError: If a Pauli string contains a character other than I/X/Y/Z,
+        or if the terms have inconsistent lengths.
+    """
+    if isinstance(observables, str):
+        terms = [(1.0, observables)]
+    elif isinstance(observables, dict):
+        terms = [(float(coeff), pauli) for pauli, coeff in observables.items()]
+    else:
+        terms = [(float(coeff), str(pauli)) for coeff, pauli in observables]
+
+    if not terms:
+        raise ValueError("Empty observable specification.")
+    lengths = {len(pauli) for _, pauli in terms}
+    for _, pauli in terms:
+        if any(ch not in "IXYZ" for ch in pauli):
+            raise ValueError(
+                f"Invalid Pauli string {pauli!r}: only 'I', 'X', 'Y', 'Z' are allowed."
+            )
+    if len(lengths) > 1:
+        raise ValueError(
+            f"All Pauli terms must act on the same number of qubits; got lengths {sorted(lengths)}."
+        )
+    return terms
+
+
+def change_basis_dag(dag, observables):
+    """Append measurement-basis-rotation gates to a circuit DAG (backend-neutral).
+
+    To measure a non-Z Pauli, the qubit is rotated into the Z basis before
+    measurement: ``X`` -> append ``H``; ``Y`` -> append ``SDG`` then ``H``. ``Z``
+    and ``I`` qubits are left unchanged. The rotation is appended at the qubit's
+    current sink (its last gate), so a subsequent Z-basis measurement yields the
+    X/Y expectation value.
+
+    This operates on the DAG rather than the source circuit so it works for any
+    input backend; the SDK circuits (Qiskit ``QuantumCircuit``, CUDA-Q kernels)
+    cannot be appended to generically the way a Qibo ``Circuit`` can.
+
+    :param dag: A circuit DAG produced by :func:`convert_to_dag`.
+    :param observables: Per-qubit Pauli string (e.g. ``"XZY"``).
+    :return: The same DAG with rotation nodes appended (mutated in place).
+    """
+    if not observables:
+        return dag
+
+    rotations = {"X": ("H",), "Y": ("SDG", "H")}
+    for qubit, pauli in enumerate(observables):
+        chain = rotations.get(pauli)
+        if not chain:
+            continue
+        for offset, gate_name in enumerate(chain):
+            node_id = f"BASIS{pauli}{qubit}_{offset}"
+            dag.add_node(node_id, gate=gate_name, qubits=(qubit,), parameters=())
+            # Reproduce the dependency edges that ``circuit_*_to_dag`` would build
+            # for this gate: a single blue edge to the nearest predecessor on the
+            # qubit, and red edges to every earlier gate on that qubit. The red
+            # edges matter for wire cutting's component generation.
+            for pred in reversed(list(dag.nodes)):
+                if pred != node_id and qubit in (dag.nodes[pred].get("qubits") or ()):
+                    dag.add_edge(pred, node_id, color="blue")
+                    break
+            for pred in reversed(list(dag.nodes)):
+                if (
+                    pred != node_id
+                    and qubit in (dag.nodes[pred].get("qubits") or ())
+                    and not dag.has_edge(pred, node_id)
+                ):
+                    dag.add_edge(pred, node_id, color="red")
+
+    return dag
 
 
 def iter_gates(circuit):

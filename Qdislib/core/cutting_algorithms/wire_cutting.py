@@ -103,7 +103,12 @@ from Qdislib.utils.graph_cudaq import (
 )
 
 
-from Qdislib.utils.backends import convert_to_dag, CutSubcircuits
+from Qdislib.utils.backends import (
+    convert_to_dag,
+    change_basis_dag,
+    normalize_observables,
+    CutSubcircuits,
+)
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
 
 
@@ -174,10 +179,28 @@ def wire_cutting(
         cuts = [("H_1","CZ_2")]  # List of gate tuples
         reconstruction = wire_cutting(qc, cuts, shots=2048, backend="qiskit")
     """
-    if observables:
-        rand_qc = _change_basis(rand_qc, observables)
+    # A weighted sum of Pauli observables (a Hamiltonian) is evaluated term by
+    # term: <sum_i c_i P_i> = sum_i c_i <P_i>. Each term reuses the single
+    # Pauli-string path below. A plain string (or None) skips this and runs once.
+    if observables is not None and not isinstance(observables, str):
+        total = 0.0
+        for coeff, pauli in normalize_observables(observables):
+            base = rand_qc.copy() if isinstance(rand_qc, networkx.Graph) else rand_qc
+            total += coeff * wire_cutting(
+                base,
+                cut,
+                sync=sync,
+                observables=pauli,
+                shots=shots,
+                backend=backend,
+                qpu=qpu,
+                software=software,
+            )
+        return total
 
     dag = convert_to_dag(rand_qc, observables)
+    if observables:
+        dag = change_basis_dag(dag, observables)
 
     if networkx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -665,24 +688,6 @@ def _change_sign(expectation_value, index):
         return expectation_value
 
 
-def _change_basis(circuit, observables):
-    # Rotate each requested Pauli observable into the computational (Z) basis so
-    # it can be read out with a standard Z measurement:
-    #   X -> H            (H Z H  = X)
-    #   Y -> S-dagger, H  (H S^t Z S H = Y)
-    # Anything else (Z / I) needs no rotation.
-    for idx, i in enumerate(observables):
-        if i == "X":
-            circuit.add(gates.H(idx))
-        elif i == "Y":
-            circuit.add(gates.SDG(idx))
-            circuit.add(gates.H(idx))
-        else:
-            pass
-
-    return circuit
-
-
 def wire_cutting_subcircuits(
     rand_qc: typing.Any,
     cut: typing.List[typing.Any],
@@ -785,10 +790,9 @@ def wire_cutting_subcircuits(
                 "Invalid wire name format: each string in wire_cut tuples must match '<GATE>_<NUMBER>', e.g. 'CX_1'."
             )
 
-    if observables:
-        rand_qc = _change_basis(rand_qc, observables)
-
     dag = convert_to_dag(rand_qc, observables)
+    if observables:
+        dag = change_basis_dag(dag, observables)
 
     dispatch_map = {
         "qibo": dag_to_circuit_qibo,
