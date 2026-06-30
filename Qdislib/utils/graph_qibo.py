@@ -49,22 +49,7 @@ except ImportError:  # qibo is optional; functions that need it fail when called
     models = gates = None
     qibo_available = False
 
-try:
-    from pycompss.api.task import task
-    from pycompss.api.parameter import INOUT
-
-    pycompss_available = True
-except ImportError:
-    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
-
-    def task(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    INOUT = None
-    pycompss_available = False
+from Qdislib.utils.runtime import task
 
 
 def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:

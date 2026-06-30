@@ -87,6 +87,16 @@ import-smoke:qiskit:
     - pip install ".[qiskit]"
     - python -c "import Qdislib; print('qiskit-only import OK')"
 
+import-smoke:cudaq:
+  stage: test
+  image: python:3.11
+  # The cudaq wheel may be unavailable on some runners; don't block the pipeline.
+  allow_failure: true
+  script:
+    - python -m pip install --upgrade pip
+    - pip install ".[cudaq]"
+    - python -c "import Qdislib; print('cudaq-only import OK')"
+
 # ---------------------------------------------------------------------------
 # CUDA-Q (CPU backend). The wheel may be unavailable on some runners, so this
 # job is allowed to fail without blocking the pipeline.

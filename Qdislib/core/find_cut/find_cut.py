@@ -28,25 +28,7 @@ __all__ = ["find_cut"]
 import networkx
 import typing
 
-try:
-    from pycompss.api.task import task
-    from pycompss.api.api import compss_wait_on
-
-    pycompss_available = True
-
-except ImportError:
-    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
-
-    def task(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
-    def compss_wait_on(obj):
-        return obj
-
-    pycompss_available = False
+from Qdislib.utils.runtime import task, compss_wait_on
 
 try:
     import qibo
