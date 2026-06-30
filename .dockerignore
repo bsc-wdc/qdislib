@@ -4,3 +4,27 @@
 # python files
 **/*.pyc
 **/*.pyo
+**/__pycache__
+
+# local virtual environments (multi-GB; never needed in the image)
+.venv
+.venv*
+venv
+env
+ENV
+docs/documentation-builder
+
+# version control and CI metadata
+.git
+.gitlab-ci.yml
+
+# build / packaging artifacts
+build
+dist
+*.egg-info
+docs/build
+
+# test / coverage artifacts
+.coverage
+.pytest_cache
+output.log

@@ -103,6 +103,26 @@ following rules before you submit a pull request:
   docker exec Qdislib /Qdislib/scripts/run_ci_checks.sh
   ```
 
+- **PyCOMPSs / `runcompss` testing**. The unit tests above run in *serial* mode
+  (the PyCOMPSs fallback), so they do not exercise the distributed `@task` path.
+  To validate that path, run Qdislib under `runcompss` inside a COMPSs image:
+
+  ```bash
+  # Build (override COMPSS_IMAGE with whichever COMPSs image you have):
+  docker build -f Dockerfile.compss \
+      --build-arg COMPSS_IMAGE=compss/compss-tutorial:3.3.3 -t qdislib-compss .
+
+  # Run the example app + unittest suite under runcompss:
+  docker run --rm qdislib-compss
+
+  # ...or interactively:
+  docker run --rm -it qdislib-compss bash
+  runcompss --pythonpath=/Qdislib examples/compss_app.py
+  ```
+
+  The harness (`scripts/run_compss_tests.sh`) runs `examples/compss_app.py` and
+  the unittest suite via `runcompss` and fails if either reports errors.
+
 - Follow the coding-guidelines defined by default [black](https://black.readthedocs.io/en/stable/).
 
 - Give your pull request a helpful title that summarizes what your contribution does.

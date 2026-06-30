@@ -1,0 +1,31 @@
+# Image for running Qdislib under PyCOMPSs (runcompss) to validate the
+# distributed @task execution path that the serial unit tests do not cover.
+#
+# Build (override COMPSS_IMAGE with whichever COMPSs image you have):
+#   docker build -f Dockerfile.compss \
+#       --build-arg COMPSS_IMAGE=compss/compss-tutorial:3.3.3 -t qdislib-compss .
+#
+# Run the COMPSs test harness (example app + unittest suite via runcompss):
+#   docker run --rm qdislib-compss
+#
+# Or drop into a shell and run things manually:
+#   docker run --rm -it qdislib-compss bash
+#   runcompss --pythonpath=/Qdislib examples/compss_app.py
+
+ARG COMPSS_IMAGE=compss/compss-tutorial:3.3.3
+FROM ${COMPSS_IMAGE}
+
+COPY . /Qdislib/
+WORKDIR /Qdislib
+
+ENV PYTHONPATH=$PYTHONPATH:/Qdislib:/opt/COMPSs/Bindings/python/3/
+ENV LC_ALL=C.UTF-8
+
+# Qdislib core + Qibo & Qiskit backends. Qibo drives the example app; add
+# '[all]' instead if the base image can install cudaq.
+RUN python3 -m pip install --upgrade \
+    --trusted-host pypi.org --trusted-host files.pythonhosted.org \
+    '/Qdislib/[qibo,qiskit]'
+
+# Default: run the example app and the unittest suite under runcompss.
+CMD ["bash", "scripts/run_compss_tests.sh"]
