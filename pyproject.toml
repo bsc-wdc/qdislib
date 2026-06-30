@@ -76,7 +76,7 @@ ci = [
   "pylint",
   "prospector",
   "pytest",
-  "pytest-cov[all]",
+  "pytest-cov",   # the [all] extra was removed in pytest-cov 7.x
   "nbsphinx",
   "nbsphinx-link",
   "sphinx-material",

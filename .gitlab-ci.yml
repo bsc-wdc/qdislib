@@ -1,63 +1,69 @@
 # GitLab CI for Qdislib.
 #
-# PyCOMPSs is intentionally NOT installed here: the tests run in the serial
-# fallback (see Qdislib/utils/runtime.py), which is what stock CI runners
-# support. The quantum SDKs are optional extras, installed per job.
+# The BSC runner (bscgrid05) is a SHELL executor (it ignores `image:`) on Debian
+# 11 whose only Python is the system 3.9.2 -- with a broken venv (no ensurepip)
+# and no module system / conda / >=3.10 interpreter. Qdislib needs >=3.10, so we
+# provision one with uv: bootstrapped via the node's working system pip, uv
+# downloads a standalone CPython and manages the virtualenv (no ensurepip, no
+# sudo). Override the version with UV_PYTHON.
+#
+# PyCOMPSs is intentionally NOT installed: the tests run in the serial fallback
+# (see Qdislib/utils/runtime.py). The quantum SDKs are optional extras.
 
 stages:
   - lint
   - test
 
 variables:
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  UV_PYTHON: "3.12"                                # the >=3.10 interpreter uv provisions
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"      # for the one-off `pip3 install --user uv`
 
 cache:
   paths:
+    - .cache/uv
     - .cache/pip
+
+# Every job runs in a uv-managed virtualenv on a provisioned CPython. before_script
+# and script share one shell, so activating here makes `python`/`uv` apply to the
+# job's own script below. uv is cached in $HOME between runs, so the bootstrap and
+# python download only happen once per runner.
+default:
+  before_script:
+    - export PATH="$HOME/.local/bin:$PATH"
+    - command -v uv >/dev/null 2>&1 || pip3 install --user --upgrade uv
+    - uv --version
+    - uv python install "$UV_PYTHON"
+    - uv venv --python "$UV_PYTHON" .venv-ci
+    - . .venv-ci/bin/activate
+    - python --version
 
 # ---------------------------------------------------------------------------
 # Lint
 # ---------------------------------------------------------------------------
 lint:
   stage: lint
-  image: python:3.11
   script:
-    - python -m pip install --upgrade pip black
+    - uv pip install black
     - black --check Qdislib/ tests/
 
 # ---------------------------------------------------------------------------
-# Test matrix (Qibo + Qiskit backends) across supported Python versions.
-# The existing test suite builds circuits with Qibo, so Qibo is always present;
-# cudaq tests skip automatically when cudaq is absent.
+# Tests (Qibo + Qiskit backends). The suite builds circuits with Qibo, so Qibo
+# is always present; cudaq tests skip automatically when cudaq is absent.
 # ---------------------------------------------------------------------------
-.test:
+test:
   stage: test
   script:
-    - python -m pip install --upgrade pip
-    - pip install ".[qibo,qiskit,ci]"
+    - uv pip install ".[qibo,qiskit,ci]"
     - python -m unittest discover -s tests/ -v
-
-test:py3.10:
-  extends: .test
-  image: python:3.10
-
-test:py3.11:
-  extends: .test
-  image: python:3.11
-
-test:py3.12:
-  extends: .test
-  image: python:3.12
 
 # ---------------------------------------------------------------------------
 # Coverage (Qibo + Qiskit). Enforces the fail_under floor set in pyproject.toml.
 # ---------------------------------------------------------------------------
 coverage:
   stage: test
-  image: python:3.11
   script:
-    - python -m pip install --upgrade pip
-    - pip install ".[qibo,qiskit,ci]"
+    - uv pip install ".[qibo,qiskit,ci]"
     - coverage run -m unittest discover -s tests/
     - coverage report
     - coverage xml
@@ -73,39 +79,31 @@ coverage:
 # ---------------------------------------------------------------------------
 import-smoke:qibo:
   stage: test
-  image: python:3.11
   script:
-    - python -m pip install --upgrade pip
-    - pip install ".[qibo]"
+    - uv pip install ".[qibo]"
     - python -c "import Qdislib; print('qibo-only import OK')"
 
 import-smoke:qiskit:
   stage: test
-  image: python:3.11
   script:
-    - python -m pip install --upgrade pip
-    - pip install ".[qiskit]"
+    - uv pip install ".[qiskit]"
     - python -c "import Qdislib; print('qiskit-only import OK')"
 
 import-smoke:cudaq:
   stage: test
-  image: python:3.11
-  # The cudaq wheel may be unavailable on some runners; don't block the pipeline.
+  # The cudaq wheel may be unavailable on the node; don't block the pipeline.
   allow_failure: true
   script:
-    - python -m pip install --upgrade pip
-    - pip install ".[cudaq]"
+    - uv pip install ".[cudaq]"
     - python -c "import Qdislib; print('cudaq-only import OK')"
 
 # ---------------------------------------------------------------------------
-# CUDA-Q (CPU backend). The wheel may be unavailable on some runners, so this
-# job is allowed to fail without blocking the pipeline.
+# CUDA-Q (CPU backend). The wheel may be unavailable on the node, so this job
+# is allowed to fail without blocking the pipeline.
 # ---------------------------------------------------------------------------
 test:cudaq:
   stage: test
-  image: python:3.11
-  script:
-    - python -m pip install --upgrade pip
-    - pip install ".[all,ci]"
-    - python -m unittest discover -s tests/ -v
   allow_failure: true
+  script:
+    - uv pip install ".[all,ci]"
+    - python -m unittest discover -s tests/ -v
