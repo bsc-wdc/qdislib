@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rates up under high concurrency. New `cache` extra (`pip install Qdislib[cache]`).
 - `set_log_level(...)` (and the `QDISLIB_LOG_LEVEL` environment variable) to turn
   on Qdislib's diagnostic logging with one switch.
+- Cross-cluster **QPU bridge** (`Qdislib.utils.qpu_bridge`): `run_qpu_listener()`
+  runs on the quantum cluster and executes submitted subcircuits on a BSC QPU
+  (Blue or Red) via qililab, communicating with the classical cut job through a
+  shared filesystem directory (`subcircuits_dir()` / `$QDISLIB_SUBCIRCUITS_DIR`,
+  the single source of truth used by both sides). See `examples/qpu_listener.py`.
 
 ### Changed
 - The quantum SDKs (Qibo / Qiskit / CUDA-Q) are now **optional**: the library
@@ -42,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DEBUG level. Use `qd.set_log_level("DEBUG")` instead of `verbose=True`.
 
 ### Fixed
+- QPU hand-off no longer hangs forever: the wait for a result is now bounded
+  (`QPUTimeoutError` after `$QDISLIB_QPU_TIMEOUT`, default 1 h) and files are
+  written atomically, so a down listener or a half-written file no longer stalls
+  or corrupts a run. Measurements are added once (on the listener side).
 - Identity (`"I"`) observables on the Qiskit backend: `get_counts()` bitstrings
   are little-endian and multi-register, so they are now reduced to the
   measurement register and reversed before being paired with the observable.

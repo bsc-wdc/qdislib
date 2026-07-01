@@ -32,9 +32,6 @@ __all__ = [
 import math
 import networkx
 import typing
-import time
-import pickle
-import os
 
 import re
 
@@ -672,7 +669,15 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
 
 @task(returns=1)
 def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
+    """Evaluate a subcircuit on a BSC QPU via the shared-filesystem bridge.
 
+    Ships the *unmeasured* subcircuit to the QPU listener
+    (:func:`~Qdislib.utils.qpu_bridge.run_qpu_listener`, which adds the
+    measurements and runs it on the hardware), then computes the expectation from
+    the returned counts. The wait is bounded (see
+    :func:`~Qdislib.utils.qpu_bridge.submit_and_wait`). ``method`` is unused here,
+    kept for signature parity with the CPU/GPU evaluators.
+    """
     if subcirc is None:
         return None
 
@@ -680,57 +685,16 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
         observables = subcirc[1]
         subcirc = subcirc[0]
     else:
-        observables = ["Z"] * subcirc.nqubits
-        observables = "".join(observables)
+        observables = "Z" * subcirc.nqubits
 
-    subcirc.add(gates.M(*range(subcirc.nqubits)))
+    from Qdislib.utils.qpu_bridge import submit_and_wait
 
-    observables = "".join(observables)
-
-    unique_code = str(time.time_ns())
-
-    # File-based handoff to the QPU bridge. Defaults to the original cluster
-    # path for backwards compatibility, but can be overridden via the
-    # QDISLIB_SUBCIRCUITS_DIR environment variable.
-    subcircuits_dir = os.environ.get(
-        "QDISLIB_SUBCIRCUITS_DIR", "/home/bsc/bsc019635/ona_proves/subcircuits"
-    )
-    os.makedirs(subcircuits_dir, exist_ok=True)
-    circuit_filename = os.path.join(subcircuits_dir, f"circuit_{unique_code}.pkl")
-    result_filename = os.path.join(subcircuits_dir, f"result_{unique_code}.pkl")
-
-    # Save the circuit to the unique file
-    with open(circuit_filename, "wb") as f:
-        pickle.dump(subcirc, f)
-
-    logger.info(f"Circuit saved: {circuit_filename}, waiting for {result_filename}...")
-
-    while not os.path.exists(result_filename):
-        time.sleep(1)  # Check every second
-
-    # Load the circuit from the file
-    with open(result_filename, "rb") as f:
-        result = pickle.load(f)
-        logger.info(f"Received result from {result_filename}: {result}")
-
+    result = submit_and_wait(subcirc)
     freq = result.counts()
-
-    os.remove(result_filename)  # Remove result file after reading
-
-    expectation_value = 0
-    for key, value in freq.items():
-        contribution = 1
-        for bit, obs in zip(key, observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
-            elif obs == "I":
-                contribution *= 1
-            else:
-                raise ValueError(f"Unsupported observable {obs}")
-
-        # Add the contribution weighted by its frequency
-        expectation_value += contribution * (value / shots)
-    return expectation_value
+    # Normalise by the actual shot count returned by the QPU (its num_bins may
+    # differ from the classical-side ``shots`` argument).
+    total_shots = sum(freq.values()) or 1
+    return _expectation_from_counts_qibo(freq, observables, total_shots)
 
 
 @task(returns=1, expectation_value=COLLECTION_IN)
