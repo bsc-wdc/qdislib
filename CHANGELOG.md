@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Pluggable backend layer** (`Qdislib.core.backend`): a user-swappable
+  execution abstraction so backend choice lives outside the cutting algorithms.
+  `QdBackEnd` routes each `sample_circuit` / `get_expectation_value` job to the
+  most suitable registered backend (shortest queue first, qubit-count
+  compatible, with fallback). Backends implement `BaseBackend` and register via
+  `register_backend(...)`; shipped: `AER_BACKEND`, `QIBO_BACKEND`,
+  `CUDAQ_BACKEND`, `IQM_BACKEND` (lazy-imported, so only the extras you use are
+  required). New `iqm` extra. (Foundation for extracting backend selection out
+  of `gate_cutting`/`wire_cutting`.)
 - CUDA-Q backend support for gate cutting, wire cutting and `find_cut`
   (`software="cudaq"`), validated against analytical expectation values.
 - First-class subcircuit workflow: `expectation_value()` and the
