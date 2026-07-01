@@ -146,7 +146,10 @@ class AerBackend(BaseBackend):
     ) -> ExpectationJobResult:
         prepared = self.transpile(circuit) if transpile else CircuitConverter.to_qiskit(circuit)
         if isinstance(observable, str):
-            observable = SparsePauliOp(observable)
+            # Qdislib observable strings are qubit-0-first (char i = qubit i);
+            # a Qiskit Pauli label is little-endian (char 0 = highest qubit), so
+            # reverse to keep the convention consistent with the Qibo/CUDA-Q backends.
+            observable = SparsePauliOp(observable[::-1])
 
         aer_job = self._estimator.run([(prepared, observable)])
         expectation_value = float(aer_job.result()[0].data.evs.item())

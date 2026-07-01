@@ -49,9 +49,7 @@ from Qdislib.utils.graph_qibo import (
     _update_qubits,
     _remove_red_edges,
     _max_qubits_graph,
-    dag_to_circuit_qibo,
 )
-from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
 from Qdislib.core.cutting_algorithms.wire_cutting import _sum_results
 from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
 
@@ -696,16 +694,32 @@ def _component_original_qubits(component):
     return sorted(qubits)
 
 
-def _sample_gate_cut_configs(dag, gates_cut, software, shots):
-    """Sample every 6**n_cuts gate-cut configuration.
+@task(returns=1)
+def _sample_gate_subcircuit(component, software, shots):
+    """Sample one connected-component subcircuit (a PyCOMPSs task, run in parallel).
 
-    For each configuration and each connected component, returns the component's
-    qubit-0-first counts together with the component's *original* qubit indices,
-    so the reconstruction can place each bit back on the right qubit (the piece
-    the naive bitstring-concatenation reconstruction got wrong).
+    Only the picklable component DAG crosses the task boundary; the backend is
+    built and the native circuit sampled inside the worker. Returns the
+    component's qubit-0-first counts and its *original* qubit indices, so the
+    reconstruction can place each bit back on the right qubit.
     """
     from Qdislib.core.backend.registry import build_execution_backend
 
+    original = _component_original_qubits(component)
+    s_new, highest_qubit = _update_qubits(component)
+    backend = build_execution_backend(software, num_qubits=highest_qubit)
+    counts = backend.evaluate_samples(s_new, highest_qubit, shots)
+    return (counts, original)
+
+
+def _sample_gate_cut_configs(dag, gates_cut, software, shots):
+    """Sample every 6**n_cuts gate-cut configuration.
+
+    Each subcircuit is submitted as an independent :func:`_sample_gate_subcircuit`
+    task, so under PyCOMPSs they sample in parallel; serially they run inline.
+    Returns a list (per configuration) of lists (per component) of
+    ``(counts, original_qubits)`` results (futures under PyCOMPSs).
+    """
     new_dag = _generate_cut(dag, gates_cut)
     configs = []
     for index in range(6 ** len(gates_cut)):
@@ -714,14 +728,9 @@ def _sample_gate_cut_configs(dag, gates_cut, software, shots):
         graph_components = [nx.DiGraph() for _ in range(num_components)]
         _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
 
-        per_component = []
-        for comp in graph_components:
-            original = _component_original_qubits(comp)
-            s_new, highest_qubit = _update_qubits(comp)
-            backend = build_execution_backend(software, num_qubits=highest_qubit)
-            counts = backend.evaluate_samples(s_new, highest_qubit, shots)
-            per_component.append((counts, original))
-        configs.append(per_component)
+        configs.append(
+            [_sample_gate_subcircuit(comp, software, shots) for comp in graph_components]
+        )
     return configs
 
 
@@ -767,13 +776,13 @@ def _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits):
     return {k: abs(v) / norm for k, v in accumulated.items()}
 
 
-def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit"):
+def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit", sync=True):
     """Reconstruct the output **probability distribution** of a gate-cut circuit.
 
     Unlike :func:`gate_cutting` (which returns an expectation value), this samples
     each subcircuit and reconstructs the full distribution over measurement
-    bitstrings. Every subcircuit is sampled independently -- the reconstruction is
-    embarrassingly parallel -- and combined via the gate-cut quasiprobability
+    bitstrings. Every subcircuit is sampled independently -- so under PyCOMPSs the
+    subcircuits run in parallel -- and combined via the gate-cut quasiprobability
     decomposition, then abs-normalised into a valid distribution.
 
     :param circuit: A Qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
@@ -781,6 +790,8 @@ def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit"):
     :param shots: Measurement shots per subcircuit. Sampling reconstruction has a
         quasiprobability overhead, so it needs more shots than an expectation.
     :param software: Execution backend, or the name of any registered backend.
+    :param sync: Under PyCOMPSs, wait for the sampling tasks and return the
+        distribution; set ``False`` to keep the futures unresolved (advanced).
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     dag = convert_to_dag(circuit)
@@ -795,6 +806,11 @@ def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit"):
         return {k: v / total for k, v in counts.items()}
 
     configs = _sample_gate_cut_configs(dag, gates_cut, software, shots)
+    if sync:
+        configs = [
+            [compss_wait_on(result) for result in per_component]
+            for per_component in configs
+        ]
     return _reconstruct_gate_cut_distribution(configs, len(gates_cut), num_qubits)
 
 
@@ -828,27 +844,23 @@ def _build_and_run_gate_subcircuit(
     :param software: CPU-simulation backend ("qiskit", "qibo" or "cudaq").
     :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
     """
-    qpu_dict = qpu_dict or {}
     s_new, highest_qubit = _update_qubits(component)
     prep_qubits = _measured_cut_qubits(s_new)
 
-    # Hardware QPU paths (specialised; their backend extraction is a follow-up).
-    if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= max_qubit:
-        subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-        return _expec_value_qibo_qpu(subcirc, shots=shots, method=method)
-    if qpu and "IBM_Quantum" in qpu_dict and qpu_dict["IBM_Quantum"] >= max_qubit:
-        subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-        return _expec_value_qiskit_qpu(
-            subcirc, shots=shots, batch=batch, backend=backend
-        )
-
-    # Simulator path: pick the backend (GPU-eligible Aer, else the ``software``
-    # one) and delegate -- no per-backend branching in the algorithm itself.
+    # No per-backend or per-device branching here: build_execution_backend selects
+    # the QPU / GPU / software backend, and it evaluates the subcircuit.
     from Qdislib.core.backend.registry import build_execution_backend
 
-    use_gpu = bool(gpu and gpu_min_qubits <= max_qubit and max_qubit <= 30)
     exec_backend = build_execution_backend(
-        software, use_gpu=use_gpu, num_qubits=highest_qubit
+        software,
+        num_qubits=highest_qubit,
+        gpu=gpu,
+        gpu_min_qubits=gpu_min_qubits,
+        qpu=bool(qpu),
+        qpu_dict=qpu_dict,
+        max_qubit=max_qubit,
+        batch=batch,
+        ibm_backend=backend,
     )
     return exec_backend.evaluate_expectation(
         s_new, highest_qubit, prep_qubits, shots, method

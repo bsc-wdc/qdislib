@@ -37,6 +37,8 @@ _BACKEND_REGISTRY: dict[str, tuple[str, str]] = {
     "QIBO_BACKEND": ("Qdislib.core.backend.qibo_backend", "QiboBackend"),
     "CUDAQ_BACKEND": ("Qdislib.core.backend.cudaq_backend", "CudaqBackend"),
     "IQM_BACKEND": ("Qdislib.core.backend.iqm_backend", "IQMBackend"),
+    "BSC_QPU_BACKEND": ("Qdislib.core.backend.qpu_backends", "BSCQpuBackend"),
+    "IBM_BACKEND": ("Qdislib.core.backend.qpu_backends", "IBMBackend"),
 }
 
 
@@ -66,22 +68,44 @@ _SOFTWARE_ALIAS = {
 
 
 def build_execution_backend(
-    software: str | None = None, use_gpu: bool = False, num_qubits: int = 1, **extra
+    software: str | None = None,
+    num_qubits: int = 1,
+    *,
+    gpu: bool = False,
+    gpu_min_qubits: int | None = None,
+    qpu: bool = False,
+    qpu_dict: dict | None = None,
+    max_qubit: int | None = None,
+    batch=None,
+    ibm_backend=None,
+    **extra,
 ) -> "BaseBackend":
-    """Build the backend that evaluates a cut subcircuit for a ``software`` choice.
+    """Select and build the backend that evaluates a cut subcircuit.
 
-    This is the single place mapping the cutting algorithms' ``software=`` knob to
-    a concrete backend, so the algorithms never branch on the backend name and a
-    user can pass the name of any backend they registered via
-    :func:`register_backend`. Extra keyword arguments (e.g. ``platform`` for Qibo)
-    flow into the backend's :class:`BackendConfig`.
+    The single place that turns the cutting algorithms' execution knobs
+    (``software``, ``gpu``, ``qpu``/``qpu_dict``) into a concrete backend, so the
+    algorithms never branch on the backend/device. Selection order: a large-enough
+    configured QPU (BSC ``MN_Ona`` -> ``BSC_QPU_BACKEND``, ``IBM_Quantum`` ->
+    ``IBM_BACKEND``), then GPU-eligible Aer, then the ``software`` backend
+    (``qibo``/``qiskit``/``cudaq`` or the name of any registered backend). Extra
+    keyword arguments (e.g. ``platform`` for Qibo) flow into the ``BackendConfig``.
     """
     size = max(int(num_qubits or 1), 1)
-    if use_gpu:
-        extra = {**extra, "use_gpu": True}
-        name = "AER_BACKEND"
-    else:
-        name = _SOFTWARE_ALIAS.get(software, software or DEFAULT_BACKEND_NAME)
+    qpu_dict = qpu_dict or {}
+    fit = max_qubit if max_qubit is not None else size
+
+    if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= fit:
+        return build_backend("BSC_QPU_BACKEND", BackendConfig(num_qubits=size, extra=extra))
+    if qpu and "IBM_Quantum" in qpu_dict and qpu_dict["IBM_Quantum"] >= fit:
+        return build_backend(
+            "IBM_BACKEND",
+            BackendConfig(num_qubits=size, extra={**extra, "batch": batch, "backend": ibm_backend}),
+        )
+    if gpu and gpu_min_qubits is not None and gpu_min_qubits <= fit <= 30:
+        return build_backend(
+            "AER_BACKEND", BackendConfig(num_qubits=size, extra={**extra, "use_gpu": True})
+        )
+    name = _SOFTWARE_ALIAS.get(software, software or DEFAULT_BACKEND_NAME)
     return build_backend(name, BackendConfig(num_qubits=size, extra=extra))
 
 

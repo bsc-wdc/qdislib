@@ -56,7 +56,6 @@ except ImportError:
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 
 from Qdislib.utils.graph_qibo import (
-    dag_to_circuit_qibo,
     _max_qubit,
     _update_qubits,
     _remove_red_edges,
@@ -281,15 +280,17 @@ def _build_and_run_subcircuit(component, software, shots, backend, qpu):
     """
     s_new, highest_qubit = _update_qubits(component)
 
-    # Hardware QPU path (specialised).
-    if qpu == "MN_Ona":
-        subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-        return _expec_value_qibo_qpu(subcirc, shots, method=backend)
-
     # Backend-agnostic execution: the selected backend evaluates the subcircuit.
     # Wire cutting has no measure-and-prepare sign, so there are no prep_qubits;
     # ``backend`` is the Qibo platform when software == "qibo".
-    from Qdislib.core.backend.registry import build_execution_backend
+    from Qdislib.core.backend.registry import build_execution_backend, build_backend
+    from Qdislib.core.backend.base_backend import BackendConfig
+
+    if qpu == "MN_Ona":
+        qpu_backend = build_backend("BSC_QPU_BACKEND", BackendConfig(num_qubits=highest_qubit))
+        return qpu_backend.evaluate_expectation(
+            s_new, highest_qubit, (), shots, backend or "numpy"
+        )
 
     extra = {"platform": backend} if software == "qibo" and backend else {}
     exec_backend = build_execution_backend(software, num_qubits=highest_qubit, **extra)
