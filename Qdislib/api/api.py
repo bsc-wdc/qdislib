@@ -30,6 +30,7 @@ from Qdislib.utils.graph_qiskit import *
 from Qdislib.utils.graph_cudaq import *
 from Qdislib.utils.backends import *
 from Qdislib.utils.circuit_cache import *
+from Qdislib.utils.logging_config import *
 from Qdislib.utils.exceptions import (
     QdislibException,
     UnsupportedBackendError,

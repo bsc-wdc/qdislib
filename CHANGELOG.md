@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not just a single Pauli string: pass a list of `(coefficient, pauli_string)`
   pairs or a `{pauli_string: coefficient}` mapping to `gate_cutting`,
   `wire_cutting` and `analytical_solution`. New `normalize_observables` helper.
+- **Semantic circuit cache** (`Qdislib.utils.circuit_cache`): reuse results of
+  functionally-equivalent subcircuits, keyed by a ZX-reduced Weisfeiler–Lehman
+  hash (`semantic_key`, backend-agnostic across Qibo/Qiskit/CUDA-Q). Pluggable
+  stores (`InMemoryCircuitCache`, `LMDBCircuitCache`, `RedisCircuitCache`,
+  `RedisPSCOCircuitCache`) via `default_circuit_cache(backend=...)`; `"redis"`
+  resolves to the BSC COMPSs PSCO store under PyCOMPSs. Enable with `cache=` on
+  `gate_cutting`/`wire_cutting`/`expectation_value`; choose the granularity with
+  `cache_mode` (`"expectation"`, `"counts"`, or a custom `CacheStrategy`). Under
+  PyCOMPSs a placeholder-reservation + reconstruction-time refresh keeps hit
+  rates up under high concurrency. New `cache` extra (`pip install Qdislib[cache]`).
+- `set_log_level(...)` (and the `QDISLIB_LOG_LEVEL` environment variable) to turn
+  on Qdislib's diagnostic logging with one switch.
 
 ### Changed
 - The quantum SDKs (Qibo / Qiskit / CUDA-Q) are now **optional**: the library
@@ -25,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `find_cut` is fully backend-agnostic across Qibo, Qiskit and CUDA-Q.
 - PyCOMPSs is optional; without it the library runs serially.
 - Replaced most `print()` calls with module-level logging.
+- **Removed the `verbose=` parameters** from `gate_cutting`, `find_cut` and
+  `analytical_solution` (and internal helpers); their diagnostics now log at
+  DEBUG level. Use `qd.set_log_level("DEBUG")` instead of `verbose=True`.
 
 ### Fixed
 - Identity (`"I"`) observables on the Qiskit backend: `get_counts()` bitstrings

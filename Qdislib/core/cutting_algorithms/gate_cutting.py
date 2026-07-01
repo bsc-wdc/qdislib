@@ -116,7 +116,8 @@ def gate_cutting(
     qpu: bool = False,
     qpu_dict: typing.Optional[dict] = None,
     software: str = "qiskit",
-    verbose: bool = False,
+    cache=None,
+    cache_mode="expectation",
 ):
     """
     Apply gate cutting to a quantum circuit to enable distributed smaller executions of subcircuits.
@@ -158,8 +159,16 @@ def gate_cutting(
     software : str, default="qiskit"
         Backend used to build and execute the subcircuits when no QPU/GPU
         applies: "qiskit", "qibo" or "cudaq".
-    verbose : bool, default=False
-        Receive information about middle steps
+    cache : CircuitCache, optional
+        Enable the semantic subcircuit cache (see
+        :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`). When given,
+        evaluation runs the CPU-simulation subcircuit workflow (GPU/QPU dispatch
+        is bypassed). ``None`` (default) disables caching.
+    cache_mode : str or CacheStrategy, default="expectation"
+        Cache granularity; ``"expectation"``, ``"counts"``, or a custom strategy.
+
+    Diagnostic details are logged at DEBUG level; enable them with
+    ``qd.set_log_level("DEBUG")``.
 
     Returns
     -------
@@ -213,9 +222,25 @@ def gate_cutting(
                 qpu=qpu,
                 qpu_dict=qpu_dict,
                 software=software,
-                verbose=verbose,
+                cache=cache,
+                cache_mode=cache_mode,
             )
         return total
+
+    # Semantic cache: reuse the recommended subcircuit workflow, which routes
+    # each subcircuit through expectation_value(cache=...). This runs the CPU
+    # simulation path, so GPU/QPU dispatch is bypassed when caching is enabled.
+    if cache is not None:
+        from Qdislib.utils.backends import expectation_value
+
+        subcircuits = gate_cutting_subcircuits(
+            dag, gates_cut, observables=observables, software=software
+        )
+        values = [
+            expectation_value(s, shots=shots, cache=cache, cache_mode=cache_mode)
+            for s in subcircuits
+        ]
+        return subcircuits.reconstruct(values)
 
     # Normalise optional dict/int args before they are indexed below.
     if qpu_dict is None:
@@ -255,7 +280,6 @@ def gate_cutting(
                     qpu_dict=qpu_dict,
                     batch=batch,
                     backend=backend,
-                    verbose=verbose,
                     software=software,
                 )
                 graphs = _sum_results(graphs)
@@ -274,19 +298,16 @@ def gate_cutting(
                         qpu_dict,
                         batch,
                         backend,
-                        verbose,
                     )
                 )
         if sync:
             results = compss_wait_on(results)
         final_recons = 1 / (2 ** len(gates_cut)) * math.prod(results)
-        if verbose:
-            logger.info("Multiply top and bottom expected value of subcircuits")
-            for idx, el in enumerate(results, start=1):
-                logger.info(f"Subcircuit {idx} expected value: {el}")
-            logger.info(
-                f"Reconstructed original circuit expected value: {final_recons}"
-            )
+        logger.debug(
+            "Reconstructed expected value %s from %s subcircuit values",
+            final_recons,
+            len(results),
+        )
         return final_recons
     else:
         if gates_cut:
@@ -301,19 +322,16 @@ def gate_cutting(
                 qpu_dict=qpu_dict,
                 batch=batch,
                 backend=backend,
-                verbose=verbose,
                 software=software,
             )
             if sync:
                 results = compss_wait_on(results)
             final_recons = 1 / (2 ** len(gates_cut)) * sum(results)
-            if verbose:
-                logger.info("Multiply top and bottom expected value of subcircuits")
-                for idx, el in enumerate(results, start=1):
-                    logger.info(f"Subcircuit {idx} expected value: {el}")
-                logger.info(
-                    f"Reconstructed original circuit expected value: {final_recons}"
-                )
+            logger.debug(
+                "Reconstructed expected value %s from %s subcircuit values",
+                final_recons,
+                len(results),
+            )
         else:
             final_recons = _build_and_run_gate_subcircuit(
                 dag,
@@ -327,12 +345,10 @@ def gate_cutting(
                 qpu_dict,
                 batch,
                 backend,
-                verbose,
             )
             if sync:
                 final_recons = compss_wait_on(final_recons)
-            if verbose:
-                logger.info(f"No CUT performed, expected value circuit: {final_recons}")
+            logger.debug("No cut performed; expected value: %s", final_recons)
         return final_recons
 
 
@@ -584,7 +600,6 @@ def _build_and_run_gate_subcircuit(
     qpu_dict,
     batch,
     backend,
-    verbose=False,
 ):
     """Build one gate-cut subcircuit and return its expectation value.
 
@@ -624,7 +639,7 @@ def _build_and_run_gate_subcircuit(
         subcirc = dag_to_circuit_cudaq(s_new, highest_qubit)
         return _expec_value_cudaq(subcirc, shots)
     subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-    return _expec_value_qiskit(subcirc, shots=shots, method=method, verbose=verbose)
+    return _expec_value_qiskit(subcirc, shots=shots, method=method)
 
 
 def _execute_gate_cutting(
@@ -638,7 +653,6 @@ def _execute_gate_cutting(
     qpu_dict=None,
     batch=None,
     backend=None,
-    verbose=False,
     software="qiskit",
 ):
     new_dag = _generate_cut(dag, gates_cut)
@@ -669,8 +683,7 @@ def _execute_gate_cutting(
 
         exp_values = []
         for i, s in enumerate(graph_components):
-            if verbose:
-                logger.info(f"SUBCIRCUIT {index*2+i}")
+            logger.debug("Subcircuit %s", index * 2 + i)
             exp_values.append(
                 _build_and_run_gate_subcircuit(
                     s,
@@ -684,7 +697,6 @@ def _execute_gate_cutting(
                     qpu_dict,
                     batch,
                     backend,
-                    verbose,
                 )
             )
 
@@ -756,17 +768,16 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
 @constraint(processors=[{"processorType": "CPU", "computingUnits": "1"}])
 @task(returns=1)
-def _counts_qiskit(qc, shots=1024, method="automatic", verbose=False):
+def _counts_qiskit(qc, shots=1024, method="automatic"):
     """Simulate a Qiskit circuit with Aer and return its measurement counts.
 
     Appends ``measure_all`` in place -- so the circuit is single-use (evaluate
     once), consistent with the Qibo evaluator -- then runs it on the CPU Aer
-    simulator.
+    simulator. Backend/method details are logged at DEBUG level.
 
     :param qc: A Qiskit ``QuantumCircuit``.
     :param shots: Number of measurement shots.
     :param method: Aer simulation method.
-    :param verbose: When ``True``, log backend/method details.
     :return: The Aer ``get_counts()`` dict (keys are ``"<measure-all reg> ..."``).
     """
     qc.measure_all()
@@ -775,15 +786,11 @@ def _counts_qiskit(qc, shots=1024, method="automatic", verbose=False):
 
     try:
         subprocess.check_output("nvidia-smi")
-        if verbose:
-            logger.info("Nvidia GPU detected!")
+        logger.debug("Nvidia GPU detected!")
     except Exception:
-        if verbose:
-            logger.info("No Nvidia GPU in system!")
+        logger.debug("No Nvidia GPU in system!")
 
-    if verbose:
-        logger.info("Simulation using CPUs")
-        logger.info("%s %s", "Method: ", method)
+    logger.debug("Simulation using CPUs; method: %s", method)
     simulator = AerSimulator(
         device="CPU",
         method=method,
@@ -794,12 +801,10 @@ def _counts_qiskit(qc, shots=1024, method="automatic", verbose=False):
 
     job = simulator.run(qc, shots=shots)
     result = job.result()
-    if verbose:
-        logger.info(f"Backend: {result.backend_name}")
+    logger.debug("Backend: %s", result.backend_name)
 
     counts = result.get_counts()
-    if verbose:
-        logger.info(counts)
+    logger.debug("Counts: %s", counts)
     return counts
 
 
@@ -832,7 +837,7 @@ def _expectation_from_counts_qiskit(counts, observables, shots=1024):
     return expectation_value
 
 
-def _expec_value_qiskit(qc, shots=1024, method="automatic", verbose=False):
+def _expec_value_qiskit(qc, shots=1024, method="automatic"):
 
     if qc is None:
         return None
@@ -843,11 +848,9 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic", verbose=False):
     else:
         observables = "Z" * qc.num_qubits
 
-    counts = _counts_qiskit(qc, shots=shots, method=method, verbose=verbose)
+    counts = _counts_qiskit(qc, shots=shots, method=method)
     expectation_value = _expectation_from_counts_qiskit(counts, observables, shots)
-    if verbose:
-        logger.info("%s %s", "Expected Value: ", expectation_value)
-        logger.info("\n")
+    logger.debug("Expected value: %s", expectation_value)
     return expectation_value
 
 

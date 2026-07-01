@@ -90,6 +90,8 @@ def wire_cutting(
     backend: str = "numpy",
     qpu: str = None,
     software: str = "qibo",
+    cache=None,
+    cache_mode="expectation",
 ):
     """Apply wire cutting to a quantum circuit to simplify its structure for distributed or hardware-constrained execution of subcircuits.
 
@@ -117,6 +119,13 @@ def wire_cutting(
         If specified (e.g., `"MN_Ona"`), indicates execution on a Quantum Processing Unit.
     software : str, default="qibo"
         Backend used to build and execute the subcircuits: "qibo", "qiskit" or "cudaq".
+    cache : CircuitCache, optional
+        Enable the semantic subcircuit cache (see
+        :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`). When given,
+        evaluation runs the CPU-simulation subcircuit workflow (GPU/QPU dispatch
+        is bypassed). ``None`` (default) disables caching.
+    cache_mode : str or CacheStrategy, default="expectation"
+        Cache granularity; ``"expectation"``, ``"counts"``, or a custom strategy.
 
     Returns
     -------
@@ -164,8 +173,25 @@ def wire_cutting(
                 backend=backend,
                 qpu=qpu,
                 software=software,
+                cache=cache,
+                cache_mode=cache_mode,
             )
         return total
+
+    # Semantic cache: reuse the recommended subcircuit workflow, which routes
+    # each subcircuit through expectation_value(cache=...). This runs the CPU
+    # simulation path, so GPU/QPU dispatch is bypassed when caching is enabled.
+    if cache is not None:
+        from Qdislib.utils.backends import expectation_value
+
+        subcircuits = wire_cutting_subcircuits(
+            rand_qc, cut, observables=observables, software=software
+        )
+        values = [
+            expectation_value(s, shots=shots, cache=cache, cache_mode=cache_mode)
+            for s in subcircuits
+        ]
+        return subcircuits.reconstruct(values)
 
     dag = convert_to_dag(rand_qc, observables)
     if observables:

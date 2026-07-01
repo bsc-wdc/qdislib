@@ -326,7 +326,7 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
     return clusters, cut_edges
 
 
-def _score_candidates(candidates, weights=None, verbose=False):
+def _score_candidates(candidates, weights=None):
     """Pick the lowest-scoring partitioning candidate.
 
     Each candidate maps a method name to a ``(partition, cut_set)`` pair produced
@@ -339,15 +339,15 @@ def _score_candidates(candidates, weights=None, verbose=False):
 
     :param candidates: Ordered mapping ``{name: (partition, cut_set)}``.
     :param weights: Optional overrides for the ``w1``/``w2``/``w3`` coefficients.
-    :param verbose: Log each candidate's score.
     :return: ``(best_cut_set, best_score, best_partition)`` for the winner.
+
+    Candidate scores are logged at DEBUG level (``qd.set_log_level("DEBUG")``).
     """
     weights = weights or {}
     w1 = weights.get("w1", 100)  # cut size            (minimize)
     w2 = weights.get("w2", -1)  # number of components (maximize)
     w3 = weights.get("w3", 1)  # largest component   (minimize -> balance)
-    if verbose:
-        logger.info("Using weights: w1=%s, w2=%s, w3=%s", w1, w2, w3)
+    logger.debug("Using weights: w1=%s, w2=%s, w3=%s", w1, w2, w3)
 
     best_score = float("inf")
     best_cut_set = []
@@ -357,15 +357,14 @@ def _score_candidates(candidates, weights=None, verbose=False):
             [len(component) for component in partition] + [float("-inf")]
         )
         score = abs(w1 * len(cut_set) + w2 * len(partition) + w3 * largest_component)
-        if verbose:
-            logger.info(
-                "%s: cut_set=%s components=%s largest=%s score=%s",
-                name,
-                cut_set,
-                len(partition),
-                largest_component,
-                score,
-            )
+        logger.debug(
+            "%s: cut_set=%s components=%s largest=%s score=%s",
+            name,
+            cut_set,
+            len(partition),
+            largest_component,
+            score,
+        )
         if score < best_score:
             best_score = score
             best_cut_set = cut_set
@@ -374,7 +373,7 @@ def _score_candidates(candidates, weights=None, verbose=False):
 
 
 def _plot_partition(graph, partition):
-    """Draw a partitioned circuit graph (debug aid, only used when verbose)."""
+    """Draw a partitioned circuit graph (manual debug aid; call it yourself)."""
     import matplotlib.pyplot as plt
 
     pos = networkx.spring_layout(graph)
@@ -402,7 +401,6 @@ def _find_cut_gate(
     max_cuts=None,
     max_components=None,
     weights=None,
-    verbose=False,
 ):
     """Find the best *gate* cut for ``circuit`` by partitioning its qubit graph.
 
@@ -413,8 +411,7 @@ def _find_cut_gate(
     :return: ``(best_cut, best_score)`` where ``best_cut`` is a list of gate
         identifiers such as ``["CZ_3"]``.
     """
-    if verbose:
-        logger.info("Finding best gate cut")
+    logger.debug("Finding best gate cut")
 
     graph = _circuit_to_qubit_graph(circuit)
     candidates = {
@@ -435,12 +432,8 @@ def _find_cut_gate(
         ),
     }
 
-    best_cut, best_score, best_partition = _score_candidates(
-        candidates, weights, verbose
-    )
-    if verbose:
-        logger.info("Best gate cut: %s (score %s)", best_cut, best_score)
-        _plot_partition(graph, best_partition)
+    best_cut, best_score, _ = _score_candidates(candidates, weights)
+    logger.debug("Best gate cut: %s (score %s)", best_cut, best_score)
     return best_cut, best_score
 
 
@@ -451,7 +444,6 @@ def _find_cut_wire(
     max_cuts=None,
     max_components=None,
     weights=None,
-    verbose=False,
 ):
     """Find the best *wire* cut for ``circuit`` by partitioning its gate graph.
 
@@ -464,8 +456,7 @@ def _find_cut_wire(
     :return: ``(best_cut, best_score)`` where ``best_cut`` is a list of
         ``(source_gate, target_gate)`` identifier pairs.
     """
-    if verbose:
-        logger.info("Finding best wire cut")
+    logger.debug("Finding best wire cut")
 
     graph = _circuit_to_gate_graph(circuit)
     candidates = {
@@ -486,7 +477,7 @@ def _find_cut_wire(
         ),
     }
 
-    cut_set, best_score, _ = _score_candidates(candidates, weights, verbose)
+    cut_set, best_score, _ = _score_candidates(candidates, weights)
 
     # Refine each cut pair into a concrete wire cut: locate a gate between the
     # two endpoints that shares a qubit with both, and cut just after it.
@@ -508,8 +499,7 @@ def _find_cut_wire(
         if not refined:
             best_cut.append((source, target))
 
-    if verbose:
-        logger.info("Best wire cut: %s (score %s)", best_cut, best_score)
+    logger.debug("Best wire cut: %s (score %s)", best_cut, best_score)
     return best_cut, best_score
 
 
@@ -521,7 +511,6 @@ def find_cut(
     gate_cut=True,
     implementation="qdislib",
     weights=None,
-    verbose=False,
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
@@ -565,8 +554,8 @@ def find_cut(
         A dictionary specifying weights for the loss function used in Qdislib to evaluate
         partitioning
 
-    verbose : bool, default=False
-        If True, prints detailed information about the partitioning process and outcomes.
+    Diagnostic details about the partitioning process are logged at DEBUG level;
+    enable them with ``qd.set_log_level("DEBUG")``.
 
     Returns
     -------
@@ -617,7 +606,6 @@ def find_cut(
                 max_cuts=max_cuts,
                 max_components=max_components,
                 weights=weights,
-                verbose=verbose,
             )
 
         if wire_cut:
@@ -627,7 +615,6 @@ def find_cut(
                 max_cuts=max_cuts,
                 max_components=max_components,
                 weights=weights,
-                verbose=verbose,
             )
 
         if gate_cut and wire_cut:
@@ -678,21 +665,20 @@ def find_cut(
         cut_circuit, metadata = find_cuts(
             circuit, optimization_settings, device_constraints
         )
-        if verbose:
-            logger.info(
-                f'Found solution using {len(metadata["cuts"])} cuts with a sampling '
-                f'overhead of {metadata["sampling_overhead"]}.\n'
-                f'Lowest cost solution found: {metadata["minimum_reached"]}.'
-            )
-            for cut in metadata["cuts"]:
-                logger.info(f"{cut[0]} at circuit instruction index {cut[1]}")
-            cut_circuit.draw("mpl", scale=0.8, fold=-1)
+        logger.debug(
+            "Found solution using %s cuts with a sampling overhead of %s. "
+            "Lowest cost solution found: %s.",
+            len(metadata["cuts"]),
+            metadata["sampling_overhead"],
+            metadata["minimum_reached"],
+        )
+        for cut in metadata["cuts"]:
+            logger.debug("%s at circuit instruction index %s", cut[0], cut[1])
 
         list_gates_cut = []
         for cut in metadata["cuts"]:
             if cut[0] == "Gate Cut":
                 gate_name = circuit.data[cut[1]].operation.name.upper()
                 list_gates_cut.append(f"{gate_name}_{cut[1]+1}")
-        if verbose:
-            logger.info(list_gates_cut)
+        logger.debug("Gate cuts: %s", list_gates_cut)
         return list_gates_cut

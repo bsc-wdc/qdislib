@@ -294,6 +294,56 @@ class CachedExpectationTest(BaseTimedTestCase):
         # Gate cutting with the cache must still match the (non-zero) analytical.
         self.assertLess(abs(subs.reconstruct(values) - analytical), 0.2)
 
+    def test_all_in_one_gate_cutting_accepts_cache(self):
+        # The one-call API also caches (delegates to the subcircuit workflow).
+        import qibo
+        import Qdislib as qd
+
+        qibo.set_backend("numpy")
+        analytical = qd.analytical_solution(_nonzero_circuit(), "ZZ")
+        cache = qd.InMemoryCircuitCache()
+        result = qd.gate_cutting(
+            _nonzero_circuit(), ["CZ_2"], shots=20000, software="qibo", cache=cache
+        )
+        self.assertLess(abs(result - analytical), 0.2)
+        self.assertGreater(len(cache), 0)  # the all-in-one path populated the cache
+
+    def test_all_in_one_wire_cutting_accepts_cache(self):
+        import qibo
+        import Qdislib as qd
+
+        qibo.set_backend("numpy")
+        analytical = qd.analytical_solution(_nonzero_circuit(), "ZZ")
+        cache = qd.InMemoryCircuitCache()
+        result = qd.wire_cutting(
+            _nonzero_circuit(),
+            [("H_1", "CZ_2")],
+            shots=20000,
+            software="qibo",
+            cache=cache,
+        )
+        self.assertLess(abs(result - analytical), 0.2)
+        self.assertGreater(len(cache), 0)
+
+
+class LoggingControlTest(BaseTimedTestCase):
+    """set_log_level replaces the old per-function verbose= flags."""
+
+    def test_set_log_level(self):
+        import logging
+        from Qdislib.utils.logging_config import set_log_level
+
+        logger = set_log_level("DEBUG")
+        self.assertEqual(logger.level, logging.DEBUG)
+        self.assertTrue(
+            any(getattr(h, "_qdislib_handler", False) for h in logger.handlers)
+        )
+        # Idempotent: calling again must not add a second handler.
+        handler_count = len(logger.handlers)
+        set_log_level("WARNING")
+        self.assertEqual(len(logger.handlers), handler_count)
+        self.assertEqual(logger.level, logging.WARNING)
+
 
 class PlaceholderRefreshTest(BaseTimedTestCase):
     """The HPC concurrency trick: reserve a placeholder, defer, refresh later."""
