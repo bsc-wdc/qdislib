@@ -51,12 +51,7 @@ from Qdislib.utils.graph_qibo import (
     dag_to_circuit_qibo,
 )
 from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
-from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq
-from Qdislib.core.cutting_algorithms.wire_cutting import (
-    _sum_results,
-    _expec_value_qibo,
-    _expec_value_cudaq,
-)
+from Qdislib.core.cutting_algorithms.wire_cutting import _sum_results
 from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
 
 try:
@@ -718,27 +713,26 @@ def _build_and_run_gate_subcircuit(
     s_new, highest_qubit = _update_qubits(component)
     prep_qubits = _measured_cut_qubits(s_new)
 
+    # Hardware QPU paths (specialised; their backend extraction is a follow-up).
     if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= max_qubit:
         subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
         return _expec_value_qibo_qpu(subcirc, shots=shots, method=method)
-    if gpu and gpu_min_qubits <= max_qubit and max_qubit <= 30:
-        subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-        return _expec_value_qiskit_gpu(subcirc, shots=shots, method=method)
     if qpu and "IBM_Quantum" in qpu_dict and qpu_dict["IBM_Quantum"] >= max_qubit:
         subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
         return _expec_value_qiskit_qpu(
             subcirc, shots=shots, batch=batch, backend=backend
         )
 
-    if software == "qibo":
-        subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-        return _expec_value_qibo(subcirc, shots, "numpy", prep_qubits=prep_qubits)
-    if software == "cudaq":
-        subcirc = dag_to_circuit_cudaq(s_new, highest_qubit)
-        return _expec_value_cudaq(subcirc, shots, prep_qubits=prep_qubits)
-    subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-    return _expec_value_qiskit(
-        subcirc, shots=shots, method=method, prep_qubits=prep_qubits
+    # Simulator path: pick the backend (GPU-eligible Aer, else the ``software``
+    # one) and delegate -- no per-backend branching in the algorithm itself.
+    from Qdislib.core.backend.registry import build_execution_backend
+
+    use_gpu = bool(gpu and gpu_min_qubits <= max_qubit and max_qubit <= 30)
+    exec_backend = build_execution_backend(
+        software, use_gpu=use_gpu, num_qubits=highest_qubit
+    )
+    return exec_backend.evaluate_expectation(
+        s_new, highest_qubit, prep_qubits, shots, method
     )
 
 

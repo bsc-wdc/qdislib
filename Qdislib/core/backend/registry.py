@@ -56,6 +56,35 @@ def available_backends() -> list[str]:
     return list(_BACKEND_REGISTRY)
 
 
+#: Maps the algorithms' ``software=`` strings to registered backend names, so a
+#: cutting call can also name any user-registered backend directly.
+_SOFTWARE_ALIAS = {
+    "qibo": "QIBO_BACKEND",
+    "qiskit": "AER_BACKEND",
+    "cudaq": "CUDAQ_BACKEND",
+}
+
+
+def build_execution_backend(
+    software: str | None = None, use_gpu: bool = False, num_qubits: int = 1, **extra
+) -> "BaseBackend":
+    """Build the backend that evaluates a cut subcircuit for a ``software`` choice.
+
+    This is the single place mapping the cutting algorithms' ``software=`` knob to
+    a concrete backend, so the algorithms never branch on the backend name and a
+    user can pass the name of any backend they registered via
+    :func:`register_backend`. Extra keyword arguments (e.g. ``platform`` for Qibo)
+    flow into the backend's :class:`BackendConfig`.
+    """
+    size = max(int(num_qubits or 1), 1)
+    if use_gpu:
+        extra = {**extra, "use_gpu": True}
+        name = "AER_BACKEND"
+    else:
+        name = _SOFTWARE_ALIAS.get(software, software or DEFAULT_BACKEND_NAME)
+    return build_backend(name, BackendConfig(num_qubits=size, extra=extra))
+
+
 def build_backend(name: str, config: BackendConfig) -> BaseBackend:
     """Lazily import and instantiate a registered backend.
 

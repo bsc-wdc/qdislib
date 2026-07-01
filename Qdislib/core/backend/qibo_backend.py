@@ -51,6 +51,14 @@ class QiboBackend(BaseBackend):
         """Qibo runs the circuit directly; just normalise to a Qibo circuit."""
         return CircuitConverter.to_qibo(circuit)
 
+    def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"):
+        """Evaluate a gate-cut subcircuit via the Qibo simulator."""
+        from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
+        from Qdislib.core.cutting_algorithms.wire_cutting import _expec_value_qibo
+
+        subcirc = dag_to_circuit_qibo(dag, num_qubits)
+        return _expec_value_qibo(subcirc, shots, self._platform, prep_qubits=prep_qubits)
+
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
     ) -> SampleJobResult:

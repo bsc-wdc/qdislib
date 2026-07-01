@@ -61,12 +61,7 @@ from Qdislib.utils.graph_qibo import (
     _update_qubits,
     _remove_red_edges,
 )
-from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
-
-from Qdislib.utils.graph_cudaq import (
-    dag_to_circuit_cudaq,
-    dag_to_circuit_cudaq_kernel,
-)
+from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
 
 
 from Qdislib.utils.backends import (
@@ -286,26 +281,19 @@ def _build_and_run_subcircuit(component, software, shots, backend, qpu):
     """
     s_new, highest_qubit = _update_qubits(component)
 
+    # Hardware QPU path (specialised).
     if qpu == "MN_Ona":
         subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
         return _expec_value_qibo_qpu(subcirc, shots, method=backend)
-    if software == "qibo":
-        subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-        return _expec_value_qibo(subcirc, shots, backend)
-    if software == "qiskit":
-        # Imported here to avoid a circular import (gate_cutting imports this module).
-        from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
 
-        subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-        return _expec_value_qiskit(subcirc, shots)
-    if software == "cudaq":
-        subcirc = dag_to_circuit_cudaq(s_new, highest_qubit)
-        return _expec_value_cudaq(subcirc, shots)
+    # Backend-agnostic execution: the selected backend evaluates the subcircuit.
+    # Wire cutting has no measure-and-prepare sign, so there are no prep_qubits;
+    # ``backend`` is the Qibo platform when software == "qibo".
+    from Qdislib.core.backend.registry import build_execution_backend
 
-    raise UnsupportedBackendError(
-        f"Unsupported software backend: '{software}'. "
-        "Expected 'qibo', 'qiskit' or 'cudaq'."
-    )
+    extra = {"platform": backend} if software == "qibo" and backend else {}
+    exec_backend = build_execution_backend(software, num_qubits=highest_qubit, **extra)
+    return exec_backend.evaluate_expectation(s_new, highest_qubit, (), shots)
 
 
 def _generate_wire_cutting(
