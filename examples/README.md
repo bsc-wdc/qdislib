@@ -113,3 +113,34 @@ switch, or the `QDISLIB_LOG_LEVEL` environment variable:
 import Qdislib as qd
 qd.set_log_level("DEBUG")   # or "INFO"; default is quiet
 ```
+
+## Running subcircuits on a real QPU (cross-cluster)
+
+At BSC the classical (PyCOMPSs) cut job and the quantum-control job run on
+separate clusters that can't be launched from one scheduler allocation, so they
+communicate through a **shared filesystem directory**. The cut job's QPU path
+writes each subcircuit there and waits (bounded) for its result; a **listener**
+on the quantum cluster executes it on a QPU (Blue or Red) and writes the result
+back. Both sides agree on the directory via `$QDISLIB_SUBCIRCUITS_DIR`.
+
+On the **quantum cluster** ([`qpu_listener.py`](qpu_listener.py)):
+
+```bash
+export QDISLIB_SUBCIRCUITS_DIR=/gpfs/projects/.../subcircuits   # shared by both clusters
+export RUNCARD_RED=/path/to/red_runcard.yml                     # or RUNCARD_BLUE
+python examples/qpu_listener.py --qpu red --nshots 1000
+```
+
+On the **classical cluster**, point the cut workflow at a QPU and the same
+directory:
+
+```bash
+export QDISLIB_SUBCIRCUITS_DIR=/gpfs/projects/.../subcircuits
+```
+```python
+qd.gate_cutting(circuit, cut, software="qibo", qpu=True, qpu_dict={"MN_Ona": 5})
+```
+
+The listener runs until a `STOP` file appears in the directory, `Ctrl-C`, or
+`--idle-timeout`. If the listener is down, submissions fail with a clear
+`QPUTimeoutError` after `$QDISLIB_QPU_TIMEOUT` (default 1 h) instead of hanging.

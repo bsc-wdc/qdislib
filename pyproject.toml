@@ -70,6 +70,10 @@ cudaq = ["cudaq"]   # unpinned: the cudaq meta-package selects a CUDA/CPU varian
 # ZX/Weisfeiler-Lehman key; lmdb is the persistent on-disk store. The BSC
 # COMPSs PSCO/Redis store used under PyCOMPSs comes from the COMPSs runtime.
 cache = ["pyzx", "lmdb"]
+# QPU listener (Qdislib.utils.qpu_bridge.run_qpu_listener) — the quantum-cluster
+# side. Deliberately NOT in `all`: qililab is only needed on the QPU host, and
+# the classical/CI side imports Qdislib without it.
+qpu = ["qililab"]
 all = ["Qdislib[qibo,qiskit,cudaq,cache]"]
 ci = [
   "pycodestyle",
