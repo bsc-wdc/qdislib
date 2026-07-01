@@ -79,6 +79,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consistent qubit-0-first convention across Aer / Qibo / CUDA-Q / IQM.
 - `gate_cutting_sampling` runs its subcircuits as PyCOMPSs tasks, so the
   distribution reconstruction is parallel under PyCOMPSs (serial otherwise).
+- **IBM Quantum configured explicitly**, not only via environment variables. The
+  new `IBMBackend` takes `token` / `channel` / `instance` / `backend_name` /
+  `max_time` / `proxies` (or a pre-built `service`) in its config and runs the
+  connection + backend selection once in its constructor; `gate_cutting` accepts
+  a `qpu_config` dict for the same. Every key falls back to its `IBM_QUANTUM_*`
+  env var, so existing setups keep working. The formerly hardcoded BSC proxy
+  (`localhost:44433`) is now a config option rather than baked in.
 - The quantum SDKs (Qibo / Qiskit / CUDA-Q) are now **optional**: the library
   imports and runs with any single SDK installed, and imports with none.
 - `find_cut` is fully backend-agnostic across Qibo, Qiskit and CUDA-Q.
