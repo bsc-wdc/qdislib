@@ -171,18 +171,24 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
                 ):
                     dag.add_edge(pred_gate, gate_name, color="red")
 
-    # Append identity-observable sink nodes when requested.
+    # Append identity-observable sink nodes when requested. Attach each marker
+    # after the LAST gate acting on that qubit (a multi-qubit gate is fine);
+    # requiring a sink whose qubits are exactly (idx,) silently dropped the marker
+    # when a qubit ended on a two-qubit gate, turning the identity into a Z.
     if obs_I:
-        sinks = [n for n in dag.nodes if dag.out_degree(n) == 0]
         for idx, observable in enumerate(obs_I):
-            if observable == "I":
-                for sink in sinks:
-                    if dag.nodes[sink].get("qubits") == (idx,):
-                        obs_node = f"OBSI_{idx}"
-                        dag.add_node(
-                            obs_node, gate="Observable I", qubits=(idx,), parameters=[]
-                        )
-                        dag.add_edge(sink, obs_node, color="blue")
+            if observable != "I":
+                continue
+            last = None
+            for node, data in dag.nodes(data=True):
+                if idx in (data.get("qubits") or ()) and data.get("gate") != "Observable I":
+                    last = node
+            if last is not None:
+                obs_node = f"OBSI_{idx}"
+                dag.add_node(
+                    obs_node, gate="Observable I", qubits=(idx,), parameters=[]
+                )
+                dag.add_edge(last, obs_node, color="blue")
 
     return dag
 
@@ -215,7 +221,7 @@ def dag_to_circuit_cudaq(dag: nx.DiGraph, num_qubits: int):
 
 
 # @task(returns=1)
-def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
+def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final=False):
     """
     Convert a DAG into a CUDA-Q kernel using the modern builder API.
 
@@ -230,7 +236,14 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
     :param dag: networkx.DiGraph whose nodes carry ``gate`` (str), ``qubits``
         (tuple of indices) and ``parameters`` (list) attributes.
     :param num_qubits: Total number of qubits.
-    :return: ``[kernel, observables]``.
+    :param explicit_final: When True, append an explicit ``mz`` on every qubit at
+        the end and return them so a ``cudaq.sample(..., explicit_measurements=True)``
+        run yields, per shot, the mid-circuit cut outcomes followed by the final
+        measurements. Needed for the gate-cut identity-observable sign recovery
+        (see :func:`~Qdislib.core.cutting_algorithms.wire_cutting._expec_value_cudaq`).
+    :return: ``[kernel, observables]``, or ``[kernel, observables, measured_order]``
+        when ``explicit_final`` is True (``measured_order`` = cut-measured qubits
+        in ``mz``-call order).
     """
     if dag is None:
         return None
@@ -253,6 +266,8 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
 
     # Allocate qubits explicitly
     q = [kernel.qalloc() for _ in range(num_qubits)]
+    # Cut-measured qubits, in mz-call order (for the explicit-measurements parse).
+    measured_order = []
     # Traverse DAG
     for node in nx.topological_sort(dag):
         node_data = dag.nodes[node]
@@ -291,10 +306,19 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int):
         elif gate == "MEASURE":
             for qb in qubits:
                 kernel.mz(q[qb])
+                measured_order.append(qb)
                 kernel.reset(q[qb])
                 kernel.x(q[qb])
 
         else:
             raise ValueError(f"Unsupported gate type: {gate}")
+
+    # Explicit final measurements (all qubits) for the explicit-measurements path;
+    # the default path lets cudaq.sample measure all qubits implicitly and keeps
+    # the backward-compatible ``[kernel, observables]`` return.
+    if explicit_final:
+        for qb in range(num_qubits):
+            kernel.mz(q[qb])
+        return [kernel, observables, measured_order]
 
     return [kernel, observables]

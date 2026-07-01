@@ -31,6 +31,7 @@ __all__ = [
 
 import math
 import networkx
+import numpy as np
 import typing
 
 import re
@@ -560,10 +561,56 @@ def _expectation_from_counts_qibo(freq, observables, shots=1024):
     return expectation_value
 
 
-def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float:
+def _expectation_from_samples_qibo(qc, observables, shots, backend, prep_qubits):
+    """Decoupled ``<O>`` for gate-cut subcircuits with identity on a cut qubit.
+
+    Mirrors :func:`~Qdislib.core.cutting_algorithms.gate_cutting._expectation_from_counts_qiskit`
+    for Qibo. A cut qubit measured for the decomposition (``gates.M(collapse=True)``)
+    carries a sign normally read off its forced final measurement. When the user
+    observes it with identity, we recover the sign from the *cut-point* outcome
+    ``m`` (the collapse gate's per-shot samples) as ``-(-1)**m`` instead. This
+    needs per-shot samples -- not aggregated frequencies -- because ``m`` can be
+    correlated with the other qubits' outcomes.
+
+    :param qc: The subcircuit (its collapse ``M`` gates hold the cut-point outcomes).
+    :param observables: Per-qubit Pauli string over ``{I, Z}`` (qubit-0-first).
+    :param shots: Number of measurement shots.
+    :param backend: Qibo backend name.
+    :param prep_qubits: Renumbered qubits measured for the cut.
+    :raises ValueError: If an unsupported observable character is encountered.
+    :return: The expectation value.
+    """
+    qibo.set_backend(backend)
+    collapse = {
+        gate.qubits[0]: gate
+        for gate in qc.queue
+        if isinstance(gate, gates.M) and getattr(gate, "collapse", False)
+    }
+    qc.add(gates.M(*range(qc.nqubits)))
+    final = np.asarray(qc(nshots=shots).samples())  # (shots, nqubits), qubit-0-first
+    contribution = np.ones(len(final))
+    for q, obs in enumerate(observables):
+        if q in prep_qubits and obs == "I" and q in collapse:
+            m = np.asarray(collapse[q].result.samples()).ravel()
+            contribution *= -((-1.0) ** m)
+        elif obs == "Z":
+            contribution *= (-1.0) ** final[:, q]
+        elif obs == "I":
+            continue
+        else:
+            raise ValueError(f"Unsupported observable {obs}")
+    return float(contribution.mean())
+
+
+def _expec_value_qibo(
+    subcirc: typing.Any, shots=1024, backend="numpy", prep_qubits=None
+) -> float:
     """Execute the given circuit.
 
     :param subcirc: Circuit to execute.
+    :param prep_qubits: Renumbered cut qubits measured for a gate cut; when any is
+        observed with identity, its decomposition sign is recovered from the
+        cut-point measurement (see :func:`_expectation_from_samples_qibo`).
     :raises ValueError: If there is an unsupported observable.
     :return: The circuit expected value.
     """
@@ -576,6 +623,11 @@ def _expec_value_qibo(subcirc: typing.Any, shots=1024, backend="numpy") -> float
     else:
         observables = "Z" * subcirc.nqubits
         qc = subcirc
+
+    if prep_qubits:
+        return _expectation_from_samples_qibo(
+            qc, observables, shots, backend, set(prep_qubits)
+        )
 
     freq = _counts_qibo(qc, shots, backend)
     return _expectation_from_counts_qibo(freq, observables, shots)
@@ -627,11 +679,56 @@ def _expectation_from_counts_cudaq(freq, observables, shots=1024):
     return expectation_value
 
 
+def _expectation_cudaq_decoupled(
+    kernel, observables, shots, prep_qubits, measured_order, num_qubits
+):
+    """Decoupled ``<O>`` for CUDA-Q gate-cut subcircuits with identity on a cut qubit.
+
+    Mirrors the Qiskit/Qibo decoupling. With ``explicit_measurements=True`` each
+    per-shot key is ``[cut-point outcomes in mz-call order] + [final measurement of
+    q0..q(n-1)]``. For a measured cut qubit observed with identity, the
+    measure-and-prepare sign is recovered from its (last) cut-point outcome ``m``
+    as ``-(-1)**m`` rather than the traced-out final bit.
+
+    :param kernel: Kernel built with ``explicit_final=True``.
+    :param observables: Per-qubit Pauli string over ``{I, Z}`` (qubit-0-first).
+    :param shots: Number of shots.
+    :param prep_qubits: Renumbered qubits measured for the cut.
+    :param measured_order: Cut-measured qubits in ``mz``-call order.
+    :param num_qubits: Qubit count (width of the final-measurement segment).
+    :raises ValueError: If an unsupported observable character is encountered.
+    :return: The expectation value.
+    """
+    result = cudaq.sample(kernel, shots_count=shots, explicit_measurements=True)
+    n_mid = len(measured_order)
+    last_pos = {qb: i for i, qb in enumerate(measured_order)}
+    total = 0.0
+    drawn = 0
+    for key in result:
+        count = result.count(key)
+        drawn += count
+        contribution = 1
+        for q, obs in enumerate(observables):
+            if q in prep_qubits and obs == "I" and q in last_pos:
+                contribution *= -((-1) ** int(key[last_pos[q]]))
+            elif obs == "Z":
+                contribution *= (-1) ** int(key[n_mid + q])
+            elif obs == "I":
+                continue
+            else:
+                raise ValueError(f"Unsupported observable {obs}")
+        total += contribution * count
+    return total / (drawn or 1)
+
+
 @task(returns=1)
-def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
+def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> float:
     """Execute the given circuit.
 
     :param subcirc: Circuit to execute.
+    :param prep_qubits: Renumbered cut qubits measured for a gate cut; when any is
+        observed with identity, its decomposition sign is recovered from the
+        cut-point measurement (see :func:`_expectation_cudaq_decoupled`).
     :raises ValueError: If there is an unsupported observable.
     :return: The circuit expected value.
     """
@@ -647,11 +744,25 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024) -> float:
     else:
         payload, observables = subcirc, None
 
-    if (
+    is_legacy_dag = (
         isinstance(payload, tuple)
         and len(payload) == 2
         and hasattr(payload[0], "nodes")
-    ):
+    )
+
+    # Identity on a measured cut qubit: build with explicit final measurements and
+    # recover the sign from the cut-point outcome (decoupled from the observable).
+    if is_legacy_dag and prep_qubits:
+        kernel, kernel_observables, measured_order = dag_to_circuit_cudaq_kernel(
+            payload[0], payload[1], explicit_final=True
+        )
+        if observables is None:
+            observables = kernel_observables
+        return _expectation_cudaq_decoupled(
+            kernel, observables, shots, set(prep_qubits), measured_order, payload[1]
+        )
+
+    if is_legacy_dag:
         # Legacy payload: build the kernel here. Keep the observable string that
         # came with the payload (its DAG is already Observable-I-stripped, so the
         # kernel builder would otherwise recompute an all-Z observable).

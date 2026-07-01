@@ -26,6 +26,7 @@ from tests import BaseTimedTestCase
 
 QIBO_AVAILABLE = importlib.util.find_spec("qibo") is not None
 QISKIT_AVAILABLE = importlib.util.find_spec("qiskit") is not None
+CUDAQ_AVAILABLE = importlib.util.find_spec("cudaq") is not None
 
 _TOL = 0.2
 
@@ -71,15 +72,34 @@ class ObservableTest(BaseTimedTestCase):
         self.assertLess(abs(wire - analytical), tol, f"wire {observables}/{software}")
 
     def test_identity_observable_qibo(self):
-        # Identity on any position, including the trailing qubit (regression).
+        # Identity on every position, including a cut qubit that feeds a
+        # multi-qubit gate after the cut (ZIZ/ZII: qubit 1 -> CZ_4). Gate cutting
+        # recovers the decomposition sign from the cut-point measurement, so both
+        # gate and wire cutting match analytics.
         for obs in ["ZIZ", "ZZI", "IZZ", "ZII"]:
             self._check(obs, "qibo")
 
     @unittest.skipUnless(QISKIT_AVAILABLE, "qiskit not installed")
     def test_identity_observable_qiskit(self):
-        # Trailing-I previously failed on Qiskit (little-endian get_counts bug).
         for obs in ["ZIZ", "ZZI", "IZZ", "ZII"]:
             self._check(obs, "qiskit")
+
+    @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq not installed")
+    def test_identity_on_cut_qubit_cudaq(self):
+        # Identity on cut qubit 1 (feeds CZ_4 after the cut): CUDA-Q recovers the
+        # decomposition sign from the cut-point measurement via
+        # cudaq.sample(explicit_measurements=True), so gate cutting matches
+        # analytics like qiskit/qibo.
+        import qibo
+        import Qdislib as qd
+
+        qibo.set_backend("numpy")
+        for obs in ["ZIZ", "IZZ"]:
+            analytical = qd.analytical_solution(_circuit(), obs)
+            gate = qd.gate_cutting(
+                _circuit(), ["CZ_2"], observables=obs, shots=8000, software="cudaq"
+            )
+            self.assertLess(abs(gate - analytical), _TOL, f"cudaq gate {obs}")
 
     def test_xy_observable_qibo(self):
         for obs in ["XZI", "ZYI", "XYZ", "IXZ"]:

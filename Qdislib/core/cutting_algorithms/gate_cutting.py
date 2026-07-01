@@ -136,7 +136,12 @@ def gate_cutting(
         List of two-qubit gates (edges in the DAG) to cut. Each gate is typically identified by its node ID.
     observables : list or dict, optional
         Observables to measure. If specified, the circuit is transformed into the measurement basis.
-        Observables may include the identity ("I").
+        Observables may include the identity ("I"), handled for any qubit on all
+        three CPU backends (``"qiskit"``, ``"qibo"``, ``"cudaq"``; see Notes). The
+        GPU/QPU evaluation paths and the 3-step ``gate_cutting_subcircuits``
+        workflow do not yet decouple this case and raise
+        :class:`~Qdislib.utils.exceptions.InvalidCutError` for an identity on a cut
+        qubit that feeds a multi-qubit gate after the cut.
     shots : int, default=1024
         Number of measurement shots to use for circuit evaluations.
     method : str, default='automatic'
@@ -179,6 +184,18 @@ def gate_cutting(
     - Depending on the device availability and size of the subcircuits, they are evaluated on CPU, GPU, or QPU.
     - Results are automatically scaled by the number of gates cut (following standard gate cutting reconstruction rules).
     - GPU and QPU support is optional and requires appropriate setup (e.g., Qiskit Aer with GPU support, IBM Q account credentials).
+    - Identity observable on a cut qubit: a gate cut measures its cut qubits as
+      part of the measure-and-prepare decomposition, and that measurement carries
+      the reconstruction sign. If the cut qubit feeds a multi-qubit gate *after*
+      the cut, an identity there would suppress it if read off the final
+      measurement. All three CPU backends instead recover the sign from the
+      cut-point measurement (``qiskit``: the cut-measure classical register;
+      ``qibo``: the collapse gate's per-shot samples; ``cudaq``:
+      ``sample(explicit_measurements=True)``), decoupling it from the final
+      observable, so identity on any cut qubit reconstructs correctly. The
+      GPU/QPU paths and the 3-step subcircuit workflow do not do this yet and
+      raise :class:`~Qdislib.utils.exceptions.InvalidCutError` rather than
+      returning a silently-wrong value.
 
     Examples
     --------
@@ -395,6 +412,71 @@ def _generate_cut(dag, gates_cut):
     return dag_copy
 
 
+# CPU-simulation backends whose expectation reconstruction decouples the internal
+# cut-measurement sign from the final observable (see
+# :func:`_expectation_from_counts_qiskit`), and so handle an identity observable
+# on any cut qubit correctly. All three CPU backends do; the guard below still
+# applies to GPU/QPU evaluation paths (not decoupled) and to the 3-step
+# subcircuit workflow (which evaluates without the decoupled reconstruction).
+_IDENTITY_CUT_DECOUPLED = {"qiskit", "qibo", "cudaq"}
+
+
+def _assert_identity_observable_supported(cut_dag, software=None, gpu=False, qpu=False):
+    """Reject identity-observable cut cases a path cannot yet reconstruct.
+
+    A gate cut measures its cut qubits as part of the measure-and-prepare
+    quasiprobability decomposition, and that measurement carries the
+    reconstruction sign. If the cut qubit ends on single-qubit gates it stays
+    isolated after the cut, so an identity observable on it is a trivial
+    single-qubit subcircuit and always works. But if the cut qubit feeds a
+    **multi-qubit** gate *after* the cut, an identity there would suppress the
+    load-bearing measurement if it were read off the final measurement.
+
+    All three CPU backends (:data:`_IDENTITY_CUT_DECOUPLED`) recover that sign
+    from the cut-point measurement (decoupling it from the final observable) and
+    handle this correctly, so the check is skipped for them on CPU. It still fires
+    for GPU/QPU evaluation paths and the 3-step subcircuit workflow (``software``
+    unset), which don't use the decoupled reconstruction -- raising rather than
+    returning a silently-wrong value.
+
+    :param cut_dag: DAG after :func:`_generate_cut` (carries the ``SUBS*`` nodes).
+    :param software: CPU-simulation backend that will evaluate the subcircuits.
+    :param gpu: Whether GPU evaluation is in use (not covered by the fix yet).
+    :param qpu: Whether QPU evaluation is in use (not covered by the fix yet).
+    :raises InvalidCutError: if an identity observable sits on a cut qubit that
+        feeds a multi-qubit gate after the cut, on a not-yet-supported path.
+    """
+    if software in _IDENTITY_CUT_DECOUPLED and not gpu and not qpu:
+        return
+
+    for subs in [n for n in cut_dag if isinstance(n, str) and n.startswith("SUBS")]:
+        qubits = cut_dag.nodes[subs].get("qubits") or ()
+        if not qubits:
+            continue
+        cut_qubit = qubits[0]
+        descendants = nx.descendants(cut_dag, subs)
+        on_this_qubit = any(
+            cut_dag.nodes[d].get("gate") == "Observable I"
+            and (cut_dag.nodes[d].get("qubits") or (None,))[0] == cut_qubit
+            for d in descendants
+        )
+        if not on_this_qubit:
+            continue
+        feeds_multiqubit = any(
+            len(cut_dag.nodes[d].get("qubits") or ()) > 1 for d in descendants
+        )
+        if feeds_multiqubit:
+            raise InvalidCutError(
+                f"This gate-cut path cannot honour an identity ('I') observable on "
+                f"cut qubit {cut_qubit}: it feeds a multi-qubit gate after the cut, "
+                f"so the cut's measure-and-prepare sign cannot be dropped. It is "
+                f"supported by the all-in-one gate_cutting() on CPU (qiskit, qibo, "
+                f"cudaq), which recovers the sign from the cut-point measurement; "
+                f"GPU/QPU and the subcircuit workflow do not yet. Use a CPU run, "
+                f"wire cutting, or a cut whose qubits are not measured with identity."
+            )
+
+
 def _decimal_to_base6(num):
     if num == 0:
         return "0"
@@ -585,6 +667,23 @@ def _change_sign_gate_cutting(expectation_value, index):
         return expectation_value
 
 
+def _measured_cut_qubits(dag):
+    """Renumbered qubits that a gate-cut term *measures* (``SUBS`` -> ``measure``).
+
+    Their measure-and-prepare sign must be recovered from the cut-point
+    measurement when the user observes them with identity -- see
+    :func:`_expectation_from_counts_qiskit`. Returns an empty set for a ``None``
+    component (an empty gate-cut term, tolerated downstream).
+    """
+    if dag is None:
+        return frozenset()
+    return frozenset(
+        (dag.nodes[n].get("qubits") or (None,))[0]
+        for n in dag
+        if dag.nodes[n].get("gate") == "measure"
+    ) - {None}
+
+
 @task(returns=1)
 def _build_and_run_gate_subcircuit(
     component,
@@ -617,6 +716,7 @@ def _build_and_run_gate_subcircuit(
     """
     qpu_dict = qpu_dict or {}
     s_new, highest_qubit = _update_qubits(component)
+    prep_qubits = _measured_cut_qubits(s_new)
 
     if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= max_qubit:
         subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
@@ -632,12 +732,14 @@ def _build_and_run_gate_subcircuit(
 
     if software == "qibo":
         subcirc = dag_to_circuit_qibo(s_new, highest_qubit)
-        return _expec_value_qibo(subcirc, shots, "numpy")
+        return _expec_value_qibo(subcirc, shots, "numpy", prep_qubits=prep_qubits)
     if software == "cudaq":
         subcirc = dag_to_circuit_cudaq(s_new, highest_qubit)
-        return _expec_value_cudaq(subcirc, shots)
+        return _expec_value_cudaq(subcirc, shots, prep_qubits=prep_qubits)
     subcirc = dag_to_circuit_qiskit(s_new, highest_qubit)
-    return _expec_value_qiskit(subcirc, shots=shots, method=method)
+    return _expec_value_qiskit(
+        subcirc, shots=shots, method=method, prep_qubits=prep_qubits
+    )
 
 
 def _execute_gate_cutting(
@@ -654,6 +756,9 @@ def _execute_gate_cutting(
     software="qiskit",
 ):
     new_dag = _generate_cut(dag, gates_cut)
+    _assert_identity_observable_supported(
+        new_dag, software=software, gpu=bool(gpu), qpu=bool(qpu)
+    )
 
     S = [
         new_dag.subgraph(c).copy()
@@ -779,25 +884,47 @@ def _counts_qiskit(qc, shots=1024, method="automatic"):
     return counts
 
 
-def _expectation_from_counts_qiskit(counts, observables, shots=1024):
+def _expectation_from_counts_qiskit(counts, observables, shots=1024, prep_qubits=None):
     """Compute ``<O>`` for a Z/I Pauli string from Qiskit measurement counts.
 
-    :param counts: The ``get_counts()`` dict from :func:`_counts_qiskit`.
-    :param observables: Per-qubit Pauli string over ``{I, Z}``.
+    ``prep_qubits`` names the (renumbered) cut qubits that were *measured* for the
+    gate-cut decomposition in this subcircuit. Such a qubit carries a
+    decomposition sign that is normally read off its (forced) final measurement.
+    When the user observes that qubit with identity, the final measurement is
+    traced out and the sign would be lost -- so instead we recover it from the
+    cut-point measurement register ``c`` as ``-(-1)**s`` (``s`` = the cut-point
+    outcome). This decouples the internal cut-measurement from the final
+    observable, letting identity on a cut qubit reconstruct correctly. When
+    ``prep_qubits`` is empty this reduces to the plain Z/I expectation, so the
+    all-Z / identity-on-non-cut-qubit paths are unchanged.
+
+    :param counts: The ``get_counts()`` dict from :func:`_counts_qiskit`; keys are
+        ``"<measure-all reg> <cut-measure reg c>"`` (space-separated, little-endian).
+    :param observables: Per-qubit Pauli string over ``{I, Z}`` (qubit-0-first).
     :param shots: Number of shots the counts were drawn from.
+    :param prep_qubits: Iterable of renumbered qubit indices measured for the cut.
     :raises ValueError: If an unsupported observable character is encountered.
     :return: The expectation value.
     """
+    prep = set(prep_qubits or ())
+    num_qubits = len(observables)
     expectation_value = 0
     for key, value in counts.items():
+        # Qiskit get_counts() keys are "<measure-all reg> <cut-measure reg>", each
+        # little-endian (qubit 0 is the last bit); index bit q as position
+        # num_qubits-1-q to align with the qubit-0-first observable string.
+        registers = key.split()
+        measure_all = registers[0]
+        cut_measure = registers[1] if len(registers) > 1 else ""
         contribution = 1
-        # Qiskit get_counts() keys are "<measure-all reg> <other regs>" with the
-        # measure-all register first and little-endian (qubit 0 is the last bit);
-        # take that register and reverse it to align with the qubit-0-first
-        # observable string.
-        for bit, obs in zip(reversed(key.split()[0]), observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
+        for q, obs in enumerate(observables):
+            if q in prep and obs == "I":
+                # Identity on a measured cut qubit: recover the decomposition sign
+                # from the cut-point outcome rather than the (traced-out) final bit.
+                s = int(cut_measure[num_qubits - 1 - q]) if len(cut_measure) == num_qubits else 0
+                contribution *= -((-1) ** s)
+            elif obs == "Z":
+                contribution *= (-1) ** int(measure_all[num_qubits - 1 - q])
             elif obs == "I":
                 contribution *= 1
             else:
@@ -808,7 +935,7 @@ def _expectation_from_counts_qiskit(counts, observables, shots=1024):
     return expectation_value
 
 
-def _expec_value_qiskit(qc, shots=1024, method="automatic"):
+def _expec_value_qiskit(qc, shots=1024, method="automatic", prep_qubits=None):
 
     if qc is None:
         return None
@@ -820,7 +947,9 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic"):
         observables = "Z" * qc.num_qubits
 
     counts = _counts_qiskit(qc, shots=shots, method=method)
-    expectation_value = _expectation_from_counts_qiskit(counts, observables, shots)
+    expectation_value = _expectation_from_counts_qiskit(
+        counts, observables, shots, prep_qubits=prep_qubits
+    )
     logger.debug("Expected value: %s", expectation_value)
     return expectation_value
 
@@ -1125,6 +1254,7 @@ def gate_cutting_subcircuits(
 
 def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     new_dag = _generate_cut(dag, gates_cut)
+    _assert_identity_observable_supported(new_dag)
 
     # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
     dispatch_map = {
