@@ -66,6 +66,7 @@ qiskit = [
   "qiskit-ibm-runtime>=0.20.0",   # only needed for the IBM Quantum QPU path
 ]
 cudaq = ["cudaq"]   # unpinned: the cudaq meta-package selects a CUDA/CPU variant per platform, and a hard pin can request an unpublished one
+iqm = ["qiskit-iqm"]   # IQM hardware backend (Qdislib.core.backend.iqm_backend)
 # Semantic circuit cache (Qdislib.utils.circuit_cache): pyzx computes the
 # ZX/Weisfeiler-Lehman key; lmdb is the persistent on-disk store. The BSC
 # COMPSs PSCO/Redis store used under PyCOMPSs comes from the COMPSs runtime.
