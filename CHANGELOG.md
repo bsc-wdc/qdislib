@@ -71,6 +71,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own execution backend without editing the algorithms. GPU is now an Aer
   backend configuration. Reconstruction (including the identity-observable
   sign-decoupling) is unchanged, so results are identical.
+- Backend extraction completed for **all** execution targets: the GPU and
+  hardware-QPU paths are backends too -- BSC Blue/Red via the shared-filesystem
+  bridge (`BSC_QPU_BACKEND`) and IBM Quantum (`IBM_BACKEND`) -- selected by
+  `build_execution_backend`, so `gate_cutting`/`wire_cutting` carry no per-device
+  branches. Backend estimator observables (`get_expectation_value`) now use a
+  consistent qubit-0-first convention across Aer / Qibo / CUDA-Q / IQM.
+- `gate_cutting_sampling` runs its subcircuits as PyCOMPSs tasks, so the
+  distribution reconstruction is parallel under PyCOMPSs (serial otherwise).
 - The quantum SDKs (Qibo / Qiskit / CUDA-Q) are now **optional**: the library
   imports and runs with any single SDK installed, and imports with none.
 - `find_cut` is fully backend-agnostic across Qibo, Qiskit and CUDA-Q.
