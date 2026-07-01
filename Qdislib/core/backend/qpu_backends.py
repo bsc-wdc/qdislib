@@ -61,16 +61,92 @@ class BSCQpuBackend(_QpuBackendBase):
         return _expec_value_qibo_qpu(subcirc, shots=shots, method=method)
 
 
+def _ibm_setting(extra: dict, key: str, env: str, default=""):
+    """Read an IBM setting from explicit config, falling back to the env var."""
+    import os
+
+    value = extra.get(key)
+    if value is not None:
+        return value
+    return os.environ.get(env, default)
+
+
 class IBMBackend(_QpuBackendBase):
     """IBM Quantum hardware via qiskit-ibm-runtime.
 
-    Delegates to :func:`~Qdislib.core.cutting_algorithms.gate_cutting._expec_value_qiskit_qpu`.
-    ``BackendConfig.extra`` carries the runtime ``batch`` (Session/Batch) and
-    ``backend`` (the IBM backend) objects.
+    Preferred setup is **explicit configuration** -- no environment variables
+    required::
+
+        QdBackEnd({"IBM_BACKEND": {
+            "num_qubits": 127,
+            "token": "<token>",
+            "channel": "ibm_cloud",      # or "ibm_quantum"
+            "instance": "<instance>",    # ibm_cloud only
+            "backend_name": "ibm_marrakesh",  # omit -> least-busy real backend
+            "max_time": 60,
+        }})
+
+    Each ``BackendConfig.extra`` key falls back to its ``IBM_QUANTUM_*`` env var
+    if omitted, so existing env-var-based setups keep working. You may also hand
+    in an already-authenticated runtime object via ``extra["service"]`` (a
+    ``QiskitRuntimeService``) or a live ``extra["batch"]`` + ``extra["backend"]``
+    (the pair the cutting code threads to its per-subcircuit tasks).
+
+    The runtime connection and backend selection (the "check") run **once**, in
+    the constructor -- not per subcircuit.
     """
 
     def __init__(self, config: BackendConfig) -> None:
         super().__init__("IBM_BACKEND", config)
+        extra = config.extra
+        # Task side: a session + backend were established upstream and threaded in.
+        if extra.get("batch") is not None and extra.get("backend") is not None:
+            self._session = extra["batch"]
+            self._ibm_backend = extra["backend"]
+        else:
+            self._session, self._ibm_backend = self._connect(extra)
+
+    @staticmethod
+    def _connect(extra: dict):
+        """Authenticate, select the backend (named or least-busy), open a Batch."""
+        try:
+            from qiskit_ibm_runtime import QiskitRuntimeService, Batch
+        except ImportError as exc:
+            raise ImportError(
+                "IBMBackend requires qiskit-ibm-runtime (the `qiskit` extra)."
+            ) from exc
+
+        service = extra.get("service")
+        if service is None:
+            token = _ibm_setting(extra, "token", "IBM_QUANTUM_TOKEN")
+            instance = _ibm_setting(extra, "instance", "IBM_QUANTUM_INSTANCE")
+            channel = _ibm_setting(extra, "channel", "IBM_QUANTUM_CHANNEL")
+            proxies = extra.get("proxies")
+            if channel == "ibm_quantum":
+                service = QiskitRuntimeService(channel=channel, token=token, proxies=proxies)
+            elif channel == "ibm_cloud":
+                service = QiskitRuntimeService(channel=channel, token=token, instance=instance)
+            else:
+                raise ValueError(f"Unsupported IBM Runtime channel: {channel!r}")
+
+        backend_name = _ibm_setting(extra, "backend_name", "IBM_QUANTUM_QPU_NAME")
+        backend = (
+            service.backend(backend_name)
+            if backend_name
+            else service.least_busy(operational=True, simulator=False)
+        )
+        max_time = int(_ibm_setting(extra, "max_time", "IBM_QUANTUM_MAX_TIME", 60))
+        return Batch(backend=backend, max_time=max_time), backend
+
+    @property
+    def session(self):
+        """The open runtime Batch/Session (the cutting code threads this to its tasks)."""
+        return self._session
+
+    @property
+    def ibm_backend(self):
+        """The selected IBM backend."""
+        return self._ibm_backend
 
     def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"):
         from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
@@ -78,8 +154,5 @@ class IBMBackend(_QpuBackendBase):
 
         subcirc = dag_to_circuit_qiskit(dag, num_qubits)
         return _expec_value_qiskit_qpu(
-            subcirc,
-            shots=shots,
-            batch=self.config.extra.get("batch"),
-            backend=self.config.extra.get("backend"),
+            subcirc, shots=shots, batch=self._session, backend=self._ibm_backend
         )

@@ -82,7 +82,6 @@ except ImportError:  # qibo is optional; functions that need it fail when called
     qibo_available = False
 
 
-import os
 import typing
 
 
@@ -107,6 +106,7 @@ def gate_cutting(
     gpu_min_qubits: typing.Optional[int] = None,
     qpu: bool = False,
     qpu_dict: typing.Optional[dict] = None,
+    qpu_config: typing.Optional[dict] = None,
     software: str = "qiskit",
     cache=None,
     cache_mode="expectation",
@@ -153,6 +153,14 @@ def gate_cutting(
     qpu_dict : dict, optional
         Dictionary specifying QPU backends and their maximum supported qubits.
         Example: `{"IBM_Quantum": 153, "MN_Ona": 5}`.
+    qpu_config : dict, optional
+        Explicit IBM Quantum configuration (preferred over `IBM_QUANTUM_*`
+        environment variables, which remain the fallback). Keys: ``token``,
+        ``channel`` (``"ibm_cloud"``/``"ibm_quantum"``), ``instance``,
+        ``backend_name`` (omit for the least-busy backend), ``max_time``,
+        ``proxies``, or a pre-built ``service`` (``QiskitRuntimeService``). The
+        connection and backend selection run once (see
+        :class:`~Qdislib.core.backend.qpu_backends.IBMBackend`).
     software : str, default="qiskit"
         Backend used to build and execute the subcircuits when no QPU/GPU
         applies: "qiskit", "qibo" or "cudaq".
@@ -258,7 +266,7 @@ def gate_cutting(
         gpu_min_qubits = 0
 
     if qpu and "IBM_Quantum" in qpu_dict:
-        batch, backend = _check_ibm_qc()
+        batch, backend = _check_ibm_qc(qpu_config)
     else:
         batch, backend = None, None
 
@@ -1188,38 +1196,23 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
     return expectation_value
 
 
-def _check_ibm_qc():
-    urls = {"http": "http://localhost:44433", "https": "http://localhost:44433"}
+def _check_ibm_qc(qpu_config=None):
+    """Open the IBM Quantum runtime session and select a backend.
 
-    proxies = {"urls": urls}
+    Thin wrapper over :class:`~Qdislib.core.backend.qpu_backends.IBMBackend`,
+    which is the single place that authenticates and selects the backend. Pass
+    ``qpu_config`` (a dict of ``token`` / ``channel`` / ``instance`` /
+    ``backend_name`` / ``max_time`` / ``proxies`` / ``service``) for explicit
+    configuration; each key falls back to its ``IBM_QUANTUM_*`` env var, so
+    env-var setups keep working.
 
-    token = os.environ.get("IBM_QUANTUM_TOKEN", "")
-    instance = os.environ.get("IBM_QUANTUM_INSTANCE", "")
-    channel = os.environ.get("IBM_QUANTUM_CHANNEL", "")
-    max_time_ibm = os.environ.get("IBM_QUANTUM_MAX_TIME", 60)
-    quantum_chip = os.environ.get("IBM_QUANTUM_QPU_NAME", "")
+    :return: ``(batch, backend)`` -- the open runtime Batch and the selected backend.
+    """
+    from Qdislib.core.backend.registry import build_backend
+    from Qdislib.core.backend.base_backend import BackendConfig
 
-    logger.info(quantum_chip)
-
-    if channel == "ibm_quantum":
-        service = QiskitRuntimeService(channel=channel, token=token, proxies=proxies)
-    elif channel == "ibm_cloud":
-        service = QiskitRuntimeService(
-            channel=channel, token=token, instance=instance  # , proxies=proxies
-        )
-    else:
-        raise ValueError(f"Unsupported IBM Runtime channel: {channel!r}")
-
-    if quantum_chip != "":
-        backend = service.backend(quantum_chip)
-    else:
-        backend = service.least_busy(operational=True, simulator=False)
-
-    logger.info(backend.operation_names)
-
-    batch = Batch(backend=backend, max_time=int(max_time_ibm))
-    logger.info(batch)
-    return batch, backend
+    ibm = build_backend("IBM_BACKEND", BackendConfig(num_qubits=0, extra=qpu_config or {}))
+    return ibm.session, ibm.ibm_backend
 
 
 def gate_cutting_subcircuits(
