@@ -45,6 +45,7 @@ from Qdislib.core.backend.circuit_converter import CircuitConverter
 from Qdislib.core.backend.registry import (
     register_backend,
     build_backend,
+    build_execution_backend,
     available_backends,
     DEFAULT_BACKEND_NAME,
     DEFAULT_NUM_QUBITS,
@@ -62,6 +63,7 @@ __all__ = [
     "CircuitConverter",
     "register_backend",
     "build_backend",
+    "build_execution_backend",
     "available_backends",
     "DEFAULT_BACKEND_NAME",
     "DEFAULT_NUM_QUBITS",

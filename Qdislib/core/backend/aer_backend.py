@@ -59,20 +59,47 @@ class AerBackend(BaseBackend):
 
     def __init__(self, config: BackendConfig) -> None:
         super().__init__("AER_BACKEND", config)
-        use_gpu: bool = config.extra.get("use_gpu", False)
-        noise_model = config.extra.get("noise_model", None)
-        precision: str = config.extra.get("precision", "double")
-
-        self._simulator = self._build_simulator(use_gpu, noise_model, precision)
+        self._use_gpu: bool = config.extra.get("use_gpu", False)
+        self._noise_model = config.extra.get("noise_model", None)
+        self._precision: str = config.extra.get("precision", "double")
+        self._simulator_cache: AerSimulator | None = None
         self._estimator = AerEstimator()
         logger.info(
             "AerBackend initialised (gpu=%s, precision=%s, noise=%s)",
-            use_gpu, precision, noise_model is not None,
+            self._use_gpu, self._precision, self._noise_model is not None,
         )
+
+    @property
+    def _simulator(self) -> AerSimulator:
+        """The Aer simulator, built lazily (evaluate_expectation reuses the cutting
+        code's own simulator, so a subcircuit-only backend never builds one here)."""
+        if self._simulator_cache is None:
+            self._simulator_cache = self._build_simulator(
+                self._use_gpu, self._noise_model, self._precision
+            )
+        return self._simulator_cache
 
     def transpile(self, circuit: SupportedCircuit) -> QuantumCircuit:
         """Transpile the circuit for AerSimulator (accepts Qiskit or Qibo input)."""
         return qiskit_transpile(CircuitConverter.to_qiskit(circuit), backend=self._simulator)
+
+    def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"):
+        """Evaluate a gate-cut subcircuit via Qiskit Aer (CPU, or GPU when configured)."""
+        from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _expec_value_qiskit,
+            _expec_value_qiskit_gpu,
+        )
+
+        subcirc = dag_to_circuit_qiskit(dag, num_qubits)
+        if self._use_gpu:
+            # The GPU path does not implement the cut-point sign recovery; the
+            # cut guard forbids identity-on-a-cut-qubit for GPU, so prep_qubits
+            # is empty here.
+            return _expec_value_qiskit_gpu(subcirc, shots=shots, method=method)
+        return _expec_value_qiskit(
+            subcirc, shots=shots, method=method, prep_qubits=prep_qubits
+        )
 
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job

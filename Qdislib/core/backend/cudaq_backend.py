@@ -49,12 +49,12 @@ class CudaqBackend(BaseBackend):
 
     def __init__(self, config: BackendConfig) -> None:
         super().__init__("CUDAQ_BACKEND", config)
-        try:
-            import cudaq  # noqa: F401
-        except ImportError as exc:
+        import importlib.util
+
+        if importlib.util.find_spec("cudaq") is None:
             raise ImportError(
                 "CudaqBackend requires CUDA-Q. Install with:  pip install qdislib[cudaq]"
-            ) from exc
+            )
         self._target: str | None = config.extra.get("target")
 
     def _set_target(self) -> None:
@@ -81,6 +81,14 @@ class CudaqBackend(BaseBackend):
 
     def transpile(self, circuit: SupportedCircuit) -> Any:
         return self._to_kernel(circuit)
+
+    def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"):
+        """Evaluate a gate-cut subcircuit via CUDA-Q."""
+        from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq
+        from Qdislib.core.cutting_algorithms.wire_cutting import _expec_value_cudaq
+
+        subcirc = dag_to_circuit_cudaq(dag, num_qubits)
+        return _expec_value_cudaq(subcirc, shots, prep_qubits=prep_qubits)
 
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job

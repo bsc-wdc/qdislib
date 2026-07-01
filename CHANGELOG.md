@@ -54,6 +54,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CircuitCache.stats()`: hit/miss counts, hit rate and size for a cache.
 
 ### Changed
+- **Gate and wire cutting now delegate subcircuit execution to the backend
+  layer** instead of branching on `software` internally. The per-backend
+  `if software == "qibo"/"qiskit"/"cudaq"` dispatch is replaced by
+  `backend.evaluate_expectation(dag, ...)`, and `software=` accepts the name of
+  any backend registered via `register_backend` -- so a user can plug in their
+  own execution backend without editing the algorithms. GPU is now an Aer
+  backend configuration. Reconstruction (including the identity-observable
+  sign-decoupling) is unchanged, so results are identical.
 - The quantum SDKs (Qibo / Qiskit / CUDA-Q) are now **optional**: the library
   imports and runs with any single SDK installed, and imports with none.
 - `find_cut` is fully backend-agnostic across Qibo, Qiskit and CUDA-Q.

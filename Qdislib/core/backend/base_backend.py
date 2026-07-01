@@ -159,6 +159,40 @@ class BaseBackend(ABC):
             self._dequeue(job)
 
     # ------------------------------------------------------------------
+    # Cutting hook -- evaluate a Qdislib subcircuit given as a backend-neutral DAG
+    # ------------------------------------------------------------------
+
+    def evaluate_expectation(
+        self,
+        dag: Any,
+        num_qubits: int,
+        prep_qubits: Any = (),
+        shots: int = 1024,
+        method: str = "automatic",
+    ) -> float:
+        """Evaluate the expectation of a Qdislib subcircuit DAG on this backend.
+
+        This is the seam the cutting algorithms delegate to instead of branching on
+        the backend name: they hand over the backend-neutral DAG (its Pauli
+        observable rides along as ``Observable I`` markers) and the set of
+        ``prep_qubits`` (cut qubits measured for the decomposition, whose sign is
+        recovered from the backend's own mid-circuit outcome). The backend builds
+        its native circuit, executes it, and reconstructs the value. Backends that
+        only support :meth:`run_samples` / :meth:`run_estimator` may leave this
+        unimplemented.
+
+        :param dag: A renumbered connected-component DAG of the cut circuit.
+        :param num_qubits: Qubit count of the component.
+        :param prep_qubits: Renumbered cut qubits measured for the decomposition.
+        :param shots: Number of measurement shots.
+        :param method: Backend-specific simulation method hint.
+        :return: The subcircuit's expectation value.
+        """
+        raise NotImplementedError(
+            f"{self.name} does not implement evaluate_expectation (circuit cutting)"
+        )
+
+    # ------------------------------------------------------------------
     # Abstract hooks -- to be implemented by subclasses
     # ------------------------------------------------------------------
 
