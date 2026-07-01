@@ -11,6 +11,17 @@ Subpackages
    Qdislib.core.find_cut
    Qdislib.core.graph_algorithms
 
+Submodules
+----------
+
+Qdislib.core.estimate module
+----------------------------
+
+.. automodule:: Qdislib.core.estimate
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

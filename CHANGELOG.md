@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Blue or Red) via qililab, communicating with the classical cut job through a
   shared filesystem directory (`subcircuits_dir()` / `$QDISLIB_SUBCIRCUITS_DIR`,
   the single source of truth used by both sides). See `examples/qpu_listener.py`.
+- `estimate(circuit, observable, max_qubits=...)`: a one-call helper that
+  find_cuts, executes and reconstructs in one step (`return_metrics=True` also
+  reports the chosen cut, timings and cache stats).
+- `from_qasm(qasm, software=...)`: build a circuit from an OpenQASM 2.0 string,
+  so any framework that exports QASM 2.0 (Cirq, PennyLane, Braket, ...) can feed
+  Qdislib's cutting workflows.
+- `draw_cut(circuit, cut)`: visualise a circuit's DAG with the cut highlighted.
+- `CircuitCache.stats()`: hit/miss counts, hit rate and size for a cache.
 
 ### Changed
 - The quantum SDKs (Qibo / Qiskit / CUDA-Q) are now **optional**: the library

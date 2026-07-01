@@ -33,6 +33,7 @@ __all__ = [
     "analytical_solution",
     "draw_to_circuit",
     "parse_qsim",
+    "from_qasm",
 ]
 
 import igraph
@@ -53,6 +54,47 @@ except ImportError:  # qibo is optional; functions that need it fail when called
 
 from Qdislib.utils.exceptions import QdislibException
 from Qdislib.utils.backends import normalize_observables
+
+
+def from_qasm(qasm, software="qibo"):
+    """Build a circuit from an OpenQASM 2.0 string.
+
+    A lightweight interoperability entry point: any framework that exports
+    OpenQASM 2.0 (Cirq, PennyLane, Amazon Braket, Qiskit, ...) can feed circuits
+    into Qdislib's cutting workflows through it, without a dedicated backend.
+
+    :param qasm: An OpenQASM 2.0 program (string).
+    :param software: ``"qibo"`` (default) or ``"qiskit"`` -- the circuit type to
+        return; pick whichever backend you will execute the subcircuits on.
+    :raises ImportError: If the requested backend SDK is not installed.
+    :raises ValueError: For an unknown ``software``.
+    :return: A Qibo ``Circuit`` or Qiskit ``QuantumCircuit``.
+
+    Example:
+        .. code-block:: python
+
+            import cirq
+            import Qdislib as qd
+
+            qc = qd.from_qasm(cirq.qasm(cirq_circuit), software="qiskit")
+            cut = qd.find_cut(qc, gate_cut=True, wire_cut=False)
+    """
+    if software == "qibo":
+        if not qibo_available:
+            raise ImportError(
+                "from_qasm(software='qibo') requires qibo (install Qdislib[qibo])."
+            )
+        return models.Circuit.from_qasm(qasm)
+    if software == "qiskit":
+        try:
+            from qiskit import QuantumCircuit
+        except ImportError as exc:
+            raise ImportError(
+                "from_qasm(software='qiskit') requires qiskit "
+                "(install Qdislib[qiskit])."
+            ) from exc
+        return QuantumCircuit.from_qasm_str(qasm)
+    raise ValueError(f"Unknown software {software!r}; expected 'qibo' or 'qiskit'.")
 
 
 def analytical_solution(circuit: typing.Any, observables: str) -> float:

@@ -23,7 +23,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["find_cut"]
+__all__ = ["find_cut", "draw_cut"]
 
 import networkx
 import typing
@@ -392,6 +392,58 @@ def _plot_partition(graph, partition):
     networkx.draw_networkx_labels(graph, pos)
     plt.title("Graph Partition Visualization")
     plt.show()
+
+
+def draw_cut(circuit, cut, filename=None):
+    """Visualise a circuit's DAG with the cut locations highlighted.
+
+    Gate cuts (gate identifiers, e.g. ``["CZ_3"]``) highlight the cut gate nodes;
+    wire cuts (endpoint pairs, e.g. ``[("H_1", "CZ_2")]``) also highlight the edge
+    between the endpoints. Requires matplotlib.
+
+    :param circuit: The circuit that was cut (Qibo/Qiskit/CUDA-Q, or a DAG).
+    :param cut: A cut as returned by :func:`find_cut`.
+    :param filename: If given, save the figure there; otherwise show it.
+    """
+    import matplotlib.pyplot as plt
+    from Qdislib.utils.backends import convert_to_dag
+
+    dag = convert_to_dag(circuit)
+    if not isinstance(dag, networkx.DiGraph):
+        raise TypeError("draw_cut requires a circuit convertible to a Qdislib DAG.")
+
+    is_wire = bool(cut) and isinstance(cut[0], (tuple, list))
+    cut_nodes = set()
+    cut_edges = set()
+    if is_wire:
+        for source, target in cut:
+            cut_edges.add((source, target))
+            cut_nodes.update((source, target))
+    else:
+        cut_nodes.update(cut)
+
+    pos = networkx.spring_layout(dag)
+    plt.figure(figsize=(12, 8))
+    node_colors = ["#d62728" if n in cut_nodes else "#aec7e8" for n in dag.nodes]
+    edge_colors = [
+        "#d62728" if (u, v) in cut_edges or (v, u) in cut_edges else "#bbbbbb"
+        for u, v in dag.edges
+    ]
+    networkx.draw(
+        dag,
+        pos,
+        with_labels=True,
+        node_color=node_colors,
+        edge_color=edge_colors,
+        node_size=600,
+        font_size=7,
+    )
+    plt.title(f"{'Wire' if is_wire else 'Gate'} cut: {cut}")
+    if filename:
+        plt.savefig(filename, bbox_inches="tight")
+        plt.close()
+    else:
+        plt.show()
 
 
 @task(returns=2)
