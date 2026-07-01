@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "gate_cutting",
+    "gate_cutting_sampling",
     "gate_cutting_subcircuits",
     "gate_cutting_subcircuit_reconstruction",
 ]
@@ -677,6 +678,124 @@ def _measured_cut_qubits(dag):
         for n in dag
         if dag.nodes[n].get("gate") == "measure"
     ) - {None}
+
+
+def _dag_num_qubits(dag):
+    """Number of qubits spanned by a DAG (max qubit index + 1)."""
+    qubits = set()
+    for node in dag:
+        qubits.update(dag.nodes[node].get("qubits") or ())
+    return (max(qubits) + 1) if qubits else 0
+
+
+def _component_original_qubits(component):
+    """Sorted original qubit indices a component acts on (pre-renumbering)."""
+    qubits = set()
+    for node in component:
+        qubits.update(component.nodes[node].get("qubits") or ())
+    return sorted(qubits)
+
+
+def _sample_gate_cut_configs(dag, gates_cut, software, shots):
+    """Sample every 6**n_cuts gate-cut configuration.
+
+    For each configuration and each connected component, returns the component's
+    qubit-0-first counts together with the component's *original* qubit indices,
+    so the reconstruction can place each bit back on the right qubit (the piece
+    the naive bitstring-concatenation reconstruction got wrong).
+    """
+    from Qdislib.core.backend.registry import build_execution_backend
+
+    new_dag = _generate_cut(dag, gates_cut)
+    configs = []
+    for index in range(6 ** len(gates_cut)):
+        copy_graph = _remove_red_edges(new_dag.copy())
+        num_components = nx.number_connected_components(copy_graph.to_undirected())
+        graph_components = [nx.DiGraph() for _ in range(num_components)]
+        _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
+
+        per_component = []
+        for comp in graph_components:
+            original = _component_original_qubits(comp)
+            s_new, highest_qubit = _update_qubits(comp)
+            backend = build_execution_backend(software, num_qubits=highest_qubit)
+            counts = backend.evaluate_samples(s_new, highest_qubit, shots)
+            per_component.append((counts, original))
+        configs.append(per_component)
+    return configs
+
+
+def _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits):
+    """Reconstruct the output distribution from sampled gate-cut configurations.
+
+    Each configuration contributes ``sign(index) / 2**n_cuts`` times the tensor
+    product of its component distributions (built over *original* qubit indices).
+    Gate cutting yields quasi-probabilities, so the signed sum is abs-normalised
+    into a valid distribution. Validated against the exact statevector
+    distribution (TVD ~ shot noise) for 1 and 2 cuts.
+    """
+    accumulated = {}
+    for index, per_component in enumerate(configs):
+        # Sign from the base-6 digits (3 or 5 flip), mirroring _change_sign_gate_cutting.
+        sign, digits = 1, index
+        while digits:
+            if digits % 6 in (3, 5):
+                sign = -sign
+            digits //= 6
+
+        combined = {(): 1.0}  # assignment (tuple of (qubit, bit)) -> probability
+        for counts, original in per_component:
+            total = sum(counts.values()) or 1
+            component_dist = {}
+            for bitstring, count in counts.items():
+                assignment = tuple((original[i], bitstring[i]) for i in range(len(original)))
+                component_dist[assignment] = component_dist.get(assignment, 0.0) + count / total
+            merged = {}
+            for prefix, p_prefix in combined.items():
+                for assignment, p_assignment in component_dist.items():
+                    key = prefix + assignment
+                    merged[key] = merged.get(key, 0.0) + p_prefix * p_assignment
+            combined = merged
+
+        weight = sign / (2 ** num_cuts)
+        for assignment, prob in combined.items():
+            bits = dict(assignment)
+            bitstring = "".join(bits.get(q, "0") for q in range(num_qubits))
+            accumulated[bitstring] = accumulated.get(bitstring, 0.0) + weight * prob
+
+    norm = sum(abs(v) for v in accumulated.values()) or 1
+    return {k: abs(v) / norm for k, v in accumulated.items()}
+
+
+def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit"):
+    """Reconstruct the output **probability distribution** of a gate-cut circuit.
+
+    Unlike :func:`gate_cutting` (which returns an expectation value), this samples
+    each subcircuit and reconstructs the full distribution over measurement
+    bitstrings. Every subcircuit is sampled independently -- the reconstruction is
+    embarrassingly parallel -- and combined via the gate-cut quasiprobability
+    decomposition, then abs-normalised into a valid distribution.
+
+    :param circuit: A Qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
+    :param gates_cut: The gates to cut (as in :func:`gate_cutting`).
+    :param shots: Measurement shots per subcircuit. Sampling reconstruction has a
+        quasiprobability overhead, so it needs more shots than an expectation.
+    :param software: Execution backend, or the name of any registered backend.
+    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+    """
+    dag = convert_to_dag(circuit)
+    num_qubits = _dag_num_qubits(dag)
+
+    if not gates_cut:
+        from Qdislib.core.backend.registry import build_execution_backend
+
+        backend = build_execution_backend(software, num_qubits=num_qubits)
+        counts = backend.evaluate_samples(dag, num_qubits, shots)
+        total = sum(counts.values()) or 1
+        return {k: v / total for k, v in counts.items()}
+
+    configs = _sample_gate_cut_configs(dag, gates_cut, software, shots)
+    return _reconstruct_gate_cut_distribution(configs, len(gates_cut), num_qubits)
 
 
 @task(returns=1)

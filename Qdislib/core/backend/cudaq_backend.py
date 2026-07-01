@@ -90,6 +90,17 @@ class CudaqBackend(BaseBackend):
         subcirc = dag_to_circuit_cudaq(dag, num_qubits)
         return _expec_value_cudaq(subcirc, shots, prep_qubits=prep_qubits)
 
+    def evaluate_samples(self, dag, num_qubits, shots=1024):
+        """Sample a subcircuit via CUDA-Q; return qubit-0-first counts."""
+        import cudaq
+        from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
+
+        self._set_target()
+        built = dag_to_circuit_cudaq_kernel(dag, num_qubits)
+        kernel = built[0] if isinstance(built, (list, tuple)) else built
+        result = cudaq.sample(kernel, shots_count=shots)
+        return {str(k): int(v) for k, v in result.items()}
+
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
     ) -> SampleJobResult:
