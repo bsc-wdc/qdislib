@@ -1,13 +1,17 @@
 Examples
 ========
 
+A hands-on **learning path** — the notebooks build on each other, so read them
+in order. Each is self-contained (its own imports and example circuit) and runs
+serially with just a Qibo install.
+
 .. toctree::
-   :maxdepth: 3
-   :caption: Contents:
+   :maxdepth: 2
+   :caption: Learning path:
 
-   notebooks/Qdislib_Notebook
-   notebooks/Qdislib_Hello_World
-   notebooks/Qdislib_CUDAQ
-   notebooks/Qdislib_IBM_QPU
-   
-
+   notebooks/01_quickstart
+   notebooks/02_cutting_workflow
+   notebooks/03_backends
+   notebooks/04_observables
+   notebooks/05_caching
+   notebooks/06_distributed_and_qpu
