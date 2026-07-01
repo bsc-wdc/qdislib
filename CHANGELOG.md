@@ -55,6 +55,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DEBUG level. Use `qd.set_log_level("DEBUG")` instead of `verbose=True`.
 
 ### Fixed
+- Identity (`"I"`) observables in **gate cutting** now reconstruct correctly for
+  any qubit on all three CPU backends. Previously an `I` on a qubit whose last
+  gate is multi-qubit was silently dropped (turned into `Z`) in the DAG
+  converters, and an `I` on a *cut* qubit that feeds a multi-qubit gate after the
+  cut produced a sign-flipped result. The marker is now attached to the last gate
+  acting on the qubit (multi-qubit terminals included), and the gate-cut
+  reconstruction recovers the measure-and-prepare sign from the **cut-point
+  measurement** (decoupled from the final observable) on `qiskit` (cut-measure
+  classical register), `qibo` (collapse gate per-shot samples) and `cudaq`
+  (`sample(explicit_measurements=True)`). The GPU/QPU paths and the 3-step
+  `gate_cutting_subcircuits` workflow do not decouple this yet and raise
+  `InvalidCutError` rather than returning a wrong value. Wire cutting was
+  unaffected by the sign issue and also benefits from the converter fix.
 - QPU hand-off no longer hangs forever: the wait for a result is now bounded
   (`QPUTimeoutError` after `$QDISLIB_QPU_TIMEOUT`, default 1 h) and files are
   written atomically, so a down listener or a half-written file no longer stalls

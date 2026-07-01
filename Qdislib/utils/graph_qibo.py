@@ -132,18 +132,26 @@ def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph
                     dag.add_edge(pred_gate, gate_name, color="red")
 
     if obs_I:
-        sinks = [node for node in dag.nodes if dag.out_degree(node) == 0]
-        for idx, i in enumerate(obs_I):
-            if i == "I":
-                for elem in sinks:
-                    if dag.nodes[elem].get("qubits") == (idx,):
-                        dag.add_node(
-                            f"OBSI_{idx}",
-                            gate="Observable I",
-                            qubits=(idx,),
-                            parameters=(),
-                        )
-                        dag.add_edge(elem, f"OBSI_{idx}", color="blue")
+        for idx, pauli in enumerate(obs_I):
+            if pauli != "I":
+                continue
+            # Attach the Observable-I marker after the LAST gate acting on qubit
+            # idx. That gate may be multi-qubit (e.g. a CZ), so requiring a sink
+            # whose qubits are exactly (idx,) silently dropped the marker whenever
+            # a qubit ended on a two-qubit gate -- and the identity then wrongly
+            # became a Z on the cutting path.
+            last = None
+            for node, data in dag.nodes(data=True):
+                if idx in (data.get("qubits") or ()) and data.get("gate") != "Observable I":
+                    last = node
+            if last is not None:
+                dag.add_node(
+                    f"OBSI_{idx}",
+                    gate="Observable I",
+                    qubits=(idx,),
+                    parameters=(),
+                )
+                dag.add_edge(last, f"OBSI_{idx}", color="blue")
 
     return dag
 
