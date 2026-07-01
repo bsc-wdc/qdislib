@@ -55,9 +55,7 @@ from Qdislib.utils.exceptions import QdislibException
 from Qdislib.utils.backends import normalize_observables
 
 
-def analytical_solution(
-    circuit: typing.Any, observables: str, verbose: bool = False
-) -> float:
+def analytical_solution(circuit: typing.Any, observables: str) -> float:
     """
     Compute the analytical expectation value of a given quantum circuit.
 
@@ -71,10 +69,11 @@ def analytical_solution(
         on successive qubits.
     :param circuit:
         A callable object (such as a Qibo circuit) that, when executed, returns the final quantum state.
-    :param verbose:
-        If True, prints intermediate symbolic and numerical expectation values.
     :return:
         The computed expectation value as a floating-point number.
+
+    Per-term expectation values are logged at DEBUG level; enable them with
+    ``qd.set_log_level("DEBUG")``.
 
     :example:
 
@@ -96,7 +95,7 @@ def analytical_solution(
         observables = "XZI"  # Apply Pauli-X to qubit 0, Z to qubit 1, Identity to qubit 2
 
         # Compute the analytical expectation value
-        result = qd.analytical_solution(observables, circuit, verbose=True)
+        result = qd.analytical_solution(circuit, observables)
 
         print(f"Expectation value: {result}")
 
@@ -129,13 +128,12 @@ def analytical_solution(
         term_value = float(
             np.real(np.conj(statevector) @ (hamiltonian.matrix @ statevector))
         )
-        if verbose:
-            logger.info(
-                "Term %s (coefficient %s) expectation value: %s",
-                pauli,
-                coeff,
-                term_value,
-            )
+        logger.debug(
+            "Term %s (coefficient %s) expectation value: %s",
+            pauli,
+            coeff,
+            term_value,
+        )
         total += coeff * term_value
 
     return total
@@ -235,7 +233,6 @@ def draw_to_circuit(
     list_multiple_gates = defaultdict(list)
     # Now we will process each line to identify multi-qubit gates
     for idx, qubit_line in enumerate(qubits_lst):
-        qubit_number = idx  # Line number corresponds to the qubit (q0 is index 0)
         qubit_state = list(qubit_line)
 
         # Boolean to track if we are inside a multi-qubit gate
