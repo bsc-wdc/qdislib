@@ -293,6 +293,35 @@ class CircuitCache:
     def __contains__(self, key):
         return self.get(key) is not None
 
+    def _record(self, value):
+        """Update hit/miss counters from a ``get`` result and return the value."""
+        if value is None:
+            self.misses = getattr(self, "misses", 0) + 1
+        else:
+            self.hits = getattr(self, "hits", 0) + 1
+        return value
+
+    def stats(self):
+        """Return cache statistics: ``hits``, ``misses``, ``hit_rate``, ``size``.
+
+        Hit/miss counters are per store *instance*: under PyCOMPSs each worker
+        gets its own pickled copy, so the counters reflect a single process only.
+        ``size`` is still global for the shared LMDB/Redis/PSCO stores.
+        """
+        hits = getattr(self, "hits", 0)
+        misses = getattr(self, "misses", 0)
+        total = hits + misses
+        try:
+            size = len(self)
+        except (TypeError, NotImplementedError):
+            size = None
+        return {
+            "hits": hits,
+            "misses": misses,
+            "hit_rate": hits / total if total else 0.0,
+            "size": size,
+        }
+
 
 class InMemoryCircuitCache(CircuitCache):
     """Process-local ``dict``-backed cache (serial / single-process use).
@@ -305,7 +334,7 @@ class InMemoryCircuitCache(CircuitCache):
         self._store = {}
 
     def get(self, key):
-        return self._store.get(key)
+        return self._record(self._store.get(key))
 
     def put(self, key, value):
         self._store[key] = value
@@ -361,11 +390,11 @@ class LMDBCircuitCache(CircuitCache):
         with self._env_handle().begin(write=False) as txn:
             raw = txn.get(key.encode("utf-8"))
         if raw is None:
-            return None
+            return self._record(None)
         try:
-            return json.loads(raw.decode("utf-8"))
+            return self._record(json.loads(raw.decode("utf-8")))
         except json.JSONDecodeError:
-            return None
+            return self._record(None)
 
     def put(self, key, value):
         raw = json.dumps(value).encode("utf-8")
@@ -419,7 +448,7 @@ class RedisCircuitCache(CircuitCache):
 
     def get(self, key):
         raw = self._conn().get(self.prefix + key)
-        return None if raw is None else json.loads(raw)
+        return self._record(None if raw is None else json.loads(raw))
 
     def put(self, key, value):
         self._conn().set(self.prefix + key, json.dumps(value))
@@ -490,8 +519,8 @@ class RedisPSCOCircuitCache(CircuitCache):
             # get_by_ID raises (e.g. AttributeError when it returns None
             # internally and then calls .pycompss_mark_as_unmodified()) on a
             # missing id; treat any lookup failure as a cache miss.
-            return None
-        return None if obj is None else obj.get_value()
+            return self._record(None)
+        return self._record(None if obj is None else obj.get_value())
 
     def put(self, key, value, observables=None):
         try:

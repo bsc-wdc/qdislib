@@ -28,6 +28,22 @@ Qdislib.utils.circuit\_cache module
    :undoc-members:
    :show-inheritance:
 
+Qdislib.utils.logging\_config module
+------------------------------------
+
+.. automodule:: Qdislib.utils.logging_config
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.utils.qpu\_bridge module
+--------------------------------
+
+.. automodule:: Qdislib.utils.qpu_bridge
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Qdislib.utils.exceptions module
 -------------------------------
 

@@ -22,6 +22,7 @@
 from Qdislib.core.cutting_algorithms.wire_cutting import *
 from Qdislib.core.cutting_algorithms.gate_cutting import *
 from Qdislib.core.find_cut.find_cut import *
+from Qdislib.core.estimate import *
 
 from Qdislib.core.graph_algorithms.random_graph_generator import *
 from Qdislib.utils.circuit import *
