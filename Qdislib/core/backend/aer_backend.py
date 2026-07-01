@@ -101,6 +101,22 @@ class AerBackend(BaseBackend):
             subcirc, shots=shots, method=method, prep_qubits=prep_qubits
         )
 
+    def evaluate_samples(self, dag, num_qubits, shots=1024):
+        """Sample a subcircuit; return qubit-0-first counts (reversed from Qiskit's little-endian)."""
+        from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+
+        built = dag_to_circuit_qiskit(dag, num_qubits)
+        qc = built[0] if isinstance(built, (list, tuple)) else built
+        qc = qc.copy()
+        qc.measure_all()
+        counts = self._simulator.run([qc], shots=shots).result().get_counts()
+        out: dict[str, int] = {}
+        for key, value in counts.items():
+            # keep the measure_all register (first) and reverse to qubit-0-first
+            bitstring = key.split()[0][::-1]
+            out[bitstring] = out.get(bitstring, 0) + value
+        return out
+
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
     ) -> SampleJobResult:

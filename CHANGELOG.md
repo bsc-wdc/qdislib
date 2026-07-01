@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Sampling-based gate cutting** (`gate_cutting_sampling`): reconstruct the full
+  output **probability distribution** over bitstrings from a gate-cut circuit,
+  not just an expectation value. Each subcircuit is sampled independently
+  (embarrassingly parallel -- no classical dependency between subcircuits),
+  combined via the quasiprobability decomposition with correct original-qubit
+  mapping, then abs-normalised into a valid distribution. Works on Aer / Qibo /
+  CUDA-Q via the backend layer; validated against the exact statevector
+  distribution (total-variation distance at shot-noise level) for one and two
+  cuts.
 - **Pluggable backend layer** (`Qdislib.core.backend`): a user-swappable
   execution abstraction so backend choice lives outside the cutting algorithms.
   `QdBackEnd` routes each `sample_circuit` / `get_expectation_value` job to the

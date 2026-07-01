@@ -192,6 +192,23 @@ class BaseBackend(ABC):
             f"{self.name} does not implement evaluate_expectation (circuit cutting)"
         )
 
+    def evaluate_samples(self, dag: Any, num_qubits: int, shots: int = 1024) -> dict[str, int]:
+        """Sample a Qdislib subcircuit DAG and return counts in a standard convention.
+
+        Used by the sampling reconstruction of gate cutting. Every backend returns
+        keys as **qubit-0-first** bitstrings (``key[i]`` is qubit ``i``), regardless
+        of the SDK's native endianness, so the reconstruction combines components
+        uniformly.
+
+        :param dag: A renumbered connected-component DAG of the cut circuit.
+        :param num_qubits: Qubit count of the component.
+        :param shots: Number of measurement shots.
+        :return: ``{qubit-0-first bitstring: count}``.
+        """
+        raise NotImplementedError(
+            f"{self.name} does not implement evaluate_samples (sampling reconstruction)"
+        )
+
     # ------------------------------------------------------------------
     # Abstract hooks -- to be implemented by subclasses
     # ------------------------------------------------------------------

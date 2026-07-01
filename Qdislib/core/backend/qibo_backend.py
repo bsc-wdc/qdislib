@@ -59,6 +59,19 @@ class QiboBackend(BaseBackend):
         subcirc = dag_to_circuit_qibo(dag, num_qubits)
         return _expec_value_qibo(subcirc, shots, self._platform, prep_qubits=prep_qubits)
 
+    def evaluate_samples(self, dag, num_qubits, shots=1024):
+        """Sample a subcircuit; Qibo frequencies are already qubit-0-first."""
+        import qibo
+        from qibo import gates
+        from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
+
+        qibo.set_backend(self._platform)
+        built = dag_to_circuit_qibo(dag, num_qubits)
+        qc = built[0] if isinstance(built, (list, tuple)) else built
+        qc.add(gates.M(*range(qc.nqubits)))
+        freq = qc(nshots=shots).frequencies(binary=True)
+        return {k: int(v) for k, v in freq.items()}
+
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
     ) -> SampleJobResult:
