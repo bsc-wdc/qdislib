@@ -189,13 +189,15 @@ NOTEBOOKS["02_cutting_workflow"] = [
     ),
     code(EXAMPLE),
     code("import Qdislib as qd"),
-    md("## 1. Generate the subcircuits\n\n`find_cut` picks the cut; `gate_cutting_subcircuits` produces the pieces."),
+    md(
+        "## 1. Generate the subcircuits\n\n`find_cut` picks the cut; `gate_cutting_subcircuits` produces the pieces."
+    ),
     code(
         "circuit = example_circuit()\n"
         "cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)\n"
         'print("cut:", cut)\n'
         "\n"
-        "subcircuits = qd.gate_cutting_subcircuits(example_circuit(), cut, software=\"qibo\")\n"
+        'subcircuits = qd.gate_cutting_subcircuits(example_circuit(), cut, software="qibo")\n'
         'print("number of subcircuits:", len(subcircuits))'
     ),
     md(
@@ -216,7 +218,9 @@ NOTEBOOKS["02_cutting_workflow"] = [
         'print("reconstructed:", result)\n'
         'print("analytical   :", qd.analytical_solution(example_circuit(), "ZZZZZ"))'
     ),
-    md("## Visualise the cut\n\n`draw_cut` shows the circuit DAG with the cut highlighted."),
+    md(
+        "## Visualise the cut\n\n`draw_cut` shows the circuit DAG with the cut highlighted."
+    ),
     illus("qd.draw_cut(example_circuit(), cut)  # needs matplotlib; opens a figure"),
     md(
         "## Wire cutting — same three steps\n"
@@ -226,7 +230,7 @@ NOTEBOOKS["02_cutting_workflow"] = [
     code(
         "circuit = example_circuit()\n"
         "wire_cut = qd.find_cut(circuit, gate_cut=False, wire_cut=True)\n"
-        "subcircuits = qd.wire_cutting_subcircuits(example_circuit(), wire_cut, software=\"qibo\")\n"
+        'subcircuits = qd.wire_cutting_subcircuits(example_circuit(), wire_cut, software="qibo")\n'
         "values = [qd.expectation_value(s, shots=8192) for s in subcircuits]\n"
         'print("wire reconstruction:", subcircuits.reconstruct(values))'
     ),
@@ -260,14 +264,20 @@ NOTEBOOKS["03_backends"] = [
         'print("cut:", cut)'
     ),
     md("## Qibo"),
-    code('print("qibo  :", qd.gate_cutting(example_circuit(), cut, software="qibo", shots=8192))'),
-    md("## Qiskit\n\nSame circuit and cut, executed on Qiskit Aer (`pip install Qdislib[qiskit]`)."),
-    code('print("qiskit:", qd.gate_cutting(example_circuit(), cut, software="qiskit", shots=8192))'),
+    code(
+        'print("qibo  :", qd.gate_cutting(example_circuit(), cut, software="qibo", shots=8192))'
+    ),
+    md(
+        "## Qiskit\n\nSame circuit and cut, executed on Qiskit Aer (`pip install Qdislib[qiskit]`)."
+    ),
+    code(
+        'print("qiskit:", qd.gate_cutting(example_circuit(), cut, software="qiskit", shots=8192))'
+    ),
     md(
         "## CUDA-Q\n"
         "\n"
         "With `pip install Qdislib[cudaq]` you can build the circuit as a CUDA-Q\n"
-        "kernel and run with `software=\"cudaq\"` (GPU when available, CPU otherwise).\n"
+        'kernel and run with `software="cudaq"` (GPU when available, CPU otherwise).\n'
         "`find_cut` works directly on a kernel too."
     ),
     illus(
@@ -304,10 +314,7 @@ NOTEBOOKS["03_backends"] = [
         'print("cut on the imported circuit:", cut)\n'
         'print("value:", qd.gate_cutting(qd.from_qasm(qasm, software="qiskit"), cut, software="qiskit", shots=8192))'
     ),
-    md(
-        "---\n"
-        "Next: **04 · Observables** — beyond `<ZZZZZ>`."
-    ),
+    md("---\n" "Next: **04 · Observables** — beyond `<ZZZZZ>`."),
 ]
 
 # --------------------------------------------------------------------------- #
@@ -354,7 +361,7 @@ NOTEBOOKS["04_observables"] = [
         "mapping; Qdislib evaluates `<Σ cᵢ Pᵢ> = Σ cᵢ <Pᵢ>` term by term."
     ),
     code(
-        "hamiltonian = [(0.5, \"ZZIII\"), (-1.0, \"IIZZI\"), (0.25, \"ZIZII\")]\n"
+        'hamiltonian = [(0.5, "ZZIII"), (-1.0, "IIZZI"), (0.25, "ZIZII")]\n'
         "value = qd.gate_cutting(example_circuit(), cut, observables=hamiltonian, shots=20000)\n"
         "exact = qd.analytical_solution(example_circuit(), hamiltonian)\n"
         'print(f"<H>:  cut={value:+.3f}   exact={exact:+.3f}")'
@@ -385,8 +392,8 @@ NOTEBOOKS["05_caching"] = [
     md(
         "## Enable a cache\n"
         "\n"
-        "You choose the store: `\"memory\"` (here), `\"lmdb\"` (persistent on disk),\n"
-        "or `\"redis\"` (which becomes the BSC COMPSs/PSCO store under PyCOMPSs).\n"
+        'You choose the store: `"memory"` (here), `"lmdb"` (persistent on disk),\n'
+        'or `"redis"` (which becomes the BSC COMPSs/PSCO store under PyCOMPSs).\n'
         "Pass it to any cutting call."
     ),
     code(
@@ -406,15 +413,15 @@ NOTEBOOKS["05_caching"] = [
     md(
         "## Cache granularity\n"
         "\n"
-        "`cache_mode=\"expectation\"` (default) caches the per-subcircuit value keyed\n"
-        "by hash + observable. `cache_mode=\"counts\"` caches raw measurement counts\n"
+        '`cache_mode="expectation"` (default) caches the per-subcircuit value keyed\n'
+        'by hash + observable. `cache_mode="counts"` caches raw measurement counts\n'
         "keyed by the hash alone, so one simulation serves several observables."
     ),
     code(
-        "cache = qd.default_circuit_cache(\"memory\")\n"
-        "for obs in [\"ZZZZZ\", \"ZIZIZ\"]:\n"
+        'cache = qd.default_circuit_cache("memory")\n'
+        'for obs in ["ZZZZZ", "ZIZIZ"]:\n'
         "    qd.gate_cutting(example_circuit(), cut, observables=obs,\n"
-        "                    cache=cache, cache_mode=\"counts\", shots=8192)\n"
+        '                    cache=cache, cache_mode="counts", shots=8192)\n'
         'print("counts-mode cache:", cache.stats())'
     ),
     md(
@@ -469,7 +476,7 @@ NOTEBOOKS["06_distributed_and_qpu"] = [
         "circuit.add(gates.RY(3, 0.4)); circuit.add(gates.CZ(3, 4)); circuit.add(gates.RX(4, 0.3))\n"
         "\n"
         "cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)\n"
-        "subcircuits = qd.gate_cutting_subcircuits(circuit, cut, software=\"qibo\")\n"
+        'subcircuits = qd.gate_cutting_subcircuits(circuit, cut, software="qibo")\n'
         "values = [qd.expectation_value(s) for s in subcircuits]   # scheduled as tasks\n"
         "print(subcircuits.reconstruct(values))\n"
         "\n"
@@ -515,8 +522,8 @@ NOTEBOOKS["06_distributed_and_qpu"] = [
         'cut = qd.find_cut(circuit, max_qubits=5, implementation="ibm-ckt")\n'
         "\n"
         "# qpu_dict maps a QPU to its qubit count (the chip's maximum).\n"
-        "value = qd.gate_cutting(circuit, cut, software=\"qiskit\",\n"
-        "                        qpu=True, qpu_dict={\"IBM_Quantum\": 127})\n"
+        'value = qd.gate_cutting(circuit, cut, software="qiskit",\n'
+        '                        qpu=True, qpu_dict={"IBM_Quantum": 127})\n'
         "print(value)"
     ),
     md(
@@ -547,8 +554,8 @@ NOTEBOOKS["06_distributed_and_qpu"] = [
         "circuit.add(gates.RY(3, 0.4)); circuit.add(gates.CZ(3, 4)); circuit.add(gates.RX(4, 0.3))\n"
         "\n"
         "cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)\n"
-        "value = qd.gate_cutting(circuit, cut, software=\"qibo\",\n"
-        "                        qpu=True, qpu_dict={\"MN_Ona\": 5})\n"
+        'value = qd.gate_cutting(circuit, cut, software="qibo",\n'
+        '                        qpu=True, qpu_dict={"MN_Ona": 5})\n'
         "print(value)"
     ),
     md(
@@ -585,7 +592,9 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "\n"
         "Here's the story you'll build — encode → entangle → cut & reconstruct:"
     ),
-    img_md("images/07_image_cutting.png", "encode, entangle, cut and reconstruct an image"),
+    img_md(
+        "images/07_image_cutting.png", "encode, entangle, cut and reconstruct an image"
+    ),
     md("Look for the **🔧 Your turn** cells: change a line, re-run, watch it change."),
     md(
         "## Start the PyCOMPSs runtime\n"
@@ -614,14 +623,14 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "\n"
         "\n"
         "def brightness_profile(n_bits, center, width):\n"
-        "    \"\"\"Amplitudes whose |.|**2 form a Gaussian bump over 2**n_bits values.\"\"\"\n"
+        '    """Amplitudes whose |.|**2 form a Gaussian bump over 2**n_bits values."""\n'
         "    x = np.arange(2 ** n_bits)\n"
         "    p = np.exp(-0.5 * ((x - center) / width) ** 2)\n"
         "    return np.sqrt(p / p.sum())\n"
         "\n"
         "\n"
         "def to_image(distribution):\n"
-        "    \"\"\"{bitstring: probability}  ->  16x16 array (row bits | column bits).\"\"\"\n"
+        '    """{bitstring: probability}  ->  16x16 array (row bits | column bits)."""\n'
         "    image = np.zeros((2 ** N_ROW, 2 ** N_COL))\n"
         "    for bitstring, prob in distribution.items():\n"
         "        row = int(bitstring[:N_ROW][::-1], 2)\n"
@@ -646,15 +655,25 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "separable blob (`row_profile ⊗ column_profile`)."
     ),
     code(
-        "def encode_image(entangle):\n"
+        "def encode_image(entangle, transform=None, center=7.5):\n"
         "    qc = QuantumCircuit(N)\n"
         "    # QPIE: load the row and column brightness profiles (a smooth Gaussian bump).\n"
-        "    qc.append(StatePreparation(brightness_profile(N_ROW, center=7.5, width=2.2)),\n"
+        "    qc.append(StatePreparation(brightness_profile(N_ROW, center=center, width=2.2)),\n"
         "              range(N_ROW))\n"
-        "    qc.append(StatePreparation(brightness_profile(N_COL, center=7.5, width=2.2)),\n"
+        "    qc.append(StatePreparation(brightness_profile(N_COL, center=center, width=2.2)),\n"
         "              range(N_ROW, N))\n"
         "    qc = transpile(qc, basis_gates=['ry', 'rz', 'cx', 'cz', 'h', 'x'],\n"
         "                   optimization_level=1)\n"
+        "    # GEOMETRIC TRANSFORM (step 2b): an X on an address qubit flips that\n"
+        "    # coordinate bit; flipping every bit maps index k -> (2**n - 1) - k, a clean\n"
+        "    # mirror. X acts inside one register, so it never crosses the row<->column\n"
+        "    # cut -- the transform reconstructs faithfully from the two halves.\n"
+        "    if transform in ('flip_rows', 'rotate_180'):\n"
+        "        for q in range(N_ROW):        # mirror rows: top <-> bottom\n"
+        "            qc.x(q)\n"
+        "    if transform in ('flip_cols', 'rotate_180'):\n"
+        "        for q in range(N_ROW, N):     # mirror columns: left <-> right\n"
+        "            qc.x(q)\n"
         "    if entangle:\n"
         "        # ENTANGLE (step 2): couple the two registers with two CZ gates, each\n"
         "        # tying a row qubit to a column qubit. These are our cut points.\n"
@@ -664,7 +683,7 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "\n"
         "\n"
         "def exact_image(qc):\n"
-        "    \"\"\"The true image, from the exact statevector (our ground truth).\"\"\"\n"
+        '    """The true image, from the exact statevector (our ground truth)."""\n'
         "    probs = np.abs(qi.Statevector(qc).data) ** 2\n"
         "    dist = {''.join(str((i >> q) & 1) for q in range(N)): probs[i]\n"
         "            for i in range(2 ** N)}\n"
@@ -705,6 +724,49 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "    return np.sqrt(p / p.sum())\n"
         "\n"
         "show([exact_image(encode_image(entangle=True))], ['your image'])"
+    ),
+    md(
+        "## 2b. A geometric transform that survives the cut\n"
+        "\n"
+        "The `CZ` left the image untouched — a pure fidelity check. But we can also\n"
+        "**transform** the image with gates and watch the transform come back through\n"
+        "the cut. The clean transforms in QPIE are the **geometric** ones: an `X` on an\n"
+        "address qubit flips that coordinate bit, and flipping *every* bit of a\n"
+        "coordinate maps index `k → (2**n − 1) − k` — a **mirror reflection**. Each `X`\n"
+        "acts inside a single register, so it never crosses the row↔column cut: the\n"
+        "reflected image is reconstructed from the two halves just as faithfully.\n"
+        "\n"
+        "*(Why reflect and not shrink/zoom? Scaling a QPIE image is a **resampling** —\n"
+        "shrinking is 2-to-1 (non-unitary) and zooming needs an extra qubit — so it is\n"
+        "not a clean gate. The easy way to resize the blob is at encode time, via\n"
+        "`width`. Reflections, translations and 90° rotations are the clean ones.)*"
+    ),
+    code(
+        "# An off-center blob makes the reflection visible (a centered blob is\n"
+        "# symmetric). transform: 'flip_rows', 'flip_cols' or 'rotate_180' (both axes).\n"
+        "off = dict(entangle=False, center=4.5)\n"
+        "show([exact_image(encode_image(**off)),\n"
+        "      exact_image(encode_image(**off, transform='flip_rows')),\n"
+        "      exact_image(encode_image(**off, transform='flip_cols')),\n"
+        "      exact_image(encode_image(**off, transform='rotate_180'))],\n"
+        "     ['original', 'flip rows', 'flip cols', 'rotate 180°'])"
+    ),
+    md(
+        "### 🔧 Your turn (1b)\n"
+        "\n"
+        "**Cut and reconstruct a transformed image.** Pick a `TRANSFORM` and re-run: the\n"
+        "reconstruction from the two 4-qubit halves matches the *transformed* image, not\n"
+        "the original — the transform rode through the cut."
+    ),
+    code(
+        "TRANSFORM = 'rotate_180'      # <-- 'flip_rows' / 'flip_cols' / 'rotate_180' / None\n"
+        "\n"
+        "moved = encode_image(entangle=True, center=4.5, transform=TRANSFORM)\n"
+        "cut_moved = qd.find_cut(moved, gate_cut=True, wire_cut=False, max_qubits=N_ROW)\n"
+        "dist_moved = qd.gate_cutting_sampling(moved, cut_moved, shots=200_000,\n"
+        "                                      software='qiskit')\n"
+        "show([exact_image(moved), to_image(dist_moved)],\n"
+        "     ['transformed image (exact)', 'reconstructed from the 2 halves'])"
     ),
     md(
         "## 3. The image is an 8-qubit circuit — cut it in two\n"
@@ -752,6 +814,37 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "noisy = to_image(distribution)\n"
         "show([reconstructed, noisy], ['200k shots', '20k shots'])\n"
         "print('TVD:', round(0.5 * np.abs(exact_image(entangled) - noisy).sum(), 4))"
+    ),
+    md(
+        "## 5. Send the pieces to a real BSC quantum computer\n"
+        "\n"
+        "The subcircuits are only **4 qubits** — small enough for today's hardware. To\n"
+        "sample them on a **real BSC QPU** instead of the local simulator, pass\n"
+        "`qpu=True` and name the machine with `qpu_dict` (QPU → its qubit count). The\n"
+        "call is otherwise identical: Qdislib ships each subcircuit to the QPU, gathers\n"
+        "the counts, and rebuilds the image for you. (This needs access to the BSC\n"
+        "quantum environment, so it isn't run in this docs build.)"
+    ),
+    illus(
+        "distribution = qd.gate_cutting_sampling(\n"
+        "    entangled, cut, shots=4096,\n"
+        "    software='qibo', qpu=True, qpu_dict={'MN_Ona': N_ROW},\n"
+        ")\n"
+        "show([exact_image(entangled), to_image(distribution)],\n"
+        "     ['exact image', 'reconstructed on a BSC QPU'])"
+    ),
+    md(
+        "### What a real (noisy) run looks like\n"
+        "\n"
+        "On hardware the reconstruction still recovers the blob, but gate and readout\n"
+        "errors blur it and add a background haze — and cutting's quasiprobability\n"
+        "overhead amplifies shot noise, so hardware runs want **more shots** and **error\n"
+        "mitigation**. Here is the same image reconstructed on an ideal simulator versus\n"
+        "a noisy QPU run:"
+    ),
+    img_md(
+        "images/07_noisy_execution.png",
+        "the reconstructed image on an ideal simulator versus a noisy QPU",
     ),
     md(
         "## Recap & bonus\n"

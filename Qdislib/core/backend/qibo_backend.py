@@ -76,6 +76,12 @@ class QiboBackend(BaseBackend):
         freq = qc(nshots=shots).frequencies(binary=True)
         return {k: int(v) for k, v in freq.items()}
 
+    def evaluate_joint_counts(self, dag, num_qubits, cut_point_qubits=(), shots=1024):
+        """Joint final/cut-point counts via Qibo (per-shot mid-circuit collapse samples)."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import _joint_counts_qibo
+
+        return _joint_counts_qibo(dag, num_qubits, list(cut_point_qubits), shots)
+
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
     ) -> SampleJobResult:

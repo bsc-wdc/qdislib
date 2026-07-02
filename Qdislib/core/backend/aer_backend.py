@@ -123,6 +123,12 @@ class AerBackend(BaseBackend):
             out[bitstring] = out.get(bitstring, 0) + value
         return out
 
+    def evaluate_joint_counts(self, dag, num_qubits, cut_point_qubits=(), shots=1024):
+        """Joint final/cut-point counts via Qiskit Aer (reuses the cut-measure register)."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import _joint_counts_qiskit
+
+        return _joint_counts_qiskit(dag, num_qubits, list(cut_point_qubits), shots)
+
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
     ) -> SampleJobResult:
