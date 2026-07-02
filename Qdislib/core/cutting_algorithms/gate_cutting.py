@@ -369,10 +369,44 @@ def gate_cutting(
         return final_recons
 
 
+# Gate cutting implements the CZ measure-and-prepare quasiprobability
+# decomposition. A CX/CNOT is cut via the identity CX(c, t) = H(t) CZ(c, t) H(t)
+# (see ``_generate_cut``), so both are accepted here. Any other two-qubit gate
+# would be silently mis-cut, so we reject it explicitly.
+_CUTTABLE_GATES = {"cz", "cx", "cnot"}
+
+
+def _assert_cuttable_gate(dag, gate_name):
+    """Reject a requested cut on a node gate cutting cannot decompose.
+
+    :param dag: DAG the cut is applied to (after ``_remove_red_edges``).
+    :param gate_name: Node id from ``gates_cut``.
+    :raises InvalidCutError: if the node is not a two-qubit CZ or CX/CNOT. A CX is
+        cut as ``H*CZ*H`` at the cut site; other two-qubit gates are not
+        supported (they would be silently mis-cut as if they were a CZ).
+    """
+    gate = dag.nodes[gate_name].get("gate") or ""
+    qubits = dag.nodes[gate_name].get("qubits") or ()
+    if gate.lower() not in _CUTTABLE_GATES or len(qubits) != 2:
+        raise InvalidCutError(
+            f"Gate cutting can only cut a two-qubit CZ or CX/CNOT (a CX is cut via "
+            f"CX = H*CZ*H), but node {gate_name!r} is a {gate!r} on qubits "
+            f"{tuple(qubits)}. Other two-qubit gates are not supported yet: "
+            f"decompose the gate into CZ/CX + single-qubit gates first, or run "
+            f"find_cut on the circuit to obtain a valid cut."
+        )
+
+
 def _generate_cut(dag, gates_cut):
     dag_copy = dag.copy()
     dag_copy = _remove_red_edges(dag_copy)
     for index, gate_name in enumerate(gates_cut, start=1):
+        _assert_cuttable_gate(dag_copy, gate_name)
+        # A CX/CNOT is cut as H(t) CZ(c, t) H(t): the CZ measure-and-prepare below
+        # is reused unchanged, and the target qubit (qubits[1]) is conjugated by a
+        # Hadamard on each side of its cut node -- so it is effectively measured
+        # and prepared in the X basis, which is exactly what the identity says.
+        is_cx = (dag_copy.nodes[gate_name].get("gate") or "").lower() in ("cx", "cnot")
         target_qubits = dag_copy.nodes[gate_name]["qubits"]
         pred_0 = _find_nodes_with_qubit(
             dag_copy, gate_name, qubit=target_qubits[0], direction="predecessor"
@@ -405,11 +439,24 @@ def _generate_cut(dag, gates_cut):
         if succ_0:
             dag_copy.add_edge(f"SUBS1_{index}", succ_0[0], color="blue")
 
-        if pred_1:
-            dag_copy.add_edge(pred_1[0], f"SUBS2_{index}", color="blue")
+        if is_cx:
+            # pred_1 -> H -> SUBS2 -> H -> succ_1 (Hadamard conjugation on target)
+            h_pre = f"CXHPRE_{index}"
+            h_post = f"CXHPOST_{index}"
+            dag_copy.add_node(h_pre, gate="h", qubits=(target_qubits[1],), parameters=())
+            dag_copy.add_node(h_post, gate="h", qubits=(target_qubits[1],), parameters=())
+            if pred_1:
+                dag_copy.add_edge(pred_1[0], h_pre, color="blue")
+            dag_copy.add_edge(h_pre, f"SUBS2_{index}", color="blue")
+            dag_copy.add_edge(f"SUBS2_{index}", h_post, color="blue")
+            if succ_1:
+                dag_copy.add_edge(h_post, succ_1[0], color="blue")
+        else:
+            if pred_1:
+                dag_copy.add_edge(pred_1[0], f"SUBS2_{index}", color="blue")
 
-        if succ_1:
-            dag_copy.add_edge(f"SUBS2_{index}", succ_1[0], color="blue")
+            if succ_1:
+                dag_copy.add_edge(f"SUBS2_{index}", succ_1[0], color="blue")
 
     return dag_copy
 
@@ -702,22 +749,180 @@ def _component_original_qubits(component):
     return sorted(qubits)
 
 
+def _resolve_sdk(software):
+    """Map a ``software`` / registered-backend name to its SDK for sampling capture."""
+    s = (software or "").lower()
+    if "qibo" in s:
+        return "qibo"
+    if "cudaq" in s or "cuda-q" in s:
+        return "cudaq"
+    return "qiskit"  # qiskit + Aer/IQM/IBM backends all use Qiskit circuits
+
+
+def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots):
+    """Per-component joint counts ``{(final_bits, cut-point_bits): count}`` for Qibo.
+
+    ``final_bits`` are qubit-0-first over the component's qubits; ``cut-point_bits``
+    are the mid-circuit collapse-measurement outcomes for ``prep_sorted`` (the
+    measured cut qubits), captured per shot so they stay correlated with the final
+    measurement (see :func:`_expectation_from_samples_qibo`).
+    """
+    import qibo
+    from qibo import gates as qgates
+    from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
+
+    built = dag_to_circuit_qibo(dag, num_qubits)
+    if built is None:
+        return None
+    qc = built[0] if isinstance(built, (list, tuple)) else built
+    qibo.set_backend("numpy")
+    collapse = {
+        g.qubits[0]: g
+        for g in qc.queue
+        if isinstance(g, qgates.M) and getattr(g, "collapse", False)
+    }
+    qc.add(qgates.M(*range(qc.nqubits)))
+    final = np.asarray(qc(nshots=shots).samples())  # (shots, nqubits), qubit-0-first
+    cut = {
+        q: (np.asarray(collapse[q].result.samples()).ravel()
+            if q in collapse else np.zeros(len(final), dtype=int))
+        for q in prep_sorted
+    }
+    joint = {}
+    for shot in range(len(final)):
+        ft = tuple(int(final[shot, q]) for q in range(qc.nqubits))
+        ct = tuple(int(cut[q][shot]) for q in prep_sorted)
+        joint[(ft, ct)] = joint.get((ft, ct), 0) + 1
+    return joint
+
+
+def _joint_counts_qiskit(dag, num_qubits, prep_sorted, shots):
+    """Per-component joint counts for Qiskit, reusing the cut-measure register ``c``.
+
+    :func:`_counts_qiskit` returns keys ``"<measure-all> <cut-measure c>"`` (each
+    little-endian), so the cut-point outcome of qubit ``q`` lives in the second
+    register at position ``num_qubits-1-q`` -- exactly the register the expectation
+    path reads for the decoupled sign.
+    """
+    from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+
+    built = dag_to_circuit_qiskit(dag, num_qubits)
+    if built is None:
+        return None
+    qc = built[0] if isinstance(built, (list, tuple)) else built
+    counts = _counts_qiskit(qc, shots=shots)
+    joint = {}
+    for key, cnt in counts.items():
+        regs = key.split()
+        measure_all = regs[0]
+        cut_measure = regs[1] if len(regs) > 1 else ""
+        ft = tuple(int(measure_all[num_qubits - 1 - q]) for q in range(num_qubits))
+        ct = tuple(
+            int(cut_measure[num_qubits - 1 - q]) if len(cut_measure) == num_qubits else 0
+            for q in prep_sorted
+        )
+        joint[(ft, ct)] = joint.get((ft, ct), 0) + cnt
+    return joint
+
+
+def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots):
+    """Per-component joint counts for CUDA-Q via ``explicit_measurements``.
+
+    With a measured cut qubit the kernel is built with ``explicit_final=True`` so
+    each per-shot key is ``[cut-point outcomes in mz order] + [final q0..q(n-1)]``
+    (see :func:`_expectation_cudaq_decoupled`); otherwise plain counts suffice.
+    """
+    import cudaq
+    from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
+    from Qdislib.core.cutting_algorithms.wire_cutting import _counts_cudaq
+
+    try:
+        cudaq.set_target("nvidia")
+    except Exception:
+        cudaq.set_target("qpp-cpu")
+
+    if prep_sorted:
+        kernel, _obs, measured_order = dag_to_circuit_cudaq_kernel(
+            dag, num_qubits, explicit_final=True
+        )
+        last_pos = {qb: i for i, qb in enumerate(measured_order)}
+        n_mid = len(measured_order)
+        result = cudaq.sample(kernel, shots_count=shots, explicit_measurements=True)
+        joint = {}
+        for key in result:
+            cnt = result.count(key)
+            ft = tuple(int(key[n_mid + q]) for q in range(num_qubits))
+            ct = tuple(int(key[last_pos[q]]) if q in last_pos else 0 for q in prep_sorted)
+            joint[(ft, ct)] = joint.get((ft, ct), 0) + cnt
+        return joint
+
+    built = dag_to_circuit_cudaq_kernel(dag, num_qubits)
+    kernel = built[0] if isinstance(built, (list, tuple)) else built
+    freq = _counts_cudaq(kernel, shots)
+    joint = {}
+    for key, cnt in freq.items():
+        ft = tuple(int(key[q]) for q in range(num_qubits))
+        joint[(ft, ())] = joint.get((ft, ()), 0) + cnt
+    return joint
+
+
+def _z_correlators(joint, prep_sorted, k):
+    """All ``2**k`` Z-string correlators ``<Z^b>`` for one component's samples.
+
+    ``corr[mask]`` (bit ``i`` of ``mask`` <=> local qubit ``i`` in the Z-string) is
+    computed with the gate-cut prep-qubit sign rule: a measured cut qubit observed
+    with **Z** uses its final bit ``(-1)**f``, but observed with **identity** uses
+    the *cut-point* outcome ``-(-1)**m``. This is what lets a cut qubit that keeps
+    evolving after the cut reconstruct correctly (its final bit no longer equals its
+    cut-point outcome). Reduces to the plain Z/I correlators when there is no prep.
+    """
+    if joint is None or k == 0:
+        return {0: 1.0}
+    total = sum(joint.values()) or 1
+    prep_index = {q: i for i, q in enumerate(prep_sorted)}
+    corr = {mask: 0.0 for mask in range(2 ** k)}
+    for (final, cut), cnt in joint.items():
+        weight = cnt / total
+        z_sign = [(-1.0) ** final[q] for q in range(k)]  # local qubit in the Z-string
+        i_sign = [1.0] * k  # local qubit observed with identity
+        for q in prep_sorted:
+            i_sign[q] = -((-1.0) ** cut[prep_index[q]])
+        for mask in range(2 ** k):
+            value = 1.0
+            for q in range(k):
+                value *= z_sign[q] if (mask >> q) & 1 else i_sign[q]
+            corr[mask] += weight * value
+    return corr
+
+
 @task(returns=1)
 def _sample_gate_subcircuit(component, software, shots):
-    """Sample one connected-component subcircuit (a PyCOMPSs task, run in parallel).
+    """Sample one connected-component subcircuit and return its Z-correlators.
 
-    Only the picklable component DAG crosses the task boundary; the backend is
-    built and the native circuit sampled inside the worker. Returns the
-    component's qubit-0-first counts and its *original* qubit indices, so the
-    reconstruction can place each bit back on the right qubit.
+    A PyCOMPSs task (parallel under PyCOMPSs). Only the picklable component DAG
+    crosses the task boundary; the native circuit is built and sampled inside the
+    worker, capturing both the final measurement and the mid-circuit cut-point
+    measurements. Returns ``(corr, original)`` where ``corr`` maps each Z-string
+    mask to its ``<Z^b>`` correlator (compact -- ``2**|component|`` floats) and
+    ``original`` lists the component's global qubit indices; the reconstruction
+    combines these into the output distribution. Returning correlators rather than
+    raw counts is what makes the reconstruction correct for cut qubits that keep
+    evolving after the cut (the cut-point sign is baked in here).
     """
-    from Qdislib.core.backend.registry import build_execution_backend
-
     original = _component_original_qubits(component)
     s_new, highest_qubit = _update_qubits(component)
-    backend = build_execution_backend(software, num_qubits=highest_qubit)
-    counts = backend.evaluate_samples(s_new, highest_qubit, shots)
-    return (counts, original)
+    if s_new is None:  # empty component (a qubit touched only by a removed cut node)
+        return ({0: 1.0}, [])
+    prep_sorted = sorted(_measured_cut_qubits(s_new))
+    sdk = _resolve_sdk(software)
+    if sdk == "qibo":
+        joint = _joint_counts_qibo(s_new, highest_qubit, prep_sorted, shots)
+    elif sdk == "cudaq":
+        joint = _joint_counts_cudaq(s_new, highest_qubit, prep_sorted, shots)
+    else:
+        joint = _joint_counts_qiskit(s_new, highest_qubit, prep_sorted, shots)
+    corr = _z_correlators(joint, prep_sorted, highest_qubit)
+    return (corr, original)
 
 
 def _sample_gate_cut_configs(dag, gates_cut, software, shots):
@@ -742,16 +947,39 @@ def _sample_gate_cut_configs(dag, gates_cut, software, shots):
     return configs
 
 
+def _fast_walsh_hadamard(vector):
+    """In-place fast Walsh-Hadamard transform: ``out[x] = sum_A (-1)**popcount(A&x) v[A]``."""
+    a = np.asarray(vector, dtype=float).copy()
+    n = len(a)
+    h = 1
+    while h < n:
+        a = a.reshape(-1, 2 * h)
+        left = a[:, :h].copy()
+        right = a[:, h:].copy()
+        a[:, :h] = left + right
+        a[:, h:] = left - right
+        a = a.reshape(-1)
+        h *= 2
+    return a
+
+
 def _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits):
     """Reconstruct the output distribution from sampled gate-cut configurations.
 
-    Each configuration contributes ``sign(index) / 2**n_cuts`` times the tensor
-    product of its component distributions (built over *original* qubit indices).
-    Gate cutting yields quasi-probabilities, so the signed sum is abs-normalised
-    into a valid distribution. Validated against the exact statevector
-    distribution (TVD ~ shot noise) for 1 and 2 cuts.
+    The correct distribution is recovered from Pauli-Z correlators, not from
+    tensoring the components' *final* measurement distributions: a cut qubit that
+    keeps evolving after the cut has a forced final measurement, so its raw final
+    distribution is wrong -- but its ``<Z^b>`` correlator (built with the cut-point
+    sign in :func:`_z_correlators`) is right. Each component supplies ``<Z^b>`` over
+    its qubits; per configuration these multiply (signed by ``sign/2**n_cuts``) into
+    the global correlator ``<Z^A>``, and ``P(x) = 2**-n * sum_A (-1)**(A.x) <Z^A>``
+    (an inverse Walsh-Hadamard transform). Qubits covered by no component are
+    identity there, i.e. ``|0>``. The signed result is abs-normalised into a valid
+    distribution. Validated against the exact statevector distribution (TVD ~ shot
+    noise) for terminal *and* non-terminal cuts.
     """
-    accumulated = {}
+    dim = 2 ** num_qubits
+    z_correlators = np.zeros(dim)
     for index, per_component in enumerate(configs):
         # Sign from the base-6 digits (3 or 5 flip), mirroring _change_sign_gate_cutting.
         sign, digits = 1, index
@@ -760,28 +988,26 @@ def _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits):
                 sign = -sign
             digits //= 6
 
-        combined = {(): 1.0}  # assignment (tuple of (qubit, bit)) -> probability
-        for counts, original in per_component:
-            total = sum(counts.values()) or 1
-            component_dist = {}
-            for bitstring, count in counts.items():
-                assignment = tuple((original[i], bitstring[i]) for i in range(len(original)))
-                component_dist[assignment] = component_dist.get(assignment, 0.0) + count / total
-            merged = {}
-            for prefix, p_prefix in combined.items():
-                for assignment, p_assignment in component_dist.items():
-                    key = prefix + assignment
-                    merged[key] = merged.get(key, 0.0) + p_prefix * p_assignment
-            combined = merged
+        contribution = np.full(dim, sign / (2 ** num_cuts), dtype=float)
+        for corr, original in per_component:
+            # Map each global Z-string A to this component's local mask, then read
+            # off its correlator. Uncovered qubits fall through as identity (mask 0).
+            component_values = np.empty(dim)
+            for global_mask in range(dim):
+                local_mask = 0
+                for local_index, qubit in enumerate(original):
+                    if (global_mask >> qubit) & 1:
+                        local_mask |= 1 << local_index
+                component_values[global_mask] = corr[local_mask]
+            contribution *= component_values
+        z_correlators += contribution
 
-        weight = sign / (2 ** num_cuts)
-        for assignment, prob in combined.items():
-            bits = dict(assignment)
-            bitstring = "".join(bits.get(q, "0") for q in range(num_qubits))
-            accumulated[bitstring] = accumulated.get(bitstring, 0.0) + weight * prob
-
-    norm = sum(abs(v) for v in accumulated.values()) or 1
-    return {k: abs(v) / norm for k, v in accumulated.items()}
+    probabilities = _fast_walsh_hadamard(z_correlators) / dim
+    keys = [
+        "".join(str((x >> q) & 1) for q in range(num_qubits)) for x in range(dim)
+    ]
+    norm = float(np.abs(probabilities).sum()) or 1.0
+    return {key: abs(float(p)) / norm for key, p in zip(keys, probabilities)}
 
 
 def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit", sync=True):

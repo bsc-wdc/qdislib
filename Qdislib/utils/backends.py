@@ -82,6 +82,12 @@ def convert_to_dag(circuit, observables=None):
     Dispatches on the circuit type. If ``circuit`` is already a DAG (or any
     unrecognised type) it is returned unchanged.
 
+    ``CX``/``CNOT`` gates are kept as-is here (not rewritten to ``H·CZ·H``): the
+    DAG must stay in step with ``find_cut``, which names cut nodes after the
+    gates the user actually wrote, so a user never sees a phantom ``CZ`` cut on a
+    circuit that has none. Gate cutting handles the ``CX = H·CZ·H`` identity
+    itself, at the cut site (see ``_generate_cut``).
+
     :param circuit: A Qiskit ``QuantumCircuit``, a Qibo ``Circuit``, a CUDA-Q
         kernel, or an already-built ``networkx`` DAG.
     :param observables: Optional observable string; when it contains ``"I"`` the
