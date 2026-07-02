@@ -69,6 +69,20 @@ def illus(text):
     return cell
 
 
+def img_md(rel_path, alt):
+    """Markdown cell embedding a PNG (base64) so the notebook is self-contained.
+
+    Lets a notebook show a rendered result (e.g. the expected reconstructed image)
+    without executing anything or shipping a separate file.
+    """
+    import base64
+
+    full = os.path.join(NB_DIR, rel_path)
+    with open(full, "rb") as handle:
+        data = base64.b64encode(handle.read()).decode()
+    return new_markdown_cell(f"![{alt}](data:image/png;base64,{data})")
+
+
 NOTEBOOKS = {}
 
 # --------------------------------------------------------------------------- #
@@ -554,20 +568,25 @@ NOTEBOOKS["07_image_reconstruction"] = [
     md(
         "# Qdislib — 07 · Cutting a quantum image (hands-on)\n"
         "\n"
-        "In this hands-on notebook you'll **encode a 16×16 image into a quantum\n"
-        "circuit, transform it, cut the circuit in two, and rebuild the image from\n"
-        "the pieces** — using `gate_cutting_sampling`, which reconstructs the whole\n"
-        "output *probability distribution* (not just an expectation value).\n"
+        "**The key idea: a handful of qubits holds a whole image.** With QPIE\n"
+        "(Quantum Probability Image Encoding), an `n`-qubit state is a probability\n"
+        "distribution over `2**n` bitstrings — read each bitstring as a **pixel\n"
+        "address** and its probability as the pixel **brightness**. So **4 qubits\n"
+        "index all 16 rows** (`2**4 = 16`), 4 more index all 16 columns, and just\n"
+        "**8 qubits encode the entire 16×16 = 256-pixel image** — an *exponential*\n"
+        "packing (8 numbers of hardware for 256 pixels).\n"
         "\n"
-        "Look for the **🔧 Your turn** cells: change a line, re-run, and watch the\n"
-        "image change.\n"
+        "That packing is exactly *why you'd cut*: an image that needs 8 qubits can be\n"
+        "run as **two independent 4-qubit halves** — the rows and the columns — and\n"
+        "then reassembled. In this notebook you'll encode an image, apply a quantum\n"
+        "transform, **cut the 8-qubit circuit into two 4-qubit pieces**, and rebuild\n"
+        "the full image with `gate_cutting_sampling` (which reconstructs the whole\n"
+        "output *distribution*, not just an expectation value).\n"
         "\n"
-        "**The idea (QPIE — Quantum Probability Image Encoding).** A quantum state\n"
-        "over `n` qubits is a probability distribution over `2**n` bitstrings. We\n"
-        "read each bitstring as a **pixel address** and its probability as the pixel\n"
-        "**brightness**. With `4 + 4 = 8` qubits (4 for the row, 4 for the column) we\n"
-        "get a `16×16 = 256`-pixel image."
+        "Here's the whole story you'll build — encode → transform → cut & reconstruct:"
     ),
+    img_md("images/07_image_cutting.png", "encode, transform, cut and reconstruct"),
+    md("Look for the **🔧 Your turn** cells: change a line, re-run, watch it change."),
     code(
         "import numpy as np\n"
         "import matplotlib.pyplot as plt\n"
@@ -604,11 +623,12 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "    plt.show()"
     ),
     md(
-        "## 1. Encode the image\n"
+        "## 1. Encode the image  ·  *4 qubits → 16 positions*\n"
         "\n"
-        "We prepare the **row** brightness profile on the row qubits and the\n"
-        "**column** profile on the column qubits, *independently*. Preparing them\n"
-        "separately makes the image **separable** — a pure outer product\n"
+        "We load a **row** brightness profile onto the 4 row qubits and a **column**\n"
+        "profile onto the 4 column qubits. Each 4-qubit register spans all\n"
+        "`2**4 = 16` positions along its axis. Preparing the two registers\n"
+        "*independently* makes the image **separable** — a pure outer product\n"
         "`row_profile ⊗ column_profile`, i.e. a smooth blob."
     ),
     code(
@@ -622,9 +642,10 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "    qc = transpile(qc, basis_gates=['ry', 'rz', 'cx', 'cz', 'h', 'x'],\n"
         "                   optimization_level=1)\n"
         "    if transform:\n"
-        "        # TRANSFORM (step 2): couple rows <-> columns with two CZ gates.\n"
-        "        qc.cz(0, N_ROW)\n"
-        "        qc.cz(N_ROW - 1, N - 1)\n"
+        "        # TRANSFORM (step 2): fold rows into columns with two CX gates --\n"
+        "        # each ties a column bit to a row bit  (col_bit ^= row_bit).\n"
+        "        qc.cx(0, N_ROW)\n"
+        "        qc.cx(N_ROW - 1, N - 1)\n"
         "    return qc\n"
         "\n"
         "\n"
@@ -639,18 +660,23 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "show([exact_image(encode_image(transform=False))], ['separable image (a blob)'])"
     ),
     md(
-        "## 2. Transform: entangle rows and columns\n"
+        "## 2. Transform: fold rows into columns\n"
         "\n"
-        "The two `CZ` gates each couple a **row qubit to a column qubit**. A `CZ`\n"
-        "adds a −1 phase whenever both its qubits are `|1⟩`, which **entangles** the\n"
-        "row and column registers: the image is no longer a plain outer product, so\n"
-        "an interference texture appears over the blob. (These two gates will double\n"
-        "as our cut points in step 3.)"
+        "Now we couple the two registers with two `CX` (controlled-NOT) gates, each\n"
+        "from a **row qubit to a column qubit**. A `CX` sets `col_bit ^= row_bit`, so\n"
+        "the **column address is XOR-shifted by the row address** — each row moves\n"
+        "horizontally by an amount that depends on the row, which visibly **folds**\n"
+        "the image (the blob wraps into an arc).\n"
+        "\n"
+        "Crucially, this coupling **entangles** the row and column registers: the\n"
+        "image is no longer a separable outer product, so it genuinely needs all 8\n"
+        "qubits *together* — which is what makes cutting it non-trivial. (These two\n"
+        "`CX` gates double as our cut points in step 3.)"
     ),
     code(
         "show([exact_image(encode_image(transform=False)),\n"
         "      exact_image(encode_image(transform=True))],\n"
-        "     ['before transform (separable)', 'after transform (rows&cols entangled)'])"
+        "     ['before (separable blob)', 'after (CX fold: rows -> columns)'])"
     ),
     md(
         "### 🔧 Your turn (1)\n"
