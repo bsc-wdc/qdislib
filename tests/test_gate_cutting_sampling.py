@@ -115,6 +115,28 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
     def test_cudaq_one_cut(self):
         self._check("cudaq", ["CZ_2"])
 
+    def _check_three_step(self, software, cut, shots=1024):
+        """The three-step API (generate -> sample -> reconstruct) must reconstruct
+        the same distribution as the all-in-one gate_cutting_sampling."""
+        import Qdislib as qd
+
+        subs = qd.gate_cutting_sampling_subcircuits(_circuit(), cut, software=software)
+        sampled = [qd.sample_subcircuit(s, shots=shots) for s in subs]
+        dist = subs.reconstruct(sampled)
+        self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
+        self.assertLess(_tvd(_exact_distribution(), dist), _TOL, f"3-step {software} {cut}")
+
+    def test_qibo_three_step(self):
+        self._check_three_step("qibo", ["CZ_2"])
+
+    @unittest.skipUnless(AER_AVAILABLE, "qiskit_aer required")
+    def test_qiskit_three_step(self):
+        self._check_three_step("qiskit", ["CZ_2"])
+
+    @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq required")
+    def test_cudaq_three_step(self):
+        self._check_three_step("cudaq", ["CZ_2"])
+
     def _check_entangled(self, software, shots=1024):
         import Qdislib as qd
 

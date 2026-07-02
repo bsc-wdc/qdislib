@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Three-step sampling workflow**, mirroring the expectation one:
+  `gate_cutting_sampling_subcircuits(circuit, cut, software)` returns a
+  `SampledCutSubcircuits` (a `list` of sampling subcircuits + cut metadata); sample
+  each with `sample_subcircuit(s, shots)` in your own loop (real QPUs, batching,
+  caching, ...), then `subs.reconstruct(sampled)` recombines them into the output
+  distribution. The all-in-one `gate_cutting_sampling` and this three-step API share
+  one subcircuit-generation path, and the distribution reconstruction is now a task
+  fed directly by the sampling futures (parallel under PyCOMPSs, no master barrier).
 - **Sampling-based gate cutting** (`gate_cutting_sampling`): reconstruct the full
   output **probability distribution** over bitstrings from a gate-cut circuit,
   not just an expectation value. Each subcircuit is sampled independently
@@ -96,6 +104,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DEBUG level. Use `qd.set_log_level("DEBUG")` instead of `verbose=True`.
 
 ### Fixed
+- **Three-step reconstruction no longer forces a master barrier.** The 3-step
+  reconstructors used to `compss_wait_on` every subcircuit result on the master
+  before applying the per-configuration sign; now each configuration's subcircuit
+  futures feed straight into `_change_sign` / `_change_sign_gate_cutting`
+  (task -> task), with the semantic-cache placeholder resolve moved into the sign
+  task. Under PyCOMPSs the `_evaluate_subcircuit -> _change_sign` dependency is now
+  direct (no sync node between them; confirmed in the `-g` task graph).
+- **No nested PyCOMPSs tasks in the cutting paths.** The backend-abstraction
+  refactor left the per-subcircuit leaf helpers (`_counts_qiskit`, `_counts_qibo`,
+  `_expec_value_cudaq`, and the QPU/GPU `_expec_value_*`) decorated with `@task`
+  even though they only ever run *inside* a per-subcircuit `@task`
+  (`_build_and_run_*`, `_sample_gate_subcircuit`, `_evaluate_subcircuit`) -- a
+  `@task` calling a `@task`, which under PyCOMPSs can hand the worker an
+  unresolved future. Those leaves are now plain functions; every remaining
+  `@task` is either a per-subcircuit fan-out or a master-side reduction over
+  futures (`_change_sign*`, `_sum_results`, `COLLECTION_IN`). Verified under
+  `runcompss` (expectation, and qiskit + CUDA-Q sampling, all reconstruct
+  correctly with a flat fan-out and no task-to-task edges in the `-g` graph).
+- **CUDA-Q sampling/expectation under `cudaq` >= 0.12.** `cudaq.run` no longer
+  supports returning a `list` from entry-point kernels, so the gate-cut record
+  kernel (`_build_cudaq_run_kernel`) now returns the per-shot outcomes packed into
+  an int (bit `k` = outcome `k` of `[cut-points..., finals...]`), unpacked on the
+  host with `(record >> k) & 1`. Reconstruction is unchanged.
 - **Gate-cut reconstruction corrected for cut qubits that keep evolving after the
   cut.** A gate cut's measure term is the projective `(I ± Z)/2` (Mitarai & Fujii,
   arXiv:1909.07534): the cut qubit must be *measured and left collapsed to its

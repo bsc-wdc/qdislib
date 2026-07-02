@@ -503,7 +503,7 @@ def _sum_results(lst: typing.List[int]) -> int:
     return sum(lst)
 
 
-@task(returns=1)
+# Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _counts_qibo(qc, shots=1024, backend="numpy"):
     """Simulate a Qibo circuit and return its measurement counts (frequencies).
 
@@ -714,18 +714,19 @@ def _expectation_cudaq_decoupled(
     for record in records:
         drawn += 1
         contribution = 1
+        # record is an int; bit k = outcome k of [cut-points..., finals...].
         for q, obs in enumerate(observables):
             if q in prep_qubits and q in last_pos:
                 # Measured cut qubit: decomposition sign -(-1)**m from the
                 # cut-point outcome m for *any* observable; Z then multiplies by
                 # the final measurement.
-                contribution *= -((-1) ** int(record[last_pos[q]]))
+                contribution *= -((-1) ** ((record >> last_pos[q]) & 1))
                 if obs == "Z":
-                    contribution *= (-1) ** int(record[n_mid + q])
+                    contribution *= (-1) ** ((record >> (n_mid + q)) & 1)
                 elif obs != "I":
                     raise ValueError(f"Unsupported observable {obs}")
             elif obs == "Z":
-                contribution *= (-1) ** int(record[n_mid + q])
+                contribution *= (-1) ** ((record >> (n_mid + q)) & 1)
             elif obs == "I":
                 continue
             else:
@@ -734,7 +735,7 @@ def _expectation_cudaq_decoupled(
     return total / (drawn or 1)
 
 
-@task(returns=1)
+# Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> float:
     """Execute the given circuit.
 
@@ -805,7 +806,7 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> flo
     return _expectation_from_counts_cudaq(freq, observables, shots)
 
 
-@task(returns=1)
+# Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     """Evaluate a subcircuit on a BSC QPU via the shared-filesystem bridge.
 
@@ -843,7 +844,13 @@ def _change_sign(expectation_value, index):
     :param index: Number to be used to determine if the sign has to be changed.
     :return: The expected value.
     """
-    expectation_value = [x for x in expectation_value if x is not None]
+    # Resolve here (on the worker), not on the master before the call, so the
+    # subcircuit futures feed straight into this task -- no barrier between
+    # _build_and_run_subcircuit / _evaluate_subcircuit and the sign step.
+    # _resolve_value is a no-op unless a value is a semantic-cache placeholder.
+    from Qdislib.utils.circuit_cache import _resolve_value
+
+    expectation_value = [_resolve_value(x) for x in expectation_value if x is not None]
     expectation_value = math.prod(expectation_value)
     number = index
 
@@ -1140,23 +1147,22 @@ def wire_cutting_subcircuit_reconstruction(
     # PendingResult from the now-populated cache. Doing this after the barrier
     # (rather than inside the per-group sign tasks) avoids worker starvation when
     # a deferred key's owner is still running in another group.
-    from Qdislib.utils.circuit_cache import _resolve_value
-
-    expected_values = compss_wait_on(expected_values)
-    expected_values = [_resolve_value(v) for v in expected_values]
-
     if number_cuts == 0:
+        # No cuts: the reconstruction is just the product of the (single group of)
+        # subcircuit values, computed on the master -- so sync + resolve here.
+        from Qdislib.utils.circuit_cache import _resolve_value
+
+        expected_values = compss_wait_on(expected_values)
+        expected_values = [_resolve_value(v) for v in expected_values]
         return math.prod([v for v in expected_values if v is not None])
 
-    expected_values = [
+    # Feed each configuration's subcircuit futures straight into the sign task
+    # (task -> task, no master barrier between _build_and_run_subcircuit /
+    # _evaluate_subcircuit and _change_sign); the sign task resolves cache placeholders.
+    groups = [
         expected_values[i : i + number_components]
         for i in range(0, len(expected_values), number_components)
     ]
-    results = []
-    for index, exp_values in enumerate(expected_values):
-        result = _change_sign(exp_values, index)
-        results.append(result)
-
+    results = [_change_sign(group, index) for index, group in enumerate(groups)]
     results = compss_wait_on(results)
-    final_recons = 1 / (2**number_cuts) * sum(results)
-    return final_recons
+    return 1 / (2**number_cuts) * sum(results)

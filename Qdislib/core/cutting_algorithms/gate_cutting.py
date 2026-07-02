@@ -26,6 +26,10 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "gate_cutting",
     "gate_cutting_sampling",
+    "gate_cutting_sampling_subcircuits",
+    "gate_cutting_sampling_reconstruction",
+    "sample_subcircuit",
+    "SampledCutSubcircuits",
     "gate_cutting_subcircuits",
     "gate_cutting_subcircuit_reconstruction",
 ]
@@ -41,8 +45,9 @@ except ImportError:  # qiskit / qiskit-aer are optional
     generate_preset_pass_manager = AerSimulator = None
 
 import re
+from collections import namedtuple
 
-from Qdislib.utils.runtime import task, compss_wait_on, constraint, COLLECTION_IN
+from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 
 
 from Qdislib.utils.graph_qibo import (
@@ -697,7 +702,13 @@ def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):
 # @constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
 @task(returns=1, expectation_value=COLLECTION_IN)
 def _change_sign_gate_cutting(expectation_value, index):
-    expectation_value = [x for x in expectation_value if x is not None]
+    # Resolve here (on the worker), not on the master before the call, so the
+    # subcircuit futures feed straight into this task -- no barrier between
+    # _evaluate_subcircuit / _build_and_run_gate_subcircuit and the sign step.
+    # _resolve_value is a no-op unless a value is a semantic-cache placeholder.
+    from Qdislib.utils.circuit_cache import _resolve_value
+
+    expectation_value = [_resolve_value(x) for x in expectation_value if x is not None]
     expectation_value = math.prod(expectation_value)
     number = index
 
@@ -852,9 +863,11 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots):
         records = cudaq.run(kernel, shots_count=shots)
         joint = {}
         for record in records:
-            ft = tuple(int(record[n_mid + q]) for q in range(num_qubits))
+            # record is an int; bit k = outcome k of [cut-points..., finals...].
+            ft = tuple((record >> (n_mid + q)) & 1 for q in range(num_qubits))
             ct = tuple(
-                int(record[last_pos[q]]) if q in last_pos else 0 for q in prep_sorted
+                ((record >> last_pos[q]) & 1) if q in last_pos else 0
+                for q in prep_sorted
             )
             joint[(ft, ct)] = joint.get((ft, ct), 0) + 1
         return joint
@@ -933,26 +946,27 @@ def _sample_gate_subcircuit(component, software, shots):
     return (corr, original)
 
 
-def _sample_gate_cut_configs(dag, gates_cut, software, shots):
-    """Sample every 6**n_cuts gate-cut configuration.
+def _gate_cut_sampling_components(dag, gates_cut):
+    """Build the connected-component subcircuits for every 6**n_cuts gate-cut config.
 
-    Each subcircuit is submitted as an independent :func:`_sample_gate_subcircuit`
-    task, so under PyCOMPSs they sample in parallel; serially they run inline.
-    Returns a list (per configuration) of lists (per component) of
-    ``(counts, original_qubits)`` results (futures under PyCOMPSs).
+    Returns ``(components, number_components)`` where ``components`` is a *flat*,
+    configuration-major list of component DAGs (config 0's components, then config
+    1's, ...) and ``number_components`` is how many components each configuration
+    splits into (uniform -- the cut topology is the same across configurations).
+    Sampling is kept separate (:func:`_sample_gate_subcircuit`) so the all-in-one
+    :func:`gate_cutting_sampling` and the three-step
+    :func:`gate_cutting_sampling_subcircuits` share one generation path.
     """
     new_dag = _generate_cut(dag, gates_cut)
-    configs = []
+    components = []
+    number_components = 1
     for index in range(6 ** len(gates_cut)):
         copy_graph = _remove_red_edges(new_dag.copy())
-        num_components = nx.number_connected_components(copy_graph.to_undirected())
-        graph_components = [nx.DiGraph() for _ in range(num_components)]
+        number_components = nx.number_connected_components(copy_graph.to_undirected())
+        graph_components = [nx.DiGraph() for _ in range(number_components)]
         _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
-
-        configs.append(
-            [_sample_gate_subcircuit(comp, software, shots) for comp in graph_components]
-        )
-    return configs
+        components.extend(graph_components)
+    return components, number_components
 
 
 def _fast_walsh_hadamard(vector):
@@ -1018,6 +1032,24 @@ def _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits):
     return {key: abs(float(p)) / norm for key, p in zip(keys, probabilities)}
 
 
+@task(returns=1, sampled=COLLECTION_IN)
+def _reconstruct_gate_cut_distribution_task(
+    sampled, num_cuts, num_qubits, number_components
+):
+    """Task wrapper around :func:`_reconstruct_gate_cut_distribution`.
+
+    Takes the flat, configuration-major list of per-component ``(corr, original)``
+    samples via ``COLLECTION_IN`` -- so the :func:`_sample_gate_subcircuit` futures
+    feed straight into reconstruction (task -> task, no master barrier) -- regroups
+    them by configuration, and returns the reconstructed distribution.
+    """
+    configs = [
+        sampled[i : i + number_components]
+        for i in range(0, len(sampled), number_components)
+    ]
+    return _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits)
+
+
 def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit", sync=True):
     """Reconstruct the output **probability distribution** of a gate-cut circuit.
 
@@ -1047,13 +1079,126 @@ def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit", syn
         total = sum(counts.values()) or 1
         return {k: v / total for k, v in counts.items()}
 
-    configs = _sample_gate_cut_configs(dag, gates_cut, software, shots)
-    if sync:
-        configs = [
-            [compss_wait_on(result) for result in per_component]
-            for per_component in configs
-        ]
-    return _reconstruct_gate_cut_distribution(configs, len(gates_cut), num_qubits)
+    components, number_components = _gate_cut_sampling_components(dag, gates_cut)
+    sampled = [_sample_gate_subcircuit(comp, software, shots) for comp in components]
+    distribution = _reconstruct_gate_cut_distribution_task(
+        sampled, len(gates_cut), num_qubits, number_components
+    )
+    return compss_wait_on(distribution) if sync else distribution
+
+
+#: One sampling subcircuit: a connected-component DAG plus the backend it samples on.
+_SampleUnit = namedtuple("_SampleUnit", ["component", "software"])
+
+
+def sample_subcircuit(subcircuit, shots=1024):
+    """Sample one gate-cut sampling subcircuit into its Z-correlators.
+
+    The sampling counterpart of :func:`~Qdislib.expectation_value`: apply it to
+    each item of a :class:`SampledCutSubcircuits` (in your own loop -- dispatch to
+    QPUs, batch, cache, ...), then pass the results to
+    :meth:`SampledCutSubcircuits.reconstruct`. Under PyCOMPSs each call is a task,
+    so the subcircuits sample in parallel.
+
+    :param subcircuit: An item from :func:`gate_cutting_sampling_subcircuits`.
+    :param shots: Measurement shots for this subcircuit.
+    :return: ``(corr, original)`` -- the component's ``<Z^b>`` correlators and its
+        global qubit indices; feed the list of these to ``reconstruct``.
+    """
+    return _sample_gate_subcircuit(subcircuit.component, subcircuit.software, shots)
+
+
+def gate_cutting_sampling_reconstruction(
+    sampled_results, number_cuts, number_components, num_qubits
+):
+    """Recombine per-subcircuit samples into the output probability distribution.
+
+    The sampling counterpart of :func:`gate_cutting_subcircuit_reconstruction`.
+    ``sampled_results`` is the flat, configuration-major list of ``(corr, original)``
+    from :func:`sample_subcircuit` (futures under PyCOMPSs); it feeds straight into
+    the reconstruction task (task -> task, no master barrier).
+
+    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+    """
+    distribution = _reconstruct_gate_cut_distribution_task(
+        sampled_results, number_cuts, num_qubits, number_components
+    )
+    return compss_wait_on(distribution)
+
+
+class SampledCutSubcircuits(list):
+    """Sampling subcircuits of a gate cut, that also know how to be recombined.
+
+    The sampling analogue of :class:`~Qdislib.utils.backends.CutSubcircuits`:
+    behaves like the plain ``list`` of sampling subcircuits (iterate/index/``len``)
+    and additionally carries the metadata to reconstruct the output distribution::
+
+        subs = qd.gate_cutting_sampling_subcircuits(circuit, ["CZ_2"], software="qiskit")
+        sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
+        distribution = subs.reconstruct(sampled)
+    """
+
+    def __init__(
+        self, subcircuits, *, number_cuts, number_components, num_qubits, reconstructor
+    ):
+        super().__init__(subcircuits)
+        #: Number of gate cuts applied.
+        self.number_cuts = number_cuts
+        #: Components each cut configuration splits into.
+        self.number_components = number_components
+        #: Qubit count of the original circuit (distribution width).
+        self.num_qubits = num_qubits
+        self._reconstructor = reconstructor
+
+    def reconstruct(self, sampled_results):
+        """Recombine per-subcircuit samples into the output distribution.
+
+        :param sampled_results: One :func:`sample_subcircuit` result per subcircuit,
+            in the same order as the subcircuits in this object.
+        :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+        """
+        return self._reconstructor(
+            sampled_results, self.number_cuts, self.number_components, self.num_qubits
+        )
+
+
+def gate_cutting_sampling_subcircuits(circuit, gates_cut, software="qiskit"):
+    """Partition a circuit into **sampling** subcircuits (three-step workflow).
+
+    The sampling counterpart of :func:`gate_cutting_subcircuits`: generate the
+    subcircuits, sample each one yourself (any backend/hardware), then reconstruct
+    the output *distribution* (rather than an expectation value)::
+
+        import Qdislib as qd
+
+        # 1. Cut into independently samplable subcircuits.
+        subs = qd.gate_cutting_sampling_subcircuits(circuit, ["CZ_2"], software="qiskit")
+
+        # 2. Sample each subcircuit (your loop -- real QPUs, batching, caching, ...).
+        sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
+
+        # 3. Recombine into the original circuit's output distribution.
+        distribution = subs.reconstruct(sampled)
+
+    :param circuit: A Qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
+    :param gates_cut: The gates to cut (as in :func:`gate_cutting_sampling`).
+    :param software: Backend the subcircuits are sampled on (must match the backend
+        used to sample them).
+    :return: A :class:`SampledCutSubcircuits` (a ``list`` of sampling subcircuits
+        plus the cut metadata and a :meth:`~SampledCutSubcircuits.reconstruct`
+        method).
+    """
+    dag = convert_to_dag(circuit)
+    num_qubits = _dag_num_qubits(dag)
+    components, number_components = _gate_cut_sampling_components(dag, gates_cut)
+    units = [_SampleUnit(component, software) for component in components]
+    return SampledCutSubcircuits(
+        units,
+        number_cuts=len(gates_cut),
+        number_components=number_components,
+        num_qubits=num_qubits,
+        reconstructor=gate_cutting_sampling_reconstruction,
+    )
 
 
 @task(returns=1)
@@ -1176,7 +1321,7 @@ def _execute_gate_cutting(
     return reconstruction
 
 
-@task(returns=1)
+# Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     """Evaluate a subcircuit on a BSC QPU via the shared-filesystem bridge.
 
@@ -1209,8 +1354,7 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     return _expectation_from_counts_qibo(freq, observables, total_shots)
 
 
-@constraint(processors=[{"processorType": "CPU", "computingUnits": "1"}])
-@task(returns=1)
+# Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _counts_qiskit(qc, shots=1024, method="automatic"):
     """Simulate a Qiskit circuit with Aer and return its measurement counts.
 
@@ -1339,7 +1483,7 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic", prep_qubits=None):
     return expectation_value
 
 
-@task(returns=1)
+# Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _expec_value_qiskit_qpu(
     qc, shots=1024, method="automatic", batch=None, backend=None
 ):
@@ -1389,13 +1533,7 @@ def _expec_value_qiskit_qpu(
     return expectation_value
 
 
-@constraint(
-    processors=[
-        {"processorType": "CPU", "computingUnits": "1"},
-        {"processorType": "GPU", "computingUnits": "1"},
-    ]
-)
-@task(returns=1)
+# Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
     if qc is None:
         return None
@@ -1716,23 +1854,24 @@ def gate_cutting_subcircuit_reconstruction(
     # PendingResult from the now-populated cache. Doing this after the barrier
     # (rather than inside the per-group sign tasks) avoids worker starvation when
     # a deferred key's owner is still running in another group.
-    from Qdislib.utils.circuit_cache import _resolve_value
-
-    expected_values = compss_wait_on(expected_values)
-    expected_values = [_resolve_value(v) for v in expected_values]
-
     if number_cuts == 0:
-        return math.prod([v for v in expected_values if v is not None])
-    else:
-        expected_values = [
-            expected_values[i : i + number_components]
-            for i in range(0, len(expected_values), number_components)
-        ]
-        results = []
-        for index, exp_values in enumerate(expected_values):
-            result = _change_sign_gate_cutting(exp_values, index)
-            results.append(result)
+        # No cuts: the reconstruction is just the product of the (single group of)
+        # subcircuit values, computed on the master -- so sync + resolve here.
+        from Qdislib.utils.circuit_cache import _resolve_value
 
-        results = compss_wait_on(results)
-        final_recons = 1 / (2**number_cuts) * sum(results)
-        return final_recons
+        expected_values = compss_wait_on(expected_values)
+        expected_values = [_resolve_value(v) for v in expected_values]
+        return math.prod([v for v in expected_values if v is not None])
+
+    # Feed each configuration's subcircuit futures straight into the sign task
+    # (task -> task, no master barrier between _evaluate_subcircuit and
+    # _change_sign_gate_cutting); the sign task resolves any cache placeholders.
+    groups = [
+        expected_values[i : i + number_components]
+        for i in range(0, len(expected_values), number_components)
+    ]
+    results = [
+        _change_sign_gate_cutting(group, index) for index, group in enumerate(groups)
+    ]
+    results = compss_wait_on(results)
+    return 1 / (2**number_cuts) * sum(results)

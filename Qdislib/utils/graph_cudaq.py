@@ -366,10 +366,12 @@ def _build_cudaq_run_kernel(dag, num_qubits, observables):
     ``cudaq.sample`` does not collapse mid-circuit measurements; ``cudaq.run``
     does. The measure-and-prepare gate-cut path needs the cut qubit to collapse to
     its outcome and keep evolving, so the subcircuit is emitted as a kernel that
-    returns ``[cut-point outcomes..., final outcomes q0..q(n-1)]`` and is executed
-    with ``cudaq.run``. Returns ``[kernel, observables, measured_order]``
-    (``measured_order`` = cut-measured qubits in ``mz``-call order), matching the
-    previous explicit-final API so the reconstruction is unchanged.
+    returns the per-shot record ``[cut-point outcomes..., final outcomes
+    q0..q(n-1)]`` packed into an int (bit k = outcome k -- cudaq 0.12+ rejects
+    ``list`` returns from ``cudaq.run`` entry-point kernels) and is executed with
+    ``cudaq.run``. Returns ``[kernel, observables, measured_order]``
+    (``measured_order`` = cut-measured qubits in ``mz``-call order); the host
+    unpacks bit k with ``(record >> k) & 1`` so the reconstruction is unchanged.
     """
     lines = []
     measured_vars = []
@@ -411,15 +413,25 @@ def _build_cudaq_run_kernel(dag, num_qubits, observables):
     for qb in range(num_qubits):
         lines.append(f"    f{qb} = mz(q[{qb}])")
 
+    # cudaq 0.12+ dropped list returns from cudaq.run entry-point kernels, so pack
+    # the record into an int: bit k holds outcome k of [cut-points..., finals...].
+    # The host unpacks with (record >> k) & 1 (see _joint_counts_cudaq /
+    # _expectation_cudaq_decoupled); measured_order maps the cut-point bits back to
+    # qubits, exactly as the previous list layout did.
+    ordered_vars = measured_vars + final_vars
+    lines.append("    r = 0")
+    for k, var in enumerate(ordered_vars):
+        lines.append(f"    if {var}:")
+        lines.append(f"        r = r + {1 << k}")
+
     body = "\n".join(lines) if lines else "    pass"
-    ret = ", ".join(measured_vars + final_vars)
     source = (
         "import cudaq\n\n"
         "@cudaq.kernel\n"
-        "def cut_kernel() -> list[bool]:\n"
+        "def cut_kernel() -> int:\n"
         f"    q = cudaq.qvector({num_qubits})\n"
         f"{body}\n"
-        f"    return [{ret}]\n"
+        "    return r\n"
     )
     kernel = _compile_cudaq_source(source)
     return [kernel, observables, measured_order]
