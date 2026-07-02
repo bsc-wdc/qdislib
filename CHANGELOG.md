@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Tutorial 08** (`08_vqe_h2`): estimate H₂'s ground-state energy with VQE by
+  cutting a 4-qubit **CUDA-Q** ansatz into two 2-qubit halves. The energy
+  `⟨H⟩ = Σ_i c_i ⟨P_i⟩` (15-term Jordan–Wigner Hamiltonian) is rebuilt via the
+  three-step workflow, so the ~500 subcircuits (15 terms × 36 cut configurations)
+  evaluate **in parallel under PyCOMPSs**; the exact landscape uses `cudaq.observe`.
+  Notebooks 07 and 08 are now in the docs learning-path toctree.
+- **Parallel Hamiltonian evaluation in `gate_cutting`.** A weighted Pauli-sum
+  observable now submits every term's cut without waiting (`sync=False`) and reduces
+  with a single COMPSs task, so all `(term × cut-configuration)` subcircuits schedule
+  together under PyCOMPSs instead of term-by-term.
 - **QPU routing for sampling reconstruction.** `gate_cutting_sampling`,
   `wire_cutting_sampling` and their three-step APIs now accept `qpu` / `qpu_dict`
   (as `gate_cutting` already did), routing each subcircuit's sampling to a QPU. The
@@ -147,6 +157,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DEBUG level. Use `qd.set_log_level("DEBUG")` instead of `verbose=True`.
 
 ### Fixed
+- **Three-step gate cutting now honours an identity observable on a non-terminal
+  cut qubit** (CPU backends). The subcircuit workflow's guard was called without
+  `software`, so it defaulted to "unsupported" and rejected the CPU 3-step even
+  though its evaluator recovers the cut-point sign (prep qubits auto-detected from
+  the subcircuit's mid-circuit measurements) exactly as the all-in-one path does.
+  Passing `software` lets the guard fire only for the paths that genuinely can't
+  (GPU / QPU). This is what lets the H₂ VQE tutorial (notebook 08) reconstruct
+  `⟨H⟩` with the three-step workflow.
 - **Three-step reconstruction no longer forces a master barrier.** The 3-step
   reconstructors used to `compss_wait_on` every subcircuit result on the master
   before applying the per-configuration sign; now each configuration's subcircuit
