@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "wire_cutting",
+    "wire_cutting_sampling",
+    "wire_cutting_sampling_subcircuits",
+    "WireSampledCutSubcircuits",
     "wire_cutting_subcircuits",
     "wire_cutting_subcircuit_reconstruction",
 ]
@@ -233,6 +236,280 @@ def wire_cutting(
         else:
             final_recons = _build_and_run_subcircuit(dag, software, shots, backend, qpu)
         return final_recons
+
+
+def _wire_cut_sampling_components(dag, wire_cuts, num_qubits):
+    """Build the wire-cut fragments for every 8**n_cuts configuration (one pass).
+
+    Mirrors :func:`_generate_wire_cutting`'s cut surgery (measure node ``O_i`` on the
+    original qubit, prepare node ``PS_i`` on a fresh line ``num_qubits+i``, downstream
+    relabelled onto that fresh line) and its base-8 configuration loop, but returns
+    the raw fragment DAGs to be *sampled* rather than evaluating expectations.
+
+    Returns ``(components, per_config_counts, cut_source_index, prepared_to_orig)``:
+    a flat, configuration-major list of fragment DAGs; the number of fragments per
+    configuration; the map ``cut-source qubit -> 1-based cut index`` (its base-8 digit
+    decides whether it is a ``Z`` decomposition factor -- digits 2-7 -- or observed
+    with ``I`` -- digits 0/1); and the map ``fresh line -> original qubit`` (a cut
+    wire's output lives on its fresh line).
+    """
+    dag = dag.copy()
+    for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
+        if dag.has_edge(source, target):
+            dag.remove_edge(source, target)
+        successors = [node for node in dag.nodes if dag.has_edge(target, node)]
+        for node in [target] + successors:
+            node_qubits = dag.nodes[node].get("qubits")
+            if node_qubits and qubit in node_qubits:
+                dag.nodes[node]["qubits"] = tuple(
+                    num_qubits + index if q == qubit else q for q in node_qubits
+                )
+        dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
+        dag.add_node(
+            f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
+        )
+        dag.add_edge(source, f"O_{index}", color="blue")
+        dag.add_edge(f"PS_{index}", target, color="blue")
+
+    # Cut-source qubit -> its 1-based cut index. The base-8 digit for that cut sets
+    # the measure basis: identity for digits 0/1 (observe the cut-source with I), else
+    # X/Y/Z (a Z decomposition factor). See :func:`_reconstruct_wire_cut_distribution`.
+    cut_source_index = {
+        qubit: index for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
+    }
+    prepared_to_orig = {
+        num_qubits + index: qubit
+        for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
+    }
+
+    components = []
+    per_config_counts = []
+    for index in range(8 ** len(wire_cuts)):
+        copy_graph = _remove_red_edges(dag.copy())
+        num_components = networkx.number_connected_components(
+            copy_graph.to_undirected()
+        )
+        graph_components = [networkx.DiGraph() for _ in range(num_components)]
+        _generate_subcircuits_wire_cutting(
+            copy_graph, num_qubits + len(wire_cuts), index, wire_cuts, graph_components
+        )
+        per_config_counts.append(len(graph_components))
+        components.extend(graph_components)
+    return components, per_config_counts, cut_source_index, prepared_to_orig
+
+
+def _reconstruct_wire_cut_distribution(
+    configs, num_cuts, num_qubits, cut_source_index, prepared_to_orig
+):
+    """Reconstruct the output distribution from sampled wire-cut fragments.
+
+    Wire counterpart of ``_reconstruct_gate_cut_distribution``: each fragment supplies
+    Pauli-``Z`` correlators ``<Z^b>`` (from one sampling); per configuration these
+    multiply (signed by the base-8 rule -- flip on octal digits {3,5,7} -- over
+    ``2**num_cuts``) into the global ``<Z^A>``, and ``P(x)=2**-N * sum_A (-1)**(A.x)
+    <Z^A>`` (inverse Walsh-Hadamard). A measured cut-source qubit is a decomposition
+    factor: for the X/Y/Z terms (base-8 digit >= 2) it is in the Z-string of its
+    fragment, for the identity terms (digits 0/1) it is observed with ``I``. A cut
+    wire's output lives on its fresh line, so ``prepared_to_orig`` maps that line back
+    to the original output qubit. The signed result is abs-normalised. This matches
+    the Perlin et al. (arXiv:2005.12702) reconstruction in one
+    fragment pass instead of ``2**N`` expectation runs.
+    """
+    from Qdislib.core.cutting_algorithms.gate_cutting import _fast_walsh_hadamard
+
+    dim = 2 ** num_qubits
+    z_correlators = np.zeros(dim)
+    for index, per_component in enumerate(configs):
+        # Base-8 digits, MSB-first: octal[i-1] is cut i's measure/prepare term.
+        octal = oct(index)[2:].zfill(num_cuts)
+        sign, digits = 1, index
+        while digits:
+            if digits % 8 in (3, 5, 7):
+                sign = -sign
+            digits //= 8
+
+        contribution = np.full(dim, sign / (2 ** num_cuts), dtype=float)
+        for corr, original in per_component:
+            component_values = np.empty(dim)
+            for global_mask in range(dim):
+                local_mask = 0
+                for local_index, qubit in enumerate(original):
+                    cut = cut_source_index.get(qubit)
+                    if cut is not None:
+                        # Measured cut-source qubit: a Z decomposition factor for the
+                        # X/Y/Z terms (digit >= 2); the identity terms (0, 1) observe
+                        # it with I, so it stays out of the Z-string.
+                        if int(octal[cut - 1]) >= 2:
+                            local_mask |= 1 << local_index
+                    elif (global_mask >> prepared_to_orig.get(qubit, qubit)) & 1:
+                        # Output qubit (its own line, or a cut wire's fresh line).
+                        local_mask |= 1 << local_index
+                component_values[global_mask] = corr.get(local_mask, 0.0)
+            contribution *= component_values
+        z_correlators += contribution
+
+    probabilities = _fast_walsh_hadamard(z_correlators) / dim
+    keys = [
+        "".join(str((x >> q) & 1) for q in range(num_qubits)) for x in range(dim)
+    ]
+    norm = float(np.abs(probabilities).sum()) or 1.0
+    return {key: abs(float(p)) / norm for key, p in zip(keys, probabilities)}
+
+
+@task(returns=1, sampled=COLLECTION_IN)
+def _reconstruct_wire_cut_distribution_task(
+    sampled, num_cuts, num_qubits, per_config_counts, cut_source_index, prepared_to_orig
+):
+    """Task wrapper: regroup the flat per-fragment samples by configuration and
+    reconstruct the distribution. ``COLLECTION_IN`` feeds the fragment futures
+    straight in (task -> task, no master barrier before reconstruction)."""
+    configs = []
+    start = 0
+    for count in per_config_counts:
+        configs.append(sampled[start : start + count])
+        start += count
+    return _reconstruct_wire_cut_distribution(
+        configs, num_cuts, num_qubits, cut_source_index, prepared_to_orig
+    )
+
+
+def wire_cutting_sampling(circuit, cut, shots=1024, software="qiskit", sync=True):
+    """Reconstruct the output **probability distribution** of a wire-cut circuit.
+
+    The wire-cutting counterpart of
+    :func:`~Qdislib.core.cutting_algorithms.gate_cutting.gate_cutting_sampling`:
+    instead of a single expectation value, reconstruct the full distribution over
+    output bitstrings. Each wire-cut fragment is sampled **once** (so under PyCOMPSs
+    the fragments run in parallel), its Pauli-``Z`` correlators are combined via the
+    wire-cut quasiprobability decomposition (base-8; Perlin et al., arXiv:2005.12702)
+    into ``<Z^A>``, and ``P(x)=2**-N * sum_A (-1)**(A.x) <Z^A>`` is the inverse
+    Walsh-Hadamard transform, abs-normalised into a valid distribution.
+
+    :param circuit: A Qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
+    :param cut: The wire cut(s), as returned by :func:`~Qdislib.find_cut`.
+    :param shots: Measurement shots per fragment.
+    :param software: Execution backend, or the name of any registered backend.
+    :param sync: Under PyCOMPSs, wait for the tasks and return the distribution; set
+        ``False`` to keep the future unresolved (advanced).
+    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+    """
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _sample_gate_subcircuit,
+        _dag_num_qubits,
+    )
+
+    dag = convert_to_dag(circuit)
+    num_qubits = _dag_num_qubits(dag)
+    wire_cuts = _expand_wire_cuts(dag, cut)
+
+    if not wire_cuts:
+        from Qdislib.core.backend.registry import build_execution_backend
+
+        backend = build_execution_backend(software, num_qubits=num_qubits)
+        counts = backend.evaluate_samples(dag, num_qubits, shots)
+        total = sum(counts.values()) or 1
+        return {k: v / total for k, v in counts.items()}
+
+    components, per_config_counts, cut_source_index, prepared_to_orig = (
+        _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
+    )
+    sampled = [_sample_gate_subcircuit(comp, software, shots) for comp in components]
+    distribution = _reconstruct_wire_cut_distribution_task(
+        sampled,
+        len(wire_cuts),
+        num_qubits,
+        per_config_counts,
+        cut_source_index,
+        prepared_to_orig,
+    )
+    return compss_wait_on(distribution) if sync else distribution
+
+
+class WireSampledCutSubcircuits(list):
+    """Wire-cut sampling fragments that also know how to be recombined.
+
+    The wire, sampling counterpart of
+    :class:`~Qdislib.core.cutting_algorithms.gate_cutting.SampledCutSubcircuits`:
+    behaves like the plain ``list`` of fragments (iterate/index/``len``) and carries
+    the metadata to reconstruct the output distribution::
+
+        subs = qd.wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit")
+        sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
+        distribution = subs.reconstruct(sampled)
+    """
+
+    def __init__(
+        self,
+        subcircuits,
+        *,
+        number_cuts,
+        num_qubits,
+        per_config_counts,
+        cut_source_index,
+        prepared_to_orig,
+    ):
+        super().__init__(subcircuits)
+        #: Number of wire cuts applied.
+        self.number_cuts = number_cuts
+        #: Qubit count of the original circuit (distribution width).
+        self.num_qubits = num_qubits
+        self._per_config_counts = per_config_counts
+        self._cut_source_index = cut_source_index
+        self._prepared_to_orig = prepared_to_orig
+
+    def reconstruct(self, sampled_results):
+        """Recombine per-fragment samples into the output distribution.
+
+        :param sampled_results: One :func:`sample_subcircuit` result per fragment,
+            in the same order as the fragments in this object.
+        :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+        """
+        distribution = _reconstruct_wire_cut_distribution_task(
+            sampled_results,
+            self.number_cuts,
+            self.num_qubits,
+            self._per_config_counts,
+            self._cut_source_index,
+            self._prepared_to_orig,
+        )
+        return compss_wait_on(distribution)
+
+
+def wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit"):
+    """Partition a circuit into **wire-cut sampling** fragments (three-step workflow).
+
+    The wire counterpart of
+    :func:`~Qdislib.core.cutting_algorithms.gate_cutting.gate_cutting_sampling_subcircuits`:
+    generate the fragments, sample each yourself, then reconstruct the output
+    distribution::
+
+        subs = qd.wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit")
+        sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
+        distribution = subs.reconstruct(sampled)
+
+    :param circuit: A Qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
+    :param cut: The wire cut(s), as returned by :func:`~Qdislib.find_cut`.
+    :param software: Backend the fragments are sampled on.
+    :return: A :class:`WireSampledCutSubcircuits` (a ``list`` of fragments plus the
+        cut metadata and a ``reconstruct`` method).
+    """
+    from Qdislib.core.cutting_algorithms.gate_cutting import _dag_num_qubits, _SampleUnit
+
+    dag = convert_to_dag(circuit)
+    num_qubits = _dag_num_qubits(dag)
+    wire_cuts = _expand_wire_cuts(dag, cut)
+    components, per_config_counts, cut_source_index, prepared_to_orig = (
+        _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
+    )
+    units = [_SampleUnit(component, software) for component in components]
+    return WireSampledCutSubcircuits(
+        units,
+        number_cuts=len(wire_cuts),
+        num_qubits=num_qubits,
+        per_config_counts=per_config_counts,
+        cut_source_index=cut_source_index,
+        prepared_to_orig=prepared_to_orig,
+    )
 
 
 def _expand_wire_cuts(dag, edges_to_replace):

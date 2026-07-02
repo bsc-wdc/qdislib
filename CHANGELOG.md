@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Wire-cutting sampling** (`wire_cutting_sampling`, `wire_cutting_sampling_subcircuits`):
+  reconstruct the output probability **distribution** of a *wire*-cut (space-like)
+  circuit -- the counterpart of `gate_cutting_sampling`. One-pass fragment
+  tomography (Perlin et al., arXiv:2005.12702): each fragment is sampled **once**
+  (parallel under PyCOMPSs), its Pauli-`Z` correlators are combined via the base-8
+  wire-cut decomposition into `<Z^A>` (a measured cut-source qubit is a `Z` factor
+  for the X/Y/Z terms and observed with `I` for the identity terms; a cut wire's
+  output lives on its fresh qubit line), and `P(x)=2**-N * sum_A (-1)**(A.x) <Z^A>`
+  is the inverse Walsh-Hadamard transform, abs-normalised. Full parity with gate
+  sampling: all-in-one **and** a three-step API (`wire_cutting_sampling_subcircuits`
+  -> `WireSampledCutSubcircuits` -> `sample_subcircuit` -> `reconstruct`) with the
+  same create/execute task split. Validated against the exact distribution (TVD at
+  shot-noise level) for one and two cuts on Aer/Qibo.
 - **Three-step sampling workflow**, mirroring the expectation one:
   `gate_cutting_sampling_subcircuits(circuit, cut, software)` returns a
   `SampledCutSubcircuits` (a `list` of sampling subcircuits + cut metadata); sample
