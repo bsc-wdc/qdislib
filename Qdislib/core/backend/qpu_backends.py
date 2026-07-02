@@ -53,7 +53,9 @@ class BSCQpuBackend(_QpuBackendBase):
     def __init__(self, config: BackendConfig) -> None:
         super().__init__("BSC_QPU_BACKEND", config)
 
-    def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024, method="numpy"):
+    def evaluate_expectation(
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="numpy"
+    ):
         from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
         from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qibo_qpu
 
@@ -123,9 +125,13 @@ class IBMBackend(_QpuBackendBase):
             channel = _ibm_setting(extra, "channel", "IBM_QUANTUM_CHANNEL")
             proxies = extra.get("proxies")
             if channel == "ibm_quantum":
-                service = QiskitRuntimeService(channel=channel, token=token, proxies=proxies)
+                service = QiskitRuntimeService(
+                    channel=channel, token=token, proxies=proxies
+                )
             elif channel == "ibm_cloud":
-                service = QiskitRuntimeService(channel=channel, token=token, instance=instance)
+                service = QiskitRuntimeService(
+                    channel=channel, token=token, instance=instance
+                )
             else:
                 raise ValueError(f"Unsupported IBM Runtime channel: {channel!r}")
 
@@ -148,7 +154,9 @@ class IBMBackend(_QpuBackendBase):
         """The selected IBM backend."""
         return self._ibm_backend
 
-    def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"):
+    def evaluate_expectation(
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"
+    ):
         from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
         from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit_qpu
 

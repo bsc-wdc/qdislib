@@ -39,7 +39,6 @@ from qibo import Circuit as QiboCircuit
 
 from Qdislib.core.backend.circuit_converter import CircuitConverter
 
-
 #: A circuit in any of the supported source formats. A CUDA-Q kernel is also
 #: accepted at runtime (it has no stable importable type to annotate here).
 SupportedCircuit = QuantumCircuit | QiboCircuit | Any
@@ -192,7 +191,9 @@ class BaseBackend(ABC):
             f"{self.name} does not implement evaluate_expectation (circuit cutting)"
         )
 
-    def evaluate_samples(self, dag: Any, num_qubits: int, shots: int = 1024) -> dict[str, int]:
+    def evaluate_samples(
+        self, dag: Any, num_qubits: int, shots: int = 1024
+    ) -> dict[str, int]:
         """Sample a Qdislib subcircuit DAG and return counts in a standard convention.
 
         Used by the sampling reconstruction of gate cutting. Every backend returns
@@ -259,7 +260,10 @@ class BaseBackend(ABC):
             self._queue.append(job)
         logger.debug(
             "[%s] Job %s enqueued (kind=%s, queue_len=%d)",
-            self.name, job.job_id, kind, len(self._queue),
+            self.name,
+            job.job_id,
+            kind,
+            len(self._queue),
         )
         return job
 
@@ -271,8 +275,12 @@ class BaseBackend(ABC):
             except ValueError:
                 logger.warning(
                     "[%s] Job %s not found in queue during dequeue",
-                    self.name, job.job_id,
+                    self.name,
+                    job.job_id,
                 )
         logger.debug(
-            "[%s] Job %s removed (queue_len=%d)", self.name, job.job_id, len(self._queue)
+            "[%s] Job %s removed (queue_len=%d)",
+            self.name,
+            job.job_id,
+            len(self._queue),
         )

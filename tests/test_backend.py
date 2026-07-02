@@ -52,7 +52,11 @@ class RegistryTest(BaseTimedTestCase):
             self.assertIn(expected, names)
 
     def test_register_and_build_unknown(self):
-        from Qdislib.core.backend import register_backend, available_backends, build_backend
+        from Qdislib.core.backend import (
+            register_backend,
+            available_backends,
+            build_backend,
+        )
         from Qdislib.core.backend.base_backend import BackendConfig
 
         register_backend("DUMMY_BACKEND", "some.module", "SomeClass")
@@ -137,7 +141,9 @@ class CudaqBackendTest(BaseTimedTestCase):
         kernel.cz(q[0], q[1])
         kernel.ry(0.5, q[1])
         be = qd.QdBackEnd({"CUDAQ_BACKEND": {"num_qubits": 5}})
-        est = be.get_expectation_value(kernel, "ZZ", shots=20000, backend_name="CUDAQ_BACKEND")
+        est = be.get_expectation_value(
+            kernel, "ZZ", shots=20000, backend_name="CUDAQ_BACKEND"
+        )
         self.assertLess(abs(est.expectation_value - exact), _TOL)
         smp = be.sample_circuit(kernel, shots=4000, backend_name="CUDAQ_BACKEND")
         self.assertEqual(sum(smp.counts.values()), 4000)

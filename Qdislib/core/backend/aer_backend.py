@@ -66,7 +66,9 @@ class AerBackend(BaseBackend):
         self._estimator = AerEstimator()
         logger.info(
             "AerBackend initialised (gpu=%s, precision=%s, noise=%s)",
-            self._use_gpu, self._precision, self._noise_model is not None,
+            self._use_gpu,
+            self._precision,
+            self._noise_model is not None,
         )
 
     @property
@@ -81,9 +83,13 @@ class AerBackend(BaseBackend):
 
     def transpile(self, circuit: SupportedCircuit) -> QuantumCircuit:
         """Transpile the circuit for AerSimulator (accepts Qiskit or Qibo input)."""
-        return qiskit_transpile(CircuitConverter.to_qiskit(circuit), backend=self._simulator)
+        return qiskit_transpile(
+            CircuitConverter.to_qiskit(circuit), backend=self._simulator
+        )
 
-    def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"):
+    def evaluate_expectation(
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"
+    ):
         """Evaluate a gate-cut subcircuit via Qiskit Aer (CPU, or GPU when configured)."""
         from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
         from Qdislib.core.cutting_algorithms.gate_cutting import (
@@ -120,7 +126,11 @@ class AerBackend(BaseBackend):
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
     ) -> SampleJobResult:
-        prepared = self.transpile(circuit) if transpile else CircuitConverter.to_qiskit(circuit)
+        prepared = (
+            self.transpile(circuit)
+            if transpile
+            else CircuitConverter.to_qiskit(circuit)
+        )
         # AerSimulator.run() needs measurements present.
         if not prepared.count_ops().get("measure"):
             prepared = prepared.copy()
@@ -144,7 +154,11 @@ class AerBackend(BaseBackend):
         observable: SparsePauliOp | str,
         job: Job,
     ) -> ExpectationJobResult:
-        prepared = self.transpile(circuit) if transpile else CircuitConverter.to_qiskit(circuit)
+        prepared = (
+            self.transpile(circuit)
+            if transpile
+            else CircuitConverter.to_qiskit(circuit)
+        )
         if isinstance(observable, str):
             # Qdislib observable strings are qubit-0-first (char i = qubit i);
             # a Qiskit Pauli label is little-endian (char 0 = highest qubit), so
@@ -166,12 +180,18 @@ class AerBackend(BaseBackend):
     # Simulator construction
     # ------------------------------------------------------------------
 
-    def _build_simulator(self, use_gpu: bool, noise_model: Any | None, precision: str) -> AerSimulator:
+    def _build_simulator(
+        self, use_gpu: bool, noise_model: Any | None, precision: str
+    ) -> AerSimulator:
         options: dict[str, Any] = {"precision": precision}
         if use_gpu:
             self._validate_gpu()
             options.update(
-                {"method": _GPU_METHOD, "device": _GPU_DEVICE, "cuStateVec_enable": _GPU_CUSTATEVEC_FLAG}
+                {
+                    "method": _GPU_METHOD,
+                    "device": _GPU_DEVICE,
+                    "cuStateVec_enable": _GPU_CUSTATEVEC_FLAG,
+                }
             )
         else:
             options["method"] = _CPU_METHOD
@@ -184,7 +204,9 @@ class AerBackend(BaseBackend):
         try:
             available = AerSimulator().available_devices()
         except Exception as exc:
-            raise RuntimeError("Could not query AerSimulator devices. Is qiskit-aer-gpu installed?") from exc
+            raise RuntimeError(
+                "Could not query AerSimulator devices. Is qiskit-aer-gpu installed?"
+            ) from exc
         if _GPU_DEVICE not in available:
             raise RuntimeError(
                 f"GPU requested but '{_GPU_DEVICE}' is not available: {available}. "

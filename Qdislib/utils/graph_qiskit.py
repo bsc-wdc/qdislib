@@ -145,7 +145,10 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
             # became a Z on the cutting path.
             last = None
             for node, data in dag.nodes(data=True):
-                if idx in (data.get("qubits") or ()) and data.get("gate") != "Observable I":
+                if (
+                    idx in (data.get("qubits") or ())
+                    and data.get("gate") != "Observable I"
+                ):
                     last = node
             if last is not None:
                 dag.add_node(

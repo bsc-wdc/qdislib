@@ -60,10 +60,18 @@ class CircuitConverter:
         if isinstance(circuit, QiboCircuit):
             return circuit.nqubits
         # The CUDA-Q ``(dag, num_qubits)`` payload (second element is the count).
-        if isinstance(circuit, (list, tuple)) and len(circuit) == 2 and isinstance(circuit[1], int):
+        if (
+            isinstance(circuit, (list, tuple))
+            and len(circuit) == 2
+            and isinstance(circuit[1], int)
+        ):
             return circuit[1]
         # A ``[circuit, observable]`` wrapper (as returned by the dag_to_circuit_* helpers).
-        if isinstance(circuit, (list, tuple)) and circuit and not isinstance(circuit[0], int):
+        if (
+            isinstance(circuit, (list, tuple))
+            and circuit
+            and not isinstance(circuit[0], int)
+        ):
             return CircuitConverter.num_qubits(circuit[0])
         # Fall back to a common attribute (covers CUDA-Q kernels exposing one).
         for attr in ("num_qubits", "nqubits"):
@@ -74,5 +82,8 @@ class CircuitConverter:
         # cutting code feeds CUDA-Q via the (dag, num_qubits) payload above, so
         # this branch is only hit for a raw kernel. Report "size unknown" (0) so
         # queue bookkeeping / can_run don't block it, rather than raising.
-        logger.debug("num_qubits: unknown circuit type %s; assuming size 0", type(circuit).__name__)
+        logger.debug(
+            "num_qubits: unknown circuit type %s; assuming size 0",
+            type(circuit).__name__,
+        )
         return 0

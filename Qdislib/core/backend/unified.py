@@ -105,7 +105,9 @@ class QdBackEnd:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Sampling failed on '%s': %s", backend.name, exc)
                 last_exc = exc
-        raise RuntimeError(f"No backend could sample the circuit. Last error: {last_exc}")
+        raise RuntimeError(
+            f"No backend could sample the circuit. Last error: {last_exc}"
+        )
 
     @task(returns=1)
     def get_expectation_value(
@@ -127,7 +129,9 @@ class QdBackEnd:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Estimation failed on '%s': %s", backend.name, exc)
                 last_exc = exc
-        raise RuntimeError(f"No backend could estimate the observable. Last error: {last_exc}")
+        raise RuntimeError(
+            f"No backend could estimate the observable. Last error: {last_exc}"
+        )
 
     def _select_backends(
         self, circuit: SupportedCircuit, backend_name: str | None
