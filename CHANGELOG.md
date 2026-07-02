@@ -110,14 +110,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reconstruction applies the cut-point decomposition sign for every observable
   (`Z` multiplies it by the final measurement, identity is just the sign). Fixed
   for the expectation and `gate_cutting_sampling` paths, the all-in-one and 3-step
-  `gate_cutting_subcircuits` workflows, and the GPU path -- validated against the
-  exact statevector on **Aer and Qibo** for terminal *and* non-terminal cuts, one
-  and two cuts, product and entangled blocks (TVD ~0.001-0.006). **CUDA-Q** is
-  fixed for single-cut and product-block cases; a residual bias remains only when
-  two or more cuts land in the *same internally-entangled* subcircuit (its
-  ``explicit_measurements`` capture), tracked as a known limitation. A subcircuit
-  that is a single bare qubit (touched only by a removed cut node) no longer
-  crashes the sampler.
+  `gate_cutting_subcircuits` workflows, and the GPU path, across **Aer, Qibo and
+  CUDA-Q** -- validated against the exact statevector for terminal *and*
+  non-terminal cuts, one and two cuts, product and entangled blocks (TVD
+  ~0.001-0.02). A subcircuit that is a single bare qubit (touched only by a removed
+  cut node) no longer crashes the sampler.
+- **CUDA-Q gate cutting now executes via `cudaq.run`**, not `cudaq.sample`. The
+  sampler does not collapse mid-circuit measurements (and rejects conditional
+  feedback), so the measure-and-prepare gate-cut path was silently wrong whenever a
+  cut qubit kept evolving. The subcircuit is now emitted as a `@cudaq.kernel` that
+  returns its per-shot measurement record and is run with `cudaq.run` (which
+  collapses), fixing the CUDA-Q backend for non-terminal and multi-cut/entangled
+  cases to match Aer/Qibo.
 - **Sampling gate cutting** (`gate_cutting_sampling`) reconstructs the full output
   distribution from the (now-correct) Pauli-Z correlators as
   `P(x) = 2**-n * sum_A (-1)**(A·x) <Z^A>` (a Walsh-Hadamard transform), so it

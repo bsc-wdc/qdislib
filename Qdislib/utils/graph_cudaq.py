@@ -261,6 +261,15 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
         observables[qubit] = "I"
     observables = "".join(observables)
 
+    if explicit_final:
+        # cudaq.sample does NOT collapse mid-circuit measurements, so the gate-cut
+        # measure-and-prepare path (where a cut qubit must collapse to its outcome
+        # and keep evolving) is emitted as a @cudaq.kernel and executed with
+        # cudaq.run, which does collapse. See _build_cudaq_run_kernel.
+        return _build_cudaq_run_kernel(dag, num_qubits, observables)
+
+    # Builder path (used only for subcircuits with no mid-circuit measurement, run
+    # under cudaq.sample where deferred measurement is fine).
     # Initialize CUDA-Q kernel
     kernel = cudaq.make_kernel()
 
@@ -314,12 +323,103 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
         else:
             raise ValueError(f"Unsupported gate type: {gate}")
 
-    # Explicit final measurements (all qubits) for the explicit-measurements path;
-    # the default path lets cudaq.sample measure all qubits implicitly and keeps
-    # the backward-compatible ``[kernel, observables]`` return.
-    if explicit_final:
-        for qb in range(num_qubits):
-            kernel.mz(q[qb])
-        return [kernel, observables, measured_order]
-
     return [kernel, observables]
+
+
+# Compiled run-kernels cached by source hash: cudaq JIT-compiles each kernel and
+# many gate-cut configurations share the same (renumbered) subcircuit.
+_CUDAQ_RUN_KERNEL_CACHE = {}
+_CUDAQ_ONE_QUBIT = {"H": "h", "X": "x", "Y": "y", "Z": "z", "S": "s", "T": "t"}
+
+
+def _compile_cudaq_source(source, func_name="cut_kernel"):
+    """Compile a generated ``@cudaq.kernel`` source string into a callable kernel.
+
+    cudaq's decorator needs real source (``inspect.getsource``), so the generated
+    kernel is written to a temp module file and imported. Cached by source hash to
+    avoid recompiling identical subcircuits.
+    """
+    import hashlib
+    import importlib.util
+    import os
+    import tempfile
+
+    key = hashlib.md5(source.encode()).hexdigest()
+    cached = _CUDAQ_RUN_KERNEL_CACHE.get(key)
+    if cached is not None:
+        return cached
+    directory = tempfile.mkdtemp(prefix="qdislib_cudaq_")
+    path = os.path.join(directory, f"{func_name}.py")
+    with open(path, "w") as handle:
+        handle.write(source)
+    spec = importlib.util.spec_from_file_location(f"{func_name}_{key}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    kernel = getattr(module, func_name)
+    _CUDAQ_RUN_KERNEL_CACHE[key] = kernel
+    return kernel
+
+
+def _build_cudaq_run_kernel(dag, num_qubits, observables):
+    """Build a ``@cudaq.kernel`` (for ``cudaq.run``) returning the gate-cut record.
+
+    ``cudaq.sample`` does not collapse mid-circuit measurements; ``cudaq.run``
+    does. The measure-and-prepare gate-cut path needs the cut qubit to collapse to
+    its outcome and keep evolving, so the subcircuit is emitted as a kernel that
+    returns ``[cut-point outcomes..., final outcomes q0..q(n-1)]`` and is executed
+    with ``cudaq.run``. Returns ``[kernel, observables, measured_order]``
+    (``measured_order`` = cut-measured qubits in ``mz``-call order), matching the
+    previous explicit-final API so the reconstruction is unchanged.
+    """
+    lines = []
+    measured_vars = []
+    measured_order = []
+    for node in nx.topological_sort(dag):
+        data = dag.nodes[node]
+        gate = data["gate"].upper()
+        qubits = data["qubits"]
+        params = data["parameters"]
+        if gate in _CUDAQ_ONE_QUBIT:
+            for qb in qubits:
+                lines.append(f"    {_CUDAQ_ONE_QUBIT[gate]}(q[{qb}])")
+        elif gate == "SDG":
+            for qb in qubits:
+                lines.append(f"    s.adj(q[{qb}])")
+        elif gate == "TDG":
+            for qb in qubits:
+                lines.append(f"    t.adj(q[{qb}])")
+        elif gate in ("RX", "RY", "RZ"):
+            angle = float(params[0]) if params else 0.0
+            for qb in qubits:
+                lines.append(f"    {gate.lower()}({angle!r}, q[{qb}])")
+        elif gate in ("CNOT", "CX"):
+            ctrl, tgt = qubits
+            lines.append(f"    x.ctrl(q[{ctrl}], q[{tgt}])")
+        elif gate == "CZ":
+            ctrl, tgt = qubits
+            lines.append(f"    z.ctrl(q[{ctrl}], q[{tgt}])")
+        elif gate == "MEASURE":
+            for qb in qubits:
+                var = f"m{len(measured_vars)}"
+                lines.append(f"    {var} = mz(q[{qb}])")
+                measured_vars.append(var)
+                measured_order.append(qb)
+        else:
+            raise ValueError(f"Unsupported gate type: {gate}")
+
+    final_vars = [f"f{qb}" for qb in range(num_qubits)]
+    for qb in range(num_qubits):
+        lines.append(f"    f{qb} = mz(q[{qb}])")
+
+    body = "\n".join(lines) if lines else "    pass"
+    ret = ", ".join(measured_vars + final_vars)
+    source = (
+        "import cudaq\n\n"
+        "@cudaq.kernel\n"
+        "def cut_kernel() -> list[bool]:\n"
+        f"    q = cudaq.qvector({num_qubits})\n"
+        f"{body}\n"
+        f"    return [{ret}]\n"
+    )
+    kernel = _compile_cudaq_source(source)
+    return [kernel, observables, measured_order]
