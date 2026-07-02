@@ -96,6 +96,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DEBUG level. Use `qd.set_log_level("DEBUG")` instead of `verbose=True`.
 
 ### Fixed
+- **Sampling gate cutting** (`gate_cutting_sampling`) now reconstructs the output
+  distribution correctly **even when a cut qubit keeps evolving after the cut**.
+  Previously the reconstruction tensored the subcircuits' *final* measurement
+  distributions, but a measured cut qubit is forced to a fixed state at the cut,
+  so once it saw further gates its final distribution was wrong and the result was
+  systematically biased (total-variation distance ~0.13, independent of shots).
+  It is now reconstructed from Pauli-Z correlators built with the cut-point
+  measurement sign (the same decoupling the expectation path uses), combined into
+  `<Z^A>` and inverse-Walsh-Hadamard-transformed into `P(x)` -- validated at
+  shot-noise level (TVD ~0.001-0.006) for terminal *and* non-terminal cuts on
+  Aer / Qibo / CUDA-Q, one and two cuts. A subcircuit that is a single bare qubit
+  (touched only by a removed cut node) no longer crashes the sampler.
+- **CX/CNOT gate cutting.** `gate_cutting` can now cut a `CX`/`CNOT` directly
+  (previously only `CZ` was sound; cutting a bare `CNOT` silently returned a wrong
+  value). A `CX` is cut in place via the identity `CX(c,t) = H(t)·CZ(c,t)·H(t)` --
+  `find_cut` still names the cut after the gate the user wrote (no phantom `CZ`),
+  and the Hadamard conjugation is applied around the target-qubit measure-and-
+  prepare at the cut site. Cutting any other two-qubit gate now raises
+  `InvalidCutError` instead of mis-cutting it as a `CZ`.
 - Identity (`"I"`) observables in **gate cutting** now reconstruct correctly for
   any qubit on all three CPU backends. Previously an `I` on a qubit whose last
   gate is multi-qubit was silently dropped (turned into `Z`) in the DAG
