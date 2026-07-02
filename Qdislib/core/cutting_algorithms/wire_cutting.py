@@ -690,13 +690,14 @@ def _expectation_cudaq_decoupled(
 ):
     """Decoupled ``<O>`` for CUDA-Q gate-cut subcircuits with identity on a cut qubit.
 
-    Mirrors the Qiskit/Qibo decoupling. With ``explicit_measurements=True`` each
-    per-shot key is ``[cut-point outcomes in mz-call order] + [final measurement of
-    q0..q(n-1)]``. For a measured cut qubit observed with identity, the
-    measure-and-prepare sign is recovered from its (last) cut-point outcome ``m``
-    as ``-(-1)**m`` rather than the traced-out final bit.
+    Mirrors the Qiskit/Qibo decoupling. The kernel is executed with ``cudaq.run``
+    (not ``cudaq.sample``, which does not collapse mid-circuit measurements) and
+    returns, per shot, ``[cut-point outcomes in mz-call order] + [final measurement
+    of q0..q(n-1)]``. For a measured cut qubit the measure-and-prepare sign is
+    recovered from its cut-point outcome ``m`` as ``-(-1)**m`` for any observable
+    (``Z`` then multiplies by the final measurement).
 
-    :param kernel: Kernel built with ``explicit_final=True``.
+    :param kernel: Kernel built with ``explicit_final=True`` (a ``cudaq.run`` kernel).
     :param observables: Per-qubit Pauli string over ``{I, Z}`` (qubit-0-first).
     :param shots: Number of shots.
     :param prep_qubits: Renumbered qubits measured for the cut.
@@ -705,32 +706,31 @@ def _expectation_cudaq_decoupled(
     :raises ValueError: If an unsupported observable character is encountered.
     :return: The expectation value.
     """
-    result = cudaq.sample(kernel, shots_count=shots, explicit_measurements=True)
+    records = cudaq.run(kernel, shots_count=shots)
     n_mid = len(measured_order)
     last_pos = {qb: i for i, qb in enumerate(measured_order)}
     total = 0.0
     drawn = 0
-    for key in result:
-        count = result.count(key)
-        drawn += count
+    for record in records:
+        drawn += 1
         contribution = 1
         for q, obs in enumerate(observables):
             if q in prep_qubits and q in last_pos:
                 # Measured cut qubit: decomposition sign -(-1)**m from the
                 # cut-point outcome m for *any* observable; Z then multiplies by
                 # the final measurement.
-                contribution *= -((-1) ** int(key[last_pos[q]]))
+                contribution *= -((-1) ** int(record[last_pos[q]]))
                 if obs == "Z":
-                    contribution *= (-1) ** int(key[n_mid + q])
+                    contribution *= (-1) ** int(record[n_mid + q])
                 elif obs != "I":
                     raise ValueError(f"Unsupported observable {obs}")
             elif obs == "Z":
-                contribution *= (-1) ** int(key[n_mid + q])
+                contribution *= (-1) ** int(record[n_mid + q])
             elif obs == "I":
                 continue
             else:
                 raise ValueError(f"Unsupported observable {obs}")
-        total += contribution * count
+        total += contribution
     return total / (drawn or 1)
 
 

@@ -842,18 +842,21 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots):
         cudaq.set_target("qpp-cpu")
 
     if prep_sorted:
+        # cudaq.run (not sample) so the mid-circuit cut measurements collapse; each
+        # per-shot record is [cut-point outcomes in mz order] + [final q0..q(n-1)].
         kernel, _obs, measured_order = dag_to_circuit_cudaq_kernel(
             dag, num_qubits, explicit_final=True
         )
         last_pos = {qb: i for i, qb in enumerate(measured_order)}
         n_mid = len(measured_order)
-        result = cudaq.sample(kernel, shots_count=shots, explicit_measurements=True)
+        records = cudaq.run(kernel, shots_count=shots)
         joint = {}
-        for key in result:
-            cnt = result.count(key)
-            ft = tuple(int(key[n_mid + q]) for q in range(num_qubits))
-            ct = tuple(int(key[last_pos[q]]) if q in last_pos else 0 for q in prep_sorted)
-            joint[(ft, ct)] = joint.get((ft, ct), 0) + cnt
+        for record in records:
+            ft = tuple(int(record[n_mid + q]) for q in range(num_qubits))
+            ct = tuple(
+                int(record[last_pos[q]]) if q in last_pos else 0 for q in prep_sorted
+            )
+            joint[(ft, ct)] = joint.get((ft, ct), 0) + 1
         return joint
 
     built = dag_to_circuit_cudaq_kernel(dag, num_qubits)

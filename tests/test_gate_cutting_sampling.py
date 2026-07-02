@@ -135,7 +135,9 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
     def test_qiskit_entangled_two_cuts(self):
         self._check_entangled("qiskit")
 
-    # CUDA-Q is exercised on the fast single-cut case above; the two-cut entangled
-    # case uses the same (backend-agnostic) reconstruction but is skipped here
-    # because CUDA-Q's explicit-measurements sampling over 6**2 configs is too slow
-    # for a unit test.
+    @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq required")
+    def test_cudaq_entangled_two_cuts(self):
+        # CUDA-Q executes the gate-cut measure path via cudaq.run (which collapses
+        # mid-circuit measurements); cudaq.sample does not, which silently biased
+        # this case before the decorator/run refactor.
+        self._check_entangled("cudaq")
