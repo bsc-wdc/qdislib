@@ -886,7 +886,12 @@ def _z_correlators(joint, prep_sorted, k):
         z_sign = [(-1.0) ** final[q] for q in range(k)]  # local qubit in the Z-string
         i_sign = [1.0] * k  # local qubit observed with identity
         for q in prep_sorted:
-            i_sign[q] = -((-1.0) ** cut[prep_index[q]])
+            # Measured cut qubit: the (I +/- Z)/2 projector's decomposition sign
+            # -(-1)**cut applies for *any* observable (Mitarai-Fujii). Identity is
+            # just that sign; Z multiplies it by the final measurement (-1)**final.
+            decomposition = -((-1.0) ** cut[prep_index[q]])
+            i_sign[q] = decomposition
+            z_sign[q] = decomposition * ((-1.0) ** final[q])
         for mask in range(2 ** k):
             value = 1.0
             for q in range(k):
@@ -1277,11 +1282,19 @@ def _expectation_from_counts_qiskit(counts, observables, shots=1024, prep_qubits
         cut_measure = registers[1] if len(registers) > 1 else ""
         contribution = 1
         for q, obs in enumerate(observables):
-            if q in prep and obs == "I":
-                # Identity on a measured cut qubit: recover the decomposition sign
-                # from the cut-point outcome rather than the (traced-out) final bit.
+            if q in prep:
+                # Measured cut qubit: the (I +/- Z)/2 projector contributes the
+                # decomposition sign -(-1)**s from the cut-point outcome s, for
+                # *any* observable. The observable then multiplies it: Z reads the
+                # final measurement, I is trivial. Reading the cut-point (not the
+                # final bit) is what makes this correct when the cut qubit keeps
+                # evolving after the cut.
                 s = int(cut_measure[num_qubits - 1 - q]) if len(cut_measure) == num_qubits else 0
                 contribution *= -((-1) ** s)
+                if obs == "Z":
+                    contribution *= (-1) ** int(measure_all[num_qubits - 1 - q])
+                elif obs != "I":
+                    raise ValueError(f"Unsupported observable {obs}")
             elif obs == "Z":
                 contribution *= (-1) ** int(measure_all[num_qubits - 1 - q])
             elif obs == "I":
@@ -1304,6 +1317,16 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic", prep_qubits=None):
         qc = qc[0]
     else:
         observables = "Z" * qc.num_qubits
+
+    if prep_qubits is None:
+        # 3-step subcircuit workflow: prep qubits aren't threaded in, so recover
+        # them from the subcircuit's mid-circuit (gate-cut) measurements. Lets the
+        # workflow use the decoupled reconstruction like the all-in-one path.
+        prep_qubits = [
+            qc.find_bit(instr.qubits[0]).index
+            for instr in qc.data
+            if instr.operation.name == "measure"
+        ]
 
     counts = _counts_qiskit(qc, shots=shots, method=method)
     expectation_value = _expectation_from_counts_qiskit(
@@ -1382,6 +1405,14 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
         observables = ["Z"] * qc.num_qubits
         observables = "".join(observables)
 
+    # Recover the gate-cut measured (prep) qubits from the mid-circuit measurements
+    # before appending the final measure_all, so the same decoupled reconstruction
+    # as the CPU path applies (the cut measure is collapse-and-continue).
+    prep_qubits = [
+        qc.find_bit(instr.qubits[0]).index
+        for instr in qc.data
+        if instr.operation.name == "measure"
+    ]
     qc.measure_all()
 
     import subprocess
@@ -1402,24 +1433,9 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
     counts = result.get_counts()
     logger.info(counts)
 
-    expectation_value = 0
-    for key, value in counts.items():
-        contribution = 1
-        # Qiskit get_counts() keys are "<measure-all reg> <other regs>" with the
-        # measure-all register first and little-endian (qubit 0 is the last bit);
-        # take that register and reverse it to align with the qubit-0-first
-        # observable string.
-        for bit, obs in zip(reversed(key.split()[0]), observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
-            elif obs == "I":
-                contribution *= 1
-            else:
-                raise ValueError(f"Unsupported observable {obs}")
-
-        # Add the contribution weighted by its frequency
-        expectation_value += contribution * (value / shots)
-    return expectation_value
+    return _expectation_from_counts_qiskit(
+        counts, observables, shots, prep_qubits=prep_qubits
+    )
 
 
 def _check_ibm_qc(qpu_config=None):

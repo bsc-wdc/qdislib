@@ -300,15 +300,16 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
             for qb in qubits:
                 getattr(kernel, gate.lower())(q[qb])
 
-        # --- Gate-cut MEASURE: collapse the qubit, then force it to |1> so it
-        # --- contributes -1, matching the Qiskit/Qibo gate-cut convention
-        # --- (qiskit: measure + "if c==0: x"; qibo: M(collapse) + RX(pi*(1-m))).
+        # --- Gate-cut MEASURE: a projective Z measurement that collapses the
+        # --- qubit to its outcome |s> and lets it CONTINUE (the CZ cut's
+        # --- (I +/- Z)/2 projector, Mitarai-Fujii arXiv:1909.07534). The outcome
+        # --- is recovered from the explicit-measurements record for the
+        # --- reconstruction sign; the qubit is NOT reset (resetting it discarded
+        # --- the collapse and broke reconstruction for gates after the cut).
         elif gate == "MEASURE":
             for qb in qubits:
                 kernel.mz(q[qb])
                 measured_order.append(qb)
-                kernel.reset(q[qb])
-                kernel.x(q[qb])
 
         else:
             raise ValueError(f"Unsupported gate type: {gate}")

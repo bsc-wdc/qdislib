@@ -300,9 +300,14 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
             continue
 
         if gate_name == "MEASURE":
+            # Gate-cut measure: a projective Z measurement that collapses the qubit
+            # to its outcome |s> and lets it CONTINUE (the CZ cut's (I +/- Z)/2
+            # projector, Mitarai-Fujii arXiv:1909.07534). The collapse gate's
+            # per-shot samples give the cut-point outcome for the reconstruction
+            # sign; the qubit is NOT reset (the old RX force discarded the collapse
+            # and broke reconstruction for gates after the cut).
             qubits = node_data["qubits"]
-            output = circuit.add(gates.M(*qubits, collapse=True))
-            circuit.add(gates.RX(*qubits, theta=np.pi * (1 - output.symbols[0])))
+            circuit.add(gates.M(*qubits, collapse=True))
             continue
 
         # Get the qubits this gate acts on
