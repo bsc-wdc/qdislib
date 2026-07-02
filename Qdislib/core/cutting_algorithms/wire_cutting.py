@@ -579,9 +579,16 @@ def _expectation_from_samples_qibo(qc, observables, shots, backend, prep_qubits)
     final = np.asarray(qc(nshots=shots).samples())  # (shots, nqubits), qubit-0-first
     contribution = np.ones(len(final))
     for q, obs in enumerate(observables):
-        if q in prep_qubits and obs == "I" and q in collapse:
+        if q in prep_qubits and q in collapse:
+            # Measured cut qubit: the (I +/- Z)/2 projector contributes the
+            # decomposition sign -(-1)**m from the cut-point outcome m for *any*
+            # observable; Z then multiplies by the final measurement.
             m = np.asarray(collapse[q].result.samples()).ravel()
             contribution *= -((-1.0) ** m)
+            if obs == "Z":
+                contribution *= (-1.0) ** final[:, q]
+            elif obs != "I":
+                raise ValueError(f"Unsupported observable {obs}")
         elif obs == "Z":
             contribution *= (-1.0) ** final[:, q]
         elif obs == "I":
@@ -612,6 +619,16 @@ def _expec_value_qibo(
     else:
         observables = "Z" * subcirc.nqubits
         qc = subcirc
+
+    if prep_qubits is None:
+        # 3-step subcircuit workflow: prep qubits aren't threaded in, so recover
+        # them from the subcircuit's collapse (gate-cut) measurements. Lets the
+        # workflow use the decoupled reconstruction like the all-in-one path.
+        prep_qubits = [
+            g.qubits[0]
+            for g in qc.queue
+            if isinstance(g, gates.M) and getattr(g, "collapse", False)
+        ]
 
     if prep_qubits:
         return _expectation_from_samples_qibo(
@@ -698,8 +715,15 @@ def _expectation_cudaq_decoupled(
         drawn += count
         contribution = 1
         for q, obs in enumerate(observables):
-            if q in prep_qubits and obs == "I" and q in last_pos:
+            if q in prep_qubits and q in last_pos:
+                # Measured cut qubit: decomposition sign -(-1)**m from the
+                # cut-point outcome m for *any* observable; Z then multiplies by
+                # the final measurement.
                 contribution *= -((-1) ** int(key[last_pos[q]]))
+                if obs == "Z":
+                    contribution *= (-1) ** int(key[n_mid + q])
+                elif obs != "I":
+                    raise ValueError(f"Unsupported observable {obs}")
             elif obs == "Z":
                 contribution *= (-1) ** int(key[n_mid + q])
             elif obs == "I":
@@ -738,6 +762,20 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> flo
         and len(payload) == 2
         and hasattr(payload[0], "nodes")
     )
+
+    if prep_qubits is None and is_legacy_dag:
+        # 3-step subcircuit workflow: recover the gate-cut measured qubits from the
+        # DAG so the workflow uses the decoupled reconstruction like the all-in-one
+        # path (its measure nodes collapse-and-continue, so a plain read is wrong).
+        dag_component = payload[0]
+        prep_qubits = sorted(
+            {
+                (dag_component.nodes[n].get("qubits") or (None,))[0]
+                for n in dag_component
+                if dag_component.nodes[n].get("gate") == "measure"
+            }
+            - {None}
+        )
 
     # Identity on a measured cut qubit: build with explicit final measurements and
     # recover the sign from the cut-point outcome (decoupled from the observable).

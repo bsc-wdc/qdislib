@@ -96,18 +96,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DEBUG level. Use `qd.set_log_level("DEBUG")` instead of `verbose=True`.
 
 ### Fixed
-- **Sampling gate cutting** (`gate_cutting_sampling`) now reconstructs the output
-  distribution correctly **even when a cut qubit keeps evolving after the cut**.
-  Previously the reconstruction tensored the subcircuits' *final* measurement
-  distributions, but a measured cut qubit is forced to a fixed state at the cut,
-  so once it saw further gates its final distribution was wrong and the result was
-  systematically biased (total-variation distance ~0.13, independent of shots).
-  It is now reconstructed from Pauli-Z correlators built with the cut-point
-  measurement sign (the same decoupling the expectation path uses), combined into
-  `<Z^A>` and inverse-Walsh-Hadamard-transformed into `P(x)` -- validated at
-  shot-noise level (TVD ~0.001-0.006) for terminal *and* non-terminal cuts on
-  Aer / Qibo / CUDA-Q, one and two cuts. A subcircuit that is a single bare qubit
-  (touched only by a removed cut node) no longer crashes the sampler.
+- **Gate-cut reconstruction corrected for cut qubits that keep evolving after the
+  cut.** A gate cut's measure term is the projective `(I ± Z)/2` (Mitarai & Fujii,
+  arXiv:1909.07534): the cut qubit must be *measured and left collapsed to its
+  outcome*, then continue, contributing the decomposition sign `-(-1)**outcome`
+  for **any** observable. The converters instead **forced** the qubit to a fixed
+  state after measuring (`|0>` on Qiskit, `|1>` on Qibo/CUDA-Q), which is harmless
+  only when nothing follows the cut on that qubit -- but once a cut qubit had
+  further gates (e.g. two cuts sharing an internally-entangled block), both the
+  expectation value and the sampled distribution came out systematically wrong (a
+  cross-cut `<Z Z>` could flip sign; sampling TVD ~0.13-0.22, independent of
+  shots). The converters now **collapse-and-continue** (no reset) and the
+  reconstruction applies the cut-point decomposition sign for every observable
+  (`Z` multiplies it by the final measurement, identity is just the sign). Fixed
+  for the expectation and `gate_cutting_sampling` paths, the all-in-one and 3-step
+  `gate_cutting_subcircuits` workflows, and the GPU path -- validated against the
+  exact statevector on **Aer and Qibo** for terminal *and* non-terminal cuts, one
+  and two cuts, product and entangled blocks (TVD ~0.001-0.006). **CUDA-Q** is
+  fixed for single-cut and product-block cases; a residual bias remains only when
+  two or more cuts land in the *same internally-entangled* subcircuit (its
+  ``explicit_measurements`` capture), tracked as a known limitation. A subcircuit
+  that is a single bare qubit (touched only by a removed cut node) no longer
+  crashes the sampler.
+- **Sampling gate cutting** (`gate_cutting_sampling`) reconstructs the full output
+  distribution from the (now-correct) Pauli-Z correlators as
+  `P(x) = 2**-n * sum_A (-1)**(A·x) <Z^A>` (a Walsh-Hadamard transform), so it
+  inherits the expectation path's correctness rather than needing a separate
+  derivation.
 - **CX/CNOT gate cutting.** `gate_cutting` can now cut a `CX`/`CNOT` directly
   (previously only `CZ` was sound; cutting a bare `CNOT` silently returned a wrong
   value). A `CX` is cut in place via the identity `CX(c,t) = H(t)·CZ(c,t)·H(t)` --
@@ -124,8 +139,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reconstruction recovers the measure-and-prepare sign from the **cut-point
   measurement** (decoupled from the final observable) on `qiskit` (cut-measure
   classical register), `qibo` (collapse gate per-shot samples) and `cudaq`
-  (`sample(explicit_measurements=True)`). The GPU/QPU paths and the 3-step
-  `gate_cutting_subcircuits` workflow do not decouple this yet and raise
+  (`sample(explicit_measurements=True)`). The all-in-one, 3-step and GPU paths now
+  all use this decoupled reconstruction (the 3-step and GPU auto-detect the cut
+  qubits from the subcircuit); only the hardware-QPU path -- which sees aggregated
+  counts and so cannot recover the per-shot cut-point correlation -- still raises
   `InvalidCutError` rather than returning a wrong value. Wire cutting was
   unaffected by the sign issue and also benefits from the converter fix.
 - QPU hand-off no longer hangs forever: the wait for a result is now bounded

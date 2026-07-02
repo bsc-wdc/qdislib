@@ -246,12 +246,14 @@ def dag_to_circuit_qiskit(dag, num_qubits):
         if parameters:
             getattr(circuit, gate_method)(*parameters, *qubits)
         elif gate_method == "measure":
-            # Gate-cut measure: measure, then force the qubit to |1> (matches the
-            # Qibo/CUDA-Q gate-cut measure convention).
+            # Gate-cut measure: a projective Z measurement that collapses the
+            # qubit to its outcome |s> and lets it CONTINUE (the CZ cut's
+            # (I +/- Z)/2 projector, Mitarai-Fujii arXiv:1909.07534). The outcome
+            # is recorded in the cut-point register c for the reconstruction sign;
+            # the qubit is NOT reset. Resetting it (the old "force to |0>") threw
+            # away the collapse and gave the wrong state to any gate after the cut.
             clbit = qubits
             getattr(circuit, gate_method)(*qubits, *clbit)
-            with circuit.if_test((*qubits, *clbit)):
-                circuit.x(*qubits)
         else:
             getattr(circuit, gate_method)(*qubits)
 
