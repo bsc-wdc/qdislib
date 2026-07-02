@@ -566,27 +566,41 @@ NOTEBOOKS["06_distributed_and_qpu"] = [
 # --------------------------------------------------------------------------- #
 NOTEBOOKS["07_image_reconstruction"] = [
     md(
-        "# Qdislib — 07 · Cutting a quantum image (hands-on)\n"
+        "# Qdislib — 07 · Cutting a quantum image, distributed with PyCOMPSs\n"
         "\n"
-        "**The key idea: a handful of qubits holds a whole image.** With QPIE\n"
-        "(Quantum Probability Image Encoding), an `n`-qubit state is a probability\n"
-        "distribution over `2**n` bitstrings — read each bitstring as a **pixel\n"
-        "address** and its probability as the pixel **brightness**. So **4 qubits\n"
-        "index all 16 rows** (`2**4 = 16`), 4 more index all 16 columns, and just\n"
-        "**8 qubits encode the entire 16×16 = 256-pixel image** — an *exponential*\n"
-        "packing (8 numbers of hardware for 256 pixels).\n"
+        "**A handful of qubits holds a whole image.** With QPIE (Quantum Probability\n"
+        "Image Encoding) an `n`-qubit state is a probability distribution over `2**n`\n"
+        "bitstrings — read each bitstring as a **pixel address** and its probability as\n"
+        "the pixel **brightness**. So **4 qubits index all 16 rows** (`2**4 = 16`), 4\n"
+        "more index all 16 columns, and just **8 qubits encode the whole 16×16 = 256\n"
+        "pixel image** — an *exponential* packing (8 qubits for 256 pixels).\n"
         "\n"
         "That packing is exactly *why you'd cut*: an image that needs 8 qubits can be\n"
         "run as **two independent 4-qubit halves** — the rows and the columns — and\n"
-        "then reassembled. In this notebook you'll encode an image, apply a quantum\n"
-        "transform, **cut the 8-qubit circuit into two 4-qubit pieces**, and rebuild\n"
-        "the full image with `gate_cutting_sampling` (which reconstructs the whole\n"
-        "output *distribution*, not just an expectation value).\n"
+        "reassembled. In this notebook you encode an image, **entangle** the two\n"
+        "registers, **cut the 8-qubit circuit into two 4-qubit pieces**, and rebuild the\n"
+        "full image with `gate_cutting_sampling` (which reconstructs the whole output\n"
+        "*distribution*, not just one number). **The whole notebook runs under\n"
+        "PyCOMPSs**, so the subcircuits sample in parallel.\n"
         "\n"
-        "Here's the whole story you'll build — encode → transform → cut & reconstruct:"
+        "Here's the story you'll build — encode → entangle → cut & reconstruct:"
     ),
-    img_md("images/07_image_cutting.png", "encode, transform, cut and reconstruct"),
+    img_md("images/07_image_cutting.png", "encode, entangle, cut and reconstruct an image"),
     md("Look for the **🔧 Your turn** cells: change a line, re-run, watch it change."),
+    md(
+        "## Start the PyCOMPSs runtime\n"
+        "\n"
+        "This starts the COMPSs runtime **for the whole notebook**: from here on every\n"
+        "`gate_cutting_sampling` call submits its subcircuits as parallel COMPSs\n"
+        "`@task`s and gathers the results for you — the code is identical to running it\n"
+        "serially. `graph=True` records the task graph under `$HOME/.COMPSs/…/monitor/`\n"
+        "(render it with `compss_gengraph`). Run this notebook top to bottom; the very\n"
+        "last cell stops the runtime."
+    ),
+    code(
+        "import pycompss.interactive as ipycompss\n"
+        "ipycompss.start(graph=True, monitor=1000)"
+    ),
     code(
         "import numpy as np\n"
         "import matplotlib.pyplot as plt\n"
@@ -626,13 +640,13 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "## 1. Encode the image  ·  *4 qubits → 16 positions*\n"
         "\n"
         "We load a **row** brightness profile onto the 4 row qubits and a **column**\n"
-        "profile onto the 4 column qubits. Each 4-qubit register spans all\n"
-        "`2**4 = 16` positions along its axis. Preparing the two registers\n"
-        "*independently* makes the image **separable** — a pure outer product\n"
-        "`row_profile ⊗ column_profile`, i.e. a smooth blob."
+        "profile onto the 4 column qubits (`StatePreparation`). Each 4-qubit register\n"
+        "spans all `2**4 = 16` positions along its axis — so **8 qubits hold the whole\n"
+        "16×16 image**. Preparing the two registers independently makes a smooth,\n"
+        "separable blob (`row_profile ⊗ column_profile`)."
     ),
     code(
-        "def encode_image(transform):\n"
+        "def encode_image(entangle):\n"
         "    qc = QuantumCircuit(N)\n"
         "    # QPIE: load the row and column brightness profiles (a smooth Gaussian bump).\n"
         "    qc.append(StatePreparation(brightness_profile(N_ROW, center=7.5, width=2.2)),\n"
@@ -641,11 +655,11 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "              range(N_ROW, N))\n"
         "    qc = transpile(qc, basis_gates=['ry', 'rz', 'cx', 'cz', 'h', 'x'],\n"
         "                   optimization_level=1)\n"
-        "    if transform:\n"
-        "        # TRANSFORM (step 2): fold rows into columns with two CX gates --\n"
-        "        # each ties a column bit to a row bit  (col_bit ^= row_bit).\n"
-        "        qc.cx(0, N_ROW)\n"
-        "        qc.cx(N_ROW - 1, N - 1)\n"
+        "    if entangle:\n"
+        "        # ENTANGLE (step 2): couple the two registers with two CZ gates, each\n"
+        "        # tying a row qubit to a column qubit. These are our cut points.\n"
+        "        qc.cz(0, N_ROW)\n"
+        "        qc.cz(N_ROW - 1, N - 1)\n"
         "    return qc\n"
         "\n"
         "\n"
@@ -657,32 +671,32 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "    return to_image(dist)\n"
         "\n"
         "\n"
-        "show([exact_image(encode_image(transform=False))], ['separable image (a blob)'])"
+        "show([exact_image(encode_image(entangle=False))], ['encoded image (a blob)'])"
     ),
     md(
-        "## 2. Transform: fold rows into columns\n"
+        "## 2. Entangle the rows and columns\n"
         "\n"
-        "Now we couple the two registers with two `CX` (controlled-NOT) gates, each\n"
-        "from a **row qubit to a column qubit**. A `CX` sets `col_bit ^= row_bit`, so\n"
-        "the **column address is XOR-shifted by the row address** — each row moves\n"
-        "horizontally by an amount that depends on the row, which visibly **folds**\n"
-        "the image (the blob wraps into an arc).\n"
+        "Now we couple the two registers with two `CZ` (controlled-Z) gates, each from\n"
+        "a **row qubit to a column qubit**. This genuinely **entangles** the 8-qubit\n"
+        "state — it is no longer a product of an independent row state and column\n"
+        "state, so you can't just run the two 4-qubit halves separately and multiply.\n"
         "\n"
-        "Crucially, this coupling **entangles** the row and column registers: the\n"
-        "image is no longer a separable outer product, so it genuinely needs all 8\n"
-        "qubits *together* — which is what makes cutting it non-trivial. (These two\n"
-        "`CX` gates double as our cut points in step 3.)"
+        "A `CZ` only adds a **phase**, so it leaves the measurement probabilities — the\n"
+        "**image** — exactly unchanged. That's the point of this demo: the picture\n"
+        "stays put while the circuit becomes entangled, so when we cut and rebuild it,\n"
+        "a correct reconstruction must return the **identical** blob. (These two `CZ`\n"
+        "gates are the cut points in step 3.)"
     ),
     code(
-        "show([exact_image(encode_image(transform=False)),\n"
-        "      exact_image(encode_image(transform=True))],\n"
-        "     ['before (separable blob)', 'after (CX fold: rows -> columns)'])"
+        "show([exact_image(encode_image(entangle=False)),\n"
+        "      exact_image(encode_image(entangle=True))],\n"
+        "     ['before (separable)', 'after CZ (entangled -- image unchanged)'])"
     ),
     md(
         "### 🔧 Your turn (1)\n"
         "\n"
-        "Change the **blob**: move its center or make it wider/narrower, and re-run\n"
-        "the cell below. Try `center=4.0` (top-left) or `width=1.0` (sharper)."
+        "Change the **blob**: move its center or make it wider/narrower, then re-run.\n"
+        "Try `center=4.0` (top-left) or `width=1.0` (sharper)."
     ),
     code(
         "def brightness_profile(n_bits, center, width):        # <-- edit center / width\n"
@@ -690,85 +704,75 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "    p = np.exp(-0.5 * ((x - center) / width) ** 2)\n"
         "    return np.sqrt(p / p.sum())\n"
         "\n"
-        "show([exact_image(encode_image(transform=True))], ['your transformed image'])"
+        "show([exact_image(encode_image(entangle=True))], ['your image'])"
     ),
     md(
         "## 3. The image is an 8-qubit circuit — cut it in two\n"
         "\n"
         "Suppose our device only has ~4 qubits. `find_cut` looks for a good place to\n"
-        "split the circuit; here it finds the two row↔column `CZ` gates, which\n"
-        "separate the **row half** from the **column half**."
+        "split the circuit; here it finds the two row↔column `CZ` gates, which separate\n"
+        "the **row half** from the **column half**."
     ),
     code(
-        "transformed = encode_image(transform=True)\n"
-        "cut = qd.find_cut(transformed, gate_cut=True, wire_cut=False, max_qubits=N_ROW)\n"
+        "entangled = encode_image(entangle=True)\n"
+        "cut = qd.find_cut(entangled, gate_cut=True, wire_cut=False, max_qubits=N_ROW)\n"
         "print('cut gates:', cut)   # the two row<->column entanglers"
     ),
     md(
-        "## 4. Reconstruct the image by sampling the pieces\n"
+        "## 4. Reconstruct the image by sampling the pieces — in parallel\n"
         "\n"
         "`gate_cutting_sampling` samples each subcircuit independently and recombines\n"
-        "them (via the gate-cut quasiprobability decomposition) into the **full\n"
-        "output distribution** — the reconstructed image. Two cuts means `6**2 = 36`\n"
-        "subcircuit configurations, each a small 4-qubit circuit."
+        "them (via the gate-cut quasiprobability decomposition) into the **full output\n"
+        "distribution** — the reconstructed image. Two cuts means `6**2 = 36` subcircuit\n"
+        "configurations, each a small 4-qubit circuit. **Under PyCOMPSs these\n"
+        "subcircuits sample in parallel** across the available workers — the call is\n"
+        "exactly the same as serial."
     ),
     code(
-        "distribution = qd.gate_cutting_sampling(transformed, cut, shots=200_000,\n"
+        "distribution = qd.gate_cutting_sampling(entangled, cut, shots=200_000,\n"
         "                                        software='qiskit')\n"
         "reconstructed = to_image(distribution)\n"
         "\n"
-        "show([exact_image(transformed), reconstructed],\n"
-        "     ['transformed (exact)', 'reconstructed from the 2 halves'])\n"
+        "show([exact_image(entangled), reconstructed],\n"
+        "     ['exact image', 'reconstructed from the 2 halves'])\n"
         "\n"
-        "tvd = 0.5 * np.abs(exact_image(transformed) - reconstructed).sum()\n"
+        "tvd = 0.5 * np.abs(exact_image(entangled) - reconstructed).sum()\n"
         "print(f'total-variation distance vs exact: {tvd:.4f}   (~shot noise)')"
     ),
     md(
         "### 🔧 Your turn (2)\n"
         "\n"
-        "Fewer shots ⇒ a noisier reconstruction. Re-run the reconstruction with\n"
-        "`shots=20_000` and compare the image and the TVD. (Sampling reconstruction\n"
-        "carries a quasiprobability overhead, so it needs more shots than a plain\n"
-        "expectation value.)"
+        "Fewer shots ⇒ a noisier reconstruction. Re-run with `shots=20_000` and compare\n"
+        "the image and the TVD. (Sampling reconstruction carries a quasiprobability\n"
+        "overhead, so it needs more shots than a plain expectation value.)"
     ),
     code(
-        "distribution = qd.gate_cutting_sampling(transformed, cut, shots=20_000,   # <-- change\n"
+        "distribution = qd.gate_cutting_sampling(entangled, cut, shots=20_000,   # <-- change\n"
         "                                        software='qiskit')\n"
         "noisy = to_image(distribution)\n"
         "show([reconstructed, noisy], ['200k shots', '20k shots'])\n"
-        "print('TVD:', round(0.5 * np.abs(exact_image(transformed) - noisy).sum(), 4))"
-    ),
-    md(
-        "## 5. Run it distributed with PyCOMPSs\n"
-        "\n"
-        "Each of the 36 subcircuit configurations is an **independent task**, so on a\n"
-        "cluster they sample **in parallel** — the call is exactly the same. Put the\n"
-        "code in a script and launch it with `runcompss`; Qdislib submits each\n"
-        "subcircuit as a PyCOMPSs `@task` and waits on the results for you."
-    ),
-    illus(
-        "# my_image_app.py  --  run with:  runcompss --python my_image_app.py\n"
-        "import Qdislib as qd\n"
-        "\n"
-        "transformed = encode_image(transform=True)\n"
-        "cut = qd.find_cut(transformed, gate_cut=True, wire_cut=False, max_qubits=4)\n"
-        "# The 36 subcircuits sample in parallel across the available workers:\n"
-        "distribution = qd.gate_cutting_sampling(transformed, cut, shots=200_000,\n"
-        "                                        software='qiskit')"
+        "print('TVD:', round(0.5 * np.abs(exact_image(entangled) - noisy).sum(), 4))"
     ),
     md(
         "## Recap & bonus\n"
         "\n"
-        "You encoded an image as a quantum distribution, transformed it by\n"
-        "entangling rows and columns, **cut the 8-qubit circuit into two 4-qubit\n"
-        "halves**, and rebuilt the image by sampling — reconstructing the full\n"
-        "distribution, not just one number.\n"
+        "You encoded a 256-pixel image in **8 qubits**, entangled the row and column\n"
+        "registers with `CZ`, **cut the 8-qubit circuit into two 4-qubit halves**, and\n"
+        "rebuilt the *full image distribution* by sampling — all running distributed\n"
+        "under PyCOMPSs — recovering the identical blob.\n"
         "\n"
-        "**🔧 Bonus:** bump the resolution to `32×32` by setting `N_ROW = N_COL = 5`\n"
-        "(re-run from the setup cell). The circuit grows to 10 qubits and each half\n"
-        "to 5 — but it's still just **two cuts** (the cost of cutting scales with the\n"
-        "number of cuts, `6**n_cuts`, not the circuit size)."
+        "**🔧 Bonus:** bump the resolution to `32×32` with `N_ROW = N_COL = 5` (re-run\n"
+        "from the setup cell). The circuit grows to 10 qubits and each half to 5 — but\n"
+        "it's still just **two cuts** (the cost scales with the number of cuts,\n"
+        "`6**n_cuts`, not the circuit size)."
     ),
+    md(
+        "## Stop the PyCOMPSs runtime\n"
+        "\n"
+        "Run this **last**, once you're done re-running the cells above — it shuts the\n"
+        "COMPSs runtime down cleanly, syncing any outstanding results."
+    ),
+    code("ipycompss.stop(sync=True)"),
 ]
 
 

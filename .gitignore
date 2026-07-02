@@ -98,3 +98,7 @@ compss_graphs/
 
 # macOS
 .DS_Store
+
+# COMPSs run artifacts
+compss-*.out
+compss-*.err
