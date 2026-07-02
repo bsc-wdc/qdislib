@@ -210,6 +210,33 @@ class BaseBackend(ABC):
             f"{self.name} does not implement evaluate_samples (sampling reconstruction)"
         )
 
+    def evaluate_joint_counts(
+        self, dag: Any, num_qubits: int, cut_point_qubits: Any = (), shots: int = 1024
+    ) -> dict:
+        """Sample a gate-cut subcircuit, capturing the JOINT final/cut-point outcomes.
+
+        The seam the *sampling* reconstruction delegates to -- the distribution
+        counterpart of :meth:`evaluate_expectation`. Gate-cut sampling needs, per
+        shot, the final measurement **and** the mid-circuit cut-point outcomes of
+        ``cut_point_qubits`` kept correlated, so a cut qubit that keeps evolving
+        after the cut still reconstructs correctly (its final bit no longer equals
+        its cut-point bit). Returns ``{(final_bits, cut_point_bits): count}`` with
+        ``final_bits`` qubit-0-first over the component and ``cut_point_bits`` over
+        ``cut_point_qubits`` in order.
+
+        Backends whose execution yields only aggregated *final* counts (most real
+        QPUs) cannot report the mid-circuit outcome and leave this unimplemented.
+
+        :param dag: A renumbered connected-component DAG of the cut circuit.
+        :param num_qubits: Qubit count of the component.
+        :param cut_point_qubits: Renumbered cut qubits measured for the decomposition.
+        :param shots: Number of measurement shots.
+        :return: ``{(final_bits, cut_point_bits): count}``.
+        """
+        raise NotImplementedError(
+            f"{self.name} does not implement evaluate_joint_counts (sampling reconstruction)"
+        )
+
     # ------------------------------------------------------------------
     # Abstract hooks -- to be implemented by subclasses
     # ------------------------------------------------------------------

@@ -21,8 +21,9 @@ These wrap the existing execution paths (``_expec_value_qibo_qpu`` for the BSC
 Blue/Red QPUs via the shared-filesystem bridge, ``_expec_value_qiskit_qpu`` for
 IBM Quantum via qiskit-ibm-runtime) behind the :class:`BaseBackend` interface, so
 the cutting algorithms select them uniformly instead of branching on ``qpu``.
-Only :meth:`evaluate_expectation` is used by the cutting code; the generic
-sample/estimator hooks are left unimplemented.
+The cutting code uses :meth:`evaluate_expectation` (both backends) and, for the
+sampling reconstruction, :meth:`evaluate_joint_counts` (BSC, for terminal cuts);
+the generic sample/estimator hooks are left unimplemented.
 """
 
 from Qdislib.core.backend.base_backend import BaseBackend, BackendConfig
@@ -61,6 +62,39 @@ class BSCQpuBackend(_QpuBackendBase):
 
         subcirc = dag_to_circuit_qibo(dag, num_qubits)
         return _expec_value_qibo_qpu(subcirc, shots=shots, method=method)
+
+    def evaluate_joint_counts(self, dag, num_qubits, cut_point_qubits=(), shots=1024):
+        """Joint final/cut-point counts from a BSC QPU (sampling reconstruction).
+
+        Ships the subcircuit through the shared-filesystem bridge and reads back the
+        hardware counts (``result.counts()``, qubit-0-first). A real QPU reports only
+        aggregated *final* counts -- the mid-circuit cut-point outcome isn't returned
+        -- so each cut qubit's cut-point bit is taken to equal its final bit. That is
+        exact for a **terminal** cut (no gate on a cut qubit after the cut, as in the
+        image-cutting tutorial); a cut qubit that keeps evolving afterwards cannot be
+        decoupled from aggregated hardware counts (the same limitation that guards the
+        QPU expectation path).
+        """
+        import qibo
+        from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
+        from Qdislib.utils.qpu_bridge import submit_and_wait
+
+        subcirc = dag_to_circuit_qibo(dag, num_qubits)
+        if subcirc is None:
+            return None
+        if type(subcirc) != qibo.models.circuit.Circuit:
+            subcirc = subcirc[0]  # drop the "Observable I" marker; sampling reads bits
+
+        freq = submit_and_wait(subcirc).counts()
+        cut_points = list(cut_point_qubits)
+        joint = {}
+        for key, count in freq.items():
+            final = tuple(int(key[q]) for q in range(num_qubits))
+            cut = tuple(
+                final[q] for q in cut_points
+            )  # terminal cut: cut-point == final
+            joint[(final, cut)] = joint.get((final, cut), 0) + count
+        return joint
 
 
 def _ibm_setting(extra: dict, key: str, env: str, default=""):

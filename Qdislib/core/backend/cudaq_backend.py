@@ -107,6 +107,12 @@ class CudaqBackend(BaseBackend):
         result = cudaq.sample(kernel, shots_count=shots)
         return {str(k): int(v) for k, v in result.items()}
 
+    def evaluate_joint_counts(self, dag, num_qubits, cut_point_qubits=(), shots=1024):
+        """Joint final/cut-point counts via CUDA-Q (cudaq.run collapses mid-circuit mz)."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import _joint_counts_cudaq
+
+        return _joint_counts_cudaq(dag, num_qubits, list(cut_point_qubits), shots)
+
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
     ) -> SampleJobResult:

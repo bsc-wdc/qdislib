@@ -765,16 +765,6 @@ def _component_original_qubits(component):
     return sorted(qubits)
 
 
-def _resolve_sdk(software):
-    """Map a ``software`` / registered-backend name to its SDK for sampling capture."""
-    s = (software or "").lower()
-    if "qibo" in s:
-        return "qibo"
-    if "cudaq" in s or "cuda-q" in s:
-        return "cudaq"
-    return "qiskit"  # qiskit + Aer/IQM/IBM backends all use Qiskit circuits
-
-
 def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots):
     """Per-component joint counts ``{(final_bits, cut-point_bits): count}`` for Qibo.
 
@@ -949,44 +939,46 @@ def _create_sample_subcircuit(component):
 
 
 @task(returns=1)
-def _execute_sample_subcircuit(prepared, software, shots):
+def _execute_sample_subcircuit(prepared, software, shots, qpu=False, qpu_dict=None):
     """Build + sample a prepared gate-cut subcircuit; return its Z-correlators.
 
     The *execution* half (COMPSs task) -- this is where the native circuit is built
-    and sampled, so it is the task to route (e.g. with ``@constraint`` or a QPU
-    backend) to control where subcircuits actually run. Captures the final and
-    mid-circuit cut-point measurements. Returns ``(corr, original)``: ``corr`` maps
-    each Z-string mask to its ``<Z^b>`` correlator (``2**|component|`` floats) and
-    ``original`` lists the component's global qubit indices. Returning correlators
-    (not raw counts) is what keeps the reconstruction correct for cut qubits that
-    keep evolving after the cut (the cut-point sign is baked in here).
+    and sampled, so it is the task to route to control where subcircuits actually
+    run. ``build_execution_backend`` turns ``software``/``qpu``/``qpu_dict`` into a
+    concrete backend (local SDK, GPU Aer, or a QPU) with no per-backend branching,
+    and its :meth:`evaluate_joint_counts` captures the final and mid-circuit
+    cut-point measurements. Returns ``(corr, original)``: ``corr`` maps each Z-string
+    mask to its ``<Z^b>`` correlator (``2**|component|`` floats) and ``original``
+    lists the component's global qubit indices. Returning correlators (not raw
+    counts) is what keeps the reconstruction correct for cut qubits that keep
+    evolving after the cut (the cut-point sign is baked in here).
     """
     s_new, highest_qubit, prep_sorted, original = prepared
     if s_new is None:  # empty component
         return ({0: 1.0}, [])
-    sdk = _resolve_sdk(software)
-    if sdk == "qibo":
-        joint = _joint_counts_qibo(s_new, highest_qubit, prep_sorted, shots)
-    elif sdk == "cudaq":
-        joint = _joint_counts_cudaq(s_new, highest_qubit, prep_sorted, shots)
-    else:
-        joint = _joint_counts_qiskit(s_new, highest_qubit, prep_sorted, shots)
+    from Qdislib.core.backend.registry import build_execution_backend
+
+    backend = build_execution_backend(
+        software, num_qubits=highest_qubit, qpu=bool(qpu), qpu_dict=qpu_dict
+    )
+    joint = backend.evaluate_joint_counts(s_new, highest_qubit, prep_sorted, shots)
     corr = _z_correlators(joint, prep_sorted, highest_qubit)
     return (corr, original)
 
 
-def _sample_gate_subcircuit(component, software, shots):
+def _sample_gate_subcircuit(component, software, shots, qpu=False, qpu_dict=None):
     """Sample one connected-component subcircuit into its Z-correlators.
 
     Orchestrates two COMPSs tasks -- :func:`_create_sample_subcircuit` (prepare the
     subcircuit) then :func:`_execute_sample_subcircuit` (build + sample it) -- so
     subcircuit creation and execution are separate, independently routable tasks
     (the prepared-spec future feeds create -> execute directly, task -> task). Called
-    from the master, so it submits both tasks without nesting. Returns the execution
+    from the master, so it submits both tasks without nesting. ``qpu``/``qpu_dict``
+    route execution to a QPU (via ``build_execution_backend``). Returns the execution
     future ``(corr, original)``.
     """
     prepared = _create_sample_subcircuit(component)
-    return _execute_sample_subcircuit(prepared, software, shots)
+    return _execute_sample_subcircuit(prepared, software, shots, qpu, qpu_dict)
 
 
 def _gate_cut_sampling_components(dag, gates_cut):
@@ -1091,7 +1083,15 @@ def _reconstruct_gate_cut_distribution_task(
     return _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits)
 
 
-def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit", sync=True):
+def gate_cutting_sampling(
+    circuit,
+    gates_cut,
+    shots=1024,
+    software="qiskit",
+    sync=True,
+    qpu=False,
+    qpu_dict=None,
+):
     """Reconstruct the output **probability distribution** of a gate-cut circuit.
 
     Unlike :func:`gate_cutting` (which returns an expectation value), this samples
@@ -1107,6 +1107,10 @@ def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit", syn
     :param software: Execution backend, or the name of any registered backend.
     :param sync: Under PyCOMPSs, wait for the sampling tasks and return the
         distribution; set ``False`` to keep the futures unresolved (advanced).
+    :param qpu: Route each subcircuit's sampling to a QPU (via
+        ``build_execution_backend``) instead of a local simulator.
+    :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g.
+        ``{"MN_Ona": 4}``), as in :func:`gate_cutting`.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     dag = convert_to_dag(circuit)
@@ -1115,21 +1119,31 @@ def gate_cutting_sampling(circuit, gates_cut, shots=1024, software="qiskit", syn
     if not gates_cut:
         from Qdislib.core.backend.registry import build_execution_backend
 
-        backend = build_execution_backend(software, num_qubits=num_qubits)
+        backend = build_execution_backend(
+            software, num_qubits=num_qubits, qpu=bool(qpu), qpu_dict=qpu_dict
+        )
         counts = backend.evaluate_samples(dag, num_qubits, shots)
         total = sum(counts.values()) or 1
         return {k: v / total for k, v in counts.items()}
 
     components, number_components = _gate_cut_sampling_components(dag, gates_cut)
-    sampled = [_sample_gate_subcircuit(comp, software, shots) for comp in components]
+    sampled = [
+        _sample_gate_subcircuit(comp, software, shots, qpu, qpu_dict)
+        for comp in components
+    ]
     distribution = _reconstruct_gate_cut_distribution_task(
         sampled, len(gates_cut), num_qubits, number_components
     )
     return compss_wait_on(distribution) if sync else distribution
 
 
-#: One sampling subcircuit: a connected-component DAG plus the backend it samples on.
-_SampleUnit = namedtuple("_SampleUnit", ["component", "software"])
+#: One sampling subcircuit: a connected-component DAG, the backend it samples on,
+#: and the QPU routing (``qpu`` / ``qpu_dict``) that backend selection should use.
+_SampleUnit = namedtuple(
+    "_SampleUnit",
+    ["component", "software", "qpu", "qpu_dict"],
+    defaults=[False, None],
+)
 
 
 def sample_subcircuit(subcircuit, shots=1024):
@@ -1146,7 +1160,13 @@ def sample_subcircuit(subcircuit, shots=1024):
     :return: ``(corr, original)`` -- the component's ``<Z^b>`` correlators and its
         global qubit indices; feed the list of these to ``reconstruct``.
     """
-    return _sample_gate_subcircuit(subcircuit.component, subcircuit.software, shots)
+    return _sample_gate_subcircuit(
+        subcircuit.component,
+        subcircuit.software,
+        shots,
+        subcircuit.qpu,
+        subcircuit.qpu_dict,
+    )
 
 
 def gate_cutting_sampling_reconstruction(
@@ -1203,7 +1223,9 @@ class SampledCutSubcircuits(list):
         )
 
 
-def gate_cutting_sampling_subcircuits(circuit, gates_cut, software="qiskit"):
+def gate_cutting_sampling_subcircuits(
+    circuit, gates_cut, software="qiskit", qpu=False, qpu_dict=None
+):
     """Partition a circuit into **sampling** subcircuits (three-step workflow).
 
     The sampling counterpart of :func:`gate_cutting_subcircuits`: generate the
@@ -1225,6 +1247,9 @@ def gate_cutting_sampling_subcircuits(circuit, gates_cut, software="qiskit"):
     :param gates_cut: The gates to cut (as in :func:`gate_cutting_sampling`).
     :param software: Backend the subcircuits are sampled on (must match the backend
         used to sample them).
+    :param qpu: Route sampling to a QPU when each subcircuit is later sampled (each
+        :class:`_SampleUnit` carries this routing to :func:`sample_subcircuit`).
+    :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
     :return: A :class:`SampledCutSubcircuits` (a ``list`` of sampling subcircuits
         plus the cut metadata and a :meth:`~SampledCutSubcircuits.reconstruct`
         method).
@@ -1232,7 +1257,9 @@ def gate_cutting_sampling_subcircuits(circuit, gates_cut, software="qiskit"):
     dag = convert_to_dag(circuit)
     num_qubits = _dag_num_qubits(dag)
     components, number_components = _gate_cut_sampling_components(dag, gates_cut)
-    units = [_SampleUnit(component, software) for component in components]
+    units = [
+        _SampleUnit(component, software, qpu, qpu_dict) for component in components
+    ]
     return SampledCutSubcircuits(
         units,
         number_cuts=len(gates_cut),

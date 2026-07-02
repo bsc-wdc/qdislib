@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **QPU routing for sampling reconstruction.** `gate_cutting_sampling`,
+  `wire_cutting_sampling` and their three-step APIs now accept `qpu` / `qpu_dict`
+  (as `gate_cutting` already did), routing each subcircuit's sampling to a QPU. The
+  per-subcircuit sampling task resolves its executor through `build_execution_backend`
+  (the same seam as the expectation path) instead of an SDK `if`-ladder, via a new
+  `BaseBackend.evaluate_joint_counts` hook that captures the joint final/cut-point
+  measurements. The local backends (Aer/Qibo/CUDA-Q) implement it; `BSCQpuBackend`
+  samples through the shared-filesystem bridge (exact for terminal cuts -- real QPUs
+  report only aggregated final counts, so the cut-point is taken to equal the final
+  measurement). `_SampleUnit` carries the routing so it survives the three-step API.
+- **Tutorial 07** (image reconstruction) additions: a **geometric-transform** step
+  (`encode_image(..., transform=...)`) showing that a mirror reflection -- an `X` on
+  each address qubit, which stays inside a register and never crosses the cut -- is
+  reconstructed faithfully through the cut (scaling is *not* a clean gate: it is a
+  resampling, hence non-unitary or qubit-adding); a **"send the pieces to a real BSC
+  QPU"** cell (`qpu=True, qpu_dict={"MN_Ona": ...}`); and a rendered comparison of an
+  ideal reconstruction versus a noisy (hardware-like) one.
 - **Wire-cutting sampling** (`wire_cutting_sampling`, `wire_cutting_sampling_subcircuits`):
   reconstruct the output probability **distribution** of a *wire*-cut (space-like)
   circuit -- the counterpart of `gate_cutting_sampling`. One-pass fragment

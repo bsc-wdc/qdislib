@@ -371,7 +371,9 @@ def _reconstruct_wire_cut_distribution_task(
     )
 
 
-def wire_cutting_sampling(circuit, cut, shots=1024, software="qiskit", sync=True):
+def wire_cutting_sampling(
+    circuit, cut, shots=1024, software="qiskit", sync=True, qpu=False, qpu_dict=None
+):
     """Reconstruct the output **probability distribution** of a wire-cut circuit.
 
     The wire-cutting counterpart of
@@ -389,6 +391,9 @@ def wire_cutting_sampling(circuit, cut, shots=1024, software="qiskit", sync=True
     :param software: Execution backend, or the name of any registered backend.
     :param sync: Under PyCOMPSs, wait for the tasks and return the distribution; set
         ``False`` to keep the future unresolved (advanced).
+    :param qpu: Route each fragment's sampling to a QPU (via
+        ``build_execution_backend``) instead of a local simulator.
+    :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import (
@@ -403,7 +408,9 @@ def wire_cutting_sampling(circuit, cut, shots=1024, software="qiskit", sync=True
     if not wire_cuts:
         from Qdislib.core.backend.registry import build_execution_backend
 
-        backend = build_execution_backend(software, num_qubits=num_qubits)
+        backend = build_execution_backend(
+            software, num_qubits=num_qubits, qpu=bool(qpu), qpu_dict=qpu_dict
+        )
         counts = backend.evaluate_samples(dag, num_qubits, shots)
         total = sum(counts.values()) or 1
         return {k: v / total for k, v in counts.items()}
@@ -411,7 +418,10 @@ def wire_cutting_sampling(circuit, cut, shots=1024, software="qiskit", sync=True
     components, per_config_counts, cut_source_index, prepared_to_orig = (
         _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
     )
-    sampled = [_sample_gate_subcircuit(comp, software, shots) for comp in components]
+    sampled = [
+        _sample_gate_subcircuit(comp, software, shots, qpu, qpu_dict)
+        for comp in components
+    ]
     distribution = _reconstruct_wire_cut_distribution_task(
         sampled,
         len(wire_cuts),
@@ -473,7 +483,9 @@ class WireSampledCutSubcircuits(list):
         return compss_wait_on(distribution)
 
 
-def wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit"):
+def wire_cutting_sampling_subcircuits(
+    circuit, cut, software="qiskit", qpu=False, qpu_dict=None
+):
     """Partition a circuit into **wire-cut sampling** fragments (three-step workflow).
 
     The wire counterpart of
@@ -488,6 +500,8 @@ def wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit"):
     :param circuit: A Qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
     :param cut: The wire cut(s), as returned by :func:`~Qdislib.find_cut`.
     :param software: Backend the fragments are sampled on.
+    :param qpu: Route fragment sampling to a QPU when each fragment is later sampled.
+    :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
     :return: A :class:`WireSampledCutSubcircuits` (a ``list`` of fragments plus the
         cut metadata and a ``reconstruct`` method).
     """
@@ -502,7 +516,9 @@ def wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit"):
     components, per_config_counts, cut_source_index, prepared_to_orig = (
         _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
     )
-    units = [_SampleUnit(component, software) for component in components]
+    units = [
+        _SampleUnit(component, software, qpu, qpu_dict) for component in components
+    ]
     return WireSampledCutSubcircuits(
         units,
         number_cuts=len(wire_cuts),
