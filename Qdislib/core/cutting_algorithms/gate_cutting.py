@@ -95,6 +95,7 @@ from Qdislib.utils.backends import (
     change_basis_dag,
     normalize_observables,
     make_subcircuit,
+    _make_subcircuit_task,
     CutSubcircuits,
 )
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
@@ -917,24 +918,41 @@ def _z_correlators(joint, prep_sorted, k):
 
 
 @task(returns=1)
-def _sample_gate_subcircuit(component, software, shots):
-    """Sample one connected-component subcircuit and return its Z-correlators.
+def _create_sample_subcircuit(component):
+    """Prepare one gate-cut sampling subcircuit for execution (COMPSs task).
 
-    A PyCOMPSs task (parallel under PyCOMPSs). Only the picklable component DAG
-    crosses the task boundary; the native circuit is built and sampled inside the
-    worker, capturing both the final measurement and the mid-circuit cut-point
-    measurements. Returns ``(corr, original)`` where ``corr`` maps each Z-string
-    mask to its ``<Z^b>`` correlator (compact -- ``2**|component|`` floats) and
-    ``original`` lists the component's global qubit indices; the reconstruction
-    combines these into the output distribution. Returning correlators rather than
-    raw counts is what makes the reconstruction correct for cut qubits that keep
-    evolving after the cut (the cut-point sign is baked in here).
+    The *creation* half of sampling a subcircuit, split from execution so the two
+    are independently schedulable/routable. Renumbers the component to a standalone
+    ``0..n`` subcircuit DAG and resolves its measure-and-prepare (cut-point) qubits.
+    Returns a serializable spec ``(dag, num_qubits, prep_sorted, original)`` (``dag``
+    is ``None`` for an empty component); the native circuit is built and sampled
+    later, in :func:`_execute_sample_subcircuit` -- a Qibo collapse circuit / CUDA-Q
+    kernel cannot cross a task boundary, so it never leaves the execution task.
     """
     original = _component_original_qubits(component)
     s_new, highest_qubit = _update_qubits(component)
     if s_new is None:  # empty component (a qubit touched only by a removed cut node)
-        return ({0: 1.0}, [])
+        return (None, 0, [], original)
     prep_sorted = sorted(_measured_cut_qubits(s_new))
+    return (s_new, highest_qubit, prep_sorted, original)
+
+
+@task(returns=1)
+def _execute_sample_subcircuit(prepared, software, shots):
+    """Build + sample a prepared gate-cut subcircuit; return its Z-correlators.
+
+    The *execution* half (COMPSs task) -- this is where the native circuit is built
+    and sampled, so it is the task to route (e.g. with ``@constraint`` or a QPU
+    backend) to control where subcircuits actually run. Captures the final and
+    mid-circuit cut-point measurements. Returns ``(corr, original)``: ``corr`` maps
+    each Z-string mask to its ``<Z^b>`` correlator (``2**|component|`` floats) and
+    ``original`` lists the component's global qubit indices. Returning correlators
+    (not raw counts) is what keeps the reconstruction correct for cut qubits that
+    keep evolving after the cut (the cut-point sign is baked in here).
+    """
+    s_new, highest_qubit, prep_sorted, original = prepared
+    if s_new is None:  # empty component
+        return ({0: 1.0}, [])
     sdk = _resolve_sdk(software)
     if sdk == "qibo":
         joint = _joint_counts_qibo(s_new, highest_qubit, prep_sorted, shots)
@@ -944,6 +962,20 @@ def _sample_gate_subcircuit(component, software, shots):
         joint = _joint_counts_qiskit(s_new, highest_qubit, prep_sorted, shots)
     corr = _z_correlators(joint, prep_sorted, highest_qubit)
     return (corr, original)
+
+
+def _sample_gate_subcircuit(component, software, shots):
+    """Sample one connected-component subcircuit into its Z-correlators.
+
+    Orchestrates two COMPSs tasks -- :func:`_create_sample_subcircuit` (prepare the
+    subcircuit) then :func:`_execute_sample_subcircuit` (build + sample it) -- so
+    subcircuit creation and execution are separate, independently routable tasks
+    (the prepared-spec future feeds create -> execute directly, task -> task). Called
+    from the master, so it submits both tasks without nesting. Returns the execution
+    future ``(corr, original)``.
+    """
+    prepared = _create_sample_subcircuit(component)
+    return _execute_sample_subcircuit(prepared, software, shots)
 
 
 def _gate_cut_sampling_components(dag, gates_cut):
@@ -1202,8 +1234,24 @@ def gate_cutting_sampling_subcircuits(circuit, gates_cut, software="qiskit"):
 
 
 @task(returns=1)
-def _build_and_run_gate_subcircuit(
-    component,
+def _create_gate_subcircuit(component):
+    """Prepare one gate-cut subcircuit for execution (COMPSs task).
+
+    The *creation* half, split from execution so the two are independently
+    schedulable/routable. Renumbers the component to a standalone ``0..n``
+    subcircuit DAG and resolves its measure-and-prepare (prep) qubits. Returns a
+    serializable spec ``(dag, num_qubits, prep_qubits)``; the native circuit is
+    built later, in :func:`_execute_gate_subcircuit` (a Qibo collapse circuit /
+    CUDA-Q kernel cannot cross a task boundary).
+    """
+    s_new, highest_qubit = _update_qubits(component)
+    prep_qubits = sorted(_measured_cut_qubits(s_new))
+    return (s_new, highest_qubit, prep_qubits)
+
+
+@task(returns=1)
+def _execute_gate_subcircuit(
+    prepared,
     max_qubit,
     software,
     shots,
@@ -1215,24 +1263,15 @@ def _build_and_run_gate_subcircuit(
     batch,
     backend,
 ):
-    """Build one gate-cut subcircuit and return its expectation value.
+    """Build + run a prepared gate-cut subcircuit; return its expectation value.
 
-    A single task so that, under PyCOMPSs, the native circuit is built **and**
-    executed in one worker process (only the picklable component DAG crosses the
-    task boundary, never the fragile Qibo collapse-symbol circuit / CUDA-Q
-    kernel); the inner ``dag_to_circuit_*`` / ``_expec_value_*`` calls run inline.
-
-    Routes to a QPU or GPU when one is configured and large enough for the
-    subcircuit; otherwise builds and runs on the chosen ``software`` backend
-    (Qiskit Aer / Qibo / CUDA-Q).
-
-    :param component: A connected-component DAG of the cut circuit.
-    :param max_qubit: Qubit count of the component (for device-size checks).
-    :param software: CPU-simulation backend ("qiskit", "qibo" or "cudaq").
-    :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
+    The *execution* half (COMPSs task) -- this is where the native circuit is built
+    and run, so it is the task to route (e.g. ``@constraint`` or a QPU backend) to
+    control where subcircuits execute. ``build_execution_backend`` selects the QPU /
+    GPU / software backend (Qiskit Aer / Qibo / CUDA-Q) and evaluates the subcircuit;
+    the native circuit never leaves this task.
     """
-    s_new, highest_qubit = _update_qubits(component)
-    prep_qubits = _measured_cut_qubits(s_new)
+    s_new, highest_qubit, prep_qubits = prepared
 
     # No per-backend or per-device branching here: build_execution_backend selects
     # the QPU / GPU / software backend, and it evaluates the subcircuit.
@@ -1251,6 +1290,44 @@ def _build_and_run_gate_subcircuit(
     )
     return exec_backend.evaluate_expectation(
         s_new, highest_qubit, prep_qubits, shots, method
+    )
+
+
+def _build_and_run_gate_subcircuit(
+    component,
+    max_qubit,
+    software,
+    shots,
+    method,
+    gpu,
+    gpu_min_qubits,
+    qpu,
+    qpu_dict,
+    batch,
+    backend,
+):
+    """Prepare then execute one gate-cut subcircuit as two COMPSs tasks.
+
+    Orchestrates :func:`_create_gate_subcircuit` (prepare) then
+    :func:`_execute_gate_subcircuit` (build + run), so subcircuit creation and
+    execution are separate, independently routable tasks (the prepared-spec future
+    feeds create -> execute directly, task -> task). Called from the master, so it
+    submits both tasks without nesting. Returns the execution future (the
+    subcircuit's expectation value).
+    """
+    prepared = _create_gate_subcircuit(component)
+    return _execute_gate_subcircuit(
+        prepared,
+        max_qubit,
+        software,
+        shots,
+        method,
+        gpu,
+        gpu_min_qubits,
+        qpu,
+        qpu_dict,
+        batch,
+        backend,
     )
 
 
@@ -1757,39 +1834,26 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     new_dag = _generate_cut(dag, gates_cut)
     _assert_identity_observable_supported(new_dag)
 
-    # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
-    dispatch_map = {
-        "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
-        "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
-        "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
-    }
+    if software not in ("qibo", "qiskit", "cudaq"):
+        raise UnsupportedBackendError(
+            f"Unsupported software backend: '{software}'. "
+            "Expected one of ['qibo', 'qiskit', 'cudaq']."
+        )
 
+    # Each subcircuit is *created* in its own task (_make_subcircuit_task), separate
+    # from the per-subcircuit evaluation task -- so under PyCOMPSs these are
+    # Subcircuit futures fed straight into expectation_value's eval task (task -> task).
     subcircuits = []
     for index in range(6 ** len(gates_cut)):
-
-        copy_graph = new_dag.copy()
-        copy_graph = _remove_red_edges(copy_graph)
-
+        copy_graph = _remove_red_edges(new_dag.copy())
         num_components = nx.number_connected_components(copy_graph.to_undirected())
-
-        graph_components = []
-        for i in range(num_components):
-            graph_components.append(nx.DiGraph().copy())
+        graph_components = [nx.DiGraph() for _ in range(num_components)]
 
         # Populates graph_components in place (one DiGraph per component).
         _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
 
-        for i, s in enumerate(graph_components):
-            s_new, highest_qubit = _update_qubits(s)
-
-            try:
-                subcirc = dispatch_map[software](s_new, highest_qubit)
-            except KeyError:
-                raise UnsupportedBackendError(
-                    f"Unsupported software backend: '{software}'. "
-                    f"Expected one of {list(dispatch_map.keys())}."
-                )
-            subcircuits.append(subcirc)
+        for s in graph_components:
+            subcircuits.append(_make_subcircuit_task(s, software))
     return subcircuits
 
 

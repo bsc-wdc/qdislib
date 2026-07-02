@@ -71,6 +71,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CircuitCache.stats()`: hit/miss counts, hit rate and size for a cache.
 
 ### Changed
+- **Subcircuit creation and execution are now separate PyCOMPSs tasks.** Each
+  per-subcircuit fan-out (`_build_and_run_gate_subcircuit`,
+  `_build_and_run_subcircuit`, `_sample_gate_subcircuit`) is split into a *create*
+  task (prepare the subcircuit at DAG level -> serializable spec) feeding a
+  *execute* task (build the native circuit + run/sample it), task -> task. This
+  gives finer scheduling granularity -- the execution task is the one to route
+  (e.g. with `@constraint` or a QPU backend) to control **where** subcircuits run.
+  The native circuit (Qibo collapse circuit / CUDA-Q kernel) is still built and run
+  inside a single task, so it never has to cross a task boundary. The three-step
+  workflow (`gate_cutting_subcircuits` / `wire_cutting_subcircuits`) likewise now
+  creates each subcircuit in its own `_make_subcircuit_task` feeding
+  `_evaluate_subcircuit`; under PyCOMPSs those functions therefore return
+  `Subcircuit` *futures* (`compss_wait_on` one to inspect it before evaluating).
 - **Gate and wire cutting now delegate subcircuit execution to the backend
   layer** instead of branching on `software` internally. The per-backend
   `if software == "qibo"/"qiskit"/"cudaq"` dispatch is replaced by

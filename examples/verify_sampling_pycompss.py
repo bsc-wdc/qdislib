@@ -19,14 +19,17 @@
 
 """Verify ``gate_cutting_sampling`` under distributed (PyCOMPSs) execution.
 
-The sampling reconstruction fans a task out per subcircuit
-(``_sample_gate_subcircuit``) and gathers with ``compss_wait_on``. This app
-runs it and checks the reconstructed distribution against the *exact*
-statevector distribution, so the same script doubles as a correctness smoke
-test of the parallel path: task-boundary serialisation of the component DAGs,
-order-independent (positional) reconstruction, and -- crucially -- that no
-subcircuit helper is itself a ``@task`` (PyCOMPSs has no nested tasks, so a
-``@task`` calling a ``@task`` would return an unresolved future on the worker).
+The sampling path fans out two tasks per subcircuit -- ``_create_sample_subcircuit``
+(prepare) then ``_execute_sample_subcircuit`` (build + sample) -- and the
+distribution is combined in ``_reconstruct_gate_cut_distribution_task`` (fed the
+sample futures directly). This app runs both the all-in-one ``gate_cutting_sampling``
+and the three-step ``gate_cutting_sampling_subcircuits`` workflow and checks each
+reconstructed distribution against the *exact* statevector distribution, so the same
+script doubles as a correctness smoke test of the parallel path: task-boundary
+serialisation of the component DAGs, order-independent (positional) reconstruction,
+and -- crucially -- that no subcircuit helper is itself a ``@task`` nested inside
+another (PyCOMPSs has no nested tasks, so a ``@task`` calling a ``@task`` would
+return an unresolved future on the worker).
 
 Run serially (no PyCOMPSs; the runtime shim runs every task inline)::
 
