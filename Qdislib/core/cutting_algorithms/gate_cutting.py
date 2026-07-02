@@ -101,6 +101,18 @@ from Qdislib.utils.backends import (
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
 
 
+@task(returns=1, values=COLLECTION_IN)
+def _weighted_sum(coeffs, values):
+    """Reduce a Hamiltonian's terms ``<sum_i c_i P_i> = sum_i c_i <P_i>`` (COMPSs task).
+
+    Fed the per-term expectation futures directly via ``COLLECTION_IN`` (task ->
+    task), so every ``(term x cut-configuration)`` subcircuit schedules together
+    under PyCOMPSs and this reduction fires only once they finish -- no master-side
+    barrier between Hamiltonian terms.
+    """
+    return float(sum(c * v for c, v in zip(coeffs, values)))
+
+
 def gate_cutting(
     dag: typing.Any,
     gates_cut: typing.List[typing.Any],
@@ -230,16 +242,20 @@ def gate_cutting(
     # term: <sum_i c_i P_i> = sum_i c_i <P_i>. Each term reuses the single
     # Pauli-string path below. A plain string (or None) skips this and runs once.
     if observables is not None and not isinstance(observables, str):
-        total = 0.0
-        for coeff, pauli in normalize_observables(observables):
-            base = dag.copy() if isinstance(dag, nx.Graph) else dag
-            total += coeff * gate_cutting(
-                base,
+        # <sum_i c_i P_i> = sum_i c_i <P_i>. Submit every term's cut WITHOUT waiting
+        # (sync=False) so all (term x cut-configuration) subcircuits schedule
+        # together under PyCOMPSs, then reduce with one task fed by the term futures
+        # (task -> task, no master barrier between terms).
+        terms = list(normalize_observables(observables))
+        coeffs = [coeff for coeff, _ in terms]
+        values = [
+            gate_cutting(
+                dag.copy() if isinstance(dag, nx.Graph) else dag,
                 gates_cut,
                 observables=pauli,
                 shots=shots,
                 method=method,
-                sync=sync,
+                sync=False,
                 gpu=gpu,
                 gpu_min_qubits=gpu_min_qubits,
                 qpu=qpu,
@@ -248,7 +264,10 @@ def gate_cutting(
                 cache=cache,
                 cache_mode=cache_mode,
             )
-        return total
+            for _, pauli in terms
+        ]
+        total = _weighted_sum(coeffs, values)
+        return compss_wait_on(total) if sync else total
 
     # Semantic cache: reuse the recommended subcircuit workflow, which routes
     # each subcircuit through expectation_value(cache=...). This runs the CPU
@@ -1874,7 +1893,11 @@ def gate_cutting_subcircuits(
 
 def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     new_dag = _generate_cut(dag, gates_cut)
-    _assert_identity_observable_supported(new_dag)
+    # The CPU backends recover the cut-point sign in their evaluator (prep qubits
+    # auto-detected from the subcircuit's mid-circuit measurements), so the 3-step
+    # workflow handles an identity observable on a non-terminal cut qubit too --
+    # pass ``software`` so the guard only fires for the paths that genuinely can't.
+    _assert_identity_observable_supported(new_dag, software=software)
 
     if software not in ("qibo", "qiskit", "cudaq"):
         raise UnsupportedBackendError(
