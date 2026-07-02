@@ -68,6 +68,7 @@ from Qdislib.utils.backends import (
     change_basis_dag,
     normalize_observables,
     make_subcircuit,
+    _make_subcircuit_task,
     CutSubcircuits,
 )
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
@@ -259,30 +260,32 @@ def _expand_wire_cuts(dag, edges_to_replace):
 
 
 @task(returns=1)
-def _build_and_run_subcircuit(component, software, shots, backend, qpu):
-    """Build one subcircuit in the chosen backend and return its expectation value.
+def _create_subcircuit(component):
+    """Prepare one wire-cut subcircuit for execution (COMPSs task).
 
-    Made a single task so that, under PyCOMPSs, the native circuit is built **and**
-    executed in one worker process: the picklable component DAG crosses the task
-    boundary, never the fragile native circuit (Qibo collapse symbol / CUDA-Q
-    kernel). The inner ``dag_to_circuit_*`` / ``_expec_value_*`` calls run inline.
-
-    Backend-agnostic execution dispatch: the subcircuit is built with the
-    matching ``dag_to_circuit_*`` and evaluated with the matching
-    ``_expec_value_*``. A QPU target ("MN_Ona") overrides the software choice.
-
-    :param component: A connected-component DAG of the (already cut) circuit.
-    :param software: Execution backend: "qibo", "qiskit" or "cudaq".
-    :param shots: Number of measurement shots.
-    :param backend: Qibo simulation backend (only used when ``software == "qibo"``).
-    :param qpu: Optional QPU target (e.g. "MN_Ona").
-    :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
+    The *creation* half, split from execution so the two are independently
+    schedulable/routable. Renumbers the component to a standalone ``0..n``
+    subcircuit DAG. Returns a serializable spec ``(dag, num_qubits)``; the native
+    circuit is built later, in :func:`_execute_subcircuit` (a Qibo collapse circuit
+    / CUDA-Q kernel cannot cross a task boundary).
     """
     s_new, highest_qubit = _update_qubits(component)
+    return (s_new, highest_qubit)
 
-    # Backend-agnostic execution: the selected backend evaluates the subcircuit.
-    # Wire cutting has no measure-and-prepare sign, so there are no prep_qubits;
-    # ``backend`` is the Qibo platform when software == "qibo".
+
+@task(returns=1)
+def _execute_subcircuit(prepared, software, shots, backend, qpu):
+    """Build + run a prepared wire-cut subcircuit; return its expectation value.
+
+    The *execution* half (COMPSs task) -- this is where the native circuit is built
+    and run, so it is the task to route (e.g. ``@constraint`` or a QPU backend) to
+    control where subcircuits execute. Backend-agnostic dispatch; a QPU target
+    ("MN_Ona") overrides the software choice. Wire cutting has no measure-and-prepare
+    sign, so there are no prep_qubits; ``backend`` is the Qibo platform when
+    ``software == "qibo"``. The native circuit never leaves this task.
+    """
+    s_new, highest_qubit = prepared
+
     from Qdislib.core.backend.registry import build_execution_backend, build_backend
     from Qdislib.core.backend.base_backend import BackendConfig
 
@@ -295,6 +298,19 @@ def _build_and_run_subcircuit(component, software, shots, backend, qpu):
     extra = {"platform": backend} if software == "qibo" and backend else {}
     exec_backend = build_execution_backend(software, num_qubits=highest_qubit, **extra)
     return exec_backend.evaluate_expectation(s_new, highest_qubit, (), shots)
+
+
+def _build_and_run_subcircuit(component, software, shots, backend, qpu):
+    """Prepare then execute one wire-cut subcircuit as two COMPSs tasks.
+
+    Orchestrates :func:`_create_subcircuit` (prepare) then :func:`_execute_subcircuit`
+    (build + run), so subcircuit creation and execution are separate, independently
+    routable tasks (the prepared-spec future feeds create -> execute directly,
+    task -> task). Called from the master, so it submits both without nesting.
+    Returns the execution future (the subcircuit's expectation value).
+    """
+    prepared = _create_subcircuit(component)
+    return _execute_subcircuit(prepared, software, shots, backend, qpu)
 
 
 def _generate_wire_cutting(
@@ -1073,13 +1089,15 @@ def _generate_wire_cutting_subcircuits(
         dag.add_edge(source, f"O_{index}", color="blue")
         dag.add_edge(f"PS_{index}", target, color="blue")
 
-    # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
-    dispatch_map = {
-        "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
-        "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
-        "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
-    }
+    if software not in ("qibo", "qiskit", "cudaq"):
+        raise UnsupportedBackendError(
+            f"Unsupported software backend: '{software}'. "
+            "Expected one of ['qibo', 'qiskit', 'cudaq']."
+        )
 
+    # Each subcircuit is *created* in its own task (_make_subcircuit_task), separate
+    # from the per-subcircuit evaluation task -- so under PyCOMPSs these are
+    # Subcircuit futures fed straight into expectation_value's eval task (task -> task).
     subcircuits = []
     for index in range(8 ** len(wire_cuts)):
         copy_graph = _remove_red_edges(dag.copy())
@@ -1087,7 +1105,7 @@ def _generate_wire_cutting_subcircuits(
         num_components = networkx.number_connected_components(
             copy_graph.to_undirected()
         )
-        graph_components = [networkx.DiGraph().copy() for _ in range(num_components)]
+        graph_components = [networkx.DiGraph() for _ in range(num_components)]
 
         _generate_subcircuits_wire_cutting(
             copy_graph,
@@ -1098,15 +1116,7 @@ def _generate_wire_cutting_subcircuits(
         )
 
         for s in graph_components:
-            s_new, highest_qubit = _update_qubits(s)
-            try:
-                subcirc = dispatch_map[software](s_new, highest_qubit)
-            except KeyError:
-                raise UnsupportedBackendError(
-                    f"Unsupported software backend: '{software}'. "
-                    f"Expected one of {list(dispatch_map.keys())}."
-                )
-            subcircuits.append(subcirc)
+            subcircuits.append(_make_subcircuit_task(s, software))
     return subcircuits
 
 

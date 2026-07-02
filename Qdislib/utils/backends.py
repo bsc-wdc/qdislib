@@ -337,6 +337,27 @@ def make_subcircuit(dag, num_qubits, software):
     return _materialize(dag, num_qubits, software)
 
 
+@task(returns=1)
+def _make_subcircuit_task(component, software):
+    """Prepare one subcircuit as a COMPSs task -- the three-step *creation* step,
+    a separate task from the per-subcircuit evaluation so creation and execution
+    are distinct, independently schedulable tasks (create -> evaluate, task -> task).
+
+    Renumbers the raw component to a standalone ``0..n`` subcircuit and returns the
+    object handed to :func:`expectation_value`: a serializable :class:`Subcircuit`
+    under PyCOMPSs (so ``*_subcircuits`` returns futures -- ``compss_wait_on`` one to
+    inspect it), a native circuit in serial. It runs on a worker with concrete
+    values, so it wraps directly, without the master-side ``compss_wait_on`` that
+    :func:`make_subcircuit` uses when its inputs are futures.
+    """
+    from Qdislib.utils.graph_qibo import _update_qubits
+
+    s_new, highest_qubit = _update_qubits(component)
+    if pycompss_available:
+        return Subcircuit(s_new, highest_qubit, software)
+    return _materialize(s_new, highest_qubit, software)
+
+
 def _run_native(circuit, software, shots):
     """Evaluate an already-built native subcircuit with the matching evaluator."""
     from Qdislib.core.cutting_algorithms.wire_cutting import (
@@ -600,6 +621,16 @@ def expectation_value(subcircuit, shots=1024, cache=None, cache_mode="expectatio
         cache = default_circuit_cache()
 
     if isinstance(subcircuit, Subcircuit):
+        return _evaluate_subcircuit(subcircuit, shots, cache, cache_mode)
+
+    # Under PyCOMPSs the ``*_subcircuits`` items are *futures* of Subcircuits
+    # (creation is a task) -- a future can't be isinstance-checked on the master.
+    # Native circuits only occur in serial, so under COMPSs anything that is not a
+    # concrete native circuit is such a future: hand it to the eval task, which
+    # resolves it (create -> evaluate, task -> task).
+    if pycompss_available and not isinstance(
+        subcircuit, (QiboCircuit, QuantumCircuit, list, tuple)
+    ):
         return _evaluate_subcircuit(subcircuit, shots, cache, cache_mode)
 
     if cache is not None:
