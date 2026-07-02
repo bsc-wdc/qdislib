@@ -92,3 +92,9 @@ documentation-builder/
 venv/
 env/
 ENV/
+
+# COMPSs run artifacts (task-dependency graphs from `runcompss -g`)
+compss_graphs/
+
+# macOS
+.DS_Store
