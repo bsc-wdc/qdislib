@@ -163,3 +163,48 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
         # mid-circuit measurements); cudaq.sample does not, which silently biased
         # this case before the decorator/run refactor.
         self._check_entangled("cudaq")
+
+    def _check_wire(self, software, shots=1024):
+        """wire_cutting_sampling reconstructs the output distribution (Perlin et al.
+        P(x) = 2^-N * sum_A (-1)^(A.x) <Z^A>) for a wire (space-like) cut."""
+        import Qdislib as qd
+
+        cut = qd.find_cut(_circuit(), gate_cut=False, wire_cut=True)
+        dist = qd.wire_cutting_sampling(_circuit(), cut, shots=shots, software=software)
+        self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
+        self.assertLess(_tvd(_exact_distribution(), dist), _TOL, f"wire {software} {cut}")
+
+    def test_qibo_wire(self):
+        self._check_wire("qibo")
+
+    @unittest.skipUnless(AER_AVAILABLE, "qiskit_aer required")
+    def test_qiskit_wire(self):
+        self._check_wire("qiskit")
+
+    @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq required")
+    def test_cudaq_wire(self):
+        self._check_wire("cudaq")
+
+    def _check_wire_three_step(self, software, shots=1024):
+        """The wire three-step API (generate -> sample -> reconstruct) must
+        reconstruct the same distribution as the all-in-one wire_cutting_sampling."""
+        import Qdislib as qd
+
+        cut = qd.find_cut(_circuit(), gate_cut=False, wire_cut=True)
+        subs = qd.wire_cutting_sampling_subcircuits(_circuit(), cut, software=software)
+        dist = subs.reconstruct([qd.sample_subcircuit(s, shots=shots) for s in subs])
+        self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
+        self.assertLess(
+            _tvd(_exact_distribution(), dist), _TOL, f"wire 3-step {software} {cut}"
+        )
+
+    def test_qibo_wire_three_step(self):
+        self._check_wire_three_step("qibo")
+
+    @unittest.skipUnless(AER_AVAILABLE, "qiskit_aer required")
+    def test_qiskit_wire_three_step(self):
+        self._check_wire_three_step("qiskit")
+
+    @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq required")
+    def test_cudaq_wire_three_step(self):
+        self._check_wire_three_step("cudaq")

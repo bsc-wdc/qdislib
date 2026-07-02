@@ -45,10 +45,13 @@ grep -q "RESULT: PASS" "${APP_LOG}" || {
 }
 
 echo "==> [2/3] Sampling reconstruction under runcompss (qiskit, cudaq)"
-# Exercises the gate_cutting_sampling fan-out (_sample_gate_subcircuit @task) and
-# checks the reconstruction against the exact distribution -- the distributed
-# counterpart of tests/test_gate_cutting_sampling.py.
-QDISLIB_SOFTWARE="qiskit,cudaq" QDISLIB_SHOTS=8192 runcompss -g \
+# Exercises gate_cutting_sampling (all-in-one + 3-step) and wire_cutting_sampling
+# against the exact distribution -- the distributed counterpart of
+# tests/test_gate_cutting_sampling.py. TVD tol 0.12 matches the unit tests (the
+# wire baseline combines 2**N Z-string estimates, so it is noise-heavier).
+QDISLIB_SOFTWARE="${QDISLIB_SOFTWARE:-qiskit,cudaq}" \
+QDISLIB_SHOTS="${QDISLIB_SHOTS:-4096}" \
+QDISLIB_TVD_TOL="${QDISLIB_TVD_TOL:-0.12}" runcompss -g \
     --pythonpath="${REPO_ROOT}" \
     --python_interpreter=python3 \
     "${REPO_ROOT}/examples/verify_sampling_pycompss.py" 2>&1 | tee "${SAMPLE_LOG}"

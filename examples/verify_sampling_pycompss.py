@@ -114,9 +114,10 @@ def total_variation(exact, recon):
 def main():
     qc = build_circuit()
     gates_cut = qd.find_cut(qc, gate_cut=True, wire_cut=False)
+    wire_cut = qd.find_cut(qc, gate_cut=False, wire_cut=True)
     exact = exact_distribution(qc)
 
-    print(f"Circuit: {qc.num_qubits} qubits, gate cut = {gates_cut}")
+    print(f"Circuit: {qc.num_qubits} qubits, gate cut = {gates_cut}, wire cut = {wire_cut}")
     print(f"Backends: {SOFTWARES} | shots/subcircuit: {SHOTS} | TVD tol: {TVD_TOL}")
     print(f"Exact distribution has {len(exact)} non-zero bitstrings.\n")
 
@@ -136,7 +137,7 @@ def main():
             continue
         tvd_all = total_variation(exact, recon)
 
-        # (b) Three-step workflow: generate -> sample each -> reconstruct.
+        # (b) Gate-cut three-step workflow: generate -> sample each -> reconstruct.
         try:
             subs = qd.gate_cutting_sampling_subcircuits(
                 qc, gates_cut, software=software
@@ -145,15 +146,28 @@ def main():
             recon3 = subs.reconstruct(sampled)
             tvd_3step = total_variation(exact, recon3)
         except Exception as exc:  # noqa: BLE001
-            print(f"  {software:7s}  3-step FAIL (raised: {exc})")
+            print(f"  {software:7s}  gate 3-step FAIL (raised: {exc})")
             all_ok = False
             continue
 
-        ok = tvd_all < TVD_TOL and tvd_3step < TVD_TOL
+        # (c) Wire-cut sampling: all-in-one + three-step (one-pass fragment tomography).
+        try:
+            recon_w = qd.wire_cutting_sampling(qc, wire_cut, shots=SHOTS, software=software)
+            tvd_wire = total_variation(exact, recon_w)
+            wsubs = qd.wire_cutting_sampling_subcircuits(qc, wire_cut, software=software)
+            wsampled = [qd.sample_subcircuit(s, shots=SHOTS) for s in wsubs]
+            tvd_wire3 = total_variation(exact, wsubs.reconstruct(wsampled))
+        except Exception as exc:  # noqa: BLE001
+            print(f"  {software:7s}  wire FAIL (raised: {exc})")
+            all_ok = False
+            continue
+
+        ok = all(t < TVD_TOL for t in (tvd_all, tvd_3step, tvd_wire, tvd_wire3))
         all_ok = all_ok and ok
         print(
-            f"  {software:7s}  all-in-one TVD {tvd_all:.4f} | "
-            f"3-step TVD {tvd_3step:.4f}  ->  {'PASS' if ok else 'FAIL'}"
+            f"  {software:7s}  gate {tvd_all:.4f}/{tvd_3step:.4f} | "
+            f"wire {tvd_wire:.4f}/{tvd_wire3:.4f}  (all-in-one/3-step)  ->  "
+            f"{'PASS' if ok else 'FAIL'}"
         )
 
     print("\nRESULT:", "PASS" if all_ok else "FAIL")
