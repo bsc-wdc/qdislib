@@ -95,15 +95,20 @@ def build_execution_backend(
     fit = max_qubit if max_qubit is not None else size
 
     if qpu and "MN_Ona" in qpu_dict and qpu_dict["MN_Ona"] >= fit:
-        return build_backend("BSC_QPU_BACKEND", BackendConfig(num_qubits=size, extra=extra))
+        return build_backend(
+            "BSC_QPU_BACKEND", BackendConfig(num_qubits=size, extra=extra)
+        )
     if qpu and "IBM_Quantum" in qpu_dict and qpu_dict["IBM_Quantum"] >= fit:
         return build_backend(
             "IBM_BACKEND",
-            BackendConfig(num_qubits=size, extra={**extra, "batch": batch, "backend": ibm_backend}),
+            BackendConfig(
+                num_qubits=size, extra={**extra, "batch": batch, "backend": ibm_backend}
+            ),
         )
     if gpu and gpu_min_qubits is not None and gpu_min_qubits <= fit <= 30:
         return build_backend(
-            "AER_BACKEND", BackendConfig(num_qubits=size, extra={**extra, "use_gpu": True})
+            "AER_BACKEND",
+            BackendConfig(num_qubits=size, extra={**extra, "use_gpu": True}),
         )
     name = _SOFTWARE_ALIAS.get(software, software or DEFAULT_BACKEND_NAME)
     return build_backend(name, BackendConfig(num_qubits=size, extra=extra))

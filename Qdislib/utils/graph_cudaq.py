@@ -181,7 +181,10 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
                 continue
             last = None
             for node, data in dag.nodes(data=True):
-                if idx in (data.get("qubits") or ()) and data.get("gate") != "Observable I":
+                if (
+                    idx in (data.get("qubits") or ())
+                    and data.get("gate") != "Observable I"
+                ):
                     last = node
             if last is not None:
                 obs_node = f"OBSI_{idx}"

@@ -449,8 +449,12 @@ def _generate_cut(dag, gates_cut):
             # pred_1 -> H -> SUBS2 -> H -> succ_1 (Hadamard conjugation on target)
             h_pre = f"CXHPRE_{index}"
             h_post = f"CXHPOST_{index}"
-            dag_copy.add_node(h_pre, gate="h", qubits=(target_qubits[1],), parameters=())
-            dag_copy.add_node(h_post, gate="h", qubits=(target_qubits[1],), parameters=())
+            dag_copy.add_node(
+                h_pre, gate="h", qubits=(target_qubits[1],), parameters=()
+            )
+            dag_copy.add_node(
+                h_post, gate="h", qubits=(target_qubits[1],), parameters=()
+            )
             if pred_1:
                 dag_copy.add_edge(pred_1[0], h_pre, color="blue")
             dag_copy.add_edge(h_pre, f"SUBS2_{index}", color="blue")
@@ -796,8 +800,11 @@ def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots):
     qc.add(qgates.M(*range(qc.nqubits)))
     final = np.asarray(qc(nshots=shots).samples())  # (shots, nqubits), qubit-0-first
     cut = {
-        q: (np.asarray(collapse[q].result.samples()).ravel()
-            if q in collapse else np.zeros(len(final), dtype=int))
+        q: (
+            np.asarray(collapse[q].result.samples()).ravel()
+            if q in collapse
+            else np.zeros(len(final), dtype=int)
+        )
         for q in prep_sorted
     }
     joint = {}
@@ -830,7 +837,11 @@ def _joint_counts_qiskit(dag, num_qubits, prep_sorted, shots):
         cut_measure = regs[1] if len(regs) > 1 else ""
         ft = tuple(int(measure_all[num_qubits - 1 - q]) for q in range(num_qubits))
         ct = tuple(
-            int(cut_measure[num_qubits - 1 - q]) if len(cut_measure) == num_qubits else 0
+            (
+                int(cut_measure[num_qubits - 1 - q])
+                if len(cut_measure) == num_qubits
+                else 0
+            )
             for q in prep_sorted
         )
         joint[(ft, ct)] = joint.get((ft, ct), 0) + cnt
@@ -897,7 +908,7 @@ def _z_correlators(joint, prep_sorted, k):
         return {0: 1.0}
     total = sum(joint.values()) or 1
     prep_index = {q: i for i, q in enumerate(prep_sorted)}
-    corr = {mask: 0.0 for mask in range(2 ** k)}
+    corr = {mask: 0.0 for mask in range(2**k)}
     for (final, cut), cnt in joint.items():
         weight = cnt / total
         z_sign = [(-1.0) ** final[q] for q in range(k)]  # local qubit in the Z-string
@@ -909,7 +920,7 @@ def _z_correlators(joint, prep_sorted, k):
             decomposition = -((-1.0) ** cut[prep_index[q]])
             i_sign[q] = decomposition
             z_sign[q] = decomposition * ((-1.0) ** final[q])
-        for mask in range(2 ** k):
+        for mask in range(2**k):
             value = 1.0
             for q in range(k):
                 value *= z_sign[q] if (mask >> q) & 1 else i_sign[q]
@@ -1032,7 +1043,7 @@ def _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits):
     distribution. Validated against the exact statevector distribution (TVD ~ shot
     noise) for terminal *and* non-terminal cuts.
     """
-    dim = 2 ** num_qubits
+    dim = 2**num_qubits
     z_correlators = np.zeros(dim)
     for index, per_component in enumerate(configs):
         # Sign from the base-6 digits (3 or 5 flip), mirroring _change_sign_gate_cutting.
@@ -1042,7 +1053,7 @@ def _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits):
                 sign = -sign
             digits //= 6
 
-        contribution = np.full(dim, sign / (2 ** num_cuts), dtype=float)
+        contribution = np.full(dim, sign / (2**num_cuts), dtype=float)
         for corr, original in per_component:
             # Map each global Z-string A to this component's local mask, then read
             # off its correlator. Uncovered qubits fall through as identity (mask 0).
@@ -1057,9 +1068,7 @@ def _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits):
         z_correlators += contribution
 
     probabilities = _fast_walsh_hadamard(z_correlators) / dim
-    keys = [
-        "".join(str((x >> q) & 1) for q in range(num_qubits)) for x in range(dim)
-    ]
+    keys = ["".join(str((x >> q) & 1) for q in range(num_qubits)) for x in range(dim)]
     norm = float(np.abs(probabilities).sum()) or 1.0
     return {key: abs(float(p)) / norm for key, p in zip(keys, probabilities)}
 
@@ -1513,7 +1522,11 @@ def _expectation_from_counts_qiskit(counts, observables, shots=1024, prep_qubits
                 # final measurement, I is trivial. Reading the cut-point (not the
                 # final bit) is what makes this correct when the cut qubit keeps
                 # evolving after the cut.
-                s = int(cut_measure[num_qubits - 1 - q]) if len(cut_measure) == num_qubits else 0
+                s = (
+                    int(cut_measure[num_qubits - 1 - q])
+                    if len(cut_measure) == num_qubits
+                    else 0
+                )
                 contribution *= -((-1) ** s)
                 if obs == "Z":
                     contribution *= (-1) ** int(measure_all[num_qubits - 1 - q])
@@ -1671,7 +1684,9 @@ def _check_ibm_qc(qpu_config=None):
     from Qdislib.core.backend.registry import build_backend
     from Qdislib.core.backend.base_backend import BackendConfig
 
-    ibm = build_backend("IBM_BACKEND", BackendConfig(num_qubits=0, extra=qpu_config or {}))
+    ibm = build_backend(
+        "IBM_BACKEND", BackendConfig(num_qubits=0, extra=qpu_config or {})
+    )
     return ibm.session, ibm.ibm_backend
 
 

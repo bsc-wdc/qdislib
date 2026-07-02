@@ -62,7 +62,9 @@ class IQMBackend(BaseBackend):
     def transpile(self, circuit: SupportedCircuit) -> Any:
         from qiskit import transpile as qiskit_transpile
 
-        transpiled = qiskit_transpile(CircuitConverter.to_qiskit(circuit), backend=self.backend)
+        transpiled = qiskit_transpile(
+            CircuitConverter.to_qiskit(circuit), backend=self.backend
+        )
         transpiled.metadata["project"] = self.config.extra.get("project", "")
         return transpiled
 
@@ -95,7 +97,9 @@ class IQMBackend(BaseBackend):
             paulis = list(simplified.paulis)
             coeffs = list(simplified.coeffs)
         else:
-            raise TypeError(f"observable must be SparsePauliOp or str, got {type(observable)}")
+            raise TypeError(
+                f"observable must be SparsePauliOp or str, got {type(observable)}"
+            )
 
         expectation_value = 0.0
         for pauli, coeff in zip(paulis, coeffs):

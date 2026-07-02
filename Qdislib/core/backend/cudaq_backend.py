@@ -72,7 +72,11 @@ class CudaqBackend(BaseBackend):
 
     def _to_kernel(self, circuit: SupportedCircuit):
         """Return a built CUDA-Q kernel from a kernel or a ``(dag, num_qubits)`` payload."""
-        if isinstance(circuit, (list, tuple)) and len(circuit) == 2 and hasattr(circuit[0], "nodes"):
+        if (
+            isinstance(circuit, (list, tuple))
+            and len(circuit) == 2
+            and hasattr(circuit[0], "nodes")
+        ):
             from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
 
             kernel, _obs = dag_to_circuit_cudaq_kernel(circuit[0], circuit[1])
@@ -82,7 +86,9 @@ class CudaqBackend(BaseBackend):
     def transpile(self, circuit: SupportedCircuit) -> Any:
         return self._to_kernel(circuit)
 
-    def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"):
+    def evaluate_expectation(
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"
+    ):
         """Evaluate a gate-cut subcircuit via CUDA-Q."""
         from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq
         from Qdislib.core.cutting_algorithms.wire_cutting import _expec_value_cudaq
@@ -115,7 +121,12 @@ class CudaqBackend(BaseBackend):
         )
 
     def _execute_estimator(
-        self, circuit: SupportedCircuit, transpile: bool, shots: int, observable: str, job: Job
+        self,
+        circuit: SupportedCircuit,
+        transpile: bool,
+        shots: int,
+        observable: str,
+        job: Job,
     ) -> ExpectationJobResult:
         import cudaq
 
@@ -131,7 +142,9 @@ class CudaqBackend(BaseBackend):
             factor = pauli[op](qubit)
             term = factor if term is None else term * factor
         if term is None:  # all-identity observable
-            return ExpectationJobResult(1.0, shots, self.name, job.job_id, obs=observable)
+            return ExpectationJobResult(
+                1.0, shots, self.name, job.job_id, obs=observable
+            )
 
         expectation = cudaq.observe(kernel, term, shots_count=shots).expectation()
         return ExpectationJobResult(

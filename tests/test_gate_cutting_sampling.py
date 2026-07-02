@@ -124,7 +124,9 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
         sampled = [qd.sample_subcircuit(s, shots=shots) for s in subs]
         dist = subs.reconstruct(sampled)
         self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
-        self.assertLess(_tvd(_exact_distribution(), dist), _TOL, f"3-step {software} {cut}")
+        self.assertLess(
+            _tvd(_exact_distribution(), dist), _TOL, f"3-step {software} {cut}"
+        )
 
     def test_qibo_three_step(self):
         self._check_three_step("qibo", ["CZ_2"])
@@ -172,7 +174,9 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
         cut = qd.find_cut(_circuit(), gate_cut=False, wire_cut=True)
         dist = qd.wire_cutting_sampling(_circuit(), cut, shots=shots, software=software)
         self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
-        self.assertLess(_tvd(_exact_distribution(), dist), _TOL, f"wire {software} {cut}")
+        self.assertLess(
+            _tvd(_exact_distribution(), dist), _TOL, f"wire {software} {cut}"
+        )
 
     def test_qibo_wire(self):
         self._check_wire("qibo")

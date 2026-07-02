@@ -317,7 +317,7 @@ def _reconstruct_wire_cut_distribution(
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import _fast_walsh_hadamard
 
-    dim = 2 ** num_qubits
+    dim = 2**num_qubits
     z_correlators = np.zeros(dim)
     for index, per_component in enumerate(configs):
         # Base-8 digits, MSB-first: octal[i-1] is cut i's measure/prepare term.
@@ -328,7 +328,7 @@ def _reconstruct_wire_cut_distribution(
                 sign = -sign
             digits //= 8
 
-        contribution = np.full(dim, sign / (2 ** num_cuts), dtype=float)
+        contribution = np.full(dim, sign / (2**num_cuts), dtype=float)
         for corr, original in per_component:
             component_values = np.empty(dim)
             for global_mask in range(dim):
@@ -349,9 +349,7 @@ def _reconstruct_wire_cut_distribution(
         z_correlators += contribution
 
     probabilities = _fast_walsh_hadamard(z_correlators) / dim
-    keys = [
-        "".join(str((x >> q) & 1) for q in range(num_qubits)) for x in range(dim)
-    ]
+    keys = ["".join(str((x >> q) & 1) for q in range(num_qubits)) for x in range(dim)]
     norm = float(np.abs(probabilities).sum()) or 1.0
     return {key: abs(float(p)) / norm for key, p in zip(keys, probabilities)}
 
@@ -493,7 +491,10 @@ def wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit"):
     :return: A :class:`WireSampledCutSubcircuits` (a ``list`` of fragments plus the
         cut metadata and a ``reconstruct`` method).
     """
-    from Qdislib.core.cutting_algorithms.gate_cutting import _dag_num_qubits, _SampleUnit
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _dag_num_qubits,
+        _SampleUnit,
+    )
 
     dag = convert_to_dag(circuit)
     num_qubits = _dag_num_qubits(dag)
@@ -567,7 +568,9 @@ def _execute_subcircuit(prepared, software, shots, backend, qpu):
     from Qdislib.core.backend.base_backend import BackendConfig
 
     if qpu == "MN_Ona":
-        qpu_backend = build_backend("BSC_QPU_BACKEND", BackendConfig(num_qubits=highest_qubit))
+        qpu_backend = build_backend(
+            "BSC_QPU_BACKEND", BackendConfig(num_qubits=highest_qubit)
+        )
         return qpu_backend.evaluate_expectation(
             s_new, highest_qubit, (), shots, backend or "numpy"
         )
