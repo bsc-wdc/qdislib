@@ -26,38 +26,66 @@ and the ``(dag, num_qubits)`` payload the cutting code uses for it.
 import logging
 from typing import Any
 
-from qiskit import QuantumCircuit
-from qibo import Circuit as QiboCircuit
-from qiskit.qasm2 import dumps, loads
-
 logger = logging.getLogger(__name__)
+
+
+def _qiskit_circuit():
+    """The Qiskit ``QuantumCircuit`` class, or ``None`` if Qiskit isn't installed.
+
+    Imported lazily so ``import Qdislib`` works with only one backend SDK present
+    (a Qibo-only / Qiskit-only / CUDA-Q-only install). Conversions that need the
+    missing SDK then raise a clear ``TypeError`` instead of failing at import.
+    """
+    try:
+        from qiskit import QuantumCircuit
+
+        return QuantumCircuit
+    except ImportError:
+        return None
+
+
+def _qibo_circuit():
+    """The Qibo ``Circuit`` class, or ``None`` if Qibo isn't installed."""
+    try:
+        from qibo import Circuit
+
+        return Circuit
+    except ImportError:
+        return None
 
 
 class CircuitConverter:
     """Converts circuits between the supported formats and reports their size."""
 
     @staticmethod
-    def to_qiskit(circuit: Any) -> QuantumCircuit:
-        if isinstance(circuit, QuantumCircuit):
+    def to_qiskit(circuit: Any):
+        qk, qb = _qiskit_circuit(), _qibo_circuit()
+        if qk and isinstance(circuit, qk):
             return circuit
-        if isinstance(circuit, QiboCircuit):
+        if qk and qb and isinstance(circuit, qb):
+            from qiskit.qasm2 import loads
+
             return loads(circuit.to_qasm())
         raise TypeError(f"Cannot convert {type(circuit).__name__} to a Qiskit circuit")
 
     @staticmethod
-    def to_qibo(circuit: Any) -> QiboCircuit:
-        if isinstance(circuit, QiboCircuit):
+    def to_qibo(circuit: Any):
+        qk, qb = _qiskit_circuit(), _qibo_circuit()
+        if qb and isinstance(circuit, qb):
             return circuit
-        if isinstance(circuit, QuantumCircuit):
-            return QiboCircuit.from_qasm(dumps(circuit))
+        if qb and qk and isinstance(circuit, qk):
+            from qiskit.qasm2 import dumps
+
+            return qb.from_qasm(dumps(circuit))
         raise TypeError(f"Cannot convert {type(circuit).__name__} to a Qibo circuit")
 
     @staticmethod
     def num_qubits(circuit: Any) -> int:
         """Qubit count for any supported circuit, including CUDA-Q payloads."""
-        if isinstance(circuit, QuantumCircuit):
+        qk, qb = _qiskit_circuit(), _qibo_circuit()
+        if qk and isinstance(circuit, qk):
             return circuit.num_qubits
-        if isinstance(circuit, QiboCircuit):
+        if qb and isinstance(circuit, qb):
             return circuit.nqubits
         # The CUDA-Q ``(dag, num_qubits)`` payload (second element is the count).
         if (

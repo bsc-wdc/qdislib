@@ -34,14 +34,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from qiskit import QuantumCircuit
-from qibo import Circuit as QiboCircuit
-
 from Qdislib.core.backend.circuit_converter import CircuitConverter
 
-#: A circuit in any of the supported source formats. A CUDA-Q kernel is also
-#: accepted at runtime (it has no stable importable type to annotate here).
-SupportedCircuit = QuantumCircuit | QiboCircuit | Any
+#: A circuit in any of the supported source formats (Qiskit / Qibo / a CUDA-Q
+#: kernel or its ``(dag, num_qubits)`` payload). Annotated as ``Any`` so importing
+#: the backend layer never pulls in a specific SDK -- ``import Qdislib`` must work
+#: with only one backend installed (Qibo-only / Qiskit-only / CUDA-Q-only).
+SupportedCircuit = Any
 logger = logging.getLogger(__name__)
 
 
