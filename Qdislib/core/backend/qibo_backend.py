@@ -63,24 +63,31 @@ class QiboBackend(BaseBackend):
             subcirc, shots, self._platform, prep_qubits=prep_qubits
         )
 
-    def evaluate_samples(self, dag, num_qubits, shots=1024):
+    def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
         """Sample a subcircuit; Qibo frequencies are already qubit-0-first."""
+        import numpy as np
         import qibo
         from qibo import gates
         from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
 
         qibo.set_backend(self._platform)
+        if seed is not None:
+            np.random.seed(seed)  # Qibo's numpy backend draws from the global RNG
         built = dag_to_circuit_qibo(dag, num_qubits)
         qc = built[0] if isinstance(built, (list, tuple)) else built
         qc.add(gates.M(*range(qc.nqubits)))
         freq = qc(nshots=shots).frequencies(binary=True)
         return {k: int(v) for k, v in freq.items()}
 
-    def evaluate_joint_counts(self, dag, num_qubits, cut_point_qubits=(), shots=1024):
+    def evaluate_joint_counts(
+        self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
+    ):
         """Joint final/cut-point counts via Qibo (per-shot mid-circuit collapse samples)."""
         from Qdislib.core.cutting_algorithms.gate_cutting import _joint_counts_qibo
 
-        return _joint_counts_qibo(dag, num_qubits, list(cut_point_qubits), shots)
+        return _joint_counts_qibo(
+            dag, num_qubits, list(cut_point_qubits), shots, seed=seed
+        )
 
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job

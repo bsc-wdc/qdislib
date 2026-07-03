@@ -191,7 +191,7 @@ class BaseBackend(ABC):
         )
 
     def evaluate_samples(
-        self, dag: Any, num_qubits: int, shots: int = 1024
+        self, dag: Any, num_qubits: int, shots: int = 1024, seed: int = None
     ) -> dict[str, int]:
         """Sample a Qdislib subcircuit DAG and return counts in a standard convention.
 
@@ -210,7 +210,12 @@ class BaseBackend(ABC):
         )
 
     def evaluate_joint_counts(
-        self, dag: Any, num_qubits: int, cut_point_qubits: Any = (), shots: int = 1024
+        self,
+        dag: Any,
+        num_qubits: int,
+        cut_point_qubits: Any = (),
+        shots: int = 1024,
+        seed: int = None,
     ) -> dict:
         """Sample a gate-cut subcircuit, capturing the JOINT final/cut-point outcomes.
 

@@ -108,7 +108,7 @@ class AerBackend(BaseBackend):
             subcirc, shots=shots, method=method, prep_qubits=prep_qubits
         )
 
-    def evaluate_samples(self, dag, num_qubits, shots=1024):
+    def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
         """Sample a subcircuit; return qubit-0-first counts (reversed from Qiskit's little-endian)."""
         from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
 
@@ -116,7 +116,11 @@ class AerBackend(BaseBackend):
         qc = built[0] if isinstance(built, (list, tuple)) else built
         qc = qc.copy()
         qc.measure_all()
-        counts = self._simulator.run([qc], shots=shots).result().get_counts()
+        counts = (
+            self._simulator.run([qc], shots=shots, seed_simulator=seed)
+            .result()
+            .get_counts()
+        )
         out: dict[str, int] = {}
         for key, value in counts.items():
             # keep the measure_all register (first) and reverse to qubit-0-first
@@ -124,11 +128,15 @@ class AerBackend(BaseBackend):
             out[bitstring] = out.get(bitstring, 0) + value
         return out
 
-    def evaluate_joint_counts(self, dag, num_qubits, cut_point_qubits=(), shots=1024):
+    def evaluate_joint_counts(
+        self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
+    ):
         """Joint final/cut-point counts via Qiskit Aer (reuses the cut-measure register)."""
         from Qdislib.core.cutting_algorithms.gate_cutting import _joint_counts_qiskit
 
-        return _joint_counts_qiskit(dag, num_qubits, list(cut_point_qubits), shots)
+        return _joint_counts_qiskit(
+            dag, num_qubits, list(cut_point_qubits), shots, seed=seed
+        )
 
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
