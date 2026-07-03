@@ -157,17 +157,25 @@ def main():
             wsubs = qd.wire_cutting_sampling_subcircuits(qc, wire_cut, software=software)
             wsampled = [qd.sample_subcircuit(s, shots=SHOTS) for s in wsubs]
             tvd_wire3 = total_variation(exact, wsubs.reconstruct(wsampled))
+            # Optimized (fragment-separated) wire sampling: fans out the deduped
+            # fragment samplings and feeds them to a reconstruction @task.
+            recon_wopt = qd.wire_cutting_sampling(
+                qc, wire_cut, shots=SHOTS, software=software, optimized=True
+            )
+            tvd_wopt = total_variation(exact, recon_wopt)
         except Exception as exc:  # noqa: BLE001
             print(f"  {software:7s}  wire FAIL (raised: {exc})")
             all_ok = False
             continue
 
-        ok = all(t < TVD_TOL for t in (tvd_all, tvd_3step, tvd_wire, tvd_wire3))
+        ok = all(
+            t < TVD_TOL for t in (tvd_all, tvd_3step, tvd_wire, tvd_wire3, tvd_wopt)
+        )
         all_ok = all_ok and ok
         print(
             f"  {software:7s}  gate {tvd_all:.4f}/{tvd_3step:.4f} | "
-            f"wire {tvd_wire:.4f}/{tvd_wire3:.4f}  (all-in-one/3-step)  ->  "
-            f"{'PASS' if ok else 'FAIL'}"
+            f"wire {tvd_wire:.4f}/{tvd_wire3:.4f}/{tvd_wopt:.4f}  "
+            f"(all-in-one/3-step/optimized)  ->  {'PASS' if ok else 'FAIL'}"
         )
 
     print("\nRESULT:", "PASS" if all_ok else "FAIL")

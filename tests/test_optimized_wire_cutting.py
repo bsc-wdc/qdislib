@@ -121,6 +121,40 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
 
         self.assertLess(abs(value - analytical), 0.15)
 
+    def test_three_step_matches_standard_and_analytical(self):
+        import Qdislib as qd
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = _example_circuit()
+        analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
+        subs = qd.wire_cutting_subcircuits(
+            circuit, _TWO_CUTS, software="qibo", optimized=True
+        )
+        # Two cuts -> one measure + one prepare fragment: 4**2 + 4**2 = 32 subcircuits.
+        self.assertEqual(len(subs), 4**2 + 4**2)
+        values = [qd.expectation_value(s, shots=40000) for s in subs]
+        self.assertLess(abs(subs.reconstruct(values) - analytical), 0.15)
+
+    def test_sampling_matches_exact_distribution(self):
+        import numpy as np
+        import Qdislib as qd
+
+        circuit = _example_circuit()
+        n = circuit.nqubits
+        probs = np.abs(np.asarray(circuit().state(numpy=True))) ** 2
+        exact = {
+            "".join(str((x >> (n - 1 - q)) & 1) for q in range(n)): float(probs[x])
+            for x in range(2**n)
+        }
+        distribution = qd.wire_cutting_sampling(
+            circuit, _TWO_CUTS, shots=200000, software="qibo", seed=1, optimized=True
+        )
+        tvd = 0.5 * sum(
+            abs(distribution.get(key, 0.0) - exact.get(key, 0.0))
+            for key in set(distribution) | set(exact)
+        )
+        self.assertLess(tvd, 0.05)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -103,9 +103,38 @@ def main():
         f"3-step wire -> {wire_step:+.4f} (|diff| = {abs(wire_step - analytical):.4f})"
     )
 
+    # Optimized (fragment-separated, 3**n + 4**n) wire cutting -- the fan-out of
+    # fragment @tasks feeds a reconstruction @task, so this exercises that parallel
+    # path under runcompss. Falls back to the standard method if not separable.
+    wire_opt = qd.wire_cutting(
+        build_circuit(), wire_cut, software=SOFTWARE, optimized=True
+    )
+    print(
+        f"Wire cutting (optimized) {wire_cut} -> {wire_opt:+.4f} "
+        f"(|diff| = {abs(wire_opt - analytical):.4f})"
+    )
+
+    wire_opt_subs = qd.wire_cutting_subcircuits(
+        build_circuit(), wire_cut, software=SOFTWARE, optimized=True
+    )
+    wire_opt_step = wire_opt_subs.reconstruct(
+        [qd.expectation_value(s) for s in wire_opt_subs]
+    )
+    print(
+        f"3-step wire (optimized) -> {wire_opt_step:+.4f} "
+        f"(|diff| = {abs(wire_opt_step - analytical):.4f})"
+    )
+
     ok = all(
         abs(v - analytical) < TOLERANCE
-        for v in (gate_value, wire_value, gate_step, wire_step)
+        for v in (
+            gate_value,
+            wire_value,
+            gate_step,
+            wire_step,
+            wire_opt,
+            wire_opt_step,
+        )
     )
     print("RESULT:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
