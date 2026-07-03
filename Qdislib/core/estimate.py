@@ -24,7 +24,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["estimate"]
+__all__ = ["estimate", "cut_cost"]
 
 
 def estimate(
@@ -120,3 +120,46 @@ def estimate(
         "cache": cache.stats() if cache is not None else None,
     }
     return value, metrics
+
+
+def cut_cost(cut, wire=None):
+    """Estimate the reconstruction cost of a cut *before* running it.
+
+    Circuit cutting trades one circuit for many subcircuit evaluations: gate
+    cutting expands each cut into 6 quasiprobability terms and wire cutting into
+    8, so ``k`` cuts need ``base ** k`` term evaluations to reconstruct an
+    expectation value (:func:`~Qdislib.gate_cutting` loops over ``range(6 ** k)``,
+    :func:`~Qdislib.wire_cutting` over ``range(8 ** k)``). That factor -- not the
+    subcircuit size -- dominates the cost and grows exponentially in the number
+    of cuts, so this lets you size a run before launching it.
+
+    :param cut: A cut from :func:`~Qdislib.find_cut`: a list of gate identifiers
+        for a gate cut (``["CZ_3"]``) or of endpoint pairs for a wire cut
+        (``[("H_1", "CZ_2")]``).
+    :param wire: Force the cut kind instead of inferring it from the element shape
+        (wire cuts are pairs, gate cuts are plain identifiers). Rarely needed.
+    :return: A dict with ``num_cuts``, ``kind`` (``"gate"``/``"wire"``), ``base``
+        (6 or 8) and ``terms`` (``base ** num_cuts`` -- the number of subcircuit
+        configurations the reconstruction evaluates).
+
+    Example:
+        .. code-block:: python
+
+            import Qdislib as qd
+
+            cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)
+            qd.cut_cost(cut)   # {'num_cuts': 2, 'kind': 'gate', 'base': 6, 'terms': 36}
+    """
+    cut = list(cut or [])
+    if wire is None:
+        # Same shape test as estimate(): wire cuts are (source, target) pairs,
+        # gate cuts are plain gate identifiers.
+        wire = bool(cut) and isinstance(cut[0], (tuple, list))
+    base = 8 if wire else 6
+    num_cuts = len(cut)
+    return {
+        "num_cuts": num_cuts,
+        "kind": "wire" if wire else "gate",
+        "base": base,
+        "terms": base**num_cuts,
+    }

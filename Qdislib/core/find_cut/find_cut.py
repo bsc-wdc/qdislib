@@ -159,19 +159,26 @@ def _circuit_to_gate_graph(circuit):
     return graph
 
 
-def _find_best_kernighan_lin_partition(graph, max_qubits, max_cuts=8, num_runs=10):
+def _find_best_kernighan_lin_partition(
+    graph, max_qubits, max_cuts=8, num_runs=10, seed=None
+):
     best_cutset_size = float("inf")
     best_partition = []
     best_cutset = []
 
-    for _ in range(num_runs):
+    for run in range(num_runs):
         # Perform balanced partition using Kernighan-Lin. On graphs too small to
         # bisect (e.g. a circuit with one or two gates) networkx raises
         # ValueError ("min() arg is an empty sequence"); treat that as a run that
         # produced no valid partition rather than crashing find_cut.
+        #
+        # A distinct per-run seed keeps the runs diverse (KL is randomised) while
+        # making the whole search reproducible when a seed is given; seed=None
+        # preserves the previous non-deterministic behaviour.
+        run_seed = None if seed is None else seed + run
         try:
             partition = networkx.algorithms.community.kernighan_lin_bisection(
-                graph.to_undirected()
+                graph.to_undirected(), seed=run_seed
             )
         except ValueError:
             continue
@@ -242,7 +249,7 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
     return partition_list, cut_edges
 
 
-def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
+def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts, seed=None):
     from sklearn.cluster import SpectralClustering
 
     # Spectral clustering requires at least as many nodes as requested clusters;
@@ -255,7 +262,10 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts):
     adjacency_matrix = networkx.to_numpy_array(graph)
 
     sc = SpectralClustering(
-        n_clusters=num_clusters, affinity="precomputed", assign_labels="kmeans"
+        n_clusters=num_clusters,
+        affinity="precomputed",
+        assign_labels="kmeans",
+        random_state=seed,
     )
     labels = sc.fit_predict(adjacency_matrix)
 
@@ -453,12 +463,14 @@ def _find_cut_gate(
     max_cuts=None,
     max_components=None,
     weights=None,
+    seed=None,
 ):
     """Find the best *gate* cut for ``circuit`` by partitioning its qubit graph.
 
     Builds the qubit-connectivity graph, runs the four partitioning strategies
     (Kernighan-Lin, Girvan-Newman, spectral clustering, METIS) and keeps the
-    lowest-scoring cut. Backend-agnostic (Qibo / Qiskit / CUDA-Q).
+    lowest-scoring cut. Backend-agnostic (Qibo / Qiskit / CUDA-Q). ``seed`` makes
+    the randomised strategies (Kernighan-Lin, spectral) reproducible.
 
     :return: ``(best_cut, best_score)`` where ``best_cut`` is a list of gate
         identifiers such as ``["CZ_3"]``.
@@ -468,13 +480,17 @@ def _find_cut_gate(
     graph = _circuit_to_qubit_graph(circuit)
     candidates = {
         "Kernighan-Lin": _find_best_kernighan_lin_partition(
-            graph=graph, max_qubits=max_qubits, max_cuts=max_cuts
+            graph=graph, max_qubits=max_qubits, max_cuts=max_cuts, seed=seed
         ),
         "Girvan-Newman": _find_best_girvan_newman_cutset(
             graph, max_qubits, max_cuts=max_cuts
         ),
         "Spectral clustering": _find_best_spectral_clustering(
-            graph, clusters=max_components, max_qubits=max_qubits, max_cuts=max_cuts
+            graph,
+            clusters=max_components,
+            max_qubits=max_qubits,
+            max_cuts=max_cuts,
+            seed=seed,
         ),
         "METIS": _metis_partition(
             graph,
@@ -496,6 +512,7 @@ def _find_cut_wire(
     max_cuts=None,
     max_components=None,
     weights=None,
+    seed=None,
 ):
     """Find the best *wire* cut for ``circuit`` by partitioning its gate graph.
 
@@ -513,13 +530,17 @@ def _find_cut_wire(
     graph = _circuit_to_gate_graph(circuit)
     candidates = {
         "Kernighan-Lin": _find_best_kernighan_lin_partition(
-            graph=graph, max_qubits=max_qubits, max_cuts=max_cuts
+            graph=graph, max_qubits=max_qubits, max_cuts=max_cuts, seed=seed
         ),
         "Girvan-Newman": _find_best_girvan_newman_cutset(
             graph, max_qubits=max_qubits, max_cuts=max_cuts
         ),
         "Spectral clustering": _find_best_spectral_clustering(
-            graph, clusters=max_components, max_qubits=max_qubits, max_cuts=max_cuts
+            graph,
+            clusters=max_components,
+            max_qubits=max_qubits,
+            max_cuts=max_cuts,
+            seed=seed,
         ),
         "METIS": _metis_partition(
             graph,
@@ -563,6 +584,7 @@ def find_cut(
     gate_cut=True,
     implementation="qdislib",
     weights=None,
+    seed=None,
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
@@ -605,6 +627,12 @@ def find_cut(
     weights : dict, optional
         A dictionary specifying weights for the loss function used in Qdislib to evaluate
         partitioning
+
+    seed : int, optional
+        Seed for the randomised partitioning strategies (Kernighan-Lin and spectral
+        clustering). Pass an integer for a reproducible cut; the default (``None``)
+        keeps the previous non-deterministic behaviour. Only affects the
+        ``implementation="qdislib"`` path.
 
     Diagnostic details about the partitioning process are logged at DEBUG level;
     enable them with ``qd.set_log_level("DEBUG")``.
@@ -658,6 +686,7 @@ def find_cut(
                 max_cuts=max_cuts,
                 max_components=max_components,
                 weights=weights,
+                seed=seed,
             )
 
         if wire_cut:
@@ -667,6 +696,7 @@ def find_cut(
                 max_cuts=max_cuts,
                 max_components=max_components,
                 weights=weights,
+                seed=seed,
             )
 
         if gate_cut and wire_cut:
