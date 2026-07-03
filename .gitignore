@@ -102,3 +102,6 @@ compss_graphs/
 # COMPSs run artifacts
 compss-*.out
 compss-*.err
+
+# Notebook artifacts (draw_cut default output, run in-place from the repo root)
+/cut.png

@@ -83,7 +83,8 @@ def img_md(rel_path, alt):
     return new_markdown_cell(f"![{alt}](data:image/png;base64,{data})")
 
 
-NOTEBOOKS = {}
+NOTEBOOKS = {}  # the numbered learning path -> notebooks/
+APPLICATIONS = {}  # standalone application notebooks -> notebooks/applications/
 
 # --------------------------------------------------------------------------- #
 # 01 — Quickstart
@@ -240,16 +241,122 @@ NOTEBOOKS["02_cutting_workflow"] = [
         "can weigh both — see notebook 3 onwards and the docs for guidance.\n"
         "\n"
         "---\n"
-        "Next: **03 · Backends** — the same workflow on Qibo, Qiskit and CUDA-Q."
+        "Next: **03 · Finding cuts** — let Qdislib choose where to cut."
     ),
 ]
 
 # --------------------------------------------------------------------------- #
-# 03 — Backends
+# 03 — Finding cuts
 # --------------------------------------------------------------------------- #
-NOTEBOOKS["03_backends"] = [
+NOTEBOOKS["03_finding_cuts"] = [
     md(
-        "# Qdislib — 03 · Backends and interop\n"
+        "# Qdislib — 03 · Finding cuts\n"
+        "\n"
+        "`find_cut` decides **where** to cut. You steer it with a few knobs — the device\n"
+        "size (`max_qubits`), whether to look for **gate** or **wire** cuts, a cap on the\n"
+        "number of cuts (`max_cuts`), and the partitioning `implementation` — and it\n"
+        "returns the gates to cut, e.g. `['CZ_3']`.\n"
+        "\n"
+        "```python\n"
+        "find_cut(circuit, max_qubits=None, max_cuts=None,\n"
+        "         wire_cut=True, gate_cut=True, implementation='qdislib', weights=None)\n"
+        "```"
+    ),
+    code(EXAMPLE),
+    code("import Qdislib as qd"),
+    md(
+        "## Gate cuts vs wire cuts\n"
+        "\n"
+        "A **gate cut** splits a two-qubit gate; a **wire cut** severs a qubit wire\n"
+        "between gates. `find_cut` searches both by default — restrict it with\n"
+        "`gate_cut=` / `wire_cut=` (at least one must be enabled, or it raises)."
+    ),
+    code(
+        "circuit = example_circuit()\n"
+        'print("gate only:", qd.find_cut(circuit, gate_cut=True, wire_cut=False))\n'
+        'print("wire only:", qd.find_cut(circuit, gate_cut=False, wire_cut=True))\n'
+        'print("both     :", qd.find_cut(circuit, gate_cut=True, wire_cut=True))'
+    ),
+    md(
+        "## Fit your device: `max_qubits`\n"
+        "\n"
+        "`max_qubits` caps the qubits per subcircuit — the key hardware constraint. A\n"
+        "smaller device forces the circuit into more (smaller) pieces: `find_cut` aims\n"
+        "for about `ceil(n_qubits / max_qubits)` components."
+    ),
+    code(
+        "for mq in (4, 3, 2):\n"
+        "    cut = qd.find_cut(example_circuit(), gate_cut=True, wire_cut=False, max_qubits=mq)\n"
+        '    print(f"max_qubits={mq}: {cut}")'
+    ),
+    md(
+        "## Cap the overhead: `max_cuts`\n"
+        "\n"
+        "Each gate cut multiplies the reconstruction cost by 6 (`6**n_cuts`), so\n"
+        "`max_cuts` bounds how many cuts `find_cut` is allowed to use."
+    ),
+    code(
+        "gc = lambda **kw: qd.find_cut(example_circuit(), gate_cut=True, wire_cut=False, **kw)\n"
+        'print("max_cuts=1:      ", gc(max_cuts=1))\n'
+        'print("max_qubits=2:    ", gc(max_qubits=2))    # wants 2 cuts (two 2-3 qubit pieces)\n'
+        'print("both (too tight):", gc(max_qubits=2, max_cuts=1))  # no cut satisfies both -> []'
+    ),
+    md(
+        "## Partitioner: `implementation`\n"
+        "\n"
+        "`implementation='qdislib'` (default) scores several graph-partitioning\n"
+        "strategies — Kernighan–Lin, Girvan–Newman, spectral, METIS — with a loss\n"
+        "function and keeps the best. `implementation='ibm-ckt'` instead uses Qiskit's\n"
+        "hardware-aware cutter (gate cuts only; needs the `qiskit` extra and a Qiskit\n"
+        "circuit):"
+    ),
+    illus(
+        "from qiskit import QuantumCircuit\n"
+        "qc = QuantumCircuit(10)\n"
+        "for i in range(9):\n"
+        "    qc.cz(i, i + 1)\n"
+        "cut = qd.find_cut(qc, max_qubits=5, gate_cut=True, wire_cut=False,\n"
+        "                  implementation='ibm-ckt')\n"
+        "print(cut)"
+    ),
+    md(
+        "### 🔧 Your turn\n"
+        "\n"
+        "Turn on `qd.set_log_level('DEBUG')` and re-run `find_cut` — it logs the\n"
+        "candidate partitions, their loss scores, and which strategy won. (Advanced:\n"
+        "pass `weights={...}` to retune that loss, which trades off the number of cuts,\n"
+        "the number of components, and the largest component's size.)"
+    ),
+    code(
+        'qd.set_log_level("DEBUG")\n'
+        "cut = qd.find_cut(example_circuit(), gate_cut=True, wire_cut=False, max_qubits=3)\n"
+        'qd.set_log_level("WARNING")   # quiet again\n'
+        'print("chosen cut:", cut)'
+    ),
+    md(
+        "## Visualise the cut: `draw_cut`\n"
+        "\n"
+        "`draw_cut(circuit, cut, filename)` renders the circuit's DAG with the cut gates\n"
+        "highlighted, so you can see exactly where the pieces split."
+    ),
+    code(
+        "cut = qd.find_cut(example_circuit(), gate_cut=True, wire_cut=False)\n"
+        'qd.draw_cut(example_circuit(), cut, "cut.png")   # writes cut.png\n'
+        'print("wrote cut.png with the cut highlighted")'
+    ),
+    md(
+        "---\n"
+        "Next: **04 · Backends & QASM interop** — run the pieces on Qibo, Qiskit or\n"
+        "CUDA-Q, and bring circuits in from other frameworks."
+    ),
+]
+
+# --------------------------------------------------------------------------- #
+# 04 — Backends
+# --------------------------------------------------------------------------- #
+NOTEBOOKS["04_backends"] = [
+    md(
+        "# Qdislib — 04 · Backends and interop\n"
         "\n"
         "Qdislib is **backend-agnostic**: the same workflow drives Qibo, Qiskit and\n"
         "CUDA-Q — only the `software=` argument changes. Any framework that exports\n"
@@ -314,15 +421,15 @@ NOTEBOOKS["03_backends"] = [
         'print("cut on the imported circuit:", cut)\n'
         'print("value:", qd.gate_cutting(qd.from_qasm(qasm, software="qiskit"), cut, software="qiskit", shots=8192))'
     ),
-    md("---\n" "Next: **04 · Observables** — beyond `<ZZZZZ>`."),
+    md("---\n" "Next: **05 · Observables** — beyond `<ZZZZZ>`."),
 ]
 
 # --------------------------------------------------------------------------- #
-# 04 — Observables
+# 05 — Observables
 # --------------------------------------------------------------------------- #
-NOTEBOOKS["04_observables"] = [
+NOTEBOOKS["05_observables"] = [
     md(
-        "# Qdislib — 04 · Observables\n"
+        "# Qdislib — 05 · Observables\n"
         "\n"
         "So far we measured `<ZZZZZ>`. Qdislib accepts any per-qubit Pauli string\n"
         "over `I, X, Y, Z`, and **weighted sums** of them (a Hamiltonian)."
@@ -355,6 +462,14 @@ NOTEBOOKS["04_observables"] = [
         "> fewer cuts) if a value looks off."
     ),
     md(
+        "> **Identity on a *cut* qubit.** An `I` on a qubit that a gate cut passes\n"
+        "> through is the subtle case: there is no basis measurement on that qubit to\n"
+        "> fix the sign of each reconstruction term, so Qdislib recovers the sign from\n"
+        "> the cut's own mid-circuit measurement. You don't do anything special — it\n"
+        "> still returns the exact value — but it's why measuring identities across a\n"
+        "> cut works at all."
+    ),
+    md(
         "## Weighted sums (Hamiltonians)\n"
         "\n"
         "Pass a list of `(coefficient, pauli)` pairs or a `{pauli: coefficient}`\n"
@@ -371,16 +486,119 @@ NOTEBOOKS["04_observables"] = [
         "the three-step `*_subcircuits` workflow.\n"
         "\n"
         "---\n"
-        "Next: **05 · Caching & performance**."
+        "Next: **06 · Sampling the output distribution**."
     ),
 ]
 
 # --------------------------------------------------------------------------- #
-# 05 — Caching & performance
+# 06 — Sampling the output distribution
 # --------------------------------------------------------------------------- #
-NOTEBOOKS["05_caching"] = [
+NOTEBOOKS["06_sampling"] = [
     md(
-        "# Qdislib — 05 · Caching & performance\n"
+        "# Qdislib — 06 · Sampling the output distribution\n"
+        "\n"
+        "So far a cut gave back one **expectation value** `<O>`. Sometimes you want the\n"
+        "whole **output distribution** `{bitstring: probability}` — to read out an image\n"
+        "(application 1) or inspect the state. `gate_cutting_sampling` and\n"
+        "`wire_cutting_sampling` reconstruct that full distribution from the pieces.\n"
+        "\n"
+        "The trade-off: rebuilding a distribution carries a **quasiprobability overhead**,\n"
+        "so it needs more shots than a plain expectation value for the same accuracy."
+    ),
+    code(EXAMPLE),
+    code(
+        "import numpy as np\n"
+        "import qibo\n"
+        "import Qdislib as qd\n"
+        "\n"
+        "qibo.set_backend('numpy')\n"
+        "\n"
+        "\n"
+        "def exact_distribution(circuit):\n"
+        '    """The true output distribution |amplitude|**2 (qubit-0-first bitstrings)."""\n'
+        "    probs = np.abs(circuit().state()) ** 2\n"
+        "    n = circuit.nqubits\n"
+        "    return {format(i, f'0{n}b'): float(probs[i]) for i in range(2 ** n)}\n"
+        "\n"
+        "\n"
+        "def tvd(a, b):\n"
+        '    """Total-variation distance between two {bitstring: prob} distributions."""\n'
+        "    return 0.5 * sum(abs(a.get(k, 0.0) - b.get(k, 0.0)) for k in set(a) | set(b))"
+    ),
+    md(
+        "## Expectation value vs full distribution\n"
+        "\n"
+        "`gate_cutting` returns a single number; `gate_cutting_sampling` returns the\n"
+        "whole distribution over output bitstrings."
+    ),
+    code(
+        "circuit = example_circuit()\n"
+        "cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)\n"
+        "\n"
+        "value = qd.gate_cutting(example_circuit(), cut, observables='ZZZZZ', shots=20000)\n"
+        "print('expectation <ZZZZZ>:', round(value, 3))\n"
+        "\n"
+        "dist = qd.gate_cutting_sampling(example_circuit(), cut, shots=200_000, software='qibo')\n"
+        "top = sorted(dist.items(), key=lambda kv: -kv[1])[:4]\n"
+        "print('top bitstrings:   ', [(b, round(p, 3)) for b, p in top])"
+    ),
+    md(
+        "## It matches the exact distribution\n"
+        "\n"
+        "Reconstructing from the pieces reproduces the full statevector distribution, up\n"
+        "to shot noise — the total-variation distance is ~0."
+    ),
+    code(
+        "exact = exact_distribution(example_circuit())\n"
+        "print('gate-cut sampling TVD vs exact:', round(tvd(exact, dist), 3))"
+    ),
+    md(
+        "## The three-step sampling workflow\n"
+        "\n"
+        "Sampling has the same three-step form — generate the sampling subcircuits,\n"
+        "`sample_subcircuit` each (a parallel COMPSs task under PyCOMPSs), then\n"
+        "`reconstruct` the distribution:"
+    ),
+    code(
+        "subs = qd.gate_cutting_sampling_subcircuits(example_circuit(), cut, software='qibo')\n"
+        "sampled = [qd.sample_subcircuit(s, shots=200_000) for s in subs]\n"
+        "print('3-step TVD vs exact:', round(tvd(exact, subs.reconstruct(sampled)), 3))"
+    ),
+    md(
+        "## Wire-cut sampling\n"
+        "\n"
+        "Wire cuts reconstruct the distribution too — `wire_cutting_sampling` (and its\n"
+        "`wire_cutting_sampling_subcircuits` three-step form):"
+    ),
+    code(
+        "wcut = qd.find_cut(example_circuit(), gate_cut=False, wire_cut=True)\n"
+        "wdist = qd.wire_cutting_sampling(example_circuit(), wcut, shots=200_000, software='qibo')\n"
+        "print('wire-cut sampling TVD vs exact:', round(tvd(exact, wdist), 3))"
+    ),
+    md(
+        "### 🔧 Your turn\n"
+        "\n"
+        "Fewer shots ⇒ a noisier distribution. Re-run with `shots=20_000` and watch the\n"
+        "TVD grow — the quasiprobability overhead is why sampling wants more shots than\n"
+        "an expectation value."
+    ),
+    code(
+        "noisy = qd.gate_cutting_sampling(example_circuit(), cut, shots=20_000, software='qibo')\n"
+        "print('TVD at 20k shots:', round(tvd(exact, noisy), 3))"
+    ),
+    md(
+        "---\n"
+        "Next: **07 · Caching & performance** — reuse repeated subcircuits with the\n"
+        "semantic cache."
+    ),
+]
+
+# --------------------------------------------------------------------------- #
+# 07 — Caching & performance
+# --------------------------------------------------------------------------- #
+NOTEBOOKS["07_caching"] = [
+    md(
+        "# Qdislib — 07 · Caching & performance\n"
         "\n"
         "Cutting produces many *functionally equivalent* subcircuits (repeated\n"
         "fragments, or the same ansatz across iterations). The **semantic cache**\n"
@@ -409,6 +627,29 @@ NOTEBOOKS["05_caching"] = [
         "`stats()` reports hits, misses, hit-rate and size. Caching never changes\n"
         "the result — a circuit that can't be keyed just falls back to a normal\n"
         "simulation."
+    ),
+    md(
+        "## Why it's *semantic*\n"
+        "\n"
+        "The key isn't a hash of the gate list — `semantic_key` hashes the circuit's\n"
+        "**ZX-reduced** form, so two circuits that realise the *same unitary* collide\n"
+        "even when written differently. `H·H·H` reduces to a single `H`, so the two\n"
+        "share a key and the second is served from cache."
+    ),
+    code(
+        "import qibo\n"
+        "from qibo import Circuit, gates\n"
+        "qibo.set_backend('numpy')\n"
+        "\n"
+        "one = Circuit(2)\n"
+        "one.add(gates.H(0)); one.add(gates.CZ(0, 1)); one.add(gates.M(0, 1))\n"
+        "\n"
+        "three = Circuit(2)\n"
+        "for _ in range(3):\n"
+        "    three.add(gates.H(0))          # H·H·H == H\n"
+        "three.add(gates.CZ(0, 1)); three.add(gates.M(0, 1))\n"
+        "\n"
+        "print('same semantic key:', qd.semantic_key(one) == qd.semantic_key(three))"
     ),
     md(
         "## Cache granularity\n"
@@ -440,16 +681,112 @@ NOTEBOOKS["05_caching"] = [
         "placeholder/refresh scheme keeps hit rates up under high concurrency.\n"
         "\n"
         "---\n"
-        "Next: **06 · Distributed & QPU**."
+        "Next: **08 · Backends under the hood** — how a backend is chosen, and how to\n"
+        "add your own."
     ),
 ]
 
 # --------------------------------------------------------------------------- #
-# 06 — Distributed & QPU (illustrative)
+# 08 — Backends under the hood
 # --------------------------------------------------------------------------- #
-NOTEBOOKS["06_distributed_and_qpu"] = [
+NOTEBOOKS["08_backend_internals"] = [
     md(
-        "# Qdislib — 06 · Distributed execution & real QPUs\n"
+        "# Qdislib — 08 · Backends under the hood\n"
+        "\n"
+        "Every execution target — a CPU simulator (Qibo / Qiskit / CUDA-Q), a GPU, or a\n"
+        "real QPU — is a `BaseBackend`. The cutting algorithms never branch on the\n"
+        "backend: they hand each subcircuit to a backend object that\n"
+        "`build_execution_backend` chose from your `software=` / `gpu=` / `qpu=`\n"
+        "arguments. This notebook opens that box — and shows how to plug in **your own**\n"
+        "backend."
+    ),
+    code("import Qdislib as qd"),
+    md(
+        "## The registry\n"
+        "\n"
+        "Backends are registered by name and imported only on first use, so a missing\n"
+        "SDK never breaks `import Qdislib`."
+    ),
+    code("print(qd.available_backends())"),
+    md(
+        "## How `software=` picks a backend\n"
+        "\n"
+        "`build_execution_backend` turns `(software, gpu, qpu, qpu_dict, num_qubits)` into\n"
+        "one concrete backend — the single place that decides. `software=` maps to a CPU\n"
+        "backend; `qpu=True` + a big-enough QPU in `qpu_dict` routes to that QPU; a\n"
+        "large-enough `gpu=True` routes to GPU Aer."
+    ),
+    code(
+        "for sw in ('qiskit', 'qibo', 'cudaq'):\n"
+        "    backend = qd.build_execution_backend(sw, num_qubits=4)\n"
+        "    print(f'{sw:7s} -> {backend.name}')\n"
+        "\n"
+        "# qpu=True + a big-enough QPU in qpu_dict routes to the QPU backend instead:\n"
+        "qpu = qd.build_execution_backend('qibo', num_qubits=4, qpu=True, qpu_dict={'MN_Ona': 8})\n"
+        "print('qpu     ->', qpu.name)"
+    ),
+    md(
+        "## The `BaseBackend` interface\n"
+        "\n"
+        "A backend implements a few hooks: `transpile`, `_execute_samples`,\n"
+        "`_execute_estimator` (the generic sample/estimator path), plus the **cutting\n"
+        "seams** the algorithms call — `evaluate_expectation` (⟨O⟩ of a subcircuit),\n"
+        "`evaluate_samples` (counts), and `evaluate_joint_counts` (joint final +\n"
+        "cut-point counts, for sampling reconstruction). Any backend that implements\n"
+        "these can run cut subcircuits."
+    ),
+    md(
+        "## Plug in your own backend\n"
+        "\n"
+        "Subclass `BaseBackend`, implement the hooks (wrap an in-house simulator or a\n"
+        "cloud QPU's API), register it by name, then select it with `software='...'` —\n"
+        "with no change to the cutting code:"
+    ),
+    illus(
+        "from Qdislib import BaseBackend, register_backend\n"
+        "\n"
+        "class MyBackend(BaseBackend):\n"
+        "    def __init__(self, config):\n"
+        "        super().__init__('MY_BACKEND', config)\n"
+        "    def transpile(self, circuit):\n"
+        "        ...\n"
+        "    def _execute_samples(self, circuit, transpile, shots, job):\n"
+        "        ...   # -> SampleJobResult(counts=...)\n"
+        "    def _execute_estimator(self, circuit, transpile, observable, shots, job):\n"
+        "        ...   # -> ExpectationJobResult(expectation_value=...)\n"
+        "    def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024,\n"
+        "                             method='automatic'):\n"
+        "        ...   # build the native circuit from the DAG, run it, return <O>\n"
+        "\n"
+        "# Registered by import path + class name (imported lazily on first use):\n"
+        "register_backend('MY_BACKEND', 'my_pkg.my_backend', 'MyBackend')\n"
+        "value = qd.gate_cutting(circuit, cut, software='MY_BACKEND', shots=8192)"
+    ),
+    md(
+        "## The unified front-end: `QdBackEnd`\n"
+        "\n"
+        "`QdBackEnd` wraps a pool of backends and load-balances by shortest queue and\n"
+        "qubit fit — handy when you have several devices. It's optional; the cutting API\n"
+        "calls `build_execution_backend` directly."
+    ),
+    illus(
+        "backend = qd.QdBackEnd(qpu_dict={'IBM_Quantum': 127, 'MN_Ona': 5})\n"
+        "counts = backend.sample_circuit(circuit, shots=1024)          # routed to the best-fit device\n"
+        "value = backend.get_expectation_value(circuit, 'ZZ', shots=1024)"
+    ),
+    md(
+        "---\n"
+        "Next: **09 · Distributed execution & real QPUs** — run the pieces in parallel\n"
+        "with PyCOMPSs, and on IBM / BSC hardware."
+    ),
+]
+
+# --------------------------------------------------------------------------- #
+# 09 — Distributed & QPU (illustrative)
+# --------------------------------------------------------------------------- #
+NOTEBOOKS["09_distributed_and_qpu"] = [
+    md(
+        "# Qdislib — 09 · Distributed execution & real QPUs\n"
         "\n"
         "The whole point of cutting is to run the pieces **in parallel** — across a\n"
         "cluster with PyCOMPSs, and/or on real quantum hardware. The cells below are\n"
@@ -571,9 +908,9 @@ NOTEBOOKS["06_distributed_and_qpu"] = [
 # --------------------------------------------------------------------------- #
 # 07 — Hands-on: reconstruct a quantum image by cutting it
 # --------------------------------------------------------------------------- #
-NOTEBOOKS["07_image_reconstruction"] = [
+APPLICATIONS["01_image_reconstruction"] = [
     md(
-        "# Qdislib — 07 · Cutting a quantum image, distributed with PyCOMPSs\n"
+        "# Qdislib — Application 1 · Cutting a quantum image, distributed with PyCOMPSs\n"
         "\n"
         "**A handful of qubits holds a whole image.** With QPIE (Quantum Probability\n"
         "Image Encoding) an `n`-qubit state is a probability distribution over `2**n`\n"
@@ -593,7 +930,8 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "Here's the story you'll build — encode → entangle → cut & reconstruct:"
     ),
     img_md(
-        "images/07_image_cutting.png", "encode, entangle, cut and reconstruct an image"
+        "applications/images/image_cutting.png",
+        "encode, entangle, cut and reconstruct an image",
     ),
     md("Look for the **🔧 Your turn** cells: change a line, re-run, watch it change."),
     md(
@@ -879,7 +1217,7 @@ NOTEBOOKS["07_image_reconstruction"] = [
         "a noisy QPU run:"
     ),
     img_md(
-        "images/07_noisy_execution.png",
+        "applications/images/noisy_execution.png",
         "the reconstructed image on an ideal simulator versus a noisy QPU",
     ),
     md(
@@ -908,9 +1246,9 @@ NOTEBOOKS["07_image_reconstruction"] = [
 # --------------------------------------------------------------------------- #
 # 08 — Application: VQE ground-state energy of H2 by cutting the ansatz
 # --------------------------------------------------------------------------- #
-NOTEBOOKS["08_vqe_h2"] = [
+APPLICATIONS["02_vqe_h2"] = [
     md(
-        "# Qdislib — 08 · VQE for a molecule (H₂), distributed with PyCOMPSs\n"
+        "# Qdislib — Application 2 · VQE for a molecule (H₂), distributed with PyCOMPSs\n"
         "\n"
         "**Find a molecule's ground-state energy on a device too small for the "
         "circuit.** The variational quantum eigensolver (VQE) prepares a trial state "
@@ -1029,7 +1367,7 @@ NOTEBOOKS["08_vqe_h2"] = [
         "   (H2 ~ -1.137 Ha)')"
     ),
     img_md(
-        "images/08_vqe_landscape.png",
+        "applications/images/vqe_landscape.png",
         "H2 VQE energy landscape: E(theta) dips to the exact ground energy",
     ),
     md(
@@ -1120,11 +1458,11 @@ NOTEBOOKS["08_vqe_h2"] = [
 # --------------------------------------------------------------------------- #
 # 09 — Scaling up: a bigger molecule (N2) and a 25-qubit lattice, by cutting
 # --------------------------------------------------------------------------- #
-NOTEBOOKS["09_scaling_up"] = [
+APPLICATIONS["03_scaling"] = [
     md(
-        "# Qdislib — 09 · Scaling up: a bigger molecule and a 25-qubit lattice\n"
+        "# Qdislib — Application 3 · Scaling up: a bigger molecule and a 25-qubit lattice\n"
         "\n"
-        "Notebook 08 cut **H₂ (4 qubits)**. The real payoff of cutting is running "
+        "Application 2 cut **H₂ (4 qubits)**. The real payoff of cutting is running "
         "circuits **far too big for your device** — so here we scale up on two fronts:\n"
         "\n"
         "1. **N₂**, a real molecule — 20 qubits at full size, which we bring to **12 "
@@ -1142,7 +1480,7 @@ NOTEBOOKS["09_scaling_up"] = [
         "*molecule* (~15,000 terms)."
     ),
     img_md(
-        "images/09_scaling.png",
+        "applications/images/scaling.png",
         "cut-reconstructed vs exact energy for H2 (4 qubits) and N2 (12 qubits)",
     ),
     md("## Start the PyCOMPSs runtime"),
@@ -1292,12 +1630,18 @@ def main():
         },
         "language_info": {"name": "python"},
     }
-    for name, cells in NOTEBOOKS.items():
-        notebook = new_notebook(cells=cells, metadata=metadata)
-        path = os.path.join(NB_DIR, f"{name}.ipynb")
-        with open(path, "w") as handle:
-            nbf.write(notebook, handle)
-        print(f"wrote {path}  ({len(cells)} cells)")
+
+    def write_all(collection, out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+        for name, cells in collection.items():
+            notebook = new_notebook(cells=cells, metadata=metadata)
+            path = os.path.join(out_dir, f"{name}.ipynb")
+            with open(path, "w") as handle:
+                nbf.write(notebook, handle)
+            print(f"wrote {path}  ({len(cells)} cells)")
+
+    write_all(NOTEBOOKS, NB_DIR)  # the numbered learning path
+    write_all(APPLICATIONS, os.path.join(NB_DIR, "applications"))  # standalone apps
 
 
 if __name__ == "__main__":

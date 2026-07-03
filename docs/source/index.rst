@@ -43,13 +43,16 @@ group of the `Barcelona Supercomputing Center <http://www.bsc.es>`_.
 
     notebooks/01_quickstart
     notebooks/02_cutting_workflow
-    notebooks/03_backends
-    notebooks/04_observables
-    notebooks/05_caching
-    notebooks/06_distributed_and_qpu
-    notebooks/07_image_reconstruction
-    notebooks/08_vqe_h2
-    notebooks/09_scaling_up
+    notebooks/03_finding_cuts
+    notebooks/04_backends
+    notebooks/05_observables
+    notebooks/06_sampling
+    notebooks/07_caching
+    notebooks/08_backend_internals
+    notebooks/09_distributed_and_qpu
+    notebooks/applications/01_image_reconstruction
+    notebooks/applications/02_vqe_h2
+    notebooks/applications/03_scaling
 
 Documentation
 -------------
