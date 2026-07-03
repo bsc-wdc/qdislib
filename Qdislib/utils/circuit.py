@@ -64,11 +64,13 @@ def from_qasm(qasm, software="qibo"):
     into Qdislib's cutting workflows through it, without a dedicated backend.
 
     :param qasm: An OpenQASM 2.0 program (string).
-    :param software: ``"qibo"`` (default) or ``"qiskit"`` -- the circuit type to
-        return; pick whichever backend you will execute the subcircuits on.
+    :param software: ``"qibo"`` (default), ``"qiskit"`` or ``"pennylane"`` -- the
+        circuit type to return; pick whichever backend you will execute the
+        subcircuits on.
     :raises ImportError: If the requested backend SDK is not installed.
     :raises ValueError: For an unknown ``software``.
-    :return: A Qibo ``Circuit`` or Qiskit ``QuantumCircuit``.
+    :return: A Qibo ``Circuit``, a Qiskit ``QuantumCircuit`` or a PennyLane
+        ``QuantumTape``.
 
     Example:
         .. code-block:: python
@@ -94,7 +96,35 @@ def from_qasm(qasm, software="qibo"):
                 "(install Qdislib[qiskit])."
             ) from exc
         return QuantumCircuit.from_qasm_str(qasm)
-    raise ValueError(f"Unknown software {software!r}; expected 'qibo' or 'qiskit'.")
+    if software == "pennylane":
+        try:
+            import pennylane as qml
+        except ImportError as exc:
+            raise ImportError(
+                "from_qasm(software='pennylane') requires pennylane "
+                "(install Qdislib[pennylane])."
+            ) from exc
+        # PennyLane's own QASM loader needs the extra pennylane-qiskit plugin, so
+        # instead parse the QASM with whichever standard parser is present (Qiskit,
+        # else Qibo) and rebuild it as a PennyLane QuantumTape through Qdislib's DAG.
+        from Qdislib.utils.backends import convert_to_dag, num_qubits as _num_qubits
+        from Qdislib.utils.graph_pennylane import (
+            _apply_pennylane_gate,
+            dag_to_circuit_pennylane,
+        )
+
+        try:
+            base = from_qasm(qasm, software="qiskit")
+        except ImportError:
+            base = from_qasm(qasm, software="qibo")
+        ops = dag_to_circuit_pennylane(convert_to_dag(base), _num_qubits(base))[0].ops
+        with qml.tape.QuantumTape() as tape:
+            for gate, qubits, params in ops:
+                _apply_pennylane_gate(gate, qubits, params)
+        return tape
+    raise ValueError(
+        f"Unknown software {software!r}; expected 'qibo', 'qiskit' or 'pennylane'."
+    )
 
 
 def analytical_solution(circuit: typing.Any, observables: str) -> float:

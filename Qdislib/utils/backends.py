@@ -31,6 +31,7 @@ import logging
 from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
 from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
 from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
+from Qdislib.utils.graph_pennylane import circuit_pennylane_to_dag, PennylaneCircuit
 from Qdislib.utils.runtime import task, compss_wait_on, pycompss_available
 from Qdislib.utils.circuit_cache import (
     semantic_key,
@@ -55,6 +56,12 @@ try:
     from cudaq.kernel.kernel_decorator import PyKernelDecorator
 except ImportError:
     PyKernelDecorator = type("PyKernelDecorator", (), {})
+try:
+    from pennylane.tape import QuantumScript as PennylaneScript
+    from pennylane import QNode as PennylaneQNode
+except ImportError:
+    PennylaneScript = type("PennylaneScript", (), {})
+    PennylaneQNode = type("PennylaneQNode", (), {})
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +80,8 @@ _CIRCUIT_TO_DAG = {
     QuantumCircuit: circuit_qiskit_to_dag,
     QiboCircuit: circuit_qibo_to_dag,
     PyKernelDecorator: circuit_cudaq_to_dag,
+    PennylaneScript: circuit_pennylane_to_dag,
+    PennylaneQNode: circuit_pennylane_to_dag,
 }
 
 
@@ -236,6 +245,14 @@ def iter_gates(circuit):
             (data["gate"].upper(), tuple(data["qubits"]))
             for _, data in dag.nodes(data=True)
         ]
+    if isinstance(circuit, (PennylaneScript, PennylaneQNode)):
+        # Reuse the PennyLane converter so the canonical (normalised) gate names
+        # and node/gate order match circuit_pennylane_to_dag's indexing.
+        dag = circuit_pennylane_to_dag(circuit)
+        return [
+            (data["gate"].upper(), tuple(data["qubits"]))
+            for _, data in dag.nodes(data=True)
+        ]
     raise TypeError(
         f"Unsupported circuit type for gate iteration: {type(circuit).__name__}"
     )
@@ -269,12 +286,14 @@ def _materialize(dag, num_qubits, software):
     from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
     from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
     from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
+    from Qdislib.utils.graph_pennylane import dag_to_circuit_pennylane
     from Qdislib.utils.exceptions import UnsupportedBackendError
 
     builders = {
         "qibo": dag_to_circuit_qibo,
         "qiskit": dag_to_circuit_qiskit,
         "cudaq": dag_to_circuit_cudaq_kernel,
+        "pennylane": dag_to_circuit_pennylane,
     }
     if software not in builders:
         raise UnsupportedBackendError(
@@ -321,10 +340,10 @@ def make_subcircuit(dag, num_qubits, software):
     """
     from Qdislib.utils.exceptions import UnsupportedBackendError
 
-    if software not in ("qibo", "qiskit", "cudaq"):
+    if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
         raise UnsupportedBackendError(
             f"Unsupported software backend: '{software}'. "
-            "Expected one of ['qibo', 'qiskit', 'cudaq']."
+            "Expected one of ['qibo', 'qiskit', 'cudaq', 'pennylane']."
         )
     if pycompss_available:
         # The DAG/qubit count come from @task helpers (e.g. _update_qubits), so
@@ -363,6 +382,7 @@ def _run_native(circuit, software, shots):
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _expec_value_qibo,
         _expec_value_cudaq,
+        _expec_value_pennylane,
     )
     from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
 
@@ -370,6 +390,8 @@ def _run_native(circuit, software, shots):
         return _expec_value_qibo(circuit, shots)
     if software == "qiskit":
         return _expec_value_qiskit(circuit, shots)
+    if software == "pennylane":
+        return _expec_value_pennylane(circuit, shots)
     return _expec_value_cudaq(circuit, shots)
 
 
@@ -398,6 +420,10 @@ def _unpack_native(subcircuit):
         software = "qiskit"
         if observables is None:
             observables = "Z" * payload.num_qubits
+    elif isinstance(payload, PennylaneCircuit):
+        software = "pennylane"
+        if observables is None:
+            observables = "Z" * payload.num_qubits
     else:
         software = "cudaq"
     return payload, observables, software
@@ -408,6 +434,7 @@ def _simulate_counts(circuit, software, shots):
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _counts_qibo,
         _counts_cudaq,
+        _counts_pennylane,
     )
     from Qdislib.core.cutting_algorithms.gate_cutting import _counts_qiskit
 
@@ -415,6 +442,8 @@ def _simulate_counts(circuit, software, shots):
         return _counts_qibo(circuit, shots)
     if software == "qiskit":
         return _counts_qiskit(circuit, shots)
+    if software == "pennylane":
+        return _counts_pennylane(circuit, shots)
     return _counts_cudaq(circuit, shots)
 
 
@@ -423,6 +452,7 @@ def _expectation_from_counts(counts, observables, software, shots):
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _expectation_from_counts_qibo,
         _expectation_from_counts_cudaq,
+        _expectation_from_counts_pennylane,
     )
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _expectation_from_counts_qiskit,
@@ -432,6 +462,8 @@ def _expectation_from_counts(counts, observables, software, shots):
         return _expectation_from_counts_qibo(counts, observables, shots)
     if software == "qiskit":
         return _expectation_from_counts_qiskit(counts, observables, shots)
+    if software == "pennylane":
+        return _expectation_from_counts_pennylane(counts, observables, shots)
     return _expectation_from_counts_cudaq(counts, observables, shots)
 
 
@@ -543,6 +575,14 @@ def _cut_point_fingerprint(circuit, software):
                 tuple(circuit.find_bit(q).index for q in inst.qubits)
                 for inst in circuit.data
                 if inst.operation.name == "measure"
+            )
+            return ";".join(str(m) for m in marks)
+        if software == "pennylane":
+            # A gate-cut PennylaneCircuit carries the collapse points as MEASURE ops.
+            marks = sorted(
+                tuple(qubits)
+                for gate, qubits, _params in circuit.ops
+                if gate.upper() == "MEASURE"
             )
             return ";".join(str(m) for m in marks)
     except Exception:  # a fingerprint helper must never break the computation
@@ -688,6 +728,7 @@ def expectation_value(subcircuit, shots=1024, cache=None, cache_mode="expectatio
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _expec_value_qibo,
         _expec_value_cudaq,
+        _expec_value_pennylane,
     )
     from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
 
@@ -703,6 +744,8 @@ def expectation_value(subcircuit, shots=1024, cache=None, cache_mode="expectatio
         return _expec_value_qibo(subcircuit, shots)
     if isinstance(payload, QuantumCircuit):
         return _expec_value_qiskit(subcircuit, shots)
+    if isinstance(payload, PennylaneCircuit):
+        return _expec_value_pennylane(subcircuit, shots)
     # CUDA-Q: a built kernel or a legacy ``(dag, num_qubits)`` payload.
     return _expec_value_cudaq(subcircuit, shots)
 

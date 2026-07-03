@@ -132,7 +132,7 @@ cutting and the reconstruction. This enables:
 
 The returned ``subcircuits`` object behaves like a list of subcomponents (so it
 can be iterated, indexed and executed independently using Qibo, Qiskit, CUDA-Q,
-or submitted to QPUs) and additionally carries the cut metadata needed by
+PennyLane, or submitted to QPUs) and additionally carries the cut metadata needed by
 :meth:`~Qdislib.utils.backends.CutSubcircuits.reconstruct`.
 
 If you prefer a single call, ``qd.gate_cutting(...)`` / ``qd.wire_cutting(...)``

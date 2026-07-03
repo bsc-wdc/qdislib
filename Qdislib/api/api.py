@@ -30,6 +30,7 @@ from Qdislib.utils.circuit import *
 from Qdislib.utils.graph_qibo import *
 from Qdislib.utils.graph_qiskit import *
 from Qdislib.utils.graph_cudaq import *
+from Qdislib.utils.graph_pennylane import *
 from Qdislib.utils.backends import *
 from Qdislib.utils.circuit_cache import *
 from Qdislib.utils.logging_config import *

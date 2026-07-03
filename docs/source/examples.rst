@@ -4,7 +4,7 @@ Examples
 A hands-on **learning path** — the notebooks build on each other, so read them
 in order. Each is self-contained (its own imports and example circuit) and the
 core ones run serially with just a Qibo install; later notebooks introduce
-alternative backends (Qiskit / CUDA-Q), sampling, caching, and distribution.
+alternative backends (Qiskit / CUDA-Q / PennyLane), sampling, caching, and distribution.
 
 .. toctree::
    :maxdepth: 2

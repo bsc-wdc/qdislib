@@ -76,6 +76,14 @@ Qdislib.utils.graph\_cudaq module
    :undoc-members:
    :show-inheritance:
 
+Qdislib.utils.graph\_pennylane module
+-------------------------------------
+
+.. automodule:: Qdislib.utils.graph_pennylane
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

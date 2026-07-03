@@ -56,6 +56,14 @@ except ImportError:
     cudaq = None
     cudaq_available = False
 
+try:
+    import pennylane as qml
+
+    pennylane_available = True
+except ImportError:  # pennylane is optional; functions that need it fail when called
+    qml = None
+    pennylane_available = False
+
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 
 from Qdislib.utils.graph_qibo import (
@@ -64,6 +72,10 @@ from Qdislib.utils.graph_qibo import (
     _remove_red_edges,
 )
 from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
+from Qdislib.utils.graph_pennylane import (
+    _apply_pennylane_gate,
+    _build_pennylane_qnode,
+)
 
 
 from Qdislib.utils.backends import (
@@ -1136,6 +1148,171 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> flo
     return _expectation_from_counts_cudaq(freq, observables, shots)
 
 
+def _counts_pennylane(circuit, shots=1024, device="default.qubit", seed=None):
+    """Sample a PennyLane subcircuit and return its measurement counts.
+
+    Builds a QNode on ``device`` that replays the subcircuit's gates and returns
+    ``qml.counts`` over all wires -- PennyLane's own execution path.
+
+    :param circuit: A :class:`~Qdislib.utils.graph_pennylane.PennylaneCircuit`.
+    :param shots: Number of measurement shots.
+    :param device: PennyLane device short name.
+    :param seed: Optional RNG seed.
+    :return: A ``{bitstring: count}`` dict with **qubit-0-first** keys.
+    """
+    ops, num_qubits = circuit.ops, circuit.num_qubits
+
+    def qfunc():
+        for gate, qubits, params in ops:
+            _apply_pennylane_gate(gate, qubits, params)
+        return qml.counts(wires=range(num_qubits))
+
+    qnode = _build_pennylane_qnode(qfunc, num_qubits, shots, device, seed)
+    raw = qnode()
+    return {str(key): int(value) for key, value in raw.items()}
+
+
+def _expectation_from_counts_pennylane(freq, observables, shots=1024):
+    """Compute ``<O>`` for a Z/I Pauli string from PennyLane measurement counts.
+
+    PennyLane ``counts`` keys are qubit-0-first bit strings, so they align
+    directly with the observable string (like Qibo/CUDA-Q).
+
+    :param freq: A ``{bitstring: count}`` dict as returned by :func:`_counts_pennylane`.
+    :param observables: Per-qubit Pauli string over ``{I, Z}``.
+    :param shots: Number of shots the counts were drawn from.
+    :raises ValueError: If an unsupported observable character is encountered.
+    :return: The expectation value.
+    """
+    expectation_value = 0
+    for key, value in freq.items():
+        contribution = 1
+        for bit, obs in zip(key, observables):
+            if obs == "Z":
+                contribution *= (-1) ** int(bit)
+            elif obs == "I":
+                contribution *= 1
+            else:
+                raise ValueError(f"Unsupported observable {obs}")
+        expectation_value += contribution * (value / shots)
+    return expectation_value
+
+
+def _expectation_from_samples_pennylane(
+    circuit, observables, shots, prep_qubits, device="default.qubit", seed=None
+):
+    """Decoupled ``<O>`` for PennyLane gate-cut subcircuits with identity on a cut qubit.
+
+    Mirrors :func:`_expectation_from_samples_qibo`. A cut qubit measured for the
+    decomposition (a ``MEASURE`` node -> ``qml.measure``, collapse-and-continue)
+    carries a sign normally read off its final measurement; when the user observes
+    it with identity, the sign is recovered from the *cut-point* outcome ``m`` as
+    ``-(-1)**m`` instead. This needs per-shot samples (final measurements and the
+    mid-circuit ``MeasurementValue``, kept correlated by one QNode execution).
+
+    :param circuit: A :class:`~Qdislib.utils.graph_pennylane.PennylaneCircuit`.
+    :param observables: Per-qubit Pauli string over ``{I, Z}`` (qubit-0-first).
+    :param shots: Number of measurement shots.
+    :param prep_qubits: Renumbered qubits measured for the cut.
+    :param device: PennyLane device short name.
+    :param seed: Optional RNG seed.
+    :raises ValueError: If an unsupported observable character is encountered.
+    :return: The expectation value.
+    """
+    ops, num_qubits = circuit.ops, circuit.num_qubits
+    # Collapse-measured qubits, in circuit order (matches the sample-return order).
+    collapse_order = []
+    for gate, qubits, _params in ops:
+        if gate.upper() == "MEASURE":
+            for qubit in qubits:
+                if qubit not in collapse_order:
+                    collapse_order.append(qubit)
+
+    def qfunc():
+        mids = {}
+        for gate, qubits, params in ops:
+            value = _apply_pennylane_gate(gate, qubits, params)
+            if value is not None:  # a MEASURE returns its MeasurementValue
+                mids[qubits[0]] = value
+        # Finals for every qubit, then each cut-point outcome -- one execution keeps
+        # them correlated per shot (built here so the MeasurementValues are in scope).
+        return [qml.sample(wires=range(num_qubits))] + [
+            qml.sample(mids[qubit]) for qubit in collapse_order
+        ]
+
+    qnode = _build_pennylane_qnode(qfunc, num_qubits, shots, device, seed)
+    out = qnode()
+    final = np.asarray(out[0]).reshape(shots, num_qubits)  # (shots, n), qubit-0-first
+    mid_samples = {
+        qubit: np.asarray(out[1 + i]).ravel()
+        for i, qubit in enumerate(collapse_order)
+    }
+
+    contribution = np.ones(shots)
+    for qubit, obs in enumerate(observables):
+        if qubit in prep_qubits and qubit in mid_samples:
+            # Measured cut qubit: the (I +/- Z)/2 projector contributes the
+            # decomposition sign -(-1)**m from the cut-point outcome m for *any*
+            # observable; Z then multiplies by the final measurement.
+            contribution *= -((-1.0) ** mid_samples[qubit])
+            if obs == "Z":
+                contribution *= (-1.0) ** final[:, qubit]
+            elif obs != "I":
+                raise ValueError(f"Unsupported observable {obs}")
+        elif obs == "Z":
+            contribution *= (-1.0) ** final[:, qubit]
+        elif obs == "I":
+            continue
+        else:
+            raise ValueError(f"Unsupported observable {obs}")
+    return float(contribution.mean())
+
+
+def _expec_value_pennylane(subcirc, shots=1024, prep_qubits=None, device="default.qubit"):
+    """Execute a PennyLane subcircuit and return its expectation value.
+
+    :param subcirc: A :class:`~Qdislib.utils.graph_pennylane.PennylaneCircuit`, or
+        a ``[PennylaneCircuit, observables]`` pair.
+    :param shots: Number of measurement shots.
+    :param prep_qubits: Renumbered cut qubits measured for a gate cut; when any is
+        observed with identity, its decomposition sign is recovered from the
+        cut-point measurement (see :func:`_expectation_from_samples_pennylane`).
+        Auto-detected from the subcircuit's ``MEASURE`` nodes when ``None`` (the
+        three-step workflow), matching the Qibo/CUDA-Q evaluators.
+    :param device: PennyLane device short name.
+    :return: The circuit expectation value.
+    """
+    if subcirc is None:
+        return None
+
+    if (
+        isinstance(subcirc, (list, tuple))
+        and len(subcirc) == 2
+        and isinstance(subcirc[1], str)
+    ):
+        circuit, observables = subcirc[0], subcirc[1]
+    else:
+        circuit, observables = subcirc, "Z" * subcirc.num_qubits
+
+    if prep_qubits is None:
+        prep_qubits = sorted(
+            {
+                qubit
+                for gate, qubits, _params in circuit.ops
+                if gate.upper() == "MEASURE"
+                for qubit in qubits
+            }
+        )
+
+    if prep_qubits:
+        return _expectation_from_samples_pennylane(
+            circuit, observables, shots, set(prep_qubits), device
+        )
+
+    freq = _counts_pennylane(circuit, shots, device)
+    return _expectation_from_counts_pennylane(freq, observables, shots)
+
+
 # Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     """Evaluate a subcircuit on a BSC QPU via the shared-filesystem bridge.
@@ -1290,6 +1467,7 @@ def wire_cutting_subcircuits(
         "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
         "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
         "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
+        "pennylane": lambda d, n: make_subcircuit(d, n, "pennylane"),
     }
 
     if networkx.number_connected_components(dag.to_undirected()) > 1:
@@ -1383,10 +1561,10 @@ def _generate_wire_cutting_subcircuits(
         dag.add_edge(source, f"O_{index}", color="blue")
         dag.add_edge(f"PS_{index}", target, color="blue")
 
-    if software not in ("qibo", "qiskit", "cudaq"):
+    if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
         raise UnsupportedBackendError(
             f"Unsupported software backend: '{software}'. "
-            "Expected one of ['qibo', 'qiskit', 'cudaq']."
+            "Expected one of ['qibo', 'qiskit', 'cudaq', 'pennylane']."
         )
 
     # Each subcircuit is *created* in its own task (_make_subcircuit_task), separate

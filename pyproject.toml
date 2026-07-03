@@ -66,6 +66,7 @@ qiskit = [
   "qiskit-ibm-runtime>=0.20.0",   # only needed for the IBM Quantum QPU path
 ]
 cudaq = ["cudaq"]   # unpinned: the cudaq meta-package selects a CUDA/CPU variant per platform, and a hard pin can request an unpublished one
+pennylane = ["pennylane<0.40"]   # <0.40 keeps numpy<2 so it coexists with the qibo extra in [all]; PennyLane >=0.40 requires numpy>=2 (lift once the qibo pin above can)
 iqm = ["qiskit-iqm"]   # IQM hardware backend (Qdislib.core.backend.iqm_backend)
 # Semantic circuit cache (Qdislib.utils.circuit_cache): pyzx computes the
 # ZX/Weisfeiler-Lehman key; lmdb is the persistent on-disk store. The BSC
@@ -75,7 +76,7 @@ cache = ["pyzx", "lmdb"]
 # side. Deliberately NOT in `all`: qililab is only needed on the QPU host, and
 # the classical/CI side imports Qdislib without it.
 qpu = ["qililab"]
-all = ["Qdislib[qibo,qiskit,cudaq,cache]"]
+all = ["Qdislib[qibo,qiskit,cudaq,pennylane,cache]"]
 ci = [
   "pycodestyle",
   "pydocstyle",

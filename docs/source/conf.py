@@ -107,6 +107,7 @@ autodoc_mock_imports = [
     "qiskit_addon_cutting",
     "qiskit_ibm_runtime",
     "cudaq",
+    "pennylane",
     "pymetis",
 ]
 autodoc_preserve_defaults = True

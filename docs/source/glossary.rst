@@ -10,7 +10,7 @@ Qdislib's documentation:
 
     backend
       the execution target Qdislib runs a :term:`subcircuit` on -- a CPU simulator
-      (Qibo / Qiskit / CUDA-Q), a GPU, or a real :term:`quantum processing unit`.
+      (Qibo / Qiskit / CUDA-Q / PennyLane), a GPU, or a real :term:`quantum processing unit`.
       Selected per call with the ``software`` / ``gpu`` / ``qpu`` arguments.
 
     circuit cutting
