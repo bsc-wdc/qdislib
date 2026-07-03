@@ -15,6 +15,7 @@ Module contents
 ---------------
 
 .. automodule:: Qdislib
-   :members:
-   :undoc-members:
-   :show-inheritance:
+
+.. The public API is documented on the subpackage pages linked above; listing
+   ``:members:`` here as well double-documents everything now that ``Qdislib``
+   defines ``__all__`` and produces ambiguous cross-references.
