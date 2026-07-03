@@ -33,3 +33,66 @@ from Qdislib.utils import logging_config as _logging_config
 _logging_config._init_from_env()
 
 from Qdislib.api import *
+
+# Curated public surface. This is what `from Qdislib import *`, tab-completion and
+# the generated docs advertise; internal plumbing (DAG converters, job/cache
+# strategy objects, the QPU listener, module aliases) stays reachable via explicit
+# attribute access but is kept out of the public namespace. Keep grouped by role.
+__all__ = [
+    # Cutting algorithms -- all-in-one.
+    "gate_cutting",
+    "wire_cutting",
+    # Cutting -- explicit subcircuits + reconstruction (the three-step workflow).
+    "gate_cutting_subcircuits",
+    "gate_cutting_subcircuit_reconstruction",
+    "wire_cutting_subcircuits",
+    "wire_cutting_subcircuit_reconstruction",
+    # Cutting -- sampling-based reconstruction.
+    "gate_cutting_sampling",
+    "gate_cutting_sampling_subcircuits",
+    "gate_cutting_sampling_reconstruction",
+    "wire_cutting_sampling",
+    "wire_cutting_sampling_subcircuits",
+    # Subcircuit containers.
+    "Subcircuit",
+    "CutSubcircuits",
+    "SampledCutSubcircuits",
+    "WireSampledCutSubcircuits",
+    # Executing subcircuits / evaluating observables.
+    "expectation_value",
+    "sample_subcircuit",
+    "analytical_solution",
+    # Finding and inspecting cuts.
+    "find_cut",
+    "draw_cut",
+    "cut_cost",
+    # Cost estimation.
+    "estimate",
+    # Execution backends.
+    "available_backends",
+    "build_backend",
+    "build_execution_backend",
+    "register_backend",
+    "QdBackEnd",
+    "BaseBackend",
+    "BackendConfig",
+    # Semantic circuit cache.
+    "default_circuit_cache",
+    "semantic_key",
+    "CircuitCache",
+    "InMemoryCircuitCache",
+    "LMDBCircuitCache",
+    "RedisCircuitCache",
+    # Circuit I/O.
+    "from_qasm",
+    # Graph helpers.
+    "generate_random_graph",
+    # Logging.
+    "set_log_level",
+    # Exceptions.
+    "QdislibException",
+    "UnsupportedBackendError",
+    "InvalidCutError",
+    "QPUExecutionError",
+    "QPUTimeoutError",
+]
