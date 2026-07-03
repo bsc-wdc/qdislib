@@ -21,6 +21,7 @@ docs build (PyCOMPSs, CUDA-Q, IBM Quantum, the BSC QPU bridge) are tagged
 build time anyway.
 """
 
+import hashlib
 import os
 
 import nbformat as nbf
@@ -1654,6 +1655,16 @@ def main():
     def write_all(collection, out_dir):
         os.makedirs(out_dir, exist_ok=True)
         for name, cells in collection.items():
+            # Deterministic cell ids: nbformat assigns a random id per cell on
+            # write, which would re-diff every notebook on every regenerate.
+            # Derive a stable id from the cell's content instead (a per-notebook
+            # counter disambiguates the rare identical-source collision).
+            seen = {}
+            for cell in cells:
+                digest = hashlib.sha1(f"{name}:{cell.source}".encode()).hexdigest()[:8]
+                dupe = seen.get(digest, 0)
+                seen[digest] = dupe + 1
+                cell["id"] = digest if not dupe else f"{digest}{dupe}"
             notebook = new_notebook(cells=cells, metadata=metadata)
             path = os.path.join(out_dir, f"{name}.ipynb")
             with open(path, "w") as handle:
