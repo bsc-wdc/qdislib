@@ -336,7 +336,7 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
     return clusters, cut_edges
 
 
-def _score_candidates(candidates, weights=None):
+def _score_candidates(candidates, weights=None, forbidden=None):
     """Pick the lowest-scoring partitioning candidate.
 
     Each candidate maps a method name to a ``(partition, cut_set)`` pair produced
@@ -349,6 +349,9 @@ def _score_candidates(candidates, weights=None):
 
     :param candidates: Ordered mapping ``{name: (partition, cut_set)}``.
     :param weights: Optional overrides for the ``w1``/``w2``/``w3`` coefficients.
+    :param forbidden: Gate identifiers the user forbade cutting; any candidate
+        whose cut-set touches one is discarded, so the winner is the best cut that
+        respects the constraint (or ``[]`` if none does).
     :return: ``(best_cut_set, best_score, best_partition)`` for the winner.
 
     Candidate scores are logged at DEBUG level (``qd.set_log_level("DEBUG")``).
@@ -357,12 +360,16 @@ def _score_candidates(candidates, weights=None):
     w1 = weights.get("w1", 100)  # cut size            (minimize)
     w2 = weights.get("w2", -1)  # number of components (maximize)
     w3 = weights.get("w3", 1)  # largest component   (minimize -> balance)
+    forbidden = set(forbidden or ())
     logger.debug("Using weights: w1=%s, w2=%s, w3=%s", w1, w2, w3)
 
     best_score = float("inf")
     best_cut_set = []
     best_partition = []
     for name, (partition, cut_set) in candidates.items():
+        if forbidden and forbidden.intersection(cut_set):
+            logger.debug("%s: skipped (cuts a forbidden gate)", name)
+            continue
         largest_component = max(
             [len(component) for component in partition] + [float("-inf")]
         )
@@ -464,6 +471,7 @@ def _find_cut_gate(
     max_components=None,
     weights=None,
     seed=None,
+    forbidden_gates=None,
 ):
     """Find the best *gate* cut for ``circuit`` by partitioning its qubit graph.
 
@@ -500,7 +508,9 @@ def _find_cut_gate(
         ),
     }
 
-    best_cut, best_score, _ = _score_candidates(candidates, weights)
+    best_cut, best_score, _ = _score_candidates(
+        candidates, weights, forbidden=forbidden_gates
+    )
     logger.debug("Best gate cut: %s (score %s)", best_cut, best_score)
     return best_cut, best_score
 
@@ -513,6 +523,7 @@ def _find_cut_wire(
     max_components=None,
     weights=None,
     seed=None,
+    forbidden_gates=None,
 ):
     """Find the best *wire* cut for ``circuit`` by partitioning its gate graph.
 
@@ -550,7 +561,9 @@ def _find_cut_wire(
         ),
     }
 
-    cut_set, best_score, _ = _score_candidates(candidates, weights)
+    cut_set, best_score, _ = _score_candidates(
+        candidates, weights, forbidden=forbidden_gates
+    )
 
     # Refine each cut pair into a concrete wire cut: locate a gate between the
     # two endpoints that shares a qubit with both, and cut just after it.
@@ -585,6 +598,7 @@ def find_cut(
     implementation="qdislib",
     weights=None,
     seed=None,
+    forbidden_gates=None,
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
@@ -632,6 +646,12 @@ def find_cut(
         Seed for the randomised partitioning strategies (Kernighan-Lin and spectral
         clustering). Pass an integer for a reproducible cut; the default (``None``)
         keeps the previous non-deterministic behaviour. Only affects the
+        ``implementation="qdislib"`` path.
+
+    forbidden_gates : list of str, optional
+        Gate identifiers (e.g. ``["CZ_3"]``) that must **not** be cut. Candidate
+        cuts touching any of them are discarded, so the result is the best cut that
+        leaves those gates intact (or ``[]`` if none does). Only affects the
         ``implementation="qdislib"`` path.
 
     Diagnostic details about the partitioning process are logged at DEBUG level;
@@ -687,6 +707,7 @@ def find_cut(
                 max_components=max_components,
                 weights=weights,
                 seed=seed,
+                forbidden_gates=forbidden_gates,
             )
 
         if wire_cut:
@@ -697,6 +718,7 @@ def find_cut(
                 max_components=max_components,
                 weights=weights,
                 seed=seed,
+                forbidden_gates=forbidden_gates,
             )
 
         if gate_cut and wire_cut:
