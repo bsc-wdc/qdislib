@@ -1,31 +1,117 @@
-/*
- * Qdislib brand polish on top of the Furo theme. Furo already handles
- * typography, layout and the light/dark toggle; these are small accents that
- * use Furo's own CSS variables, so they adapt to both colour modes.
- */
+/* =====================================================================
+ * Qdislib docs — the previous purple + teal identity, adapted onto Furo.
+ * Same colours as the old theme (deep purple #603E63, teal #13676B, lilac
+ * #f8d3ff, ink #063862), with Furo's structure + a little motion.
+ * ===================================================================== */
 
-/* Keep the (portrait) logo a sensible size at the top of the sidebar. */
-.sidebar-logo {
-    max-width: 68%;
-    margin: 0.6rem auto 0.3rem;
+:root {
+    --qd-purple: #603e63; /* deep brand purple (previous h1 colour)   */
+    --qd-teal: #13676b; /* teal heading bars (previous h2 colour)  */
+    --qd-lilac: #f8d3ff; /* light-purple signature panel            */
+    --qd-ink: #063862; /* deep navy text on the lilac panel       */
 }
 
-/* API signatures: a subtle brand-tinted panel with a left accent bar,
- * instead of the plain run of bold text. */
+/* Purple brand accent for links (light + dark). */
+body {
+    --color-brand-primary: #7a4f8a;
+    --color-brand-content: #6b4577;
+}
+body[data-theme="dark"] {
+    --color-brand-primary: #d9b3e6;
+    --color-brand-content: #d9b3e6;
+}
+
+/* h1 in brand purple. */
+article h1 {
+    color: var(--qd-purple);
+    font-weight: 800;
+}
+body[data-theme="dark"] article h1 {
+    color: #d9b3e6;
+}
+
+/* h2: the teal bar from the previous style, rounded to fit Furo. */
+article h2 {
+    background: var(--qd-teal);
+    color: #f4f6f8;
+    padding: 0.5rem 0.9rem;
+    border-radius: 8px;
+    margin-top: 2.2rem;
+}
+article h2 a.headerlink {
+    color: rgba(255, 255, 255, 0.65);
+}
+
+/* h3: a teal underline echoes the bars without repeating the block. */
+article h3 {
+    color: var(--qd-teal);
+    border-bottom: 2px solid var(--qd-teal);
+    padding-bottom: 0.15rem;
+}
+body[data-theme="dark"] article h3 {
+    color: #6fc4c9;
+    border-bottom-color: #6fc4c9;
+}
+
+/* API signatures: the light-purple panel from the previous style. */
 dl.py > dt.sig,
 dt.sig-object {
-    background: var(--color-background-secondary);
-    border-left: 3px solid var(--color-brand-primary);
+    background: var(--qd-lilac);
+    color: var(--qd-ink);
+    border-left: 4px solid var(--qd-purple);
     border-radius: 4px;
-    padding: 0.45rem 0.7rem;
+    padding: 0.5rem 0.7rem;
 }
 
-/* Landing-page cards (sphinx-design): a gentle hover lift + brand accent. */
+/* Sidebar logo: a soft purple/teal tint + a subtle hover. */
+.sidebar-logo-container {
+    background: linear-gradient(
+        160deg,
+        rgba(96, 62, 99, 0.1),
+        rgba(19, 103, 107, 0.1)
+    );
+    border-radius: 12px;
+    margin: 0.4rem 0.6rem;
+    padding: 0.4rem 0;
+}
+.sidebar-logo {
+    max-width: 66%;
+    margin: 0.4rem auto 0.2rem;
+    transition: transform 0.25s ease;
+}
+.sidebar-logo:hover {
+    transform: scale(1.04);
+}
+
+/* Landing cards: alternate the two brand colours; lift on hover. */
 .sd-card {
-    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    border-top: 4px solid var(--qd-purple);
+    border-radius: 10px;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.sd-row > *:nth-child(2n) .sd-card {
+    border-top-color: var(--qd-teal);
 }
 .sd-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-    border-color: var(--color-brand-primary);
+    transform: translateY(-6px);
+    box-shadow: 0 12px 28px rgba(96, 62, 99, 0.26);
+}
+
+/* Gallery thumbnails lift on hover too. */
+.nbsphinx-gallery > a {
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+    border-radius: 10px;
+}
+.nbsphinx-gallery > a:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 26px rgba(19, 103, 107, 0.22);
+}
+
+/* Respect reduced-motion preferences. */
+@media (prefers-reduced-motion: reduce) {
+    .sidebar-logo,
+    .sd-card,
+    .nbsphinx-gallery > a {
+        transition: none;
+    }
 }
