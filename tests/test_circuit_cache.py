@@ -77,6 +77,19 @@ class CacheStoreTest(BaseTimedTestCase):
         self.assertIn("k", cache)
         self.assertEqual(len(cache), 1)
 
+    def test_in_memory_lru_eviction(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        cache = InMemoryCircuitCache(max_entries=2)
+        cache.put("a", 1)
+        cache.put("b", 2)
+        cache.get("a")  # touch 'a' so 'b' becomes least-recently-used
+        cache.put("c", 3)  # over the cap -> evict the LRU entry ('b')
+        self.assertEqual(len(cache), 2)
+        self.assertIsNone(cache.get("b"))
+        self.assertEqual(cache.get("a"), 1)
+        self.assertEqual(cache.get("c"), 3)
+
     def test_default_cache_backend_selection(self):
         from Qdislib.utils.circuit_cache import (
             default_circuit_cache,
