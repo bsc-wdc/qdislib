@@ -194,6 +194,16 @@ class FindCutModesTest(BaseTimedTestCase):
         )
         self.assertFalse(set(avoided) & set(base))
 
+    def test_top_n_ranks_candidates(self):
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        ranked = find_cut(self._circuit(), seed=0, top_n=3)
+        self.assertIsInstance(ranked, list)
+        self.assertLessEqual(len(ranked), 3)
+        self.assertTrue(all(set(c) == {"cut", "kind", "score"} for c in ranked))
+        scores = [c["score"] for c in ranked]
+        self.assertEqual(scores, sorted(scores))  # best score first
+
     def test_forbidden_qubits_are_not_cut(self):
         from Qdislib.core.find_cut.find_cut import find_cut
         from Qdislib.utils.backends import iter_gates
