@@ -89,9 +89,7 @@ class IQMBackend(BaseBackend):
         counts = self.backend.run(prepared, shots=shots).result().get_counts()
 
         if isinstance(observable, str):
-            # Qdislib observable strings are qubit-0-first; reverse to little-endian
-            # so char i pairs with qubit i against the little-endian counts below.
-            paulis, coeffs = [observable[::-1]], [1.0]
+            paulis, coeffs = [CircuitConverter.to_qiskit_pauli(observable)], [1.0]
         elif isinstance(observable, SparsePauliOp):
             simplified = observable.simplify()
             paulis = list(simplified.paulis)

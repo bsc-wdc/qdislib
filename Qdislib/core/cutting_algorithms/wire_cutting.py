@@ -1151,35 +1151,15 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
 @task(returns=1, expectation_value=COLLECTION_IN)
 def _change_sign(expectation_value, index):
-    """Get the product of all expected values and apply change of sign if necessary.
+    """Signed product of subcircuit values for one wire-cut term (base 8, {3, 5, 7}).
 
-    :param expectation_value: List of expected values.
-    :param index: Number to be used to determine if the sign has to be changed.
-    :return: The expected value.
+    See :func:`Qdislib.core.cutting_algorithms._reconstruction.signed_product`.
     """
-    # Resolve here (on the worker), not on the master before the call, so the
-    # subcircuit futures feed straight into this task -- no barrier between
-    # _build_and_run_subcircuit / _evaluate_subcircuit and the sign step.
-    # _resolve_value is a no-op unless a value is a semantic-cache placeholder.
-    from Qdislib.utils.circuit_cache import _resolve_value
+    # Resolved and reduced on the worker (not the master), so the subcircuit
+    # futures feed straight into this task -- no barrier before the sign step.
+    from Qdislib.core.cutting_algorithms._reconstruction import signed_product
 
-    expectation_value = [_resolve_value(x) for x in expectation_value if x is not None]
-    expectation_value = math.prod(expectation_value)
-    number = index
-
-    sign_change = False
-
-    while number != 0:
-        digit = number % 8  # Get the last digit
-        if digit in {3, 5, 7}:  # Check if the digit is 3, 5, or 7
-            sign_change = not sign_change  # Flip the sign change flag
-        number //= 8  # Move to the next digit
-
-    # If _change_sign is True, we flip the sign of the original number
-    if sign_change:
-        return -expectation_value
-    else:
-        return expectation_value
+    return signed_product(expectation_value, index, 8, {3, 5, 7})
 
 
 def wire_cutting_subcircuits(

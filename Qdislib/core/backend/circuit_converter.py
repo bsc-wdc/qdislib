@@ -80,6 +80,18 @@ class CircuitConverter:
         raise TypeError(f"Cannot convert {type(circuit).__name__} to a Qibo circuit")
 
     @staticmethod
+    def to_qiskit_pauli(observable: str) -> str:
+        """Reorder a qubit-0-first Pauli string to Qiskit's little-endian labels.
+
+        Qdislib observable strings are qubit-0-first (char ``i`` acts on qubit
+        ``i``), matching the Qibo/CUDA-Q backends; a Qiskit ``Pauli`` /
+        ``SparsePauliOp`` label is little-endian (char 0 = highest qubit).
+        Reversing keeps the convention consistent across backends -- centralised
+        here so the Qiskit-family backends (Aer, IQM) cannot drift apart.
+        """
+        return observable[::-1]
+
+    @staticmethod
     def num_qubits(circuit: Any) -> int:
         """Qubit count for any supported circuit, including CUDA-Q payloads."""
         qk, qb = _qiskit_circuit(), _qibo_circuit()
