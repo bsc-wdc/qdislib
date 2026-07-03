@@ -1028,6 +1028,10 @@ NOTEBOOKS["08_vqe_h2"] = [
         "print(f'ground-state energy: {E_ground:.4f} Ha  at theta = {theta_opt:.3f}"
         "   (H2 ~ -1.137 Ha)')"
     ),
+    img_md(
+        "images/08_vqe_landscape.png",
+        "H2 VQE energy landscape: E(theta) dips to the exact ground energy",
+    ),
     md(
         "### 🔧 Your turn (1)\n"
         "\n"
@@ -1136,6 +1140,10 @@ NOTEBOOKS["09_scaling_up"] = [
         "it grows with the **number of cuts and terms**, not the circuit's qubit count. "
         "That's why a 25-qubit *lattice* (few terms) is cheaper than a 24-qubit "
         "*molecule* (~15,000 terms)."
+    ),
+    img_md(
+        "images/09_scaling.png",
+        "cut-reconstructed vs exact energy for H2 (4 qubits) and N2 (12 qubits)",
     ),
     md("## Start the PyCOMPSs runtime"),
     code(
