@@ -728,29 +728,15 @@ def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):
 # @constraint(processors=[{"processorType": "GPU", "computingUnits": "1"}])
 @task(returns=1, expectation_value=COLLECTION_IN)
 def _change_sign_gate_cutting(expectation_value, index):
-    # Resolve here (on the worker), not on the master before the call, so the
-    # subcircuit futures feed straight into this task -- no barrier between
-    # _evaluate_subcircuit / _build_and_run_gate_subcircuit and the sign step.
-    # _resolve_value is a no-op unless a value is a semantic-cache placeholder.
-    from Qdislib.utils.circuit_cache import _resolve_value
+    """Signed product of subcircuit values for one gate-cut term (base 6, {3, 5}).
 
-    expectation_value = [_resolve_value(x) for x in expectation_value if x is not None]
-    expectation_value = math.prod(expectation_value)
-    number = index
+    See :func:`Qdislib.core.cutting_algorithms._reconstruction.signed_product`.
+    """
+    # Resolved and reduced on the worker (not the master), so the subcircuit
+    # futures feed straight into this task -- no barrier before the sign step.
+    from Qdislib.core.cutting_algorithms._reconstruction import signed_product
 
-    change_sign = False
-
-    while number != 0:
-        digit = number % 6  # Get the last digit
-        if digit in {3, 5}:  # Check if the digit is 3, 5
-            change_sign = not change_sign  # Flip the sign change flag
-        number //= 6  # Move to the next digit
-
-    # If change_sign is True, we flip the sign of the original number
-    if change_sign:
-        return -expectation_value
-    else:
-        return expectation_value
+    return signed_product(expectation_value, index, 6, {3, 5})
 
 
 def _measured_cut_qubits(dag):
