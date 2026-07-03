@@ -705,6 +705,12 @@ def expectation_value(subcircuit, shots=1024, cache=None, cache_mode="expectatio
     if subcircuit is None:  # empty component produced by a cut; contributes nothing
         return None
 
+    # Optimized wire-cut measure probe: one circuit yields ALL its P/I observables
+    # (a dict), so a Z-basis measurement gives both <Z> and <I>. Detected by a
+    # duck-typed marker to avoid importing the wire-cutting module here.
+    if getattr(subcircuit, "_is_optimized_wire_measure", False):
+        return subcircuit.evaluate(shots)
+
     if cache is True:
         cache = default_circuit_cache()
 

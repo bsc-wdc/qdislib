@@ -130,8 +130,9 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         subs = qd.wire_cutting_subcircuits(
             circuit, _TWO_CUTS, software="qibo", optimized=True
         )
-        # Two cuts -> one measure + one prepare fragment: 4**2 + 4**2 = 32 subcircuits.
-        self.assertEqual(len(subs), 4**2 + 4**2)
+        # Two cuts -> one measure + one prepare fragment: 3**2 + 4**2 = 25 subcircuits
+        # (a Z-basis measure probe yields both <Z> and <I>, so the measure side is 3**n).
+        self.assertEqual(len(subs), 3**2 + 4**2)
         values = [qd.expectation_value(s, shots=40000) for s in subs]
         self.assertLess(abs(subs.reconstruct(values) - analytical), 0.15)
 
