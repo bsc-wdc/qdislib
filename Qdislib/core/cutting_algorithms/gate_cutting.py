@@ -512,10 +512,11 @@ def _assert_identity_observable_supported(cut_dag, software=None, gpu=False, qpu
 
     All three CPU backends (:data:`_IDENTITY_CUT_DECOUPLED`) recover that sign
     from the cut-point measurement (decoupling it from the final observable) and
-    handle this correctly, so the check is skipped for them on CPU. It still fires
-    for GPU/QPU evaluation paths and the 3-step subcircuit workflow (``software``
-    unset), which don't use the decoupled reconstruction -- raising rather than
-    returning a silently-wrong value.
+    handle this correctly -- both the all-in-one and the three-step subcircuit
+    workflows -- so the check is skipped for them on CPU (the workflow passes its
+    ``software`` here). It still fires for GPU and QPU evaluation paths, which
+    don't use the decoupled reconstruction -- raising rather than returning a
+    silently-wrong value.
 
     :param cut_dag: DAG after :func:`_generate_cut` (carries the ``SUBS*`` nodes).
     :param software: CPU-simulation backend that will evaluate the subcircuits.
@@ -548,10 +549,11 @@ def _assert_identity_observable_supported(cut_dag, software=None, gpu=False, qpu
                 f"This gate-cut path cannot honour an identity ('I') observable on "
                 f"cut qubit {cut_qubit}: it feeds a multi-qubit gate after the cut, "
                 f"so the cut's measure-and-prepare sign cannot be dropped. It is "
-                f"supported by the all-in-one gate_cutting() on CPU (qiskit, qibo, "
-                f"cudaq), which recovers the sign from the cut-point measurement; "
-                f"GPU/QPU and the subcircuit workflow do not yet. Use a CPU run, "
-                f"wire cutting, or a cut whose qubits are not measured with identity."
+                f"supported by gate_cutting() on CPU (qiskit, qibo, cudaq) -- both "
+                f"the all-in-one and three-step workflows -- which recovers the sign "
+                f"from the cut-point measurement; GPU and QPU paths do not yet. Use a "
+                f"CPU run, wire cutting, or a cut whose qubits are not measured with "
+                f"identity."
             )
 
 
