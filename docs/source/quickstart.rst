@@ -28,7 +28,7 @@ reconstruction.
     import Qdislib as qd
     from qibo import models, gates
 
-    # A small example circuit (works the same with Qiskit or CUDA-Q circuits).
+    # A small example circuit (works the same with Qiskit, CUDA-Q or PennyLane circuits).
     circuit = models.Circuit(2)
     circuit.add(gates.H(0))
     circuit.add(gates.CZ(0, 1))

@@ -112,6 +112,9 @@ try:
     from cudaq.kernel.kernel_decorator import PyKernelDecorator as _CudaqKernel
 except ImportError:
     _CudaqKernel = type("PyKernelDecorator", (), {})
+# PennylaneCircuit is a plain Qdislib data wrapper -- always importable, no
+# PennyLane install required to reference the class for type detection.
+from Qdislib.utils.graph_pennylane import PennylaneCircuit as _PennylaneCircuit
 
 
 __all__ = [
@@ -136,14 +139,51 @@ __all__ = [
 
 
 def _detect_software(circuit):
-    """Return ``"qibo"``/``"qiskit"``/``"cudaq"`` for a circuit, or ``None``."""
+    """Return ``"qibo"``/``"qiskit"``/``"cudaq"``/``"pennylane"`` for a circuit, or ``None``."""
     if isinstance(circuit, _QiboCircuit):
         return "qibo"
     if isinstance(circuit, _QiskitCircuit):
         return "qiskit"
     if isinstance(circuit, _CudaqKernel):
         return "cudaq"
+    if isinstance(circuit, _PennylaneCircuit):
+        return "pennylane"
     return None
+
+
+# One-/two-qubit OpenQASM 2.0 mnemonics for Qdislib's canonical gate names, used to
+# serialise a PennylaneCircuit for the semantic cache.
+_QASM_ONE_QUBIT = {"H": "h", "X": "x", "Y": "y", "Z": "z", "S": "s", "T": "t",
+                   "SDG": "sdg", "TDG": "tdg", "SX": "sx"}
+_QASM_ROTATION = {"RX": "rx", "RY": "ry", "RZ": "rz"}
+_QASM_TWO_QUBIT = {"CX": "cx", "CNOT": "cx", "CZ": "cz", "CY": "cy"}
+
+
+def _pennylane_circuit_to_qasm(circuit):
+    """Serialise a :class:`~Qdislib.utils.graph_pennylane.PennylaneCircuit` to OpenQASM 2.0.
+
+    Only the unitary gates are emitted -- the gate-cut ``MEASURE`` (collapse) and
+    ``Observable I`` markers are skipped, matching how the semantic hash treats the
+    other backends (the collapse is folded into the key separately, via
+    ``_cut_point_fingerprint``). A gate PyZX cannot parse simply makes
+    :func:`semantic_key` fall back to no caching.
+    """
+    lines = [
+        "OPENQASM 2.0;",
+        'include "qelib1.inc";',
+        f"qreg q[{circuit.num_qubits}];",
+    ]
+    for gate, qubits, params in circuit.ops:
+        name = gate.upper()
+        if name in _QASM_ONE_QUBIT:
+            lines.append(f"{_QASM_ONE_QUBIT[name]} q[{qubits[0]}];")
+        elif name in _QASM_ROTATION:
+            angle = params[0] if params else 0.0
+            lines.append(f"{_QASM_ROTATION[name]}({angle}) q[{qubits[0]}];")
+        elif name in _QASM_TWO_QUBIT:
+            lines.append(f"{_QASM_TWO_QUBIT[name]} q[{qubits[0]}],q[{qubits[1]}];")
+        # MEASURE / Observable I: non-unitary markers, intentionally omitted.
+    return "\n".join(lines)
 
 
 def _circuit_to_qasm(circuit, software):
@@ -165,6 +205,8 @@ def _circuit_to_qasm(circuit, software):
         import cudaq
 
         return cudaq.translate(circuit, format="openqasm2")
+    if software == "pennylane":
+        return _pennylane_circuit_to_qasm(circuit)
     raise ValueError(f"Cannot serialise a {software!r} circuit to QASM for caching.")
 
 
@@ -244,7 +286,7 @@ def semantic_key(circuit, software=None):
         return None
     if software is None:
         software = _detect_software(circuit)
-    if software not in ("qibo", "qiskit", "cudaq"):
+    if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
         logger.debug(
             "semantic_key is unsupported for software=%r; "
             "caching skipped for this circuit.",

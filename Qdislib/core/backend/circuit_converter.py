@@ -54,6 +54,17 @@ def _qibo_circuit():
         return None
 
 
+def _pennylane_types():
+    """The PennyLane circuit types ``(QuantumScript, QNode)``, or ``None`` if absent."""
+    try:
+        from pennylane.tape import QuantumScript
+        from pennylane import QNode
+
+        return (QuantumScript, QNode)
+    except ImportError:
+        return None
+
+
 class CircuitConverter:
     """Converts circuits between the supported formats and reports their size."""
 
@@ -99,6 +110,14 @@ class CircuitConverter:
             return circuit.num_qubits
         if qb and isinstance(circuit, qb):
             return circuit.nqubits
+        # A PennyLane tape / QNode (the PennylaneCircuit wrapper is caught by the
+        # ``num_qubits`` attribute fall-back below).
+        pl = _pennylane_types()
+        if pl and isinstance(circuit, pl):
+            from Qdislib.utils.graph_pennylane import _to_tape
+
+            wires = [int(w) for w in _to_tape(circuit).wires]
+            return max(wires) + 1 if wires else 0
         # The CUDA-Q ``(dag, num_qubits)`` payload (second element is the count).
         if (
             isinstance(circuit, (list, tuple))

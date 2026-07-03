@@ -36,6 +36,7 @@ _BACKEND_REGISTRY: dict[str, tuple[str, str]] = {
     "AER_BACKEND": ("Qdislib.core.backend.aer_backend", "AerBackend"),
     "QIBO_BACKEND": ("Qdislib.core.backend.qibo_backend", "QiboBackend"),
     "CUDAQ_BACKEND": ("Qdislib.core.backend.cudaq_backend", "CudaqBackend"),
+    "PENNYLANE_BACKEND": ("Qdislib.core.backend.pennylane_backend", "PennylaneBackend"),
     "IQM_BACKEND": ("Qdislib.core.backend.iqm_backend", "IQMBackend"),
     "BSC_QPU_BACKEND": ("Qdislib.core.backend.qpu_backends", "BSCQpuBackend"),
     "IBM_BACKEND": ("Qdislib.core.backend.qpu_backends", "IBMBackend"),
@@ -64,6 +65,7 @@ _SOFTWARE_ALIAS = {
     "qibo": "QIBO_BACKEND",
     "qiskit": "AER_BACKEND",
     "cudaq": "CUDAQ_BACKEND",
+    "pennylane": "PENNYLANE_BACKEND",
 }
 
 

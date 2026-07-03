@@ -89,6 +89,12 @@ import-smoke:qiskit:
     - uv pip install ".[qiskit]"
     - python -c "import Qdislib; print('qiskit-only import OK')"
 
+import-smoke:pennylane:
+  stage: test
+  script:
+    - uv pip install ".[pennylane]"
+    - python -c "import Qdislib; print('pennylane-only import OK')"
+
 import-smoke:cudaq:
   stage: test
   # The cudaq wheel may be unavailable on the node; don't block the pipeline.

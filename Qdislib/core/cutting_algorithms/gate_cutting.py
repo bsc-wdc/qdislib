@@ -57,6 +57,7 @@ from Qdislib.utils.graph_qibo import (
 )
 from Qdislib.core.cutting_algorithms.wire_cutting import _sum_results
 from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
+from Qdislib.utils.graph_pennylane import _apply_pennylane_gate, _build_pennylane_qnode
 
 try:
     from qiskit_ibm_runtime import (
@@ -85,6 +86,14 @@ try:
 except ImportError:  # qibo is optional; functions that need it fail when called
     qibo = gates = None
     qibo_available = False
+
+try:
+    import pennylane as qml
+
+    pennylane_available = True
+except ImportError:  # pennylane is optional; functions that need it fail when called
+    qml = None
+    pennylane_available = False
 
 
 import typing
@@ -496,7 +505,7 @@ def _generate_cut(dag, gates_cut):
 # on any cut qubit correctly. All three CPU backends do; the guard below still
 # applies to GPU/QPU evaluation paths (not decoupled) and to the 3-step
 # subcircuit workflow (which evaluates without the decoupled reconstruction).
-_IDENTITY_CUT_DECOUPLED = {"qiskit", "qibo", "cudaq"}
+_IDENTITY_CUT_DECOUPLED = {"qiskit", "qibo", "cudaq", "pennylane"}
 
 
 def _assert_identity_observable_supported(cut_dag, software=None, gpu=False, qpu=False):
@@ -902,6 +911,59 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None):
     for key, cnt in freq.items():
         ft = tuple(int(key[q]) for q in range(num_qubits))
         joint[(ft, ())] = joint.get((ft, ()), 0) + cnt
+    return joint
+
+
+def _joint_counts_pennylane(dag, num_qubits, prep_sorted, shots, seed=None, device="default.qubit"):
+    """Per-component joint counts for PennyLane via mid-circuit measurements.
+
+    Runs one QNode that samples the final measurements and each measured cut
+    qubit's mid-circuit ``MeasurementValue``, kept correlated per shot (see
+    :func:`~Qdislib.core.cutting_algorithms.wire_cutting._expectation_from_samples_pennylane`);
+    reduces to plain final counts when there is no measured cut qubit. Both
+    ``final_bits`` and ``cut-point_bits`` are qubit-0-first. Pass ``seed`` for a
+    reproducible sample.
+    """
+    from Qdislib.utils.graph_pennylane import dag_to_circuit_pennylane
+
+    built = dag_to_circuit_pennylane(dag, num_qubits)
+    if built is None:
+        return None
+    circuit = built[0] if isinstance(built, (list, tuple)) else built
+    ops, width = circuit.ops, circuit.num_qubits
+
+    collapse_order = []
+    for gate, qubits, _params in ops:
+        if gate.upper() == "MEASURE":
+            for qubit in qubits:
+                if qubit not in collapse_order:
+                    collapse_order.append(qubit)
+
+    def qfunc():
+        mids = {}
+        for gate, qubits, params in ops:
+            value = _apply_pennylane_gate(gate, qubits, params)
+            if value is not None:  # a MEASURE returns its MeasurementValue
+                mids[qubits[0]] = value
+        return [qml.sample(wires=range(width))] + [
+            qml.sample(mids[qubit]) for qubit in collapse_order
+        ]
+
+    qnode = _build_pennylane_qnode(qfunc, width, shots, device, seed)
+    out = qnode()
+    final = np.asarray(out[0]).reshape(shots, width)
+    mid_samples = {
+        qubit: np.asarray(out[1 + i]).ravel()
+        for i, qubit in enumerate(collapse_order)
+    }
+
+    joint = {}
+    for shot in range(shots):
+        ft = tuple(int(final[shot, q]) for q in range(width))
+        ct = tuple(
+            int(mid_samples[q][shot]) if q in mid_samples else 0 for q in prep_sorted
+        )
+        joint[(ft, ct)] = joint.get((ft, ct), 0) + 1
     return joint
 
 
@@ -1865,6 +1927,7 @@ def gate_cutting_subcircuits(
         "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
         "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
         "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
+        "pennylane": lambda d, n: make_subcircuit(d, n, "pennylane"),
     }
 
     number_cuts = len(gates_cut)
@@ -1920,10 +1983,10 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     # pass ``software`` so the guard only fires for the paths that genuinely can't.
     _assert_identity_observable_supported(new_dag, software=software)
 
-    if software not in ("qibo", "qiskit", "cudaq"):
+    if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
         raise UnsupportedBackendError(
             f"Unsupported software backend: '{software}'. "
-            "Expected one of ['qibo', 'qiskit', 'cudaq']."
+            "Expected one of ['qibo', 'qiskit', 'cudaq', 'pennylane']."
         )
 
     # Each subcircuit is *created* in its own task (_make_subcircuit_task), separate

@@ -16,7 +16,7 @@ With Qdislib, researchers and developers can:
 - Perform **gate** and **wire cutting** to decompose complex quantum circuits.
 - Leverage **GPU acceleration** using Qiskit Aer, cuQuantum or Qibojit.
 - Submit subcircuits to **remote QPUs** like IBM Quantum.
-- Work with circuits defined in **Qibo**, **Qiskit**, and **CUDA-Q**.
+- Work with circuits defined in **Qibo**, **Qiskit**, **CUDA-Q**, and **PennyLane**.
 - Automatically identify good cut points with `find_cut`.
 - Extract and manipulate subcircuits independently.
 
