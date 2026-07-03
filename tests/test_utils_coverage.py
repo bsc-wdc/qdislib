@@ -181,3 +181,15 @@ class FindCutModesTest(BaseTimedTestCase):
         )
         self.assertEqual(qd.cut_cost([("H_1", "CZ_2")])["terms"], 8)
         self.assertEqual(qd.cut_cost([])["terms"], 1)
+
+    def test_forbidden_gates_are_not_cut(self):
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        circ = self._circuit()
+        base = find_cut(circ, gate_cut=True, wire_cut=False, seed=0)
+        self.assertTrue(base)
+        # Forbidding the gates it would pick must yield a cut that avoids them.
+        avoided = find_cut(
+            circ, gate_cut=True, wire_cut=False, seed=0, forbidden_gates=base
+        )
+        self.assertFalse(set(avoided) & set(base))
