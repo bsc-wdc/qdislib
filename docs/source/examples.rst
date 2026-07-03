@@ -17,3 +17,4 @@ serially with just a Qibo install.
    notebooks/06_distributed_and_qpu
    notebooks/07_image_reconstruction
    notebooks/08_vqe_h2
+   notebooks/09_scaling_up

@@ -49,6 +49,7 @@ group of the `Barcelona Supercomputing Center <http://www.bsc.es>`_.
     notebooks/06_distributed_and_qpu
     notebooks/07_image_reconstruction
     notebooks/08_vqe_h2
+    notebooks/09_scaling_up
 
 Documentation
 -------------

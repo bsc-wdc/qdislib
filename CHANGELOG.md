@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Tutorial 09** (`09_scaling_up`): scale cutting past H₂. Reconstruct the energy of
+  a real **N₂ molecule at 12 qubits** (active space CAS(6,6), 383-term Jordan–Wigner
+  Hamiltonian, precomputed in `notebooks/data/n2_cas66_hamiltonian.json`; generation
+  cell shown) cut into two 6-qubit halves, and a **25-qubit Ising lattice** cut into
+  four blocks with **3 cuts** — both in parallel under PyCOMPSs. Illustrates that the
+  cutting cost is `#terms × 6**(#cuts)`, so lattices chase qubit count while molecules
+  (O(N⁴) terms) chase accuracy at a modest size.
 - **Tutorial 08** (`08_vqe_h2`): estimate H₂'s ground-state energy with VQE by
   cutting a 4-qubit **CUDA-Q** ansatz into two 2-qubit halves. The energy
   `⟨H⟩ = Σ_i c_i ⟨P_i⟩` (15-term Jordan–Wigner Hamiltonian) is rebuilt via the
