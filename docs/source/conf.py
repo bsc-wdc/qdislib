@@ -147,8 +147,8 @@ master_doc = "index"
 # output. They are ignored by default.
 # show_authors = False
 
-# The name of the Pygments (syntax highlighting) style to use.
-pygments_style = "sphinx"
+# Let Furo manage syntax highlighting (it sets a light and a dark Pygments style
+# that match the theme); the old "sphinx" style gave code blocks a dated green.
 
 # A list of ignored prefixes for module index sorting.
 # modindex_common_prefix = []
