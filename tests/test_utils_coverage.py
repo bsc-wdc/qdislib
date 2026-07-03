@@ -158,3 +158,26 @@ class FindCutModesTest(BaseTimedTestCase):
 
         with self.assertRaises(ValueError):
             find_cut(self._circuit(), gate_cut=False, wire_cut=False)
+
+    def test_seed_is_reproducible(self):
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        a = find_cut(self._circuit(), gate_cut=True, wire_cut=False, seed=123)
+        b = find_cut(self._circuit(), gate_cut=True, wire_cut=False, seed=123)
+        self.assertEqual(a, b)
+
+    def test_unknown_implementation_raises(self):
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        with self.assertRaises(ValueError):
+            find_cut(self._circuit(), implementation="does-not-exist")
+
+    def test_cut_cost(self):
+        import Qdislib as qd
+
+        self.assertEqual(
+            qd.cut_cost(["CZ_3", "CZ_5"]),
+            {"num_cuts": 2, "kind": "gate", "base": 6, "terms": 36},
+        )
+        self.assertEqual(qd.cut_cost([("H_1", "CZ_2")])["terms"], 8)
+        self.assertEqual(qd.cut_cost([])["terms"], 1)
