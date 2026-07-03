@@ -356,6 +356,19 @@ def _score_candidates(candidates, weights=None, forbidden=None):
 
     Candidate scores are logged at DEBUG level (``qd.set_log_level("DEBUG")``).
     """
+    ranked = _rank_candidates(candidates, weights, forbidden)
+    return ranked[0] if ranked else ([], float("inf"), [])
+
+
+def _rank_candidates(candidates, weights=None, forbidden=None):
+    """All valid partitioning candidates, lowest (best) score first.
+
+    Uses the same objective as :func:`_score_candidates`; drops empty cut-sets
+    and any candidate touching a ``forbidden`` gate. Powers both ``find_cut``'s
+    single-best result and its ranked ``top_n`` list.
+
+    :return: ``[(cut_set, score, partition), ...]`` sorted best-first.
+    """
     weights = weights or {}
     w1 = weights.get("w1", 100)  # cut size            (minimize)
     w2 = weights.get("w2", -1)  # number of components (maximize)
@@ -363,10 +376,10 @@ def _score_candidates(candidates, weights=None, forbidden=None):
     forbidden = set(forbidden or ())
     logger.debug("Using weights: w1=%s, w2=%s, w3=%s", w1, w2, w3)
 
-    best_score = float("inf")
-    best_cut_set = []
-    best_partition = []
+    scored = []
     for name, (partition, cut_set) in candidates.items():
+        if not cut_set:
+            continue
         if forbidden and forbidden.intersection(cut_set):
             logger.debug("%s: skipped (cuts a forbidden gate)", name)
             continue
@@ -382,11 +395,9 @@ def _score_candidates(candidates, weights=None, forbidden=None):
             largest_component,
             score,
         )
-        if score < best_score:
-            best_score = score
-            best_cut_set = cut_set
-            best_partition = partition
-    return best_cut_set, best_score, best_partition
+        scored.append((cut_set, score, partition))
+    scored.sort(key=lambda item: item[1])
+    return scored
 
 
 def _plot_partition(graph, partition):
@@ -472,6 +483,7 @@ def _find_cut_gate(
     weights=None,
     seed=None,
     forbidden_gates=None,
+    all_candidates=False,
 ):
     """Find the best *gate* cut for ``circuit`` by partitioning its qubit graph.
 
@@ -508,11 +520,40 @@ def _find_cut_gate(
         ),
     }
 
+    if all_candidates:
+        ranked = _rank_candidates(candidates, weights, forbidden_gates)
+        return [(cut, score) for cut, score, _ in ranked], None
+
     best_cut, best_score, _ = _score_candidates(
         candidates, weights, forbidden=forbidden_gates
     )
     logger.debug("Best gate cut: %s (score %s)", best_cut, best_score)
     return best_cut, best_score
+
+
+def _refine_wire_cut(cut_set, gates):
+    """Refine ``(source, target)`` gate pairs into concrete wire-cut locations.
+
+    For each pair, any gate sitting between the two endpoints that shares a qubit
+    with both becomes the actual cut location; otherwise the original pair is kept.
+    """
+    refined_cut = []
+    for source, target in cut_set:
+        source_idx = int(source.split("_")[1])
+        target_idx = int(target.split("_")[1])
+        _, source_qubits = gates[source_idx - 1]
+        _, target_qubits = gates[target_idx - 1]
+
+        found = False
+        for idx, (gate_name, gate_qubits) in enumerate(
+            gates[source_idx : target_idx - 1], start=source_idx
+        ):
+            if set(gate_qubits).intersection(source_qubits, target_qubits):
+                refined_cut.append((source, f"{gate_name}_{idx + 1}"))
+                found = True
+        if not found:
+            refined_cut.append((source, target))
+    return refined_cut
 
 
 @task(returns=2)
@@ -524,6 +565,7 @@ def _find_cut_wire(
     weights=None,
     seed=None,
     forbidden_gates=None,
+    all_candidates=False,
 ):
     """Find the best *wire* cut for ``circuit`` by partitioning its gate graph.
 
@@ -561,30 +603,18 @@ def _find_cut_wire(
         ),
     }
 
-    cut_set, best_score, _ = _score_candidates(
-        candidates, weights, forbidden=forbidden_gates
-    )
-
     # Refine each cut pair into a concrete wire cut: locate a gate between the
     # two endpoints that shares a qubit with both, and cut just after it.
     gates = iter_gates(circuit)
-    best_cut = []
-    for source, target in cut_set:
-        source_idx = int(source.split("_")[1])
-        target_idx = int(target.split("_")[1])
-        _, source_qubits = gates[source_idx - 1]
-        _, target_qubits = gates[target_idx - 1]
 
-        refined = False
-        for idx, (gate_name, gate_qubits) in enumerate(
-            gates[source_idx : target_idx - 1], start=source_idx
-        ):
-            if set(gate_qubits).intersection(source_qubits, target_qubits):
-                best_cut.append((source, f"{gate_name}_{idx + 1}"))
-                refined = True
-        if not refined:
-            best_cut.append((source, target))
+    if all_candidates:
+        ranked = _rank_candidates(candidates, weights, forbidden_gates)
+        return [(_refine_wire_cut(cut, gates), score) for cut, score, _ in ranked], None
 
+    cut_set, best_score, _ = _score_candidates(
+        candidates, weights, forbidden=forbidden_gates
+    )
+    best_cut = _refine_wire_cut(cut_set, gates)
     logger.debug("Best wire cut: %s (score %s)", best_cut, best_score)
     return best_cut, best_score
 
@@ -600,6 +630,7 @@ def find_cut(
     seed=None,
     forbidden_gates=None,
     forbidden_qubits=None,
+    top_n=None,
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
@@ -660,6 +691,13 @@ def find_cut(
         them is added to ``forbidden_gates``, so no cut touches those qubits. Only
         affects the ``implementation="qdislib"`` path.
 
+    top_n : int, optional
+        Return the ``top_n`` best candidate cuts (lowest score first) instead of the
+        single winner, as a list of ``{"cut": [...], "kind": "gate"|"wire",
+        "score": float}`` dicts -- e.g. to compare options and size them with
+        :func:`~Qdislib.cut_cost`. ``None`` (default) returns the single best cut.
+        Only affects the ``implementation="qdislib"`` path.
+
     Diagnostic details about the partitioning process are logged at DEBUG level;
     enable them with ``qd.set_log_level("DEBUG")``.
 
@@ -715,6 +753,41 @@ def find_cut(
             for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
                 if len(qubits) > 1 and protected.intersection(qubits):
                     forbidden.add(f"{name}_{index}")
+
+        # Ranked mode: return the top_n candidate cuts (best score first) across
+        # the enabled strategies, each as {"cut", "kind", "score"}, instead of the
+        # single winner. Lets the caller compare options (and cost them with
+        # cut_cost) rather than trust one pick.
+        if top_n is not None:
+            ranked = []
+            if gate_cut:
+                gate_cands, _ = _find_cut_gate(
+                    circuit,
+                    max_qubits=max_qubits,
+                    max_cuts=max_cuts,
+                    max_components=max_components,
+                    weights=weights,
+                    seed=seed,
+                    forbidden_gates=forbidden,
+                    all_candidates=True,
+                )
+                for cut, score in compss_wait_on(gate_cands):
+                    ranked.append({"cut": cut, "kind": "gate", "score": score})
+            if wire_cut:
+                wire_cands, _ = _find_cut_wire(
+                    circuit,
+                    max_qubits=max_qubits,
+                    max_cuts=max_cuts,
+                    max_components=max_components,
+                    weights=weights,
+                    seed=seed,
+                    forbidden_gates=forbidden,
+                    all_candidates=True,
+                )
+                for cut, score in compss_wait_on(wire_cands):
+                    ranked.append({"cut": cut, "kind": "wire", "score": score})
+            ranked.sort(key=lambda candidate: candidate["score"])
+            return ranked[:top_n]
 
         if gate_cut:
             cut_gate, score_gate = _find_cut_gate(
