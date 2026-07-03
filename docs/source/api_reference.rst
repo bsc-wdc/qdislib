@@ -29,7 +29,27 @@ Qdislib.core.find_cut: Find Cut Circuit Cutting
 -------------------------------------------------
 
 :class:`find_cut.find_cut <Qdislib.core.find_cut.find_cut>`
-- Quantum Circuit find cut algorithms.
+- Quantum circuit find-cut algorithms (options: ``max_qubits``, ``max_cuts``, ``seed``, ``forbidden_gates``, ``forbidden_qubits``).
+
+
+Qdislib.core.estimate: One-call estimation
+------------------------------------------
+
+:class:`estimate <Qdislib.core.estimate>`
+- ``estimate`` (cut, run and reconstruct in one call) and ``cut_cost`` (preview a cut's subcircuit count / sampling overhead before running).
+
+
+Qdislib.core.backend: Execution backends
+-----------------------------------------
+
+:class:`backend.base_backend <Qdislib.core.backend.base_backend>`
+- ``BaseBackend`` — the interface every execution target (simulator, GPU, QPU) implements.
+
+:class:`backend.registry <Qdislib.core.backend.registry>`
+- ``build_execution_backend`` / ``register_backend`` / ``available_backends``.
+
+:class:`backend.unified <Qdislib.core.backend.unified>`
+- ``QdBackEnd`` — the load-balancing front-end over a pool of backends.
 
 
 Qdislib.utils: Utility functions
@@ -37,6 +57,9 @@ Qdislib.utils: Utility functions
 
 :meth:`utils.backends <Qdislib.utils.backends>`
 - Backend-agnostic helpers, including ``expectation_value`` and ``CutSubcircuits``.
+
+:meth:`utils.circuit_cache <Qdislib.utils.circuit_cache>`
+- Semantic subcircuit cache: ``default_circuit_cache``, ``semantic_key``.
 
 :meth:`utils.circuit <Qdislib.utils.circuit>`
 - Circuit object and methods.

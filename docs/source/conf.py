@@ -68,12 +68,28 @@ extensions = [
     "nbsphinx_link",
     "sphinx_mdinclude",
     "sphinx_autodoc_typehints",
+    "sphinx_design",  # cards / grids / tab-sets on the landing + guides
+    "sphinx_copybutton",  # one-click "copy" on every code block
     "notfound.extension",
     "sphinxemoji.sphinxemoji",
     "versionwarning.extension",
 ]
 
 nbsphinx_execute = "never"
+
+# Gallery thumbnails: the notebooks are illustrative (not executed), so they have
+# no output image to auto-pick. Give the learning path the Qdislib logo and each
+# application its result figure.
+nbsphinx_thumbnails = {
+    "notebooks/0*": "_static/logo.png",
+    "notebooks/applications/01_image_reconstruction": "_static/image_cutting.png",
+    "notebooks/applications/02_vqe_h2": "_static/vqe_landscape.png",
+    "notebooks/applications/03_scaling": "_static/scaling.png",
+}
+
+# Don't let sphinx-copybutton copy prompt characters / output lines.
+copybutton_prompt_text = r">>> |\.\.\. |\$ "
+copybutton_prompt_is_regexp = True
 
 napoleon_google_docstring = False
 napoleon_use_param = False
