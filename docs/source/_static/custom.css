@@ -93,6 +93,18 @@ dt.sig-object {
 .sidebar-logo:hover {
     transform: scale(1.04);
 }
+/* Dark mode: the purple emblem + wordmark is low-contrast on the dark sidebar,
+ * so sit the logo on a white panel. Covers explicit dark and OS-auto dark. */
+body[data-theme="dark"] .sidebar-logo-container {
+    background: #ffffff;
+    padding: 0.55rem 0.4rem;
+}
+@media (prefers-color-scheme: dark) {
+    body:not([data-theme="light"]) .sidebar-logo-container {
+        background: #ffffff;
+        padding: 0.55rem 0.4rem;
+    }
+}
 
 /* Landing cards: alternate the two brand colours; lift on hover. */
 .sd-card {
@@ -116,6 +128,20 @@ dt.sig-object {
 .nbsphinx-gallery > a:hover {
     transform: translateY(-5px);
     box-shadow: 0 12px 26px rgba(19, 103, 107, 0.22);
+}
+/* Dark mode: the notebook thumbnails (the transparent logo) need a white
+ * backing to stay legible on the dark cards, like the sidebar logo. */
+body[data-theme="dark"] .nbsphinx-gallery img {
+    background: #ffffff;
+    padding: 6px;
+    border-radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+    body:not([data-theme="light"]) .nbsphinx-gallery img {
+        background: #ffffff;
+        padding: 6px;
+        border-radius: 6px;
+    }
 }
 
 /* Branded "quick links" card in the right-hand column (injected by rightcol.js). */
