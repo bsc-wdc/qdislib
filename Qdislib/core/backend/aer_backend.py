@@ -99,9 +99,10 @@ class AerBackend(BaseBackend):
 
         subcirc = dag_to_circuit_qiskit(dag, num_qubits)
         if self._use_gpu:
-            # The GPU path does not implement the cut-point sign recovery; the
-            # cut guard forbids identity-on-a-cut-qubit for GPU, so prep_qubits
-            # is empty here.
+            # _expec_value_qiskit_gpu recovers the cut (prep) qubits from the
+            # subcircuit's own mid-circuit measurements and runs the same decoupled
+            # reconstruction as CPU, so identity-on-a-cut-qubit works on GPU too --
+            # the passed prep_qubits aren't needed here.
             return _expec_value_qiskit_gpu(subcirc, shots=shots, method=method)
         return _expec_value_qiskit(
             subcirc, shots=shots, method=method, prep_qubits=prep_qubits
