@@ -328,16 +328,31 @@ class InMemoryCircuitCache(CircuitCache):
 
     Not shared between PyCOMPSs workers (each task receives its own copy), so use
     :class:`RedisPSCOCircuitCache` under PyCOMPSs.
+
+    :param max_entries: Optional cap on the number of cached entries. Once the cap
+        is reached, the least-recently-used entry is evicted (LRU) on the next
+        insert, so a long run can't grow the cache without bound. The default
+        (``None``) is unbounded, matching the previous behaviour.
     """
 
-    def __init__(self):
-        self._store = {}
+    def __init__(self, max_entries=None):
+        from collections import OrderedDict
+
+        self._store = OrderedDict()
+        self._max_entries = max_entries
 
     def get(self, key):
+        # Touch the key so it counts as most-recently-used for LRU eviction.
+        if key in self._store:
+            self._store.move_to_end(key)
         return self._record(self._store.get(key))
 
     def put(self, key, value):
         self._store[key] = value
+        self._store.move_to_end(key)
+        if self._max_entries is not None:
+            while len(self._store) > self._max_entries:
+                self._store.popitem(last=False)  # evict least-recently-used
 
     def delete(self, key):
         self._store.pop(key, None)
@@ -562,7 +577,7 @@ def default_circuit_cache(backend="memory", path=None, **kwargs):
     :return: A :class:`CircuitCache` instance.
     """
     if backend == "memory":
-        return InMemoryCircuitCache()
+        return InMemoryCircuitCache(**kwargs)
     if backend == "lmdb":
         if path is None:
             raise ValueError("default_circuit_cache(backend='lmdb') requires a 'path'.")
