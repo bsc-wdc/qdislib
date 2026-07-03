@@ -193,3 +193,18 @@ class FindCutModesTest(BaseTimedTestCase):
             circ, gate_cut=True, wire_cut=False, seed=0, forbidden_gates=base
         )
         self.assertFalse(set(avoided) & set(base))
+
+    def test_forbidden_qubits_are_not_cut(self):
+        from Qdislib.core.find_cut.find_cut import find_cut
+        from Qdislib.utils.backends import iter_gates
+
+        circ = self._circuit()
+        gate_qubits = {
+            f"{name}_{i}": set(qs)
+            for i, (name, qs) in enumerate(iter_gates(circ), start=1)
+        }
+        cut = find_cut(
+            circ, gate_cut=True, wire_cut=False, seed=0, forbidden_qubits=[0]
+        )
+        for gate in cut:  # no cut gate may act on the forbidden qubit
+            self.assertNotIn(0, gate_qubits.get(gate, set()))

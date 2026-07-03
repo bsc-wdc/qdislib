@@ -90,6 +90,18 @@ class CacheStoreTest(BaseTimedTestCase):
         self.assertEqual(cache.get("a"), 1)
         self.assertEqual(cache.get("c"), 3)
 
+    def test_in_memory_ttl_expiry(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        expired = InMemoryCircuitCache(ttl=0)  # entries expire immediately
+        expired.put("k", 1)
+        self.assertIsNone(expired.get("k"))
+        self.assertNotIn("k", expired)
+
+        fresh = InMemoryCircuitCache(ttl=1000)  # long ttl -> still cached
+        fresh.put("k", 1)
+        self.assertEqual(fresh.get("k"), 1)
+
     def test_default_cache_backend_selection(self):
         from Qdislib.utils.circuit_cache import (
             default_circuit_cache,

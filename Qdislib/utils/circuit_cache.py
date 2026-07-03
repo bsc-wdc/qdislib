@@ -53,6 +53,7 @@ is simply simulated as usual.
 import json
 import logging
 import math
+import time
 from fractions import Fraction
 
 import networkx
@@ -333,29 +334,43 @@ class InMemoryCircuitCache(CircuitCache):
         is reached, the least-recently-used entry is evicted (LRU) on the next
         insert, so a long run can't grow the cache without bound. The default
         (``None``) is unbounded, matching the previous behaviour.
+    :param ttl: Optional time-to-live in seconds. An entry read after ``ttl``
+        seconds is treated as a miss and dropped (lazy expiry), so a long-lived
+        cache doesn't serve stale results, e.g. after an SDK upgrade. The default
+        (``None``) never expires.
     """
 
-    def __init__(self, max_entries=None):
+    def __init__(self, max_entries=None, ttl=None):
         from collections import OrderedDict
 
-        self._store = OrderedDict()
+        self._store = OrderedDict()  # key -> value (raw)
+        self._expiry = {}  # key -> expires_at, only populated when ttl is set
         self._max_entries = max_entries
+        self._ttl = ttl
 
     def get(self, key):
-        # Touch the key so it counts as most-recently-used for LRU eviction.
-        if key in self._store:
-            self._store.move_to_end(key)
-        return self._record(self._store.get(key))
+        if key not in self._store:
+            return self._record(None)
+        expires_at = self._expiry.get(key)
+        if expires_at is not None and time.time() >= expires_at:
+            self.delete(key)  # expired -> treat as a miss
+            return self._record(None)
+        self._store.move_to_end(key)  # mark most-recently-used (LRU)
+        return self._record(self._store[key])
 
     def put(self, key, value):
         self._store[key] = value
         self._store.move_to_end(key)
+        if self._ttl is not None:
+            self._expiry[key] = time.time() + self._ttl
         if self._max_entries is not None:
             while len(self._store) > self._max_entries:
-                self._store.popitem(last=False)  # evict least-recently-used
+                evicted, _ = self._store.popitem(last=False)  # evict LRU
+                self._expiry.pop(evicted, None)
 
     def delete(self, key):
         self._store.pop(key, None)
+        self._expiry.pop(key, None)
 
     def __len__(self):
         return len(self._store)
