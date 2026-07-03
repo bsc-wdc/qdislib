@@ -41,6 +41,17 @@ article h2 {
 article h2 a.headerlink {
     color: rgba(255, 255, 255, 0.65);
 }
+/* Inline code inside a teal h2 bar: it would otherwise inherit the bar's
+ * near-white text on Furo's light code background (invisible in light mode).
+ * Give it a translucent pill + white text so it reads in both modes. */
+article h2 code {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+}
+article h2 code .pre {
+    color: #ffffff;
+}
 
 /* h3: a teal underline echoes the bars without repeating the block. */
 article h3 {
@@ -139,6 +150,11 @@ body[data-theme="dark"] .qd-rail-title {
 .qd-rail-badges img {
     display: block;
     height: 20px;
+    /* Border in the opposite colour of the mode (dark in light mode, light in
+     * dark): --color-foreground-primary is Furo's contrast colour and flips with
+     * the theme, so the badges stay framed against the card in both modes. */
+    border: 1px solid var(--color-foreground-primary);
+    border-radius: 3px;
 }
 .qd-rail-card a {
     display: block;
