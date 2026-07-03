@@ -599,6 +599,7 @@ def find_cut(
     weights=None,
     seed=None,
     forbidden_gates=None,
+    forbidden_qubits=None,
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
@@ -654,6 +655,11 @@ def find_cut(
         leaves those gates intact (or ``[]`` if none does). Only affects the
         ``implementation="qdislib"`` path.
 
+    forbidden_qubits : list of int, optional
+        Qubit indices that must not be cut: every multi-qubit gate acting on one of
+        them is added to ``forbidden_gates``, so no cut touches those qubits. Only
+        affects the ``implementation="qdislib"`` path.
+
     Diagnostic details about the partitioning process are logged at DEBUG level;
     enable them with ``qd.set_log_level("DEBUG")``.
 
@@ -699,6 +705,17 @@ def find_cut(
         else:
             max_components = 2
 
+        # Fold forbidden_qubits into the forbidden-gate set: any multi-qubit gate
+        # touching a forbidden qubit becomes a forbidden cut. The gate id is built
+        # exactly as the qubit/gate graphs label their cut edges (``NAME_index``
+        # over iter_gates), so the names line up with the candidate cut-sets.
+        forbidden = set(forbidden_gates or ())
+        if forbidden_qubits:
+            protected = set(forbidden_qubits)
+            for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
+                if len(qubits) > 1 and protected.intersection(qubits):
+                    forbidden.add(f"{name}_{index}")
+
         if gate_cut:
             cut_gate, score_gate = _find_cut_gate(
                 circuit,
@@ -707,7 +724,7 @@ def find_cut(
                 max_components=max_components,
                 weights=weights,
                 seed=seed,
-                forbidden_gates=forbidden_gates,
+                forbidden_gates=forbidden,
             )
 
         if wire_cut:
@@ -718,7 +735,7 @@ def find_cut(
                 max_components=max_components,
                 weights=weights,
                 seed=seed,
-                forbidden_gates=forbidden_gates,
+                forbidden_gates=forbidden,
             )
 
         if gate_cut and wire_cut:
