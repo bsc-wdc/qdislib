@@ -372,7 +372,14 @@ def _reconstruct_wire_cut_distribution_task(
 
 
 def wire_cutting_sampling(
-    circuit, cut, shots=1024, software="qiskit", sync=True, qpu=False, qpu_dict=None
+    circuit,
+    cut,
+    shots=1024,
+    software="qiskit",
+    sync=True,
+    qpu=False,
+    qpu_dict=None,
+    seed=None,
 ):
     """Reconstruct the output **probability distribution** of a wire-cut circuit.
 
@@ -394,6 +401,9 @@ def wire_cutting_sampling(
     :param qpu: Route each fragment's sampling to a QPU (via
         ``build_execution_backend``) instead of a local simulator.
     :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
+    :param seed: Optional seed for a reproducible distribution. Each fragment gets a
+        distinct derived seed (``seed + i``); ``None`` keeps the previous
+        non-deterministic sampling. Ignored on a QPU.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import (
@@ -411,7 +421,7 @@ def wire_cutting_sampling(
         backend = build_execution_backend(
             software, num_qubits=num_qubits, qpu=bool(qpu), qpu_dict=qpu_dict
         )
-        counts = backend.evaluate_samples(dag, num_qubits, shots)
+        counts = backend.evaluate_samples(dag, num_qubits, shots, seed=seed)
         total = sum(counts.values()) or 1
         return {k: v / total for k, v in counts.items()}
 
@@ -419,8 +429,15 @@ def wire_cutting_sampling(
         _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
     )
     sampled = [
-        _sample_gate_subcircuit(comp, software, shots, qpu, qpu_dict)
-        for comp in components
+        _sample_gate_subcircuit(
+            comp,
+            software,
+            shots,
+            qpu,
+            qpu_dict,
+            seed=None if seed is None else seed + i,
+        )
+        for i, comp in enumerate(components)
     ]
     distribution = _reconstruct_wire_cut_distribution_task(
         sampled,

@@ -780,13 +780,14 @@ def _component_original_qubits(component):
     return sorted(qubits)
 
 
-def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots):
+def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots, seed=None):
     """Per-component joint counts ``{(final_bits, cut-point_bits): count}`` for Qibo.
 
     ``final_bits`` are qubit-0-first over the component's qubits; ``cut-point_bits``
     are the mid-circuit collapse-measurement outcomes for ``prep_sorted`` (the
     measured cut qubits), captured per shot so they stay correlated with the final
-    measurement (see :func:`_expectation_from_samples_qibo`).
+    measurement (see :func:`_expectation_from_samples_qibo`). Pass ``seed`` for a
+    reproducible sample (Qibo's numpy backend draws from the global numpy RNG).
     """
     import qibo
     from qibo import gates as qgates
@@ -797,6 +798,8 @@ def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots):
         return None
     qc = built[0] if isinstance(built, (list, tuple)) else built
     qibo.set_backend("numpy")
+    if seed is not None:
+        np.random.seed(seed)
     collapse = {
         g.qubits[0]: g
         for g in qc.queue
@@ -820,13 +823,13 @@ def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots):
     return joint
 
 
-def _joint_counts_qiskit(dag, num_qubits, prep_sorted, shots):
+def _joint_counts_qiskit(dag, num_qubits, prep_sorted, shots, seed=None):
     """Per-component joint counts for Qiskit, reusing the cut-measure register ``c``.
 
     :func:`_counts_qiskit` returns keys ``"<measure-all> <cut-measure c>"`` (each
     little-endian), so the cut-point outcome of qubit ``q`` lives in the second
     register at position ``num_qubits-1-q`` -- exactly the register the expectation
-    path reads for the decoupled sign.
+    path reads for the decoupled sign. ``seed`` seeds the Aer sampler.
     """
     from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
 
@@ -834,7 +837,7 @@ def _joint_counts_qiskit(dag, num_qubits, prep_sorted, shots):
     if built is None:
         return None
     qc = built[0] if isinstance(built, (list, tuple)) else built
-    counts = _counts_qiskit(qc, shots=shots)
+    counts = _counts_qiskit(qc, shots=shots, seed=seed)
     joint = {}
     for key, cnt in counts.items():
         regs = key.split()
@@ -853,12 +856,13 @@ def _joint_counts_qiskit(dag, num_qubits, prep_sorted, shots):
     return joint
 
 
-def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots):
+def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None):
     """Per-component joint counts for CUDA-Q via ``explicit_measurements``.
 
     With a measured cut qubit the kernel is built with ``explicit_final=True`` so
     each per-shot key is ``[cut-point outcomes in mz order] + [final q0..q(n-1)]``
     (see :func:`_expectation_cudaq_decoupled`); otherwise plain counts suffice.
+    Pass ``seed`` for a reproducible sample.
     """
     import cudaq
     from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
@@ -868,6 +872,8 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots):
         cudaq.set_target("nvidia")
     except Exception:
         cudaq.set_target("qpp-cpu")
+    if seed is not None:
+        cudaq.set_random_seed(seed)
 
     if prep_sorted:
         # cudaq.run (not sample) so the mid-circuit cut measurements collapse; each
@@ -954,7 +960,9 @@ def _create_sample_subcircuit(component):
 
 
 @task(returns=1)
-def _execute_sample_subcircuit(prepared, software, shots, qpu=False, qpu_dict=None):
+def _execute_sample_subcircuit(
+    prepared, software, shots, qpu=False, qpu_dict=None, seed=None
+):
     """Build + sample a prepared gate-cut subcircuit; return its Z-correlators.
 
     The *execution* half (COMPSs task) -- this is where the native circuit is built
@@ -976,12 +984,16 @@ def _execute_sample_subcircuit(prepared, software, shots, qpu=False, qpu_dict=No
     backend = build_execution_backend(
         software, num_qubits=highest_qubit, qpu=bool(qpu), qpu_dict=qpu_dict
     )
-    joint = backend.evaluate_joint_counts(s_new, highest_qubit, prep_sorted, shots)
+    joint = backend.evaluate_joint_counts(
+        s_new, highest_qubit, prep_sorted, shots, seed=seed
+    )
     corr = _z_correlators(joint, prep_sorted, highest_qubit)
     return (corr, original)
 
 
-def _sample_gate_subcircuit(component, software, shots, qpu=False, qpu_dict=None):
+def _sample_gate_subcircuit(
+    component, software, shots, qpu=False, qpu_dict=None, seed=None
+):
     """Sample one connected-component subcircuit into its Z-correlators.
 
     Orchestrates two COMPSs tasks -- :func:`_create_sample_subcircuit` (prepare the
@@ -993,7 +1005,7 @@ def _sample_gate_subcircuit(component, software, shots, qpu=False, qpu_dict=None
     future ``(corr, original)``.
     """
     prepared = _create_sample_subcircuit(component)
-    return _execute_sample_subcircuit(prepared, software, shots, qpu, qpu_dict)
+    return _execute_sample_subcircuit(prepared, software, shots, qpu, qpu_dict, seed)
 
 
 def _gate_cut_sampling_components(dag, gates_cut):
@@ -1106,6 +1118,7 @@ def gate_cutting_sampling(
     sync=True,
     qpu=False,
     qpu_dict=None,
+    seed=None,
 ):
     """Reconstruct the output **probability distribution** of a gate-cut circuit.
 
@@ -1126,6 +1139,9 @@ def gate_cutting_sampling(
         ``build_execution_backend``) instead of a local simulator.
     :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g.
         ``{"MN_Ona": 4}``), as in :func:`gate_cutting`.
+    :param seed: Optional seed for a reproducible distribution. Each subcircuit
+        gets a distinct derived seed (``seed + i``) so the pieces stay independent;
+        ``None`` keeps the previous non-deterministic sampling. Ignored on a QPU.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     dag = convert_to_dag(circuit)
@@ -1137,14 +1153,21 @@ def gate_cutting_sampling(
         backend = build_execution_backend(
             software, num_qubits=num_qubits, qpu=bool(qpu), qpu_dict=qpu_dict
         )
-        counts = backend.evaluate_samples(dag, num_qubits, shots)
+        counts = backend.evaluate_samples(dag, num_qubits, shots, seed=seed)
         total = sum(counts.values()) or 1
         return {k: v / total for k, v in counts.items()}
 
     components, number_components = _gate_cut_sampling_components(dag, gates_cut)
     sampled = [
-        _sample_gate_subcircuit(comp, software, shots, qpu, qpu_dict)
-        for comp in components
+        _sample_gate_subcircuit(
+            comp,
+            software,
+            shots,
+            qpu,
+            qpu_dict,
+            seed=None if seed is None else seed + i,
+        )
+        for i, comp in enumerate(components)
     ]
     distribution = _reconstruct_gate_cut_distribution_task(
         sampled, len(gates_cut), num_qubits, number_components
@@ -1161,7 +1184,7 @@ _SampleUnit = namedtuple(
 )
 
 
-def sample_subcircuit(subcircuit, shots=1024):
+def sample_subcircuit(subcircuit, shots=1024, seed=None):
     """Sample one gate-cut sampling subcircuit into its Z-correlators.
 
     The sampling counterpart of :func:`~Qdislib.expectation_value`: apply it to
@@ -1181,6 +1204,7 @@ def sample_subcircuit(subcircuit, shots=1024):
         shots,
         subcircuit.qpu,
         subcircuit.qpu_dict,
+        seed,
     )
 
 
@@ -1483,7 +1507,7 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 
 
 # Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
-def _counts_qiskit(qc, shots=1024, method="automatic"):
+def _counts_qiskit(qc, shots=1024, method="automatic", seed=None):
     """Simulate a Qiskit circuit with Aer and return its measurement counts.
 
     Appends ``measure_all`` in place -- so the circuit is single-use (evaluate
@@ -1493,6 +1517,7 @@ def _counts_qiskit(qc, shots=1024, method="automatic"):
     :param qc: A Qiskit ``QuantumCircuit``.
     :param shots: Number of measurement shots.
     :param method: Aer simulation method.
+    :param seed: Optional Aer ``seed_simulator`` for a reproducible sample.
     :return: The Aer ``get_counts()`` dict (keys are ``"<measure-all reg> ..."``).
     """
     qc.measure_all()
@@ -1514,7 +1539,7 @@ def _counts_qiskit(qc, shots=1024, method="automatic"):
         mps_parallel_threshold=1,
     )
 
-    job = simulator.run(qc, shots=shots)
+    job = simulator.run(qc, shots=shots, seed_simulator=seed)
     result = job.result()
     logger.debug("Backend: %s", result.backend_name)
 

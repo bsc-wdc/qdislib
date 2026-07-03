@@ -63,7 +63,9 @@ class BSCQpuBackend(_QpuBackendBase):
         subcirc = dag_to_circuit_qibo(dag, num_qubits)
         return _expec_value_qibo_qpu(subcirc, shots=shots, method=method)
 
-    def evaluate_joint_counts(self, dag, num_qubits, cut_point_qubits=(), shots=1024):
+    def evaluate_joint_counts(
+        self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
+    ):
         """Joint final/cut-point counts from a BSC QPU (sampling reconstruction).
 
         Ships the subcircuit through the shared-filesystem bridge and reads back the
@@ -73,7 +75,8 @@ class BSCQpuBackend(_QpuBackendBase):
         exact for a **terminal** cut (no gate on a cut qubit after the cut, as in the
         image-cutting tutorial); a cut qubit that keeps evolving afterwards cannot be
         decoupled from aggregated hardware counts (the same limitation that guards the
-        QPU expectation path).
+        QPU expectation path). ``seed`` is accepted for interface parity but ignored
+        (hardware sampling is not seedable).
         """
         import qibo
         from Qdislib.utils.graph_qibo import dag_to_circuit_qibo

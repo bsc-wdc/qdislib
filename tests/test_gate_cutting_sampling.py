@@ -103,6 +103,14 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
     def test_qibo_one_cut(self):
         self._check("qibo", ["CZ_2"])
 
+    def test_seed_reproducible(self):
+        import Qdislib as qd
+
+        kw = dict(shots=2000, software="qibo", seed=123)
+        d1 = qd.gate_cutting_sampling(_circuit(), ["CZ_2"], **kw)
+        d2 = qd.gate_cutting_sampling(_circuit(), ["CZ_2"], **kw)
+        self.assertEqual(d1, d2)  # same seed -> identical distribution
+
     @unittest.skipUnless(AER_AVAILABLE, "qiskit_aer required")
     def test_qiskit_one_cut(self):
         self._check("qiskit", ["CZ_2"])
