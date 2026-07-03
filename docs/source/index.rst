@@ -98,15 +98,15 @@ Documentation
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :hidden:
 
-   api_reference
-   development
-   examples
-   glossary
-   modules
    quickstart
    user_guide
+   examples
+   api_reference
+   modules
+   development
+   glossary
 
 Source code
 -----------

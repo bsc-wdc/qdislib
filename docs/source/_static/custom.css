@@ -1,27 +1,31 @@
-/* Apply styles to <dt> elements with class "sig-object" */
+/*
+ * Qdislib brand polish on top of the Furo theme. Furo already handles
+ * typography, layout and the light/dark toggle; these are small accents that
+ * use Furo's own CSS variables, so they adapt to both colour modes.
+ */
+
+/* Keep the (portrait) logo a sensible size at the top of the sidebar. */
+.sidebar-logo {
+    max-width: 68%;
+    margin: 0.6rem auto 0.3rem;
+}
+
+/* API signatures: a subtle brand-tinted panel with a left accent bar,
+ * instead of the plain run of bold text. */
+dl.py > dt.sig,
 dt.sig-object {
-    font-size: 100%;
-    color: rgb(6, 56, 98);
-    background-color: rgb(248, 211, 255); /* Light purple background color */
-    /*border: 2px solid purple;*/
-    padding: 5px;
-    margin: 10px;
-    display: inline-block;
+    background: var(--color-background-secondary);
+    border-left: 3px solid var(--color-brand-primary);
+    border-radius: 4px;
+    padding: 0.45rem 0.7rem;
 }
 
-/*h2[id^="module-"]*/
-h2 {
-    font-size: 120%;
-    color: rgb(244, 246, 248);
-    background-color:  #13676B; /* Light purple background color */
-    /*border: 2px solid purple;*/
-    padding: 20px;
+/* Landing-page cards (sphinx-design): a gentle hover lift + brand accent. */
+.sd-card {
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
-
-/* h1 {
-    font-size: 120%;
-    color: rgb(161, 15, 15);
-    background-color:  #603E63; /* Light purple background color */
-    /*border: 2px solid purple;*/
-    /*padding: 20px;
-} */
+.sd-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+    border-color: var(--color-brand-primary);
+}
