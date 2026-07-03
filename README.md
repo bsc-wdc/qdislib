@@ -127,22 +127,39 @@ Currently, the following supercomputers have already PyCOMPSs and Qdislib instal
 
 ## Citing Qdislib
 
+If you use Qdislib in a scientific publication, we would appreciate citations to
+the following papers. Please cite the original paper (ACM, SC '25 Workshops)
+first:
 
-If you use Qdislib in a scientific publication, we would appreciate citations to the following paper:
+M. Tejedor, B. Casas, J. Conejero, A. Cervera-Lierta and R. M. Badia,
+"Orchestrating Quantum-HPC Workflows with Distributed Quantum Circuit Cutting,"
+in *Proceedings of the SC '25 Workshops of the International Conference for High
+Performance Computing, Networking, Storage and Analysis*, ACM, 2025, pp.
+1898–1906. https://doi.org/10.1145/3731599.3767547
 
-\M. Tejedor, B. Casas, J. Conejero, A. Cervera-Lierta and R. M. Badia, "Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing" in https://www.arxiv.org/abs/2505.01184, 2025, pp. 1-12
+M. Tejedor, J. Conejero and R. M. Badia, "A Semantic Quantum Circuit Cache for
+Scalable and Distributed Quantum-Classical Workflows," arXiv:2604.26788, 2026.
+https://arxiv.org/abs/2604.26788
 
 ### Bibtex:
 
 ```latex
+@inproceedings{Qdislib,
+    title     = {{Orchestrating Quantum-HPC Workflows with Distributed Quantum Circuit Cutting}},
+    author    = {Mar Tejedor and Berta Casas and Javier Conejero and Alba Cervera-Lierta and Rosa M. Badia},
+    booktitle = {Proceedings of the SC '25 Workshops of the International Conference for High Performance Computing, Networking, Storage and Analysis},
+    publisher = {ACM},
+    pages     = {1898--1906},
+    year      = {2025},
+    doi       = {10.1145/3731599.3767547},
+}
 
-   @inproceedings{Qdislib,
-               title       = {{Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing}},
-               author      = {Mar Tejedor and Berta Cervera and Javier Conejero and Alba Cervera-Lierta and Rosa M. Badia},
-               booktitle   = {https://www.arxiv.org/abs/2505.01184},
-               pages       = {1-12},
-               year        = {2025},
-    }
+@article{QdislibCache,
+    title   = {{A Semantic Quantum Circuit Cache for Scalable and Distributed Quantum-Classical Workflows}},
+    author  = {Mar Tejedor and Javier Conejero and Rosa M. Badia},
+    journal = {arXiv preprint arXiv:2604.26788},
+    year    = {2026},
+}
 ```
 
 ## URLs
