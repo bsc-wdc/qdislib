@@ -510,22 +510,30 @@ def _assert_identity_observable_supported(cut_dag, software=None, gpu=False, qpu
     **multi-qubit** gate *after* the cut, an identity there would suppress the
     load-bearing measurement if it were read off the final measurement.
 
-    All three CPU backends (:data:`_IDENTITY_CUT_DECOUPLED`) recover that sign
-    from the cut-point measurement (decoupling it from the final observable) and
-    handle this correctly -- both the all-in-one and the three-step subcircuit
-    workflows -- so the check is skipped for them on CPU (the workflow passes its
-    ``software`` here). It still fires for GPU and QPU evaluation paths, which
-    don't use the decoupled reconstruction -- raising rather than returning a
-    silently-wrong value.
+    The three CPU backends (:data:`_IDENTITY_CUT_DECOUPLED`) and the **GPU** path
+    recover that sign from the cut-point measurement (decoupling it from the final
+    observable) and handle this correctly -- both the all-in-one and three-step
+    workflows. CPU reads the joint final/cut-point counts directly; GPU routes to
+    Aer's GPU simulator and runs the *same* joint-counts reconstruction
+    (:func:`_expec_value_qiskit_gpu`). So the check is skipped for CPU and GPU.
+
+    It still fires for **QPU** paths: a real device returns only aggregated final
+    counts (the per-shot mid-circuit cut-point outcome is lost), so a cut qubit
+    that keeps evolving after the cut cannot be decoupled -- raising here beats
+    returning a silently-wrong value.
 
     :param cut_dag: DAG after :func:`_generate_cut` (carries the ``SUBS*`` nodes).
     :param software: CPU-simulation backend that will evaluate the subcircuits.
-    :param gpu: Whether GPU evaluation is in use (not covered by the fix yet).
-    :param qpu: Whether QPU evaluation is in use (not covered by the fix yet).
+    :param gpu: Whether GPU evaluation is in use (Aer GPU -- supported).
+    :param qpu: Whether QPU evaluation is in use (unsupported -- aggregated counts).
     :raises InvalidCutError: if an identity observable sits on a cut qubit that
-        feeds a multi-qubit gate after the cut, on a not-yet-supported path.
+        feeds a multi-qubit gate after the cut, on the (QPU) path that can't
+        decouple it.
     """
-    if software in _IDENTITY_CUT_DECOUPLED and not gpu and not qpu:
+    # CPU decoupled backends handle it; so does GPU (it routes to Aer's GPU
+    # simulator and runs the same joint-counts reconstruction). Only real QPUs
+    # can't -- they return aggregated final counts with no per-shot cut-point.
+    if not qpu and (gpu or software in _IDENTITY_CUT_DECOUPLED):
         return
 
     for subs in [n for n in cut_dag if isinstance(n, str) and n.startswith("SUBS")]:
@@ -546,14 +554,14 @@ def _assert_identity_observable_supported(cut_dag, software=None, gpu=False, qpu
         )
         if feeds_multiqubit:
             raise InvalidCutError(
-                f"This gate-cut path cannot honour an identity ('I') observable on "
-                f"cut qubit {cut_qubit}: it feeds a multi-qubit gate after the cut, "
-                f"so the cut's measure-and-prepare sign cannot be dropped. It is "
-                f"supported by gate_cutting() on CPU (qiskit, qibo, cudaq) -- both "
-                f"the all-in-one and three-step workflows -- which recovers the sign "
-                f"from the cut-point measurement; GPU and QPU paths do not yet. Use a "
-                f"CPU run, wire cutting, or a cut whose qubits are not measured with "
-                f"identity."
+                f"This QPU gate-cut path cannot honour an identity ('I') observable "
+                f"on cut qubit {cut_qubit}: it feeds a multi-qubit gate after the "
+                f"cut, so the sign must come from the cut-point measurement -- but a "
+                f"real QPU returns only aggregated final counts, losing the per-shot "
+                f"cut-point outcome needed to decouple it. Supported on CPU (qiskit, "
+                f"qibo, cudaq) and GPU, in both the all-in-one and three-step "
+                f"workflows. Use a CPU/GPU run, wire cutting, or a cut whose qubits "
+                f"are not measured with identity."
             )
 
 
