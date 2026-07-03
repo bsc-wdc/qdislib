@@ -19,10 +19,10 @@
 # converts to a plain script), this keeps the Jupyter cell outputs -- so the
 # notebooks can be committed/rendered with results embedded.
 #
-# The PyCOMPSs notebooks (07-09) drive the runtime themselves
-# (ipycompss.start()/stop()) and need COMPSs' local ssh workers; the light ones
-# (01-05) run without it. nbconvert's kernel can be flaky under QEMU emulation
-# (amd64 image on an arm64 host) -- bump NB_TIMEOUT and re-run stragglers.
+# The PyCOMPSs notebooks (09 and the applications) drive the runtime themselves
+# (ipycompss.start()/stop()) and need COMPSs' local ssh workers; the learning-path
+# core (01-08) runs without it. nbconvert's kernel can be flaky under QEMU
+# emulation (amd64 image on an arm64 host) -- bump NB_TIMEOUT and re-run stragglers.
 #
 #   bash scripts/run_notebooks_in_docker.sh                     # all notebooks
 #   bash scripts/run_notebooks_in_docker.sh notebooks/01_quickstart.ipynb
@@ -39,12 +39,16 @@ if [ ${#NBS[@]} -eq 0 ]; then
     NBS=(
         notebooks/01_quickstart.ipynb
         notebooks/02_cutting_workflow.ipynb
-        notebooks/03_backends.ipynb
-        notebooks/04_observables.ipynb
-        notebooks/05_caching.ipynb
-        notebooks/07_image_reconstruction.ipynb
-        notebooks/08_vqe_h2.ipynb
-        notebooks/09_scaling_up.ipynb
+        notebooks/03_finding_cuts.ipynb
+        notebooks/04_backends.ipynb
+        notebooks/05_observables.ipynb
+        notebooks/06_sampling.ipynb
+        notebooks/07_caching.ipynb
+        notebooks/08_backend_internals.ipynb
+        notebooks/09_distributed_and_qpu.ipynb
+        notebooks/applications/01_image_reconstruction.ipynb
+        notebooks/applications/02_vqe_h2.ipynb
+        notebooks/applications/03_scaling.ipynb
     )
 fi
 
