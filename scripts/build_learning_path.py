@@ -22,12 +22,19 @@ build time anyway.
 """
 
 import hashlib
+import json
 import os
 
 import nbformat as nbf
 from nbformat.v4 import new_code_cell, new_markdown_cell, new_notebook
 
 NB_DIR = os.path.join(os.path.dirname(__file__), "..", "notebooks")
+# nbsphinx-link stubs live here; the docs toctrees reference notebooks/<name>, and
+# each .nblink points back at the real notebook so the docs and the notebooks
+# can't drift (renaming/moving a notebook rewrites its .nblink on regenerate).
+DOCS_NB_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "docs", "source", "notebooks"
+)
 
 # A compact example circuit reused (defined inline) across the notebooks: the CZ
 # chain makes it cuttable, and the RY rotations keep <Z...Z> clearly non-zero (an
@@ -1652,8 +1659,14 @@ def main():
         "language_info": {"name": "python"},
     }
 
-    def write_all(collection, out_dir):
+    def write_all(collection, out_dir, docs_subdir=""):
         os.makedirs(out_dir, exist_ok=True)
+        nblink_dir = os.path.join(DOCS_NB_DIR, docs_subdir)
+        os.makedirs(nblink_dir, exist_ok=True)
+        # Relative path from a .nblink (in nblink_dir) up to the repo root and back
+        # down to the notebook: 3 hops out of docs/source/notebooks, +1 per subdir.
+        ups = "../" * (3 + (1 if docs_subdir else 0))
+        nb_rel = f"{ups}notebooks/{docs_subdir + '/' if docs_subdir else ''}"
         for name, cells in collection.items():
             # Deterministic cell ids: nbformat assigns a random id per cell on
             # write, which would re-diff every notebook on every regenerate.
@@ -1669,10 +1682,17 @@ def main():
             path = os.path.join(out_dir, f"{name}.ipynb")
             with open(path, "w") as handle:
                 nbf.write(notebook, handle)
+            # Matching nbsphinx-link stub so the docs pull in this notebook.
+            nblink = os.path.join(nblink_dir, f"{name}.nblink")
+            with open(nblink, "w") as handle:
+                json.dump({"path": f"{nb_rel}{name}.ipynb"}, handle, indent=4)
+                handle.write("\n")
             print(f"wrote {path}  ({len(cells)} cells)")
 
     write_all(NOTEBOOKS, NB_DIR)  # the numbered learning path
-    write_all(APPLICATIONS, os.path.join(NB_DIR, "applications"))  # standalone apps
+    write_all(  # standalone apps
+        APPLICATIONS, os.path.join(NB_DIR, "applications"), docs_subdir="applications"
+    )
 
 
 if __name__ == "__main__":
