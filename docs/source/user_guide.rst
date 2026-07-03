@@ -85,6 +85,26 @@ To simplify the cutting process, Qdislib provides the `find_cut` utility to auto
 
 The returned list contains candidate gate names or gate pairs that are suitable cut points.
 
+``find_cut`` also accepts a few constraints and knobs:
+
+.. code-block:: python
+
+    cut = qd.find_cut(circuit, max_qubits=5, max_cuts=2)  # bound subcircuit size / #cuts
+    cut = qd.find_cut(circuit, seed=0)                    # reproducible (same seed -> same cut)
+    cut = qd.find_cut(circuit, forbidden_gates=["CZ_3"])  # never cut these gates
+    cut = qd.find_cut(circuit, forbidden_qubits=[0, 1])   # never cut on these qubits
+    cut = qd.find_cut(circuit, implementation="ibm-ckt")  # IBM's cut finder instead
+
+.. tip::
+
+   Each cut multiplies the number of subcircuit evaluations — a **gate cut by 6**,
+   a **wire cut by 8** — so the cost grows *exponentially* in the number of cuts.
+   Preview it before running with ``qd.cut_cost``:
+
+   .. code-block:: python
+
+       qd.cut_cost(cut)   # {'num_cuts': 2, 'kind': 'gate', 'base': 6, 'terms': 36}
+
 **Recommended workflow: generate → evaluate → reconstruct**
 
 The recommended way to use Qdislib is the **three-step workflow**: generate the
@@ -144,6 +164,75 @@ mapping:
 The same forms work with ``qd.wire_cutting`` and ``qd.analytical_solution``.
 
 
+Sampling the output distribution
+--------------------------------
+
+``gate_cutting`` / ``wire_cutting`` return a single **expectation value**. To
+reconstruct the full **output distribution** ``{bitstring: probability}`` instead
+— e.g. to read out an image or inspect a state — use the sampling variants, which
+have the same all-in-one and three-step forms:
+
+.. code-block:: python
+
+    dist = qd.gate_cutting_sampling(circuit, cut, shots=200_000)
+    # or  qd.wire_cutting_sampling(circuit, wire_cut, shots=200_000)
+
+Reconstructing a distribution carries a quasiprobability overhead, so it needs
+**more shots** than an expectation value. Pass ``seed=`` for a reproducible
+distribution:
+
+.. code-block:: python
+
+    dist = qd.gate_cutting_sampling(circuit, cut, shots=200_000, seed=0)
+
+
+Caching repeated subcircuits
+----------------------------
+
+Cutting produces many *functionally equivalent* subcircuits (repeated fragments,
+or the same ansatz across variational iterations). The **semantic cache** keys
+each subcircuit by a ZX-reduced graph hash and simulates an equivalent fragment
+only once. Install it with ``pip install "qdislib[cache]"`` and pass a store to
+any cutting call:
+
+.. code-block:: python
+
+    cache = qd.default_circuit_cache("memory")   # or "lmdb" (on disk) / "redis"
+    value = qd.gate_cutting(circuit, cut, cache=cache)
+    print(cache.stats())                         # hits, misses, hit-rate, size
+
+Bound the in-memory store for long runs: ``max_entries`` evicts the
+least-recently-used entry, and ``ttl`` expires entries after a number of seconds
+(useful after an SDK upgrade):
+
+.. code-block:: python
+
+    cache = qd.default_circuit_cache("memory", max_entries=5000, ttl=3600)
+
+Under PyCOMPSs, use the ``"redis"`` store so the cache is shared across workers.
+
+
+Choosing a backend
+-------------------
+
+The ``software`` argument selects the simulator the subcircuits run on —
+``"qibo"``, ``"qiskit"`` or ``"cudaq"`` — and is accepted by every cutting call.
+Under the hood a pluggable **backend layer** turns your ``software`` / ``gpu`` /
+``qpu`` arguments into a concrete backend:
+
+.. code-block:: python
+
+    qd.available_backends()                 # registered backends
+    qd.build_execution_backend("qiskit")    # the single place that chooses one
+    qd.QdBackEnd(qpu_dict={...})            # load-balance across a pool of devices
+
+You can register your own backend (an in-house simulator or a cloud QPU) by
+subclassing :class:`~Qdislib.core.backend.base_backend.BaseBackend` and calling
+``qd.register_backend(...)``; the cutting code then selects it via
+``software="MY_BACKEND"`` with no other change. See notebook *08 · Backends under
+the hood*.
+
+
 Resource Allocation
 -------------------
 
@@ -154,15 +243,34 @@ Qdislib is designed to run efficiently across CPUs, GPUs, and quantum devices de
 Using GPUs
 ----------
 
-Qdislib includes support for GPU-accelerated execution using `cuQuantum` (with Qiskit) and `Qibojit` (with Qibo). GPU support is available for the following algorithms:
+Qdislib offloads eligible subcircuit simulations to Qiskit Aer's GPU simulator
+(``device="GPU"``, cuStateVec-enabled), for both ``gate_cutting`` and
+``wire_cutting``. Pass ``gpu=True`` and a ``gpu_min_qubits`` threshold — only
+subcircuits at least that large go to the GPU, the rest stay on CPU:
 
-- `gate_cutting`
-- `wire_cutting`
-
-To enable GPU execution, set the following variable before running your application:
-
-.. code-block:: bash
+.. code-block:: python
 
     reconstruction = qd.gate_cutting(circuit, cut, gpu=True, gpu_min_qubits=18)
 
-When enabled, Qdislib offloads eligible subcircuit simulations to GPU, while still coordinating the overall computation through CPU. This GPU usage is transparent to the user: memory transfers are handled internally and automatically
+GPU usage is transparent: backend selection and memory transfers are handled
+internally. The GPU path supports the same cases as the CPU path, including an
+identity observable on a cut qubit.
+
+Running on real QPUs
+--------------------
+
+Set ``qpu=True`` and a ``qpu_dict`` mapping a device name to its qubit count to
+route each subcircuit to real hardware instead of a simulator:
+
+.. code-block:: python
+
+    # BSC (MareNostrum Ona) via the shared-filesystem bridge:
+    value = qd.gate_cutting(circuit, cut, qpu=True, qpu_dict={"MN_Ona": 5})
+
+    # IBM Quantum via qiskit-ibm-runtime:
+    value = qd.gate_cutting(circuit, cut, qpu=True, qpu_dict={"IBM_Quantum": 127})
+
+Qdislib routes each subcircuit to a large-enough configured QPU. A real device
+returns only aggregated counts, so an identity observable on a cut qubit that
+keeps evolving *after* the cut is not supported on QPU (it is on CPU/GPU). The
+three-step workflow lets you submit each subcircuit to hardware yourself.

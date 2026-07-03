@@ -57,13 +57,44 @@ group of the `Barcelona Supercomputing Center <http://www.bsc.es>`_.
 Documentation
 -------------
 
-* :doc:`Quickstart <quickstart>`
-* :doc:`User guide <user_guide>`
-* :doc:`API Reference <api_reference>`
-* :doc:`Modules <modules>`
-* :doc:`Examples <examples>`
-* :doc:`Development <development>`
-* :doc:`Glossary <glossary>`
+.. grid:: 2 2 3 3
+    :gutter: 3
+
+    .. grid-item-card:: 🚀 Quickstart
+        :link: quickstart
+        :link-type: doc
+
+        Install and cut your first circuit in three steps.
+
+    .. grid-item-card:: 📖 User guide
+        :link: user_guide
+        :link-type: doc
+
+        Gate vs wire cutting, observables, sampling, caching, backends & GPUs.
+
+    .. grid-item-card:: 🧪 Examples
+        :link: examples
+        :link-type: doc
+
+        The hands-on notebook learning path and end-to-end applications.
+
+    .. grid-item-card:: 🧩 API reference
+        :link: api_reference
+        :link-type: doc
+
+        Every public function, class and module.
+
+    .. grid-item-card:: 🛠️ Development
+        :link: development
+        :link-type: doc
+
+        Build, test and release Qdislib.
+
+    .. grid-item-card:: 📚 Glossary
+        :link: glossary
+        :link-type: doc
+
+        Circuit-cutting terms, defined.
 
 .. toctree::
    :maxdepth: 2
@@ -89,12 +120,15 @@ If you have questions or issues about the Qdislib you can join us in `Slack <htt
 
 Alternatively, you can send us an e-mail to `support-compss@bsc.es <mailto:support-compss@bsc.es>`__.
 
-Citing dislib
--------------
+Citing Qdislib
+--------------
 
-If you use Qdislib in a scientific publication, we would appreciate citations to the following paper:
+If you use Qdislib in a scientific publication, we would appreciate citations to
+the following papers. Please cite the original paper (ACM, SC '25 Workshops) first:
 
-\M. Tejedor, B. Casas, J. Conejero, A. Cervera-Lierta and R. M. Badia, "Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing" in *https://arxiv.org/abs/2505.01184*, 2025, pp. 1-12
+\M. Tejedor, B. Casas, J. Conejero, A. Cervera-Lierta and R. M. Badia, "Orchestrating Quantum-HPC Workflows with Distributed Quantum Circuit Cutting," in *Proceedings of the SC '25 Workshops of the International Conference for High Performance Computing, Networking, Storage and Analysis*, ACM, 2025, pp. 1898-1906. https://doi.org/10.1145/3731599.3767547
+
+\M. Tejedor, J. Conejero and R. M. Badia, "A Semantic Quantum Circuit Cache for Scalable and Distributed Quantum-Classical Workflows," arXiv:2604.26788, 2026. https://arxiv.org/abs/2604.26788
 
 Bibtex
 ......
@@ -102,12 +136,21 @@ Bibtex
 .. code:: latex
 
    @inproceedings{Qdislib,
-               title       = {{Distributed Quantum Circuit Cutting for Hybrid Quantum-Classical High-Performance Computing}},
-               author      = {Mar Tejedor and Berta Cervera and Javier Conejero and Alba Cervera-Lierta and Rosa M. Badia},
-               booktitle   = {https://arxiv.org/abs/2505.01184},
-               pages       = {1-12},
-               year        = {2025},
-    }
+       title     = {{Orchestrating Quantum-HPC Workflows with Distributed Quantum Circuit Cutting}},
+       author    = {Mar Tejedor and Berta Casas and Javier Conejero and Alba Cervera-Lierta and Rosa M. Badia},
+       booktitle = {Proceedings of the SC '25 Workshops of the International Conference for High Performance Computing, Networking, Storage and Analysis},
+       publisher = {ACM},
+       pages     = {1898--1906},
+       year      = {2025},
+       doi       = {10.1145/3731599.3767547},
+   }
+
+   @article{QdislibCache,
+       title   = {{A Semantic Quantum Circuit Cache for Scalable and Distributed Quantum-Classical Workflows}},
+       author  = {Mar Tejedor and Javier Conejero and Rosa M. Badia},
+       journal = {arXiv preprint arXiv:2604.26788},
+       year    = {2026},
+   }
 
 
 Indices and tables
