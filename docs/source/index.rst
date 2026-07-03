@@ -7,11 +7,6 @@
 Welcome to Qdislib!
 ===================
 
-.. image:: ../logo.png
-   :alt: Qdislib Logo
-   :align: left
-   :scale: 25%
-
 **Qdislib** is a Python library designed for scalable quantum circuit execution using *circuit cutting* techniques. It enables the simulation of large quantum circuits by splitting them into smaller, manageable subcircuits that can be executed independently—either on classical simulators, GPUs, or quantum hardware.
 
 Qdislib is built on top of the `PyCOMPSs <https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar>`__ parallel runtime, allowing seamless distributed execution of quantum workloads across CPUs, GPUs, and QPUs.
@@ -35,7 +30,17 @@ and it is being developed by the
 `Workflows and Distributed Computing <https://www.bsc.es/discover-bsc/organisation/scientific-structure/workflows-and-distributed-computing>`__
 group of the `Barcelona Supercomputing Center <http://www.bsc.es>`_.
 
+.. toctree::
+   :maxdepth: 2
+   :hidden:
 
+   quickstart
+   user_guide
+   examples
+   api_reference
+   modules
+   development
+   glossary
 
 .. nbgallery::
     :caption: Start with our notebooks!
@@ -95,18 +100,6 @@ Documentation
         :link-type: doc
 
         Circuit-cutting terms, defined.
-
-.. toctree::
-   :maxdepth: 2
-   :hidden:
-
-   quickstart
-   user_guide
-   examples
-   api_reference
-   modules
-   development
-   glossary
 
 Source code
 -----------
