@@ -164,6 +164,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DEBUG level. Use `qd.set_log_level("DEBUG")` instead of `verbose=True`.
 
 ### Fixed
+- **Semantic cache collided gate-cut subcircuits with opposite cut-point signs.** A
+  gate cut's mid-circuit *collapse* measurement carries the quasiprobability
+  reconstruction sign, but `semantic_key` hashes only the unitary (QASM → ZX
+  `full_reduce`), which drops the collapse -- so two subcircuits with the same unitary
+  but opposite sign shared a cache entry, and a wrong cache hit flipped the
+  reconstructed expectation (`test_circuit_cache` saw +0.72 vs the exact -0.72). The
+  cache key now folds in a fingerprint of the collapse measurements. Wire cutting and
+  uncut circuits have none, so their keys are unchanged. (Pre-existing; surfaced once
+  the lint fix let CI's test stage run with the `cache` extra.)
 - **Three-step gate cutting now honours an identity observable on a non-terminal
   cut qubit** (CPU backends). The subcircuit workflow's guard was called without
   `software`, so it defaulted to "unsupported" and rejected the CPU 3-step even

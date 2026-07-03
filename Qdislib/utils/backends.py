@@ -510,6 +510,46 @@ def _safe_delete(cache, key):
         logger.warning("Cache delete failed for key %s (%s).", key, exc)
 
 
+def _cut_point_fingerprint(circuit, software):
+    """Fingerprint the mid-circuit *collapse* measurements a gate cut inserts.
+
+    A gate cut measures its cut qubit mid-circuit and lets it keep evolving; that
+    collapse outcome carries the quasiprobability reconstruction sign (recovered by
+    ``_expec_value_*``). The ZX/QASM ``semantic_key`` hashes only the *unitary*, so
+    it drops the collapse -- two subcircuits with the same unitary but opposite
+    cut-point sign would otherwise share a cache entry (a wrong hit that flips the
+    reconstructed value). This returns a string identifying the collapse
+    measurements so those subcircuits get distinct keys.
+
+    Only **gate cutting** produces such measurements: wire-cut fragments differ in
+    real (unitary) prepare/basis gates -- already captured by ``semantic_key`` -- and
+    uncut circuits have none, so both yield an empty fingerprint and an unchanged key.
+    """
+    try:
+        if software == "qibo":
+            import qibo.gates as qg
+
+            marks = sorted(
+                tuple(gate.qubits)
+                for gate in circuit.queue
+                if isinstance(gate, qg.M) and getattr(gate, "collapse", False)
+            )
+            return ";".join(str(m) for m in marks)
+        if software == "qiskit":
+            # A gate-cut Qiskit subcircuit measures the cut qubit into its own
+            # register mid-circuit (before the final measure_all is appended at run
+            # time), so any measurement present here is a cut point.
+            marks = sorted(
+                tuple(circuit.find_bit(q).index for q in inst.qubits)
+                for inst in circuit.data
+                if inst.operation.name == "measure"
+            )
+            return ";".join(str(m) for m in marks)
+    except Exception:  # a fingerprint helper must never break the computation
+        return ""
+    return ""
+
+
 def _cached_expectation(subcircuit, shots, cache, cache_mode):
     """Get-or-simulate one subcircuit's expectation value through ``cache``.
 
@@ -532,6 +572,14 @@ def _cached_expectation(subcircuit, shots, cache, cache_mode):
     key = semantic_key(circuit, software)
     if key is None:
         return _run_native(subcircuit, software, shots)
+
+    # A gate cut's mid-circuit collapse measurement carries the reconstruction sign
+    # but is invisible to the (unitary) semantic hash; fold it into the key so two
+    # subcircuits with the same unitary but opposite cut-point sign don't collide.
+    # Empty for wire cutting / uncut circuits (no collapse) -> key unchanged.
+    fingerprint = _cut_point_fingerprint(circuit, software)
+    if fingerprint:
+        key = f"{key}#{fingerprint}"
 
     strategy = _resolve_strategy(cache_mode)
     sim = _SimContext(circuit, subcircuit, observables, software, shots)
