@@ -30,6 +30,7 @@ from reportlab.lib.colors import HexColor, white
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
@@ -47,11 +48,13 @@ from reportlab.platypus import (
 # Palette + geometry
 # --------------------------------------------------------------------------- #
 INK = HexColor("#1a2233")
-ACCENT = HexColor("#5b34c0")  # Qdislib purple (gate cutting)
-ACCENT2 = HexColor("#0a7d8c")  # teal (wire cutting)
-CODE_BG = HexColor("#f3f1fb")
-RULE = HexColor("#d9d4ee")
+ACCENT = HexColor("#7d6ab0")  # Qdislib purple (gate cutting) -- soft, not electric
+ACCENT2 = HexColor("#3f8f9b")  # muted teal (wire cutting)
+CODE_BG = HexColor("#f4f2fa")
+RULE = HexColor("#ddd7ee")
 MUTED = HexColor("#55607a")
+
+_LOGO = ImageReader(os.path.join(os.path.dirname(__file__), "..", "logo_favicon.png"))
 
 PAGE_W, PAGE_H = A4
 MARGIN_X = 11 * mm
@@ -122,10 +125,14 @@ def code(src):
     return box
 
 
-def api_table(rows):
-    """Two-column reference table: monospaced key -> description."""
+def api_table(rows, key_frac=0.42):
+    """Two-column reference table: monospaced key -> description.
+
+    ``key_frac`` is the fraction of the column width given to the (monospaced)
+    key; widen it for long function signatures (e.g. the Core API table).
+    """
     data = [[Paragraph(k, KEY), Paragraph(v, VAL)] for k, v in rows]
-    t = Table(data, colWidths=[COL_W * 0.40, COL_W * 0.60])
+    t = Table(data, colWidths=[COL_W * key_frac, COL_W * (1 - key_frac)])
     t.setStyle(
         TableStyle(
             [
@@ -176,6 +183,22 @@ def _decorate(canvas, doc):
         PAGE_H - 17 * mm,
         "Run circuits bigger than your device: cut, execute the pieces, recombine.",
     )
+    # Logo emblem on a white chip (the emblem is purple-on-transparent, so it
+    # needs a light backing to read against the banner), top-right of the banner.
+    lw = 15 * mm
+    lx = PAGE_W - MARGIN_X - lw
+    ly = PAGE_H - 17.5 * mm
+    canvas.setFillColor(white)
+    canvas.roundRect(
+        lx - 1.6 * mm,
+        ly - 1.6 * mm,
+        lw + 3.2 * mm,
+        lw + 3.2 * mm,
+        2 * mm,
+        stroke=0,
+        fill=1,
+    )
+    canvas.drawImage(_LOGO, lx, ly, lw, lw, mask="auto", preserveAspectRatio=True)
     # Column divider
     canvas.setStrokeColor(RULE)
     canvas.setLineWidth(0.4)
@@ -248,13 +271,13 @@ def _story():
             LEAD,
         )
     )
-    s.append(gap(6))
+    s.append(gap(4.5))
 
     s.append(section("Two ways to cut"))
     s.append(gap(3))
     s.append(
         body(
-            "<b><font color='#5b34c0'>Gate cutting</font></b> replaces a two-qubit "
+            "<b><font color='#7d6ab0'>Gate cutting</font></b> replaces a two-qubit "
             "gate (CZ / CX) by a sum of single-qubit <i>measure-and-prepare</i> "
             "operations, splitting the circuit where that gate was. "
             "<b>Cost: 6<super>k</super></b> subcircuit terms for <i>k</i> cuts."
@@ -263,7 +286,7 @@ def _story():
     s.append(gap(2))
     s.append(
         body(
-            "<b><font color='#0a7d8c'>Wire cutting</font></b> cuts a qubit's wire "
+            "<b><font color='#3f8f9b'>Wire cutting</font></b> cuts a qubit's wire "
             "(its timeline) into “measure here / re-prepare there”. "
             "<b>Cost: 8<super>k</super></b> subcircuit terms for <i>k</i> cuts."
         )
@@ -277,40 +300,23 @@ def _story():
             BODY_MUTED,
         )
     )
-    s.append(gap(6))
-
-    s.append(section("What you get back"))
-    s.append(gap(3))
-    s.append(
-        body(
-            "<font face='Courier'>gate_cutting</font> / "
-            "<font face='Courier'>wire_cutting</font> return one <b>expectation "
-            "value</b> ⟨O⟩. The <font face='Courier'>*_sampling</font> variants "
-            "return the whole <b>output distribution</b> "
-            "<font face='Courier'>{bitstring: prob}</font> (needs more shots)."
-        )
-    )
-    s.append(gap(6))
+    s.append(gap(4.5))
 
     s.append(section("The workflow"))
     s.append(gap(3))
-    s.append(body("<b>All-in-one</b> — cut and reconstruct in one call:"))
-    s.append(gap(2))
     s.append(
-        code(
-            "cut = qd.find_cut(circ, gate_cut=True,\n"
-            "                  wire_cut=False)\n"
-            "val = qd.gate_cutting(circ, cut,\n"
-            "          observables='ZZZZ', shots=8192)"
+        body(
+            "Get one <b>expectation value</b> &lt;O&gt; in a single call, or use the "
+            "<b>three-step</b> form to control how each piece runs (cluster, QPU):"
         )
     )
-    s.append(gap(3))
-    s.append(
-        body("<b>Three-step</b> — you control how each piece runs (cluster, QPU):")
-    )
     s.append(gap(2))
     s.append(
         code(
+            "cut = qd.find_cut(circ, gate_cut=True)\n"
+            "val = qd.gate_cutting(circ, cut,\n"
+            "          observables='ZZZZ', shots=8192)\n"
+            "\n"
             "subs = qd.gate_cutting_subcircuits(\n"
             "         circ, cut, observables='ZZZZ')\n"
             "vals = [qd.expectation_value(s)\n"
@@ -322,10 +328,11 @@ def _story():
     s.append(
         body(
             "<font face='Courier'>estimate(circ, 'ZZZZ', max_qubits=n)</font> does "
-            "find-cut + cut + reconstruct in a single call."
+            "find-cut + cut + reconstruct in one call.",
+            BODY_MUTED,
         )
     )
-    s.append(gap(6))
+    s.append(gap(4.5))
 
     s.append(section("Quickstart"))
     s.append(gap(3))
@@ -343,34 +350,64 @@ def _story():
             "cut = qd.find_cut(circ, gate_cut=True,\n"
             "        wire_cut=False, seed=0)\n"
             "val = qd.gate_cutting(circ, cut,\n"
-            "        observables='ZZZZ', shots=8192)\n"
-            "print(val,\n"
-            "  qd.analytical_solution(circ, 'ZZZZ'))"
+            "        observables='ZZZZ', shots=8192)"
         )
     )
+    s.append(gap(4.5))
 
-    # ---- right column starts flowing here ----
-    s.append(gap(6))
     s.append(section("Core API"))
     s.append(gap(3))
     s.append(
         api_table(
             [
-                ("find_cut(circ, …)", "Choose where to cut (returns the cut)."),
-                ("gate_cutting(circ, cut, …)", "⟨O⟩ via gate cutting."),
-                ("wire_cutting(circ, cut, …)", "⟨O⟩ via wire cutting."),
-                ("…_sampling(circ, cut, …)", "Full output distribution."),
-                ("…_subcircuits(…)", "Three-step: pieces + .reconstruct()."),
+                ("find_cut(circ, ...)", "Choose where to cut (returns it)."),
+                ("gate_cutting(circ, cut)", "&lt;O&gt; via gate cutting."),
+                ("wire_cutting(circ, cut)", "&lt;O&gt; via wire cutting."),
+                ("..._sampling(circ, cut)", "Full output distribution."),
+                ("..._subcircuits(...)", "3-step: pieces + .reconstruct()."),
                 ("expectation_value(sub)", "Run one subcircuit."),
-                ("estimate(circ, …)", "One-call cut + run + reconstruct."),
+                ("estimate(circ, ...)", "One-call cut + run + reconstruct."),
                 ("cut_cost(cut)", "Preview terms = base**#cuts."),
-                ("analytical_solution(circ, O)", "Exact ⟨O⟩ (to check)."),
-                ("draw_cut(circ, cut, 'c.png')", "Visualise the cut."),
-                ("from_qasm(qasm, software=)", "Import from any OpenQASM 2."),
-            ]
+                ("analytical_solution(...)", "Exact &lt;O&gt; (to check)."),
+                ("draw_cut(circ, cut, path)", "Visualise the cut."),
+                ("from_qasm(qasm, ...)", "Import any OpenQASM 2."),
+            ],
+            key_frac=0.55,
         )
     )
-    s.append(gap(6))
+    s.append(gap(4.5))
+
+    s.append(section("Sampling the distribution", ACCENT2))
+    s.append(gap(3))
+    s.append(
+        body(
+            "Reconstruct the full <b>output distribution</b> "
+            "<font face='Courier'>{bitstring: prob}</font> — to read out an image "
+            "or inspect a state — instead of a single number:"
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        code(
+            "dist = qd.gate_cutting_sampling(\n"
+            "         circ, cut, shots=200_000)\n"
+            "# three-step (parallel under PyCOMPSs):\n"
+            "subs = qd.gate_cutting_sampling_subcircuits(\n"
+            "         circ, cut)\n"
+            "dist = subs.reconstruct(\n"
+            "  [qd.sample_subcircuit(s) for s in subs])"
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        body(
+            "<font face='Courier'>wire_cutting_sampling</font> too. Sampling carries "
+            "a quasiprobability overhead, so it needs <b>more shots</b> than an "
+            "expectation value.",
+            BODY_MUTED,
+        )
+    )
+    s.append(gap(4.5))
 
     s.append(section("find_cut options"))
     s.append(gap(3))
@@ -385,7 +422,7 @@ def _story():
             ]
         )
     )
-    s.append(gap(6))
+    s.append(gap(4.5))
 
     s.append(section("Observables"))
     s.append(gap(3))
@@ -409,7 +446,7 @@ def _story():
             BODY_MUTED,
         )
     )
-    s.append(gap(6))
+    s.append(gap(4.5))
 
     s.append(section("Backends", ACCENT2))
     s.append(gap(3))
@@ -418,17 +455,17 @@ def _story():
             [
                 ("software=", "'qibo' | 'qiskit' | 'cudaq'."),
                 ("gpu=True", "Aer GPU (needs CUDA)."),
-                ("qpu=True, qpu_dict=", "{'MN_Ona': n} or {'IBM_Quantum': 127}."),
+                ("qpu=True, qpu_dict=", "{'MN_Ona': n} / {'IBM_Quantum': 127}."),
                 ("available_backends()", "List registered backends."),
                 ("build_execution_backend", "How software/gpu/qpu pick one."),
                 ("QdBackEnd(pool)", "Load-balance across devices."),
-                ("register_backend(…)", "Plug in your own (BaseBackend)."),
+                ("register_backend(...)", "Plug in your own (BaseBackend)."),
             ]
         )
     )
-    s.append(gap(6))
+    s.append(gap(4.5))
 
-    s.append(section("Caching & scale", ACCENT2))
+    s.append(section("Caching"))
     s.append(gap(3))
     s.append(
         code(
@@ -441,15 +478,38 @@ def _story():
     s.append(
         body(
             "The <b>semantic cache</b> reuses functionally-equivalent subcircuits "
-            "(e.g. H·H·H ≡ H). Stores: "
+            "(e.g. H·H·H = H). Stores: "
             "<font face='Courier'>'memory'</font> / "
             "<font face='Courier'>'lmdb'</font> / "
-            "<font face='Courier'>'redis'</font>. Under <b>PyCOMPSs</b> the "
-            "three-step workflow parallelises subcircuits across nodes. "
-            "<font face='Courier'>qd.set_log_level('DEBUG')</font> for diagnostics."
+            "<font face='Courier'>'redis'</font>. "
+            "<font face='Courier'>set_log_level('DEBUG')</font> for diagnostics.",
+            BODY_MUTED,
         )
     )
-    s.append(gap(6))
+    s.append(gap(4.5))
+
+    s.append(section("Distributed with PyCOMPSs", ACCENT2))
+    s.append(gap(3))
+    s.append(
+        body(
+            "Qdislib is built for HPC: every subcircuit is a PyCOMPSs "
+            "<font face='Courier'>@task</font>, so the pieces run <b>in parallel "
+            "across cores and nodes</b>. The three-step workflow fans them out "
+            "automatically — the same code scales from a laptop to a supercomputer."
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        code(
+            "import pycompss.interactive as ipycompss\n"
+            "ipycompss.start()   # or:  runcompss app.py\n"
+            "subs = qd.gate_cutting_subcircuits(circ, cut)\n"
+            "vals = [qd.expectation_value(s) for s in subs]\n"
+            "val = subs.reconstruct(vals)   # auto-parallel\n"
+            "ipycompss.stop()"
+        )
+    )
+    s.append(gap(4.5))
 
     s.append(section("Gotchas", HexColor("#b5342b")))
     s.append(gap(3))
