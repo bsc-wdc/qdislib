@@ -82,9 +82,9 @@ nbsphinx_execute = "never"
 # application its result figure.
 nbsphinx_thumbnails = {
     "notebooks/0*": "_static/logo.png",
-    "notebooks/applications/01_image_reconstruction": "_static/image_cutting.png",
-    "notebooks/applications/02_vqe_h2": "_static/vqe_landscape.png",
-    "notebooks/applications/03_scaling": "_static/scaling.png",
+    "notebooks/applications/01_vqe_h2": "_static/vqe_landscape.png",
+    "notebooks/applications/02_scaling": "_static/scaling.png",
+    "notebooks/applications/03_image_reconstruction": "_static/image_cutting.png",
 }
 
 # Don't let sphinx-copybutton copy prompt characters / output lines.
@@ -182,6 +182,9 @@ html_theme = "furo"
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
+
+# Copy the tutorial cheat-sheet PDF to the site root so pages can link to it.
+html_extra_path = ["../handout/Qdislib_cheatsheet.pdf"]
 
 html_css_files = ["custom.css"]
 html_js_files = ["rightcol.js"]

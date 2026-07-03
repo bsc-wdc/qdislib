@@ -936,9 +936,9 @@ NOTEBOOKS["09_distributed_and_qpu"] = [
 # --------------------------------------------------------------------------- #
 # 07 — Hands-on: reconstruct a quantum image by cutting it
 # --------------------------------------------------------------------------- #
-APPLICATIONS["01_image_reconstruction"] = [
+APPLICATIONS["03_image_reconstruction"] = [
     md(
-        "# Qdislib — Application 1 · Cutting a quantum image, distributed with PyCOMPSs\n"
+        "# Qdislib — Application 3 · Cutting a quantum image, distributed with PyCOMPSs\n"
         "\n"
         "**A handful of qubits holds a whole image.** With QPIE (Quantum Probability\n"
         "Image Encoding) an `n`-qubit state is a probability distribution over `2**n`\n"
@@ -1274,9 +1274,9 @@ APPLICATIONS["01_image_reconstruction"] = [
 # --------------------------------------------------------------------------- #
 # 08 — Application: VQE ground-state energy of H2 by cutting the ansatz
 # --------------------------------------------------------------------------- #
-APPLICATIONS["02_vqe_h2"] = [
+APPLICATIONS["01_vqe_h2"] = [
     md(
-        "# Qdislib — Application 2 · VQE for a molecule (H₂), distributed with PyCOMPSs\n"
+        "# Qdislib — Application 1 · VQE for a molecule (H₂), distributed with PyCOMPSs\n"
         "\n"
         "**Find a molecule's ground-state energy on a device too small for the "
         "circuit.** The variational quantum eigensolver (VQE) prepares a trial state "
@@ -1486,11 +1486,11 @@ APPLICATIONS["02_vqe_h2"] = [
 # --------------------------------------------------------------------------- #
 # 09 — Scaling up: a bigger molecule (N2) and a 25-qubit lattice, by cutting
 # --------------------------------------------------------------------------- #
-APPLICATIONS["03_scaling"] = [
+APPLICATIONS["02_scaling"] = [
     md(
-        "# Qdislib — Application 3 · Scaling up: a bigger molecule and a 25-qubit lattice\n"
+        "# Qdislib — Application 2 · Scaling up: a bigger molecule and a 25-qubit lattice\n"
         "\n"
-        "Application 2 cut **H₂ (4 qubits)**. The real payoff of cutting is running "
+        "Application 1 cut **H₂ (4 qubits)**. The real payoff of cutting is running "
         "circuits **far too big for your device** — so here we scale up on two fronts:\n"
         "\n"
         "1. **N₂**, a real molecule — 20 qubits at full size, which we bring to **12 "

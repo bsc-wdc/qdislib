@@ -52,6 +52,14 @@ article h2 code {
 article h2 code .pre {
     color: #ffffff;
 }
+/* Keep the teal bar (white text) readable when the heading is the nav target.
+ * Furo highlights the heading through a sibling <span id> anchor
+ * (span:target ~ h2) or a wrapping :target -- never the h2 itself -- so match
+ * those, not h2:target, else the pale-yellow highlight sits behind white text. */
+article :target > h2:first-of-type,
+article span:target ~ h2:first-of-type {
+    background-color: var(--qd-teal);
+}
 
 /* h3: a teal underline echoes the bars without repeating the block. */
 article h3 {
@@ -64,14 +72,13 @@ body[data-theme="dark"] article h3 {
     border-bottom-color: #6fc4c9;
 }
 
-/* API signatures: the light-purple panel from the previous style. */
+/* API signatures: a subtle purple left-accent only, keeping Furo's own
+ * background and syntax colours. Do NOT touch Furo's padding-left (3em) or
+ * text-indent (-2.5em): that pair drives the hanging indent, and overriding the
+ * padding spills the first line (the red dotted name) out to the left of the box. */
 dl.py > dt.sig,
 dt.sig-object {
-    background: var(--qd-lilac);
-    color: var(--qd-ink);
-    border-left: 4px solid var(--qd-purple);
-    border-radius: 4px;
-    padding: 0.5rem 0.7rem;
+    border-left: 3px solid var(--qd-purple);
 }
 
 /* Sidebar logo: a soft purple/teal tint + a subtle hover. */

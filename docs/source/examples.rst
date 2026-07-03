@@ -28,6 +28,6 @@ bigger circuits). These are standalone, not part of the ordered path.
    :maxdepth: 2
    :caption: Applications:
 
-   notebooks/applications/01_image_reconstruction
-   notebooks/applications/02_vqe_h2
-   notebooks/applications/03_scaling
+   notebooks/applications/01_vqe_h2
+   notebooks/applications/02_scaling
+   notebooks/applications/03_image_reconstruction
