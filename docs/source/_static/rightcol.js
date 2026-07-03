@@ -41,12 +41,23 @@ document.addEventListener("DOMContentLoaded", function () {
         },
     ];
 
+    // Path to the docs root, derived from any _static asset URL, so the local
+    // cheat-sheet link resolves on nested pages (notebooks/, api/...) too.
+    var staticEl = document.querySelector(
+        'link[href*="_static/"], script[src*="_static/"]'
+    );
+    var staticUrl = staticEl
+        ? staticEl.getAttribute("href") || staticEl.getAttribute("src")
+        : "";
+    var root = staticUrl.slice(0, Math.max(0, staticUrl.indexOf("_static/")));
+
     var card = document.createElement("div");
     card.className = "qd-rail-card";
     card.innerHTML = [
         '<div class="qd-rail-title">✂ Qdislib</div>',
         '<div class="qd-rail-badges"></div>',
         '<a href="https://doi.org/10.1145/3731599.3767547">📄 Read the paper (SC ’25)</a>',
+        '<a href="' + root + 'Qdislib_cheatsheet.pdf">📋 Cheat sheet (PDF)</a>',
         '<a href="https://bit.ly/bsc-wdc-community">💬 Join the community</a>',
     ].join("");
     rail.appendChild(card);

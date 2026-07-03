@@ -55,9 +55,9 @@ group of the `Barcelona Supercomputing Center <http://www.bsc.es>`_.
     notebooks/07_caching
     notebooks/08_backend_internals
     notebooks/09_distributed_and_qpu
-    notebooks/applications/01_image_reconstruction
-    notebooks/applications/02_vqe_h2
-    notebooks/applications/03_scaling
+    notebooks/applications/01_vqe_h2
+    notebooks/applications/02_scaling
+    notebooks/applications/03_image_reconstruction
 
 Documentation
 -------------
@@ -100,6 +100,12 @@ Documentation
         :link-type: doc
 
         Circuit-cutting terms, defined.
+
+    .. grid-item-card:: 📄 Cheat sheet (PDF)
+        :link: Qdislib_cheatsheet.pdf
+        :link-type: url
+
+        A one-page printable reference.
 
 Source code
 -----------
