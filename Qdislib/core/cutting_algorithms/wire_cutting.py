@@ -1077,14 +1077,6 @@ _WIRE_PREP = {
 #: Cut settings whose quasiprobability sign is -1 (matches _reconstruction base-8).
 _WIRE_SIGN_FLIP = {3, 5, 7}
 
-#: Base-8 cut setting -> the materialized measure "option" used by the three-step
-#: API (which runs one subcircuit per observable rather than reusing counts):
-#: "ZI" observes identity (Observable I); "XP"/"YP"/"ZP" observe that Pauli.
-_SETTING_TO_MEASURE_OPTION = {
-    0: "ZI", 1: "ZI", 2: "XP", 3: "XP", 4: "YP", 5: "YP", 6: "ZP", 7: "ZP",
-}
-_MEASURE_OPTIONS = ("ZI", "XP", "YP", "ZP")
-
 
 def _apply_wire_prep_state(graph, cut_index, state):
     """Set a prepare marker ``PS_i`` to prepare one of the 4 base states, in place.
@@ -1201,6 +1193,37 @@ def _run_wire_measure_fragment(sub, cuts, cut_qubits, basis_combo, shots, backen
             value += (-1 if parity else 1) * (count / total)
         results[extraction] = value
     return results
+
+
+class _OptimizedWireMeasure:
+    """A measure ("top") fragment subcircuit for the optimized three-step workflow.
+
+    Unlike a plain subcircuit (one circuit -> one expectation value), evaluating
+    this returns the whole ``{extraction_combo: value}`` table for its measurement
+    basis -- i.e. one circuit yields every P/I observable, so a Z-basis measurement
+    gives both ``<Z>`` and ``<I>``. That is what keeps the measure side at ``3**n``
+    (not ``4**n``): :func:`expectation_value` detects the ``_is_optimized_wire_measure``
+    marker and calls :meth:`evaluate` instead of the single-value path. Picklable
+    (holds only the fragment DAG + metadata), so it survives a PyCOMPSs task boundary.
+    """
+
+    _is_optimized_wire_measure = True
+
+    def __init__(self, sub, cuts, cut_qubits, basis_combo, software):
+        self.sub = sub
+        self.cuts = cuts
+        self.cut_qubits = cut_qubits
+        self.basis_combo = basis_combo
+        self.software = software
+
+    def evaluate(self, shots):
+        """Return the ``{extraction_combo: value}`` table (a future under PyCOMPSs)."""
+        return _run_wire_measure_fragment(
+            self.sub, self.cuts, self.cut_qubits, self.basis_combo, shots, None, self.software
+        )
+
+    def __repr__(self):
+        return f"_OptimizedWireMeasure(cuts={self.cuts}, basis={self.basis_combo})"
 
 
 @task(returns=1)
@@ -1969,10 +1992,11 @@ def _make_optimized_wire_reconstructor(
             sign = -1.0 if sum(s in _WIRE_SIGN_FLIP for s in settings) % 2 else 1.0
             term = sign
             for frag_idx, cuts in enumerate(measure_cuts):
-                option_combo = tuple(
-                    _SETTING_TO_MEASURE_OPTION[settings[cut - 1]] for cut in cuts
-                )
-                term *= measure_values[frag_idx][option_combo]
+                # One Z-basis measure circuit yields both <Z> and <I> (dict of
+                # extractions), so the measure side is 3**n, matching the all-in-one.
+                basis_combo = tuple(_WIRE_MEASURE[settings[cut - 1]][0] for cut in cuts)
+                extraction = tuple(_WIRE_MEASURE[settings[cut - 1]][1] for cut in cuts)
+                term *= measure_values[frag_idx][basis_combo][extraction]
             for frag_idx, cuts in enumerate(prepare_cuts):
                 expansions = [_WIRE_PREP[settings[cut - 1]] for cut in cuts]
                 fragment_value = 0.0
@@ -1996,12 +2020,13 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
     """Three-step counterpart of :func:`_wire_cutting_optimized`.
 
     Returns a :class:`~Qdislib.utils.backends.CutSubcircuits` holding the reduced
-    fragment subcircuits -- one per materialized measure observable and one per base
-    preparation (``~4**n + 4**n`` instead of ``8**n * components``) -- whose
-    ``reconstruct`` does the fragment-separated base-8 sum. Each subcircuit is a
-    normal ``expectation_value`` target, so the standard three-step loop is unchanged.
-    Returns ``None`` when the cut topology is not fragment-separable, so the caller
-    falls back to the standard generator.
+    fragment subcircuits -- ``3**n`` measure probes (each an
+    :class:`_OptimizedWireMeasure` returning all its P/I observables from one
+    circuit) and ``4**n`` base preparations, i.e. ``3**n + 4**n`` instead of
+    ``8**n * components`` -- whose ``reconstruct`` does the fragment-separated base-8
+    sum. Every subcircuit is a normal ``expectation_value`` target, so the standard
+    three-step loop is unchanged. Returns ``None`` when the cut topology is not
+    fragment-separable, so the caller falls back to the standard generator.
     """
     if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
         raise UnsupportedBackendError(
@@ -2016,13 +2041,14 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
 
     subcircuits = []
     measure_index, prepare_index, plain_positions = {}, {}, []
-    for frag_idx, (sub, cuts, _cut_qubits) in enumerate(measure_frags):
-        for option_combo in itertools.product(_MEASURE_OPTIONS, repeat=len(cuts)):
-            graph = sub.copy()
-            for cut_index, option in zip(cuts, option_combo):
-                _apply_wire_measure_option(graph, cut_index, option)
-            measure_index[(frag_idx, option_combo)] = len(subcircuits)
-            subcircuits.append(_make_subcircuit_task(graph, software))
+    for frag_idx, (sub, cuts, cut_qubits) in enumerate(measure_frags):
+        # One _OptimizedWireMeasure per basis combo (3**n) -- evaluating it returns
+        # every P/I observable of that circuit, so <Z> and <I> share one circuit.
+        for basis_combo in itertools.product(_MEASURE_BASES, repeat=len(cuts)):
+            measure_index[(frag_idx, basis_combo)] = len(subcircuits)
+            subcircuits.append(
+                _OptimizedWireMeasure(sub.copy(), cuts, cut_qubits, basis_combo, software)
+            )
     for frag_idx, (sub, cuts) in enumerate(prepare_frags):
         for prep_combo in itertools.product(_PREP_STATES, repeat=len(cuts)):
             graph = sub.copy()
