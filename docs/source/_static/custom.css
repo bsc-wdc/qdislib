@@ -126,6 +126,20 @@ dt.sig-object {
 body[data-theme="dark"] .qd-rail-title {
     color: #d9b3e6;
 }
+.qd-rail-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-bottom: 0.55rem;
+}
+.qd-rail-badges a {
+    padding: 0;
+    display: inline-block;
+}
+.qd-rail-badges img {
+    display: block;
+    height: 20px;
+}
 .qd-rail-card a {
     display: block;
     padding: 0.22rem 0;
