@@ -107,11 +107,43 @@ dt.sig-object {
     box-shadow: 0 12px 26px rgba(19, 103, 107, 0.22);
 }
 
+/* Branded "quick links" card in the right-hand column (injected by rightcol.js). */
+.qd-rail-card {
+    margin-top: 1.5rem;
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    border: 1px solid rgba(96, 62, 99, 0.18);
+    border-top: 4px solid var(--qd-purple);
+    background: var(--color-background-secondary);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+.qd-rail-title {
+    font-weight: 700;
+    color: var(--qd-purple);
+    margin-bottom: 0.45rem;
+}
+body[data-theme="dark"] .qd-rail-title {
+    color: #d9b3e6;
+}
+.qd-rail-card a {
+    display: block;
+    padding: 0.22rem 0;
+    color: var(--color-foreground-secondary);
+    text-decoration: none;
+    transition: transform 0.12s ease, color 0.12s ease;
+}
+.qd-rail-card a:hover {
+    color: var(--color-brand-primary);
+    transform: translateX(3px);
+}
+
 /* Respect reduced-motion preferences. */
 @media (prefers-reduced-motion: reduce) {
     .sidebar-logo,
     .sd-card,
-    .nbsphinx-gallery > a {
+    .nbsphinx-gallery > a,
+    .qd-rail-card a {
         transition: none;
     }
 }
