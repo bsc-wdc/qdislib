@@ -575,8 +575,9 @@ def _execute_subcircuit(prepared, software, shots, backend, qpu):
     and run, so it is the task to route (e.g. ``@constraint`` or a QPU backend) to
     control where subcircuits execute. Backend-agnostic dispatch; a QPU target
     ("MN_Ona") overrides the software choice. Wire cutting has no measure-and-prepare
-    sign, so there are no prep_qubits; ``backend`` is the Qibo platform when
-    ``software == "qibo"``. The native circuit never leaves this task.
+    sign, so there are no prep_qubits; ``backend`` names the Qibo platform (a generic
+    ``extra`` config key that non-Qibo backends ignore). The native circuit never
+    leaves this task.
     """
     s_new, highest_qubit = prepared
 
@@ -591,7 +592,7 @@ def _execute_subcircuit(prepared, software, shots, backend, qpu):
             s_new, highest_qubit, (), shots, backend or "numpy"
         )
 
-    extra = {"platform": backend} if software == "qibo" and backend else {}
+    extra = {"platform": backend} if backend else {}
     exec_backend = build_execution_backend(software, num_qubits=highest_qubit, **extra)
     return exec_backend.evaluate_expectation(s_new, highest_qubit, (), shots)
 

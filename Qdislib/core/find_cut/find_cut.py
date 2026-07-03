@@ -684,20 +684,33 @@ def find_cut(
             raise ValueError("Enable at least one of wire_cut or gate_cut.")
 
         if wire_cut and gate_cut:
-            if score_gate < score_wire:
-                return cut_gate
-            elif score_gate > score_wire:
-                return cut_wire
-            else:
-                return cut_gate
+            best = cut_gate if score_gate <= score_wire else cut_wire
         elif gate_cut:
-            return cut_gate
+            best = cut_gate
         elif wire_cut:
-            return cut_wire
+            best = cut_wire
         else:
             raise ValueError("Enable at least one of wire_cut or gate_cut.")
 
+        if not best:
+            logger.warning(
+                "find_cut found no valid cut under the given constraints "
+                "(max_qubits=%s, max_cuts=%s): the circuit may already fit on the "
+                "target as-is, or the constraints may be too tight to satisfy. Try "
+                "relaxing max_qubits / max_cuts.",
+                max_qubits,
+                max_cuts,
+            )
+        return best
+
     elif implementation == "ibm-ckt":
+        if find_cuts is None:
+            raise ImportError(
+                "implementation='ibm-ckt' needs the qiskit-addon-cutting package, "
+                "which is not installed. Install it with "
+                "`pip install qiskit-addon-cutting`, or use the default "
+                "implementation='qdislib'."
+            )
         if qibo_available and isinstance(circuit, qibo.models.Circuit):
             qasm_str = circuit.to_qasm()
             circuit = qiskit.qasm2.loads(qasm_str)
@@ -734,3 +747,9 @@ def find_cut(
                 list_gates_cut.append(f"{gate_name}_{cut[1]+1}")
         logger.debug("Gate cuts: %s", list_gates_cut)
         return list_gates_cut
+
+    else:
+        raise ValueError(
+            f"Unknown implementation={implementation!r}; "
+            "use 'qdislib' (default) or 'ibm-ckt'."
+        )

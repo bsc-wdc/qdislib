@@ -2,7 +2,10 @@
 # Quantum SDKs (Qibo / Qiskit / CUDA-Q) are OPTIONAL and live in
 # pyproject.toml [project.optional-dependencies]; install at least one, e.g.
 #   pip install "qdislib[qibo]"      # or [qiskit], [cudaq], or [all]
-numpy>=1.17,<3
+# numpy is capped below 2.0: Qibo (and chem deps such as openfermion) still raise
+# "only 0-dimensional arrays can be converted to Python scalars" under numpy 2.x.
+# Relax once every supported backend is validated against numpy 2.
+numpy>=1.17,<2.0
 networkx>=3.1
 matplotlib>=3.4.3
 igraph>=0.11.8
