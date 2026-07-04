@@ -104,7 +104,9 @@ class PennylaneConversionTest(BaseTimedTestCase):
         import pennylane as qml
         import Qdislib as qd
 
-        qasm = 'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\nh q[0];\ncx q[0],q[1];\n'
+        qasm = (
+            'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\nh q[0];\ncx q[0],q[1];\n'
+        )
         tape = qd.from_qasm(qasm, software="pennylane")
         self.assertIsInstance(tape, qml.tape.QuantumScript)
         names = [op.name for op in tape.operations]
@@ -117,9 +119,7 @@ class PennylaneConversionTest(BaseTimedTestCase):
         from Qdislib.utils.graph_pennylane import PennylaneCircuit
         from qibo import models, gates
 
-        pennylane_circuit = PennylaneCircuit(
-            [("H", (0,), []), ("CNOT", (0, 1), [])], 2
-        )
+        pennylane_circuit = PennylaneCircuit([("H", (0,), []), ("CNOT", (0, 1), [])], 2)
         qibo_circuit = models.Circuit(2)
         qibo_circuit.add(gates.H(0))
         qibo_circuit.add(gates.CNOT(0, 1))
@@ -145,7 +145,9 @@ class PennylaneCuttingTest(BaseTimedTestCase):
 
         circuit = _qibo_circuit()
         cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)
-        reconstruction = qd.gate_cutting(circuit, cut, software="pennylane", shots=20000)
+        reconstruction = qd.gate_cutting(
+            circuit, cut, software="pennylane", shots=20000
+        )
         self.assertLess(abs(reconstruction - self.analytical), 0.2)
 
     def test_wire_cutting(self):
@@ -153,7 +155,9 @@ class PennylaneCuttingTest(BaseTimedTestCase):
 
         circuit = _qibo_circuit()
         cut = qd.find_cut(circuit, gate_cut=False)
-        reconstruction = qd.wire_cutting(circuit, cut, software="pennylane", shots=20000)
+        reconstruction = qd.wire_cutting(
+            circuit, cut, software="pennylane", shots=20000
+        )
         self.assertLess(abs(reconstruction - self.analytical), 0.2)
 
     def test_gate_cutting_three_step(self):

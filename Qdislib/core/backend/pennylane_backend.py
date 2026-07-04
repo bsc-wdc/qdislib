@@ -134,7 +134,12 @@ class PennylaneBackend(BaseBackend):
         from Qdislib.core.cutting_algorithms.gate_cutting import _joint_counts_pennylane
 
         return _joint_counts_pennylane(
-            dag, num_qubits, list(cut_point_qubits), shots, seed=seed, device=self._device
+            dag,
+            num_qubits,
+            list(cut_point_qubits),
+            shots,
+            seed=seed,
+            device=self._device,
         )
 
     # ------------------------------------------------------------------

@@ -117,7 +117,9 @@ def main():
     wire_cut = qd.find_cut(qc, gate_cut=False, wire_cut=True)
     exact = exact_distribution(qc)
 
-    print(f"Circuit: {qc.num_qubits} qubits, gate cut = {gates_cut}, wire cut = {wire_cut}")
+    print(
+        f"Circuit: {qc.num_qubits} qubits, gate cut = {gates_cut}, wire cut = {wire_cut}"
+    )
     print(f"Backends: {SOFTWARES} | shots/subcircuit: {SHOTS} | TVD tol: {TVD_TOL}")
     print(f"Exact distribution has {len(exact)} non-zero bitstrings.\n")
 
@@ -152,9 +154,13 @@ def main():
 
         # (c) Wire-cut sampling: all-in-one + three-step (one-pass fragment tomography).
         try:
-            recon_w = qd.wire_cutting_sampling(qc, wire_cut, shots=SHOTS, software=software)
+            recon_w = qd.wire_cutting_sampling(
+                qc, wire_cut, shots=SHOTS, software=software
+            )
             tvd_wire = total_variation(exact, recon_w)
-            wsubs = qd.wire_cutting_sampling_subcircuits(qc, wire_cut, software=software)
+            wsubs = qd.wire_cutting_sampling_subcircuits(
+                qc, wire_cut, software=software
+            )
             wsampled = [qd.sample_subcircuit(s, shots=SHOTS) for s in wsubs]
             tvd_wire3 = total_variation(exact, wsubs.reconstruct(wsampled))
             # Optimized (fragment-separated) wire sampling: fans out the deduped

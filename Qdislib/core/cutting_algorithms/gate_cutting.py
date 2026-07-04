@@ -914,7 +914,9 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None):
     return joint
 
 
-def _joint_counts_pennylane(dag, num_qubits, prep_sorted, shots, seed=None, device="default.qubit"):
+def _joint_counts_pennylane(
+    dag, num_qubits, prep_sorted, shots, seed=None, device="default.qubit"
+):
     """Per-component joint counts for PennyLane via mid-circuit measurements.
 
     Runs one QNode that samples the final measurements and each measured cut
@@ -953,8 +955,7 @@ def _joint_counts_pennylane(dag, num_qubits, prep_sorted, shots, seed=None, devi
     out = qnode()
     final = np.asarray(out[0]).reshape(shots, width)
     mid_samples = {
-        qubit: np.asarray(out[1 + i]).ravel()
-        for i, qubit in enumerate(collapse_order)
+        qubit: np.asarray(out[1 + i]).ravel() for i, qubit in enumerate(collapse_order)
     }
 
     joint = {}
