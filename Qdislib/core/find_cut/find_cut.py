@@ -122,16 +122,19 @@ def _circuit_to_gate_graph(circuit):
     to a wire cut between those two gates. Backend-agnostic (Qibo / Qiskit /
     CUDA-Q) via :func:`iter_gates`.
 
-    A pair of gates is connected by at most one edge. When two consecutive gates
-    share more than one qubit, adding one edge per shared qubit would create
-    duplicate parallel edges carrying the same ``(pred, gate)`` label; those
-    duplicates inflate the cut-set size and yield spurious repeated wire cuts.
-    The ``has_edge`` guard below keeps a single edge per gate pair.
+    A pair of gates is connected by at most one edge, even when they share more
+    than one qubit: parallel edges carrying the same ``(pred, gate)`` label would
+    break the min-cut partitioners and yield spurious repeated wire cuts. Instead
+    the single edge records how many qubits the pair shares as its ``weight`` --
+    the number of wires a cut between them actually severs (``_expand_wire_cuts``
+    cuts one per shared qubit at execution time). Cut-size scoring sums these
+    weights (see :func:`_gate_edge_weights` / :func:`_rank_candidates`), so a pair
+    sharing two qubits is correctly costed as two wire cuts, not one.
 
     :param circuit: A Qibo, Qiskit or CUDA-Q circuit.
     :return: A :class:`networkx.MultiGraph` whose nodes carry ``gate`` (name) and
         ``qubits`` attributes, and whose edges carry a ``(pred_name, gate_name)``
-        ``gate`` label.
+        ``gate`` label plus a ``weight`` (the shared-qubit count).
     """
     graph = networkx.MultiGraph()
 
@@ -143,20 +146,42 @@ def _circuit_to_gate_graph(circuit):
         gate_name = f"{name}_{index}"
         graph.add_node(node_id, gate=gate_name, qubits=qubits)
 
-        # Connect to the nearest earlier gate on each shared qubit, but never add
-        # more than one edge between the same pair of gates (see docstring).
+        # Connect to the nearest earlier gate on each shared qubit. Keep a single
+        # edge per gate pair (parallel edges break the partitioners), but bump its
+        # weight for every additional shared qubit -- that weight is how many wires
+        # a cut there severs.
         for qubit in qubits:
             for pred in reversed(list(graph.nodes)):
                 pred_qubits = graph.nodes[pred].get("qubits")
                 if pred_qubits and qubit in pred_qubits and pred != node_id:
-                    if not graph.has_edge(pred, node_id):
+                    if graph.has_edge(pred, node_id):
+                        key = next(iter(graph[pred][node_id]))
+                        graph[pred][node_id][key]["weight"] += 1
+                    else:
                         pred_name = graph.nodes[pred]["gate"]
-                        graph.add_edge(pred, node_id, gate=(pred_name, gate_name))
+                        graph.add_edge(
+                            pred, node_id, gate=(pred_name, gate_name), weight=1
+                        )
                     break
 
         node_id += 1
 
     return graph
+
+
+def _gate_edge_weights(graph):
+    """Map each gate-graph edge's ``(pred, gate)`` label to its wire multiplicity.
+
+    Built from :func:`_circuit_to_gate_graph`'s edge ``weight`` (the number of
+    qubits the two gates share). :func:`_rank_candidates` sums these over a cut-set
+    so a cut between gates sharing *n* qubits is scored as *n* wire cuts. Gate cuts
+    (qubit-graph edges, single-gate labels) are absent here and default to 1.
+    """
+    return {
+        data["gate"]: data.get("weight", 1)
+        for _, _, data in graph.edges(data=True)
+        if "gate" in data
+    }
 
 
 def _find_best_kernighan_lin_partition(
@@ -187,7 +212,10 @@ def _find_best_kernighan_lin_partition(
         cutset = list(
             networkx.edge_boundary(graph, partition[0], partition[1], data=True)
         )
-        cutset_size = len(cutset)
+        # Count wires, not edges: an edge between gates sharing two qubits is two
+        # wire cuts (its weight), so both the budget check and best-cut selection
+        # use the summed weight.
+        cutset_size = sum(edge[2].get("weight", 1) for edge in cutset)
         flag = False
         for ele in sorted(list(c) for c in partition):
             if max_qubits and len(ele) > max_qubits:
@@ -220,20 +248,20 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
 
     # Defaults in case no partition is produced (e.g. a graph with < 2 nodes,
     # where girvan_newman yields nothing and the loop body never runs).
-    partition_list, cut_edges = [], []
+    partition_list, cut_edges, cut_wires = [], [], 0
     # Get multiple partitions at different levels of edge removal
     for i, partition in enumerate(communities):
         partition_list = list(partition)  # Convert partition to list of sets
         # Find edges that are between different partitions
         cut_edges = []
+        cut_wires = 0  # wire count = summed edge weight (shared-qubit multiplicity)
         for u, v, gate in graph.edges(data=True):
             # Check if nodes u and v belong to different components
             component_u = [c for c in partition_list if u in c][0]
             component_v = [c for c in partition_list if v in c][0]
             if component_u != component_v:
-                # data = graph.get_edge_data(u, v)
-                # gates_list = tuple([value["gate"] for value in data.values()])
                 cut_edges = cut_edges + [gate["gate"]]
+                cut_wires += gate.get("weight", 1)
 
         flag = True
         for ele in sorted(list(c) for c in partition_list):
@@ -242,7 +270,7 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
         if flag:
             break
 
-    if max_cuts and len(cut_edges) > max_cuts:
+    if max_cuts and cut_wires > max_cuts:
         return [], []
     elif cut_edges == []:
         return [], []
@@ -336,7 +364,7 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
     return clusters, cut_edges
 
 
-def _score_candidates(candidates, weights=None, forbidden=None):
+def _score_candidates(candidates, weights=None, forbidden=None, edge_weights=None):
     """Pick the lowest-scoring partitioning candidate.
 
     Each candidate maps a method name to a ``(partition, cut_set)`` pair produced
@@ -356,20 +384,25 @@ def _score_candidates(candidates, weights=None, forbidden=None):
 
     Candidate scores are logged at DEBUG level (``qd.set_log_level("DEBUG")``).
     """
-    ranked = _rank_candidates(candidates, weights, forbidden)
+    ranked = _rank_candidates(candidates, weights, forbidden, edge_weights)
     return ranked[0] if ranked else ([], float("inf"), [])
 
 
-def _rank_candidates(candidates, weights=None, forbidden=None):
+def _rank_candidates(candidates, weights=None, forbidden=None, edge_weights=None):
     """All valid partitioning candidates, lowest (best) score first.
 
     Uses the same objective as :func:`_score_candidates`; drops empty cut-sets
     and any candidate touching a ``forbidden`` gate. Powers both ``find_cut``'s
     single-best result and its ranked ``top_n`` list.
 
+    :param edge_weights: Optional ``{cut-label: wire count}`` map (from
+        :func:`_gate_edge_weights`) so a wire cut between gates sharing *n* qubits
+        counts as *n* toward the cut-size term; labels missing from it default to 1
+        (e.g. gate cuts, which are always a single cut).
     :return: ``[(cut_set, score, partition), ...]`` sorted best-first.
     """
     weights = weights or {}
+    edge_weights = edge_weights or {}
     w1 = weights.get("w1", 100)  # cut size            (minimize)
     w2 = weights.get("w2", -1)  # number of components (maximize)
     w3 = weights.get("w3", 1)  # largest component   (minimize -> balance)
@@ -386,11 +419,15 @@ def _rank_candidates(candidates, weights=None, forbidden=None):
         largest_component = max(
             [len(component) for component in partition] + [float("-inf")]
         )
-        score = abs(w1 * len(cut_set) + w2 * len(partition) + w3 * largest_component)
+        # Cut size counts severed WIRES, not graph edges: a cut between two gates
+        # that share two qubits weighs 2 (see _gate_edge_weights).
+        cut_size = sum(edge_weights.get(cut, 1) for cut in cut_set)
+        score = abs(w1 * cut_size + w2 * len(partition) + w3 * largest_component)
         logger.debug(
-            "%s: cut_set=%s components=%s largest=%s score=%s",
+            "%s: cut_set=%s wires=%s components=%s largest=%s score=%s",
             name,
             cut_set,
+            cut_size,
             len(partition),
             largest_component,
             score,
@@ -607,12 +644,16 @@ def _find_cut_wire(
     # two endpoints that shares a qubit with both, and cut just after it.
     gates = iter_gates(circuit)
 
+    # Wire counts per candidate edge, so a cut between gates sharing two qubits is
+    # scored as two wire cuts (it severs two wires) rather than one.
+    edge_weights = _gate_edge_weights(graph)
+
     if all_candidates:
-        ranked = _rank_candidates(candidates, weights, forbidden_gates)
+        ranked = _rank_candidates(candidates, weights, forbidden_gates, edge_weights)
         return [(_refine_wire_cut(cut, gates), score) for cut, score, _ in ranked], None
 
     cut_set, best_score, _ = _score_candidates(
-        candidates, weights, forbidden=forbidden_gates
+        candidates, weights, forbidden=forbidden_gates, edge_weights=edge_weights
     )
     best_cut = _refine_wire_cut(cut_set, gates)
     logger.debug("Best wire cut: %s (score %s)", best_cut, best_score)

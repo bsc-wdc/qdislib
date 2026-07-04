@@ -218,3 +218,76 @@ class FindCutModesTest(BaseTimedTestCase):
         )
         for gate in cut:  # no cut gate may act on the forbidden qubit
             self.assertNotIn(0, gate_qubits.get(gate, set()))
+
+    def test_wire_cut_counts_shared_qubits_as_multiple_wires(self):
+        """A wire cut between two gates sharing both qubits weighs two cuts, not one.
+
+        Regression: the gate-graph edge collapses the two parallel wires into a
+        single edge, so cut-size scoring must use the per-edge shared-qubit weight
+        -- otherwise a two-wire cut is costed as one and mis-ranked as cheaper.
+        """
+        from qibo import models, gates
+        from Qdislib.core.find_cut.find_cut import (
+            _circuit_to_gate_graph,
+            _gate_edge_weights,
+            _rank_candidates,
+        )
+
+        c = models.Circuit(3)
+        c.add(gates.H(0))
+        c.add(gates.CZ(0, 1))
+        c.add(gates.CZ(1, 2))
+        c.add(gates.CZ(1, 2))  # shares BOTH qubits 1 and 2 with the previous gate
+
+        weights = _gate_edge_weights(_circuit_to_gate_graph(c))
+        self.assertEqual(weights[("CZ_3", "CZ_4")], 2)  # two shared wires
+        self.assertEqual(weights[("CZ_2", "CZ_3")], 1)  # one shared wire
+
+        # Same partition shape, so only the cut-size term differs: the two-wire cut
+        # must score strictly higher (worse) than the one-wire cut.
+        one_wire = {"m": ([{0}, {1, 2}], [("CZ_2", "CZ_3")])}
+        two_wire = {"m": ([{0}, {1, 2}], [("CZ_3", "CZ_4")])}
+        s_one = _rank_candidates(one_wire, edge_weights=weights)[0][1]
+        s_two = _rank_candidates(two_wire, edge_weights=weights)[0][1]
+        self.assertLess(s_one, s_two)
+
+
+class IdentityCutGuardTest(BaseTimedTestCase):
+    """The identity-on-a-cut-qubit guard: CPU/GPU decouple the sign; QPU cannot."""
+
+    def _cut_dag_identity_feeds_multiqubit(self):
+        """A minimal cut DAG where a cut qubit carries an ``I`` observable AND feeds
+        a multi-qubit gate after the cut -- the only case the guard rejects."""
+        import networkx as nx
+
+        dag = nx.DiGraph()
+        dag.add_node("SUBS_0", gate="SUBS", qubits=(1,))
+        dag.add_node("CZ_9", gate="CZ", qubits=(1, 2))
+        dag.add_node("obsI", gate="Observable I", qubits=(1,))
+        dag.add_edge("SUBS_0", "CZ_9")
+        dag.add_edge("CZ_9", "obsI")
+        return dag
+
+    def test_gpu_path_is_allowed(self):
+        # Regression: GPU routes to Aer's GPU simulator and runs the SAME decoupled
+        # joint-counts reconstruction as CPU, so the guard must NOT raise for GPU.
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _assert_identity_observable_supported,
+        )
+
+        _assert_identity_observable_supported(  # must not raise
+            self._cut_dag_identity_feeds_multiqubit(), software="qiskit", gpu=True
+        )
+
+    def test_qpu_path_still_raises(self):
+        from Qdislib import InvalidCutError
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _assert_identity_observable_supported,
+        )
+
+        with self.assertRaises(InvalidCutError):
+            _assert_identity_observable_supported(
+                self._cut_dag_identity_feeds_multiqubit(),
+                software="qiskit",
+                qpu=True,
+            )
