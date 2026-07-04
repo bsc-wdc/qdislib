@@ -511,7 +511,9 @@ def _wire_sampling_optimized(
 
     def _sample(component):
         derived = None if seed is None else seed + next(counter)
-        return _sample_gate_subcircuit(component, software, shots, qpu, qpu_dict, seed=derived)
+        return _sample_gate_subcircuit(
+            component, software, shots, qpu, qpu_dict, seed=derived
+        )
 
     measure_flat, measure_keys = [], []
     for frag_idx, (sub, cuts, _q) in enumerate(measure_frags):
@@ -618,7 +620,9 @@ def wire_cutting_sampling(
             reason = "not applicable to this cut topology"
         except Exception as exc:  # never let the optimization break the computation
             reason = f"failed ({exc})"
-        logger.info("Optimized wire-cut sampling %s; using the standard method.", reason)
+        logger.info(
+            "Optimized wire-cut sampling %s; using the standard method.", reason
+        )
 
     components, per_config_counts, cut_source_index, prepared_to_orig = (
         _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
@@ -1059,19 +1063,27 @@ _PREP_STATES = ("0", "1", "+", "+i")
 #: extraction "P" reads the measured Pauli (its eigenvalue), "I" the identity
 #: (drop the cut qubit) -- both come from the same Z-basis circuit for settings 0/1/6/7.
 _WIRE_MEASURE = {
-    0: ("Z", "I"), 1: ("Z", "I"),   # measure I (from the Z circuit), prepare |0>/|1>
-    2: ("X", "P"), 3: ("X", "P"),   # measure X, prepare |+>/|->
-    4: ("Y", "P"), 5: ("Y", "P"),   # measure Y, prepare |+i>/|-i>
-    6: ("Z", "P"), 7: ("Z", "P"),   # measure Z, prepare |0>/|1>
+    0: ("Z", "I"),
+    1: ("Z", "I"),  # measure I (from the Z circuit), prepare |0>/|1>
+    2: ("X", "P"),
+    3: ("X", "P"),  # measure X, prepare |+>/|->
+    4: ("Y", "P"),
+    5: ("Y", "P"),  # measure Y, prepare |+i>/|-i>
+    6: ("Z", "P"),
+    7: ("Z", "P"),  # measure Z, prepare |0>/|1>
 }
 
 #: Base-8 cut setting -> prepared state as a linear combination of the 4 base
 #: preparations (|-> = |0> + |1> - |+>, |-i> = |0> + |1> - |+i>).
 _WIRE_PREP = {
-    0: [(1.0, "0")], 1: [(1.0, "1")],
-    2: [(1.0, "+")], 3: [(1.0, "0"), (1.0, "1"), (-1.0, "+")],
-    4: [(1.0, "+i")], 5: [(1.0, "0"), (1.0, "1"), (-1.0, "+i")],
-    6: [(1.0, "0")], 7: [(1.0, "1")],
+    0: [(1.0, "0")],
+    1: [(1.0, "1")],
+    2: [(1.0, "+")],
+    3: [(1.0, "0"), (1.0, "1"), (-1.0, "+")],
+    4: [(1.0, "+i")],
+    5: [(1.0, "0"), (1.0, "1"), (-1.0, "+i")],
+    6: [(1.0, "0")],
+    7: [(1.0, "1")],
 }
 
 #: Cut settings whose quasiprobability sign is -1 (matches _reconstruction base-8).
@@ -1095,7 +1107,9 @@ def _apply_wire_prep_state(graph, cut_index, state):
     elif state == "+i":
         graph.nodes[node]["gate"] = "S"
         rotate = f"{node}_Hi"
-        graph.add_node(rotate, gate="H", qubits=graph.nodes[node]["qubits"], parameters=())
+        graph.add_node(
+            rotate, gate="H", qubits=graph.nodes[node]["qubits"], parameters=()
+        )
         graph.add_edge(rotate, node, color="blue")  # H then S = |+i>
 
 
@@ -1117,7 +1131,9 @@ def _apply_wire_measure_option(graph, cut_index, option):
     elif option == "YP":
         graph.nodes[node]["gate"] = "SDG"
         rotate = f"{node}_HY"
-        graph.add_node(rotate, gate="H", qubits=graph.nodes[node]["qubits"], parameters=())
+        graph.add_node(
+            rotate, gate="H", qubits=graph.nodes[node]["qubits"], parameters=()
+        )
         graph.add_edge(node, rotate, color="blue")
     elif option == "ZP":
         graph.remove_node(node)
@@ -1145,7 +1161,9 @@ def _sample_wire_fragment(graph, shots, backend, software):
 
 
 @task(returns=1)
-def _run_wire_measure_fragment(sub, cuts, cut_qubits, basis_combo, shots, backend, software):
+def _run_wire_measure_fragment(
+    sub, cuts, cut_qubits, basis_combo, shots, backend, software
+):
     """Evaluate one measure ("top") fragment for a measurement-basis configuration.
 
     Rotates each cut qubit's ``O_i`` marker into the requested basis (X -> H,
@@ -1164,7 +1182,9 @@ def _run_wire_measure_fragment(sub, cuts, cut_qubits, basis_combo, shots, backen
         tuple over ``cuts`` of ``"P"``/``"I"`` (``"I"`` only when the basis is Z).
     """
     graph = sub.copy()
-    used = sorted({q for node in graph.nodes for q in graph.nodes[node].get("qubits", ())})
+    used = sorted(
+        {q for node in graph.nodes for q in graph.nodes[node].get("qubits", ())}
+    )
     new_position = {q: i for i, q in enumerate(used)}
     cut_positions = [new_position[cut_qubits[cut]] for cut in cuts]
 
@@ -1219,7 +1239,13 @@ class _OptimizedWireMeasure:
     def evaluate(self, shots):
         """Return the ``{extraction_combo: value}`` table (a future under PyCOMPSs)."""
         return _run_wire_measure_fragment(
-            self.sub, self.cuts, self.cut_qubits, self.basis_combo, shots, None, self.software
+            self.sub,
+            self.cuts,
+            self.cut_qubits,
+            self.basis_combo,
+            shots,
+            None,
+            self.software,
         )
 
     def __repr__(self):
@@ -1363,7 +1389,9 @@ def _reconstruct_optimized_wire_cut(
                 for weight, base_state in choice:
                     coefficient *= weight
                     base_combo.append(base_state)
-                fragment_value += coefficient * prepare_values[frag_idx][tuple(base_combo)]
+                fragment_value += (
+                    coefficient * prepare_values[frag_idx][tuple(base_combo)]
+                )
             term *= fragment_value
 
         total += term * plain_factor
@@ -1844,8 +1872,7 @@ def _expectation_from_samples_pennylane(
     out = qnode()
     final = np.asarray(out[0]).reshape(shots, num_qubits)  # (shots, n), qubit-0-first
     mid_samples = {
-        qubit: np.asarray(out[1 + i]).ravel()
-        for i, qubit in enumerate(collapse_order)
+        qubit: np.asarray(out[1 + i]).ravel() for i, qubit in enumerate(collapse_order)
     }
 
     contribution = np.ones(shots)
@@ -1868,7 +1895,9 @@ def _expectation_from_samples_pennylane(
     return float(contribution.mean())
 
 
-def _expec_value_pennylane(subcirc, shots=1024, prep_qubits=None, device="default.qubit"):
+def _expec_value_pennylane(
+    subcirc, shots=1024, prep_qubits=None, device="default.qubit"
+):
     """Execute a PennyLane subcircuit and return its expectation value.
 
     :param subcirc: A :class:`~Qdislib.utils.graph_pennylane.PennylaneCircuit`, or
@@ -2047,7 +2076,9 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
         for basis_combo in itertools.product(_MEASURE_BASES, repeat=len(cuts)):
             measure_index[(frag_idx, basis_combo)] = len(subcircuits)
             subcircuits.append(
-                _OptimizedWireMeasure(sub.copy(), cuts, cut_qubits, basis_combo, software)
+                _OptimizedWireMeasure(
+                    sub.copy(), cuts, cut_qubits, basis_combo, software
+                )
             )
     for frag_idx, (sub, cuts) in enumerate(prepare_frags):
         for prep_combo in itertools.product(_PREP_STATES, repeat=len(cuts)):
@@ -2196,7 +2227,9 @@ def wire_cutting_subcircuits(
             reason = "not applicable to this cut topology"
         except UnsupportedBackendError:
             raise
-        except Exception as exc:  # never let the optimization break subcircuit generation
+        except (
+            Exception
+        ) as exc:  # never let the optimization break subcircuit generation
             reason = f"failed ({exc})"
         logger.info(
             "Optimized wire-cut subcircuits %s; using the standard generator.", reason

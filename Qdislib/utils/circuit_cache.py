@@ -116,7 +116,6 @@ except ImportError:
 # PennyLane install required to reference the class for type detection.
 from Qdislib.utils.graph_pennylane import PennylaneCircuit as _PennylaneCircuit
 
-
 __all__ = [
     "semantic_key",
     "CircuitCache",
@@ -153,8 +152,17 @@ def _detect_software(circuit):
 
 # One-/two-qubit OpenQASM 2.0 mnemonics for Qdislib's canonical gate names, used to
 # serialise a PennylaneCircuit for the semantic cache.
-_QASM_ONE_QUBIT = {"H": "h", "X": "x", "Y": "y", "Z": "z", "S": "s", "T": "t",
-                   "SDG": "sdg", "TDG": "tdg", "SX": "sx"}
+_QASM_ONE_QUBIT = {
+    "H": "h",
+    "X": "x",
+    "Y": "y",
+    "Z": "z",
+    "S": "s",
+    "T": "t",
+    "SDG": "sdg",
+    "TDG": "tdg",
+    "SX": "sx",
+}
 _QASM_ROTATION = {"RX": "rx", "RY": "ry", "RZ": "rz"}
 _QASM_TWO_QUBIT = {"CX": "cx", "CNOT": "cx", "CZ": "cz", "CY": "cy"}
 
