@@ -38,16 +38,9 @@ from Qdislib.core.backend.registry import (
     DEFAULT_NUM_QUBITS,
 )
 
-try:
-    from pycompss.api.task import task
-except ImportError:
-
-    def task(*args, **kwargs):
-        def decorator(func):
-            return func
-
-        return decorator
-
+# The PyCOMPSs decorators come from the centralized shim (no-ops when PyCOMPSs is
+# absent), so this module never carries its own inline fallback.
+from Qdislib.utils.runtime import task
 
 logger = logging.getLogger(__name__)
 
