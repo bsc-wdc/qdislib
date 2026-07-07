@@ -248,6 +248,87 @@ class HadamardCutTest(BaseTimedTestCase):
         sampled = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", shots=200000, seed=1)
         self.assertLess(abs(analytical - sampled), 0.05)
 
+    def test_multibackend_all_in_one(self):
+        # The sampled fan-out routes each fragment through build_execution_backend, so
+        # every installed backend reconstructs within shot noise.
+        import importlib.util
+        import qibo
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.hadamard_cut import gate_cutting_hadamard
+
+        qibo.set_backend("numpy")
+        c = self._bell_like()
+        analytical = qd.analytical_solution(c, "ZZ")
+        for sw in ("qibo", "qiskit", "pennylane", "cudaq"):
+            if importlib.util.find_spec(sw.replace("-", "")) is None:
+                continue
+            got = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", software=sw, shots=200000)
+            self.assertLess(abs(analytical - got), 0.05, sw)
+
+
+@unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")
+class HadamardThreeStepTest(BaseTimedTestCase):
+    """The explicit three-step workflow: subcircuits -> evaluate -> reconstruct."""
+
+    def _circuit(self):
+        from qibo import gates, models
+
+        c = models.Circuit(2)
+        c.add(gates.H(0))
+        c.add(gates.CZ(0, 1))
+        c.add(gates.RY(0, 0.8))
+        return c
+
+    def test_subcircuits_exact_reconstruction(self):
+        # Evaluating each fragment exactly must reconstruct <observable> to machine eps.
+        import qibo
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_subcircuits,
+            _expectation_z,
+        )
+
+        qibo.set_backend("numpy")
+        c = self._circuit()
+        analytical = qd.analytical_solution(c, "ZZ")
+        subs = gate_cutting_hadamard_subcircuits(c, ["CZ_2"], "ZZ", software="qibo")
+        self.assertEqual(len(subs), len(subs.config_of))
+        values = []
+        for frag, obs in subs:
+            z_qubits = [q for q, ch in enumerate(obs) if ch == "Z"]
+            values.append(_expectation_z(frag, z_qubits))
+        self.assertLess(abs(analytical - subs.reconstruct(values)), _TOL)
+
+    def test_subcircuits_via_expectation_value(self):
+        # The advertised workflow: expectation_value on each subcircuit, then reconstruct.
+        import qibo
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_subcircuits,
+        )
+
+        qibo.set_backend("numpy")
+        c = self._circuit()
+        analytical = qd.analytical_solution(c, "ZZ")
+        subs = gate_cutting_hadamard_subcircuits(c, ["CZ_2"], "ZZ", software="qibo")
+        values = [qd.expectation_value(s, shots=100000) for s in subs]
+        self.assertLess(abs(analytical - subs.reconstruct(values)), 0.05)
+
+    def test_standalone_reconstruction_matches_container(self):
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_subcircuit_reconstruction,
+        )
+
+        weights = [0.5, -0.25, 0.25]
+        config_of = [0, 0, 1, 2]  # two fragments in config 0, one each in 1 and 2
+        values = [0.8, 0.6, 0.4, -0.2]
+        # config 0: 0.5*(0.8*0.6); config 1: -0.25*0.4; config 2: 0.25*(-0.2)
+        expected = 0.5 * (0.8 * 0.6) + (-0.25) * 0.4 + 0.25 * (-0.2)
+        got = gate_cutting_hadamard_subcircuit_reconstruction(
+            values, weights, config_of
+        )
+        self.assertAlmostEqual(got, expected, places=12)
+
 
 if __name__ == "__main__":
     unittest.main()

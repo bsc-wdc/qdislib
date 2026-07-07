@@ -46,6 +46,8 @@ __all__ = [
     # Cutting -- explicit subcircuits + reconstruction (the three-step workflow).
     "gate_cutting_subcircuits",
     "gate_cutting_subcircuit_reconstruction",
+    "gate_cutting_hadamard_subcircuits",
+    "gate_cutting_hadamard_subcircuit_reconstruction",
     "wire_cutting_subcircuits",
     "wire_cutting_subcircuit_reconstruction",
     # Cutting -- sampling-based reconstruction.
@@ -57,6 +59,7 @@ __all__ = [
     # Subcircuit containers.
     "Subcircuit",
     "CutSubcircuits",
+    "HadamardCutSubcircuits",
     "SampledCutSubcircuits",
     "WireSampledCutSubcircuits",
     # Executing subcircuits / evaluating observables.
