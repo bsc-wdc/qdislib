@@ -48,6 +48,45 @@ from Qdislib.utils.graph_qibo import _update_qubits_serie
 
 from Qdislib.utils.runtime import task
 
+import math
+
+
+def _emit_qiskit_gate(circuit, gate_name, params, qubits):
+    """Append one neutral-DAG gate to a Qiskit circuit, bridging the naming gap.
+
+    The neutral DAG uses qibo-style gate names, but Qiskit's ``QuantumCircuit`` methods
+    are named/parameterised differently -- and Qiskit >= 1.0 removed the OpenQASM-2
+    aliases ``u3``/``u2``/``u1``/``cu3``/``cu1``. Map those explicitly (``u3 -> u``,
+    ``u1 -> p``, ``cu3 -> cu`` with the extra global-phase arg, ``cu1 -> cp``, ...); any
+    other gate falls through to the lower-cased method name (``rz``, ``iswap``,
+    ``rzz``, ...), which the two libraries already share.
+    """
+    up = gate_name.upper()
+    params = list(params or [])
+    if up in ("CNOT", "CX"):
+        circuit.cx(*qubits)
+    elif up == "TOFFOLI" or up == "CCX":
+        circuit.ccx(*qubits)
+    elif up == "U3":  # qibo U3(theta, phi, lam) == qiskit u(theta, phi, lam)
+        circuit.u(*params, *qubits)
+    elif up == "U2":  # qiskit dropped u2; u2(phi, lam) == u(pi/2, phi, lam)
+        circuit.u(math.pi / 2, *params, *qubits)
+    elif up == "U1":  # u1(lam) == p(lam) (a phase gate)
+        circuit.p(*params, *qubits)
+    elif up == "CU3":
+        # qibo CU3 applies the SU(2) U3 on the control-1 block; qiskit's `cu` applies
+        # the OpenQASM u (an extra e^{i(phi+lam)/2} global phase) plus a controlled
+        # phase `gamma`. Set gamma = -(phi+lam)/2 to cancel that phase so the block is
+        # exactly qibo's SU(2) U3.
+        theta, phi, lam = params
+        circuit.cu(theta, phi, lam, -(phi + lam) / 2, *qubits)
+    elif up == "CU1":  # controlled phase
+        circuit.cp(*params, *qubits)
+    elif params:
+        getattr(circuit, gate_name.lower())(*params, *qubits)
+    else:
+        getattr(circuit, gate_name.lower())(*qubits)
+
 
 def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGraph:
     """Convert a Qiskit quantum circuit into a DAG where each node stores gate information.
@@ -231,34 +270,20 @@ def dag_to_circuit_qiskit(dag, num_qubits):
         if gate_name == "Observable I":
             continue
 
-        # Two-qubit controlled-X: Qibo names it CNOT, Qiskit/CUDA-Q name it CX.
-        # Emit Qiskit's native cx so all three backends keep this gate as-is
-        # (reconstruction runs after cutting, so no CZ decomposition is needed).
-        elif gate_name.upper() in ("CNOT", "CX"):
-            circuit.cx(*node_data["qubits"])
-            continue
-
-        # Get the qubits this gate acts on
-
         qubits = node_data["qubits"]
         parameters = node_data["parameters"]
 
-        # Qiskit method name for this gate (e.g. "cz", "rz", "measure").
-        gate_method = gate_name.lower()
-
-        if parameters:
-            getattr(circuit, gate_method)(*parameters, *qubits)
-        elif gate_method == "measure":
+        if gate_name.lower() == "measure":
             # Gate-cut measure: a projective Z measurement that collapses the
             # qubit to its outcome |s> and lets it CONTINUE (the CZ cut's
             # (I +/- Z)/2 projector, Mitarai-Fujii arXiv:1909.07534). The outcome
             # is recorded in the cut-point register c for the reconstruction sign;
             # the qubit is NOT reset. Resetting it (the old "force to |0>") threw
             # away the collapse and gave the wrong state to any gate after the cut.
-            clbit = qubits
-            getattr(circuit, gate_method)(*qubits, *clbit)
+            circuit.measure(*qubits, *qubits)
         else:
-            getattr(circuit, gate_method)(*qubits)
+            # CNOT->cx, U3->u, CU3->cu, ... (Qiskit renamed the OpenQASM-2 gates).
+            _emit_qiskit_gate(circuit, gate_name, parameters, qubits)
 
     if obs_I:
         observables = ["Z"] * num_qubits
