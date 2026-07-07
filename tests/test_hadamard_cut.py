@@ -152,6 +152,18 @@ class HadamardCutTest(BaseTimedTestCase):
         c.add(gates.CU1(1, 2, 0.8))
         self._check(c, ["CNOT_4", "CU1_5"], "ZZZ")
 
+    def test_sampling_path_matches_within_noise(self):
+        # The shot-based reconstruction is unbiased -> close to analytical at high shots.
+        import qibo
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.hadamard_cut import gate_cutting_hadamard
+
+        qibo.set_backend("numpy")
+        c = self._bell_like()
+        analytical = qd.analytical_solution(c, "ZZ")
+        sampled = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", shots=200000, seed=1)
+        self.assertLess(abs(analytical - sampled), 0.05)
+
 
 if __name__ == "__main__":
     unittest.main()
