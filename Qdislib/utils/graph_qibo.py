@@ -35,7 +35,6 @@ __all__ = [
     "plot_dag",
 ]
 
-import inspect
 import networkx
 import matplotlib.pyplot as plt
 import numpy as np
@@ -50,6 +49,49 @@ except ImportError:  # qibo is optional; functions that need it fail when called
     qibo_available = False
 
 from Qdislib.utils.runtime import task
+
+# Cache for the case-insensitive gate lookup (built lazily on first miss).
+_QIBO_GATE_BY_UPPER = None
+
+
+def _resolve_qibo_gate(name: str):
+    """Resolve a gate class name to its ``qibo.gates`` class, case-insensitively.
+
+    DAG nodes store the gate as ``gate.__class__.__name__`` (correct case, e.g.
+    ``"iSWAP"``, ``"fSim"``), but different call sites upper/lower-case it before a
+    lookup. qibo's class names are case-sensitive, so a plain
+    ``getattr(gates, name.upper())`` silently misses every mixed-case gate. Try the
+    exact attribute first (the common path), then fall back to a case-insensitive
+    match so ``"ISWAP"``/``"iswap"`` both resolve to :class:`qibo.gates.iSWAP`.
+
+    :raises AttributeError: if no gate class matches ``name`` in any case.
+    """
+    cls = getattr(gates, name, None)
+    if isinstance(cls, type):
+        return cls
+    global _QIBO_GATE_BY_UPPER
+    if _QIBO_GATE_BY_UPPER is None:
+        _QIBO_GATE_BY_UPPER = {
+            attr.upper(): obj
+            for attr in dir(gates)
+            if isinstance((obj := getattr(gates, attr, None)), type)
+        }
+    try:
+        return _QIBO_GATE_BY_UPPER[name.upper()]
+    except KeyError:
+        raise AttributeError(f"qibo.gates has no gate class {name!r}")
+
+
+def _unpack_parameters(parameters):
+    """Normalise a DAG node's ``parameters`` into a flat tuple to splat into a gate
+    constructor. qibo returns a tuple, but guard against a bare scalar or ``None`` so
+    multi-parameter gates (``U2``, ``U3``, ``fSim``) get each angle as its own
+    positional argument instead of one packed tuple."""
+    if parameters is None:
+        return ()
+    if isinstance(parameters, (tuple, list, np.ndarray)):
+        return tuple(parameters)
+    return (parameters,)
 
 
 def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:
@@ -259,7 +301,8 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
     Notes:
         - Measurement gates (e.g., `"Observable I"`) are excluded from reconstruction but their qubit
           indices are returned for postprocessing.
-        - The reconstruction uses Python's `inspect` module to dynamically determine how to instantiate gates.
+        - Gate classes are resolved case-insensitively (so mixed-case names like ``iSWAP``/``fSim`` round-trip)
+          and each stored parameter is splatted as its own argument (so multi-parameter gates like ``U2``/``U3`` work).
 
     Example:
         .. code-block:: python
@@ -296,7 +339,8 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
 
     for node in topo_order:
         node_data = dag.nodes[node]
-        gate_name = node_data["gate"].upper()
+        gate_raw = node_data["gate"]  # original class name (case preserved)
+        gate_name = gate_raw.upper()  # for the case-insensitive marker checks below
 
         # Skip the observable I nodes (we'll handle them separately)
         if gate_name == "OBSERVABLE I":
@@ -315,23 +359,14 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
 
         # Get the qubits this gate acts on
         qubits = node_data["qubits"]
-        parameters = node_data["parameters"]
+        params = _unpack_parameters(node_data["parameters"])
 
-        # Get the gate class from the qibo.gates module
-        gate_class = getattr(gates, gate_name)
-
-        # Get the signature of the gate's __init__ method
-        signature = inspect.signature(gate_class.__init__)
-
-        # Count the number of required positional arguments (excluding 'self')
-        param_count = len(signature.parameters) - 1  # exclude 'self'
-
-        # Check if parameters are provided and the gate requires them
-        if parameters is not None and param_count > len(qubits):
-            # Pass qubits and parameters if the gate requires both
-            circuit.add(gate_class(*qubits, parameters))
+        # Resolve the gate class case-insensitively (handles iSWAP, fSim, ...) and
+        # splat each parameter as its own positional argument (handles U2, U3, ...).
+        gate_class = _resolve_qibo_gate(gate_raw)
+        if params:
+            circuit.add(gate_class(*qubits, *params))
         else:
-            # Otherwise, pass only the qubits
             circuit.add(gate_class(*qubits))
 
     if obs_I:
