@@ -42,15 +42,18 @@ fi
 echo "==> Found graph: ${DOT}"
 cp "${DOT}" "${OUT_DIR}/hadamard_compss_graph.dot"
 
-# Render to PNG (graphviz) and/or PDF (compss_gengraph), whichever is available.
-if command -v dot >/dev/null 2>&1; then
+# Render with COMPSs' own tool: `compss_gengraph <format> <dotFile>` writes the
+# output next to the dot file (same name, format extension). It wraps graphviz's
+# `dot`, so fall back to `dot` directly if the utility is unavailable.
+if command -v compss_gengraph >/dev/null 2>&1; then
+    compss_gengraph png "${DOT}" >/dev/null 2>&1 \
+        && cp "${DOT%.dot}.png" "${OUT_DIR}/hadamard_compss_graph.png" \
+        && echo "==> wrote examples/hadamard_compss_graph.png"
+    compss_gengraph pdf "${DOT}" >/dev/null 2>&1 \
+        && cp "${DOT%.dot}.pdf" "${OUT_DIR}/hadamard_compss_graph.pdf" \
+        && echo "==> wrote examples/hadamard_compss_graph.pdf"
+elif command -v dot >/dev/null 2>&1; then
     dot -Tpng "${DOT}" -o "${OUT_DIR}/hadamard_compss_graph.png" \
         && echo "==> wrote examples/hadamard_compss_graph.png"
-fi
-if command -v compss_gengraph >/dev/null 2>&1; then
-    compss_gengraph "${DOT}" >/dev/null 2>&1 || true
-    PDF="${DOT%.dot}.pdf"
-    [ -f "${PDF}" ] && cp "${PDF}" "${OUT_DIR}/hadamard_compss_graph.pdf" \
-        && echo "==> wrote examples/hadamard_compss_graph.pdf"
 fi
 echo "==> exported graph artifacts to examples/"
