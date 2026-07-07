@@ -55,9 +55,43 @@ class DecompositionTest(BaseTimedTestCase):
         terms, _ = self._reconstruct("CP", (0.2,))
         self.assertLess(gamma_factor(terms), 1.2)
 
+    def test_pauli_fallback_reconstructs(self):
+        # The qiskit-free fallback (used when the KAK engine is unavailable) still
+        # yields a correct unitary decomposition -- just not gamma-optimal.
+        from Qdislib.core.cutting_algorithms.hadamard_cut import _pauli_local_terms
+
+        iswap = np.array(
+            [[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]], dtype=complex
+        )
+        terms = _pauli_local_terms(iswap)
+        recon = sum(c * np.kron(V, W) for c, V, W in terms)
+        self.assertTrue(np.allclose(recon, iswap))
+        for c, V, W in terms:
+            self.assertTrue(np.allclose(V.conj().T @ V, np.eye(2)))
+            self.assertTrue(np.allclose(W.conj().T @ W, np.eye(2)))
+            self.assertGreater(c, 0)
+
+    @unittest.skipUnless(QIBO_AVAILABLE, "qibo builds the 2-qubit matrix")
+    def test_iswap_decomposes_via_kak(self):
+        # iSWAP is non-diagonal -> no ZZ fast path -> general KAK/Cartan route. It
+        # still yields unitary local terms; gamma(iSWAP) = 7 is the known optimum.
+        terms = local_unitary_decomposition("iSWAP")
+        recon = sum(c * np.kron(V, W) for c, V, W in terms)
+        expected = np.array(
+            [[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]], dtype=complex
+        )
+        self.assertTrue(np.allclose(recon, expected))
+        for c, V, W in terms:
+            self.assertTrue(np.allclose(V.conj().T @ V, np.eye(2)))
+            self.assertTrue(np.allclose(W.conj().T @ W, np.eye(2)))
+            self.assertGreater(c, 0)
+        self.assertAlmostEqual(gamma_factor(terms), 7.0, places=6)
+
+    @unittest.skipUnless(QIBO_AVAILABLE, "qibo builds the 2-qubit matrix")
     def test_unsupported_gate_raises(self):
+        # A three-qubit gate cannot be a two-qubit cut -> NotImplementedError.
         with self.assertRaises(NotImplementedError):
-            local_unitary_decomposition("ISWAP")
+            local_unitary_decomposition("TOFFOLI")
 
 
 @unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")
@@ -151,6 +185,40 @@ class HadamardCutTest(BaseTimedTestCase):
         c.add(gates.CNOT(0, 1))
         c.add(gates.CU1(1, 2, 0.8))
         self._check(c, ["CNOT_4", "CU1_5"], "ZZZ")
+
+    def test_iswap_cut(self):
+        # A genuinely non-diagonal cut gate, cut via the KAK/Cartan path.
+        from qibo import gates, models
+
+        c = models.Circuit(2)
+        c.add(gates.RY(0, 0.9))
+        c.add(gates.RY(1, 0.4))
+        c.add(gates.iSWAP(0, 1))
+        c.add(gates.RX(0, 0.3))
+        for obs in ("ZZ", "ZI", "IZ"):
+            self._check(c, ["ISWAP_3"], obs)
+
+    def test_swap_cut(self):
+        from qibo import gates, models
+
+        c = models.Circuit(2)
+        c.add(gates.RY(0, 0.7))
+        c.add(gates.RX(1, 1.1))
+        c.add(gates.SWAP(0, 1))
+        self._check(c, ["SWAP_3"], "ZZ")
+
+    def test_fsim_cut(self):
+        # A parametrised non-diagonal gate; non-terminal on both sides.
+        from qibo import gates, models
+
+        c = models.Circuit(2)
+        c.add(gates.RY(0, 0.6))
+        c.add(gates.RY(1, 0.9))
+        c.add(gates.fSim(0, 1, 0.4, 0.7))
+        c.add(gates.RX(0, 0.5))
+        c.add(gates.RZ(1, 0.8))
+        for obs in ("ZZ", "ZI", "IZ"):
+            self._check(c, ["FSIM_3"], obs)
 
     def test_non_conventional_gates_in_fragments(self):
         # The cut gate stays in the supported ZZ set, but the fragment BODIES carry

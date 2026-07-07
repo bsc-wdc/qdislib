@@ -27,9 +27,14 @@ sampling overhead; ``gamma(U) = 2||c||_1^2 - 1`` for an operator-Schmidt cut, e.
 ``|0> -H- G -ctrl(V_i/V_j)- H -measure b`` where ``G = I`` if ``g == 0`` else ``S``;
 the unbiased estimator of ``<X>`` is ``phi * (-1)^(g + b1 + b2) * y``.
 
-This module implements the **decomposition core** ``U -> [(c_i, V_i, W_i)]`` and the
-``gamma``/``phi`` factors (milestone 1). The double-Hadamard-test subcircuit
-construction, the sampling driver, and the reconstruction build on top of it.
+The two-qubit gates whose only non-local part is a ``ZZ`` interaction (``CZ``, ``CX``,
+``CP``/``CU1``, ``RZZ``) take a cheap closed-form decomposition with the optimal
+1-norm; **any other two-qubit gate** (``iSWAP``, ``SWAP``, ``fSim``, an arbitrary
+``U``) is decomposed via the general KAK / Cartan (Weyl) route, which writes the gate
+as ``sum_P alpha_P (P (x) P)`` sandwiched by single-qubit gates. Both feed the same
+double-Hadamard-test fragment builder, which emits only standard named gates
+(``H``/``S``/``U3``/``CU3``/``U1``/``CNOT``) so the fragments stay expressible in the
+neutral DAG and runnable on any backend.
 """
 
 from __future__ import annotations
@@ -51,11 +56,16 @@ import itertools
 
 # Single-qubit Paulis (the building blocks of the local unitaries below).
 _I = np.eye(2, dtype=complex)
+_X = np.array([[0, 1], [1, 0]], dtype=complex)
+_Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
 _Z = np.array([[1, 0], [0, -1]], dtype=complex)
+_PAULI = {"I": _I, "X": _X, "Y": _Y, "Z": _Z}
 
-# Two-qubit gates whose only non-local part is a ZZ interaction, so they cut into
-# exactly two unitary terms with the optimal gamma. CX/CNOT reduce to CZ by
-# conjugating the target with H (a local gate absorbed into the fragment).
+# Two-qubit gates whose only non-local part is a ZZ interaction: they cut into two
+# unitary terms with the optimal gamma via a cheap closed form (no KAK). CX/CNOT
+# reduce to CZ by conjugating the target with H (a local gate absorbed into the
+# fragment). Every *other* two-qubit gate is still cuttable -- via the general KAK /
+# Cartan path (:func:`_general_local_terms`) -- just without this shortcut.
 SUPPORTED_HADAMARD_GATES = ("CZ", "CP", "CPHASE", "CU1", "RZZ", "CX", "CNOT")
 
 
@@ -99,19 +109,164 @@ def _diagonal_zz_decomposition(diag):
     return terms
 
 
+def _u3_angles(u):
+    """Decompose a single-qubit unitary ``u`` (any ``U(2)``) into qibo ``U3`` angles
+    plus a global phase: returns ``(theta, phi, lam, phase)`` with
+    ``u = e^{i phase} * U3(theta, phi, lam)`` and
+    ``U3(theta, phi, lam) = RZ(phi) . RY(theta) . RZ(lam)`` (qibo's convention, an
+    SU(2) matrix whose entries are ``e^{-iA}c, -e^{-iB}s, e^{iB}s, e^{iA}c`` with
+    ``c = cos(theta/2)``, ``s = sin(theta/2)``, ``A = (phi+lam)/2``, ``B = (phi-lam)/2``).
+
+    The half-angles ``A``, ``B`` are read straight off the entry phases -- *not* by
+    halving a phase *difference*, which a 2*pi wrap would turn into a spurious pi error
+    and corrupt the SU(2) structure. Handles the ``theta = 0`` / ``theta = pi``
+    degeneracies (then only one of ``A``, ``B`` is defined; the other is free)."""
+    u = np.asarray(u, dtype=complex)
+    # Direct 2x2 determinant: numpy's LU-based det spuriously warns "divide by zero"
+    # on matrices with exact off-diagonal zeros (e.g. diag(1, i)).
+    det = u[0, 0] * u[1, 1] - u[0, 1] * u[1, 0]
+    phase = cmath.phase(det) / 2  # det(U3) == 1, so det(u) == e^{2i phase}
+    su = cmath.exp(-1j * phase) * u  # now in SU(2), entries as documented above
+    theta = 2 * math.atan2(abs(su[1, 0]), abs(su[0, 0]))
+    a = cmath.phase(su[1, 1]) if abs(su[1, 1]) > 1e-12 else 0.0  # A = (phi+lam)/2
+    b = cmath.phase(su[1, 0]) if abs(su[1, 0]) > 1e-12 else 0.0  # B = (phi-lam)/2
+    return theta, a + b, a - b, phase
+
+
+def _cartan_pauli_coefficients(a, b, c):
+    """The ``{II, XX, YY, ZZ}`` coefficients of the canonical non-local gate
+    ``N(a,b,c) = exp(i(a XX + b YY + c ZZ)) = sum_P alpha_P (P (x) P)``. Since ``XX``,
+    ``YY``, ``ZZ`` commute, ``N`` factorises into three commuting rotations whose
+    product expands onto the four commuting Pauli pairs."""
+    ca, sa = math.cos(a), math.sin(a)
+    cb, sb = math.cos(b), math.sin(b)
+    cc, sc = math.cos(c), math.sin(c)
+    return {
+        "I": ca * cb * cc + 1j * sa * sb * sc,
+        "X": ca * sb * sc + 1j * sa * cb * cc,
+        "Y": sa * cb * sc + 1j * ca * sb * cc,
+        "Z": sa * sb * cc + 1j * ca * cb * sc,
+    }
+
+
+def _terms_from_factors(coeffs, k_left_a, k_left_b, k_right_a, k_right_b):
+    """Assemble ``[(c_P, V_P, W_P)]`` from Cartan Pauli coefficients and the KAK local
+    gates: ``U = sum_P coeffs[P] (k_left_a P k_right_a) (x) (k_left_b P k_right_b)``.
+    Folds each coefficient's phase into ``V_P`` (so ``c_P = |coeff| > 0``) and drops
+    near-zero terms. ``V`` acts on the control-side qubit, ``W`` on the target side."""
+    terms = []
+    for name, coeff in coeffs.items():
+        if abs(coeff) < 1e-12:
+            continue
+        p = _PAULI[name]
+        v = k_left_a @ p @ k_right_a
+        w = k_left_b @ p @ k_right_b
+        terms.append((abs(coeff), (coeff / abs(coeff)) * v, w))
+    return terms
+
+
+def _kak_local_terms(u):
+    """General ``U -> [(c_i, V_i, W_i)]`` via the KAK / Cartan (Weyl) decomposition.
+
+    Any two-qubit unitary is ``U = e^{i phi}(k1l (x) k1r) N(a,b,c) (k2l (x) k2r)`` with
+    single-qubit ``k`` and ``N(a,b,c) = sum_P alpha_P (P (x) P)`` (four unitary Pauli
+    pairs). This yields the operator-Schmidt / local-unitary decomposition the
+    double-Hadamard-test cut needs, with the optimal 1-norm (e.g. ``gamma(iSWAP) =
+    gamma(SWAP) = 7``, ``gamma(CZ) = 3``). Uses qiskit's ``TwoQubitWeylDecomposition``
+    as the (well-tested) Cartan engine; qiskit's qubit ordering is the reverse of
+    qibo's, so both control/target assignments are tried and the one that reconstructs
+    ``U`` (to 1e-9) is returned.
+
+    :raises RuntimeError: if neither assignment reconstructs ``U`` (caller falls back).
+    """
+    from qiskit.synthesis import TwoQubitWeylDecomposition
+
+    u = np.asarray(u, dtype=complex)
+    weyl = TwoQubitWeylDecomposition(u)
+    coeffs = _cartan_pauli_coefficients(weyl.a, weyl.b, weyl.c)
+    gphase = cmath.exp(1j * weyl.global_phase)
+    coeffs = {name: gphase * c for name, c in coeffs.items()}
+    # qiskit is little-endian vs qibo big-endian: try both control/target orderings.
+    for kla, klb, kra, krb in (
+        (weyl.K1l, weyl.K1r, weyl.K2l, weyl.K2r),
+        (weyl.K1r, weyl.K1l, weyl.K2r, weyl.K2l),
+    ):
+        terms = _terms_from_factors(coeffs, kla, klb, kra, krb)
+        recon = sum(c * np.kron(v, w) for c, v, w in terms)
+        if np.max(np.abs(recon - u)) < 1e-9:
+            return terms
+    raise RuntimeError("KAK decomposition failed to reconstruct the gate")
+
+
+def _pauli_local_terms(u):
+    """Backend-free fallback ``U -> [(c_i, V_i, W_i)]``: expand ``U`` in the two-qubit
+    Pauli basis ``U = sum_{P,Q} c_{PQ} (P (x) Q)`` (``c_{PQ} = Tr[(P (x) Q)^dag U]/4``).
+    Always works and every factor is a (phased) Pauli -- hence unitary -- but with up
+    to 16 terms it is *not* gamma-optimal. Used only when qiskit (the KAK engine) is
+    unavailable."""
+    u = np.asarray(u, dtype=complex)
+    terms = []
+    for pn, p in _PAULI.items():
+        for qn, q in _PAULI.items():
+            kron = np.kron(p, q)
+            coeff = np.trace(kron.conj().T @ u) / 4
+            if abs(coeff) < 1e-12:
+                continue
+            terms.append((abs(coeff), (coeff / abs(coeff)) * p, q))
+    return terms
+
+
+def _general_local_terms(u):
+    """``U -> [(c_i, V_i, W_i)]`` for an arbitrary two-qubit unitary: the gamma-optimal
+    KAK decomposition when qiskit is available, else the (correct, suboptimal)
+    Pauli-basis fallback."""
+    try:
+        return _kak_local_terms(u)
+    except Exception as exc:  # noqa: BLE001 -- any failure => use the robust fallback
+        import logging
+
+        logging.getLogger(__name__).debug(
+            "KAK unavailable (%s); using Pauli basis", exc
+        )
+        return _pauli_local_terms(u)
+
+
+def _two_qubit_matrix(gate_name, params=()):
+    """The 4x4 unitary of a named two-qubit qibo gate (for the general cut path)."""
+    import qibo
+
+    from Qdislib.utils.graph_qibo import _resolve_qibo_gate
+
+    try:
+        gate = _resolve_qibo_gate(str(gate_name))(0, 1, *params)
+        matrix = np.asarray(gate.matrix(qibo.get_backend()))
+    except Exception as exc:  # noqa: BLE001
+        raise NotImplementedError(
+            f"cannot build a two-qubit matrix for {gate_name!r}: {exc}"
+        )
+    if matrix.shape != (4, 4):
+        raise NotImplementedError(
+            f"Hadamard-test cut needs a two-qubit gate; {gate_name!r} is {matrix.shape}"
+        )
+    return matrix
+
+
 def local_unitary_decomposition(gate_name, params=()):
     """``U -> [(c_i, V_i, W_i)]``: the local-unitary decomposition of a cut gate.
 
-    Supports the two-qubit gates Qdislib cuts whose non-local part is a single ``ZZ``
-    interaction (:data:`SUPPORTED_HADAMARD_GATES`), giving two unitary terms with the
-    optimal 1-norm. ``V_i`` acts on the control-side fragment qubit, ``W_i`` on the
-    target-side. ``CX``/``CNOT`` reduce to ``CZ`` (the ``H`` on the target is local
-    and applied inside the fragment by the caller). ``sum_i c_i V_i (x) W_i`` equals
-    the gate up to a global phase.
+    ``V_i`` acts on the control-side fragment qubit, ``W_i`` on the target-side, every
+    factor is unitary, ``c_i > 0``, and ``sum_i c_i V_i (x) W_i`` equals the gate up to
+    a global phase. The gates in :data:`SUPPORTED_HADAMARD_GATES` (whose only non-local
+    part is a single ``ZZ`` interaction) take a cheap closed-form path giving two terms
+    with the optimal 1-norm; ``CX``/``CNOT`` reduce to ``CZ`` (the ``H`` on the target
+    is local, applied inside the fragment by the caller). **Any other two-qubit gate**
+    falls through to the general KAK / Cartan decomposition
+    (:func:`_general_local_terms`), so arbitrary non-diagonal gates (``iSWAP``,
+    ``SWAP``, ``fSim``, ...) are cuttable too.
 
-    :param gate_name: Canonical gate name (upper-cased).
+    :param gate_name: Canonical gate name (case-insensitive).
     :param params: Gate parameters (e.g. ``(theta,)`` for ``CP``/``RZZ``).
-    :raises NotImplementedError: for a gate outside :data:`SUPPORTED_HADAMARD_GATES`.
+    :raises NotImplementedError: if ``gate_name`` is not a resolvable two-qubit gate.
     """
     name = str(gate_name).upper()
     theta = float(params[0]) if params else 0.0
@@ -124,11 +279,8 @@ def local_unitary_decomposition(gate_name, params=()):
     elif name == "RZZ":
         e = cmath.exp(-1j * theta / 2)
         diag = [e, e.conjugate(), e.conjugate(), e]
-    else:
-        raise NotImplementedError(
-            f"Hadamard-test cut not implemented for {name!r}; "
-            f"supported: {SUPPORTED_HADAMARD_GATES}"
-        )
+    else:  # general non-diagonal two-qubit gate: KAK / Cartan (optimal) or Pauli basis
+        return _general_local_terms(_two_qubit_matrix(gate_name, params))
     return _diagonal_zz_decomposition(diag)
 
 
@@ -223,23 +375,31 @@ def _subs_gadget(circuit, gates, qubit, ancilla, u_i, u_j, g):
 
     Implements the select gate ``|0><0| (x) U_i + |1><1| (x) U_j`` (``ancilla`` the
     control), wrapped in the Hadamard test ``H . G(g) . [select] . H``. ``G = I`` if
-    ``g == 0`` else ``S`` (real- vs imaginary-part test). ``U_i, U_j`` are diagonal
-    for the supported gates, so the select gate is a diagonal 2-qubit unitary and is
-    emitted in **standard gates** (RZ + CX for its ZZ part) -- no arbitrary ``Unitary``
-    matrix -- so the fragment is expressible in the neutral DAG and runnable on any
-    backend. The ancilla is read out as a Z expectation by the caller.
+    ``g == 0`` else ``S`` (real- vs imaginary-part test). ``U_i, U_j`` are *general*
+    single-qubit unitaries (the KAK path produces non-diagonal ones), so the select
+    gate is realised as ``U_i`` unconditionally followed by the controlled
+    ``U_i^dag U_j``: ``U3(U_i)`` then ``CU3(U_i^dag U_j)`` plus a ``U1`` on the ancilla
+    for that operator's global phase. ``U_i``'s own global phase is a fragment-global
+    phase (irrelevant to the Z read-out) and is dropped. Emitting only standard named
+    gates (H/S/U3/CU3/U1/CNOT) keeps the fragment expressible in the neutral DAG and
+    runnable on any backend. The ancilla is read out as a Z expectation by the caller.
     """
-    # Select gate diagonal on (ancilla, qubit): anc=0 -> U_i, anc=1 -> U_j.
-    gsel = [u_i[0, 0], u_i[1, 1], u_j[0, 0], u_j[1, 1]]
-    _, beta, gamma, delta = _diag_angles(gsel)  # global phase (alpha) is irrelevant
+    theta_i, phi_i, lam_i, _ = _u3_angles(u_i)  # drop U_i's fragment-global phase
+    # U_i is applied unconditionally first, so the controlled correction that turns the
+    # anc==1 branch into U_j must act *after* U_i: M @ U_i = U_j => M = U_j U_i^dag.
+    # (For diagonal U_i, U_j this equals U_i^dag U_j since they commute -- but not in
+    # general, so the order matters for non-diagonal KAK terms.)
+    m = np.asarray(u_j) @ np.asarray(u_i).conj().T
+    theta_m, phi_m, lam_m, gphase_m = _u3_angles(m)
     circuit.add(gates.H(ancilla))
     if g == 1:
         circuit.add(gates.S(ancilla))
-    circuit.add(gates.RZ(ancilla, -2 * gamma))  # e^{i gamma Z} on the control
-    circuit.add(gates.RZ(qubit, -2 * beta))  # e^{i beta Z} on the target
-    circuit.add(gates.CNOT(ancilla, qubit))  # exp(i delta ZZ) = CX . RZ . CX
-    circuit.add(gates.RZ(qubit, -2 * delta))
-    circuit.add(gates.CNOT(ancilla, qubit))
+    circuit.add(gates.U3(qubit, theta_i, phi_i, lam_i))  # U_i on the data qubit
+    circuit.add(
+        gates.CU3(ancilla, qubit, theta_m, phi_m, lam_m)
+    )  # controlled U_j U_i^dag
+    if abs(gphase_m) > 1e-12:  # that operator's global phase, on the anc==1 branch
+        circuit.add(gates.U1(ancilla, gphase_m))
     circuit.add(gates.H(ancilla))
 
 
