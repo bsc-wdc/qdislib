@@ -152,6 +152,22 @@ class HadamardCutTest(BaseTimedTestCase):
         c.add(gates.CU1(1, 2, 0.8))
         self._check(c, ["CNOT_4", "CU1_5"], "ZZZ")
 
+    def test_non_conventional_gates_in_fragments(self):
+        # The cut gate stays in the supported ZZ set, but the fragment BODIES carry
+        # multi-parameter (U3) and mixed-case (iSWAP) gates -- these must round-trip
+        # through the fragment builder / neutral DAG and reconstruct exactly.
+        from qibo import gates, models
+
+        c = models.Circuit(3)
+        c.add(gates.RY(0, 0.5))  # RY_1   -> fragment {0}
+        c.add(gates.U3(1, 0.4, 0.9, 1.2))  # U3_2   (3 params)
+        c.add(gates.U3(2, 0.3, 0.7, 0.2))  # U3_3
+        c.add(gates.CZ(0, 1))  # CZ_4   <- the cut (separates {0} | {1,2})
+        c.add(gates.iSWAP(1, 2))  # ISWAP_5 (mixed-case class) inside fragment {1,2}
+        c.add(gates.RX(2, 0.6))  # RX_6
+        for obs in ("ZZZ", "ZIZ"):
+            self._check(c, ["CZ_4"], obs)
+
     def test_sampling_path_matches_within_noise(self):
         # The shot-based reconstruction is unbiased -> close to analytical at high shots.
         import qibo

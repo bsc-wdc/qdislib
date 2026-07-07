@@ -255,6 +255,8 @@ def _component_hadamard_circuit(component, assignments):
     import networkx as nx
     from qibo import gates, models
 
+    from Qdislib.utils.graph_qibo import _resolve_qibo_gate
+
     orig_qubits = sorted(
         {q for _, d in component.nodes(data=True) for q in (d.get("qubits") or ())}
     )
@@ -276,7 +278,7 @@ def _component_hadamard_circuit(component, assignments):
         elif name in ("OBSERVABLE I", "MEASURE"):
             continue
         else:
-            gate_cls = getattr(gates, name)
+            gate_cls = _resolve_qibo_gate(data.get("gate") or "")
             params = data.get("parameters")
             if params:
                 circuit.add(gate_cls(*qubits, *params))
