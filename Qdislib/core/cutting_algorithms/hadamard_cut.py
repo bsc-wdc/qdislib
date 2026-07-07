@@ -291,7 +291,27 @@ def _expectation_z(circuit, z_qubits):
     return float(total)
 
 
-def gate_cutting_hadamard(circuit, gates_cut, observable, software="qibo"):
+def _expectation_z_sampled(circuit, z_qubits, shots, seed=None):
+    """Shot-based estimate of ``<prod_q Z_q>`` for the fragment (measures all qubits,
+    then averages the parity over ``z_qubits`` across the shot frequencies)."""
+    from qibo import gates
+
+    circ = circuit.copy(deep=True)
+    circ.add(gates.M(*range(circ.nqubits)))
+    freqs = circ(nshots=shots).frequencies(binary=True)  # bitstring -> count
+    total = 0.0
+    for bitstring, count in freqs.items():
+        sign = 1
+        for q in z_qubits:  # bitstring[q] is qubit q (M added in 0..n-1 order)
+            if bitstring[q] == "1":
+                sign = -sign
+        total += sign * count
+    return total / shots
+
+
+def gate_cutting_hadamard(
+    circuit, gates_cut, observable, software="qibo", shots=None, seed=None
+):
     """Estimate ``<observable>`` via the ancilla / double-Hadamard-test gate cut.
 
     Cuts the two-qubit ``gates_cut`` (names like ``"CZ_2"``) with the Harrow-Lowe
@@ -305,6 +325,9 @@ def gate_cutting_hadamard(circuit, gates_cut, observable, software="qibo"):
         :data:`SUPPORTED_HADAMARD_GATES`).
     :param observable: A Z/I Pauli string over the circuit's qubits.
     :param software: Only ``"qibo"`` today.
+    :param shots: If given, estimate each fragment value from ``shots`` measurement
+        samples (unbiased, with shot noise); if ``None``, use the exact state vector.
+    :param seed: Optional RNG seed for the sampled path.
     :return: The reconstructed expectation value.
     """
     if software != "qibo":
@@ -348,7 +371,10 @@ def gate_cutting_hadamard(circuit, gates_cut, observable, software="qibo"):
             for q, ch in enumerate(observable):
                 if ch == "Z" and q in qmap:
                     z_qubits.append(qmap[q])
-            product *= _expectation_z(frag, z_qubits)
+            if shots is None:
+                product *= _expectation_z(frag, z_qubits)
+            else:
+                product *= _expectation_z_sampled(frag, z_qubits, shots, seed)
         total += weight * product
     return total
 
