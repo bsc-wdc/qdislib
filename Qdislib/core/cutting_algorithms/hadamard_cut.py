@@ -52,6 +52,8 @@ __all__ = [
     "gate_cutting_hadamard",
     "gate_cutting_hadamard_subcircuits",
     "gate_cutting_hadamard_subcircuit_reconstruction",
+    "gate_cutting_hadamard_sampling",
+    "gate_cutting_hadamard_sampling_subcircuits",
     "HadamardCutSubcircuits",
 ]
 
@@ -481,6 +483,70 @@ def _z_observable(num_qubits, z_qubits):
     return "".join(obs)
 
 
+def _hadamard_setup(circuit, gates_cut):
+    """Shared preamble for every Hadamard-cut driver: the per-cut local-unitary
+    decompositions, the cut DAG (SUBS1/SUBS2 placeholders), and its fixed fragment
+    partition. Returns ``(cut_dag, components, decomps)``."""
+    import networkx as nx
+
+    from Qdislib.utils.backends import convert_to_dag
+
+    dag = convert_to_dag(circuit)
+    decomps = []
+    for name in gates_cut:
+        gate = (dag.nodes[name].get("gate") or "").upper()
+        params = dag.nodes[name].get("parameters") or ()
+        decomps.append(local_unitary_decomposition(gate, params))
+
+    cut_dag = _generate_cut_hadamard(dag, gates_cut)  # SUBS1_k / SUBS2_k (+ CX H-conj)
+    # The fragment partition (connected components) is fixed by the cut graph; only the
+    # per-node gadget assignment changes per configuration, so compute it once.
+    components = list(
+        nx.connected_components(_remove_red_free(cut_dag).to_undirected())
+    )
+    return cut_dag, components, decomps
+
+
+def _config_assignments(decomps, config):
+    """SUBS-node -> ``(V_i, V_j, g)`` / ``(W_i, W_j, g)`` gadget assignments for one
+    ``config`` (a list of ``(i, j, g)`` per cut)."""
+    assignments = {}
+    for k, (i, j, g) in enumerate(config, start=1):
+        _, v_i, w_i = decomps[k - 1][i]
+        _, v_j, w_j = decomps[k - 1][j]
+        assignments[f"SUBS1_{k}"] = (v_i, v_j, g)  # control side -> V
+        assignments[f"SUBS2_{k}"] = (w_i, w_j, g)  # target side -> W
+    return assignments
+
+
+def _config_fragments(cut_dag, components, assignments, observable):
+    """Build the ``[(fragment_circuit, z_qubits), ...]`` for one configuration's gadget
+    assignments; ``z_qubits`` = ancillas + observed (``Z``) qubits, renumbered."""
+    fragments = []
+    for comp_nodes in components:
+        comp = cut_dag.subgraph(comp_nodes).copy()
+        frag, qmap, ancillas = _component_hadamard_circuit(comp, assignments)
+        z_qubits = list(ancillas)
+        for q, ch in enumerate(observable):
+            if ch == "Z" and q in qmap:
+                z_qubits.append(qmap[q])
+        fragments.append((frag, z_qubits))
+    return fragments
+
+
+def _cut_pmf(terms):
+    """The sampling PMF for one cut: ``(settings, probs, phi)`` where ``settings`` are
+    the valid ``(i, j, g)``, ``probs[t] = c_i c_j / phi`` (the Harrow-Lowe distribution
+    ``p(i,j,g) = c_i c_j / phi``), and ``phi = sum_{valid} c_i c_j = 2||c||_1^2 -
+    ||c||_2^2`` is the per-cut 1-norm. The sign ``(-1)^g`` is *not* in the PMF -- it
+    rides in the estimator -- so the weights are non-negative and sum to ``phi``."""
+    settings = _cut_settings(len(terms))
+    weights = [terms[i][0] * terms[j][0] for (i, j, g) in settings]
+    phi = sum(weights)
+    probs = [w / phi for w in weights]
+    return settings, probs, phi
+
+
 def _hadamard_fragment_specs(circuit, gates_cut, observable):
     """Enumerate the double-Hadamard-test fragments for a set of cuts.
 
@@ -489,50 +555,20 @@ def _hadamard_fragment_specs(circuit, gates_cut, observable):
     qibo circuit carrying its local ancilla(s); ``z_qubits`` are the qubits read out as
     a joint ``Z`` (ancillas + observed qubits). The reconstruction of ``<observable>``
     is ``sum_record weight * prod_fragment <Z_{z_qubits}>`` -- the shared core of the
-    all-in-one, sampled and three-step drivers.
+    all-in-one and three-step *enumeration* drivers.
     """
-    import networkx as nx
-
-    from Qdislib.utils.backends import convert_to_dag
-
-    dag = convert_to_dag(circuit)
-    # Per-cut local-unitary decompositions [(c, V, W), ...] and their (i, j, g) settings.
-    decomps, settings_per_cut = [], []
-    for name in gates_cut:
-        gate = (dag.nodes[name].get("gate") or "").upper()
-        params = dag.nodes[name].get("parameters") or ()
-        terms = local_unitary_decomposition(gate, params)
-        decomps.append(terms)
-        settings_per_cut.append(_cut_settings(len(terms)))
-
-    cut_dag = _generate_cut_hadamard(dag, gates_cut)  # SUBS1_k / SUBS2_k (+ CX H-conj)
-    # The fragment partition (connected components) is fixed by the cut graph; only the
-    # per-node gadget assignment changes per configuration, so compute it once.
-    components = list(
-        nx.connected_components(_remove_red_free(cut_dag).to_undirected())
-    )
+    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
+    settings_per_cut = [_cut_settings(len(terms)) for terms in decomps]
 
     specs = []
     for config in itertools.product(*settings_per_cut):  # one (i, j, g) per cut
         weight = 1.0
-        assignments = {}
         for k, (i, j, g) in enumerate(config, start=1):
-            c_i, v_i, w_i = decomps[k - 1][i]
-            c_j, v_j, w_j = decomps[k - 1][j]
-            weight *= c_i * c_j * (-1) ** g
-            assignments[f"SUBS1_{k}"] = (v_i, v_j, g)  # control side -> V
-            assignments[f"SUBS2_{k}"] = (w_i, w_j, g)  # target side -> W
+            weight *= decomps[k - 1][i][0] * decomps[k - 1][j][0] * (-1) ** g
         if weight == 0.0:
             continue
-        fragments = []
-        for comp_nodes in components:
-            comp = cut_dag.subgraph(comp_nodes).copy()
-            frag, qmap, ancillas = _component_hadamard_circuit(comp, assignments)
-            z_qubits = list(ancillas)
-            for q, ch in enumerate(observable):
-                if ch == "Z" and q in qmap:
-                    z_qubits.append(qmap[q])
-            fragments.append((frag, z_qubits))
+        assignments = _config_assignments(decomps, config)
+        fragments = _config_fragments(cut_dag, components, assignments, observable)
         specs.append((weight, fragments))
     return specs
 
@@ -738,6 +774,146 @@ def gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of):
             continue
         products[cfg] *= value
     return sum(w * p for w, p in zip(weights, products))
+
+
+# --------------------------------------------------------------------------- #
+# Monte-Carlo sampling driver (the native Harrow-Lowe estimator)
+# --------------------------------------------------------------------------- #
+
+
+def _sample_configs(decomps, num_samples, seed=None):
+    """Draw ``num_samples`` cut configurations from the Harrow-Lowe PMF.
+
+    Returns ``(configs, phi_total)`` where each config is ``([(i, j, g), ...], sign)``
+    with ``sign = prod_k (-1)^{g_k}`` and ``phi_total = prod_k phi_k`` the total 1-norm.
+    Each cut ``k`` draws ``(i, j, g)`` from ``p = c_i c_j / phi_k`` independently.
+    """
+    pmfs = [_cut_pmf(terms) for terms in decomps]  # (settings, probs, phi) per cut
+    phi_total = 1.0
+    for _, _, phi in pmfs:
+        phi_total *= phi
+    rng = np.random.default_rng(seed)
+    configs = []
+    for _ in range(num_samples):
+        config, sign = [], 1
+        for settings, probs, _phi in pmfs:
+            i, j, g = settings[int(rng.choice(len(settings), p=probs))]
+            config.append((i, j, g))
+            sign *= (-1) ** g
+        configs.append((config, sign))
+    return configs, phi_total
+
+
+def _sampling_weight(phi_total, sign, num_samples):
+    """The per-sample coefficient that turns the shared weighted-product reconstruction
+    into the Monte-Carlo estimator: with ``weight_s = phi_total * sign_s / N`` the sum
+    ``sum_s weight_s * prod_frag value`` equals ``phi_total * mean_s(sign_s * prod
+    value)`` -- the unbiased Harrow-Lowe estimator of ``<observable>``."""
+    return phi_total * sign / num_samples
+
+
+def gate_cutting_hadamard_sampling(
+    circuit,
+    gates_cut,
+    observable,
+    software="qibo",
+    num_samples=1000,
+    shots=1024,
+    seed=None,
+    qpu=False,
+    qpu_dict=None,
+):
+    """Estimate ``<observable>`` by **Monte-Carlo sampling** the Hadamard-test cut.
+
+    The native Harrow-Lowe estimator (arXiv:2403.01018): instead of enumerating all
+    ``(2m^2-m)^{n_cuts}`` configurations (as :func:`gate_cutting_hadamard`), draw
+    ``num_samples`` configurations from the quasiprobability PMF ``p(i,j,g) = c_i c_j /
+    phi`` and average ``phi_total * sign * prod_fragment <Z>`` (``sign = prod (-1)^g``).
+    This bounds the cost by ``num_samples`` regardless of the number of cuts -- the
+    enumeration is exponential in ``n_cuts``, so sampling is what makes many-cut
+    circuits tractable (at the cost of a ``phi_total^2 / num_samples`` variance).
+
+    Fragments fan out as independent PyCOMPSs tasks and fold through the same
+    :func:`_reduce_hadamard` fan-in as the enumeration driver.
+
+    :param circuit: A qibo circuit.
+    :param gates_cut: List of cut gate names.
+    :param observable: A Z/I Pauli string over the circuit's qubits.
+    :param software: Fragment-execution backend (``"qibo"``/``"qiskit"``/``"cudaq"``/
+        ``"pennylane"``).
+    :param num_samples: Number of configurations drawn from the PMF.
+    :param shots: Samples per fragment; ``None`` uses the exact statevector per
+        fragment (``software="qibo"`` only) -- then only the *configuration* sampling
+        is stochastic.
+    :param seed: Seed for the configuration draws (reproducible).
+    :param qpu: Route fragment execution to a QPU.
+    :param qpu_dict: QPU connection settings.
+    :return: The estimated expectation value.
+    """
+    exact = software == "qibo" and shots is None
+    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
+    configs, phi_total = _sample_configs(decomps, num_samples, seed)
+
+    values, config_of, weights = [], [], []
+    for s, (config, sign) in enumerate(configs):
+        weights.append(_sampling_weight(phi_total, sign, num_samples))
+        assignments = _config_assignments(decomps, config)
+        for frag, z_qubits in _config_fragments(
+            cut_dag, components, assignments, observable
+        ):
+            if exact:
+                values.append(_expectation_z(frag, z_qubits))
+            else:
+                obs = _z_observable(frag.nqubits, z_qubits)
+                frag_dag = circuit_qibo_to_dag(frag, obs_I=obs)
+                values.append(
+                    _evaluate_hadamard_fragment(
+                        frag_dag, frag.nqubits, software, shots or 1024, qpu, qpu_dict
+                    )
+                )
+            config_of.append(s)
+
+    if exact:  # in-process, no tasks to synchronise
+        return gate_cutting_hadamard_subcircuit_reconstruction(
+            values, weights, config_of
+        )
+    return compss_wait_on(_reduce_hadamard(values, weights, config_of))
+
+
+def gate_cutting_hadamard_sampling_subcircuits(
+    circuit, gates_cut, observable, software="qibo", num_samples=1000, seed=None
+):
+    """Monte-Carlo-sampled Hadamard-cut fragments as standalone subcircuits.
+
+    The sampling counterpart of :func:`gate_cutting_hadamard_subcircuits`: draws
+    ``num_samples`` configurations from the PMF and returns their fragments as a
+    :class:`HadamardCutSubcircuits` (already carrying the ``phi_total * sign /
+    num_samples`` weights), so the usual ``evaluate -> reconstruct`` workflow yields the
+    Monte-Carlo estimate::
+
+        subs = qd.gate_cutting_hadamard_sampling_subcircuits(c, ["CZ_2"], "ZZ", num_samples=2000)
+        values = [qd.expectation_value(s) for s in subs]
+        estimate = subs.reconstruct(values)
+
+    :param num_samples: Number of configurations drawn from the PMF.
+    :param seed: Seed for the configuration draws.
+    :return: A :class:`HadamardCutSubcircuits`.
+    """
+    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
+    configs, phi_total = _sample_configs(decomps, num_samples, seed)
+
+    subcircuits, weights, config_of = [], [], []
+    for s, (config, sign) in enumerate(configs):
+        weights.append(_sampling_weight(phi_total, sign, num_samples))
+        assignments = _config_assignments(decomps, config)
+        for frag, z_qubits in _config_fragments(
+            cut_dag, components, assignments, observable
+        ):
+            subcircuits.append(_materialize_subcircuit(frag, z_qubits, software))
+            config_of.append(s)
+    return HadamardCutSubcircuits(
+        subcircuits, weights=weights, config_of=config_of, number_cuts=len(gates_cut)
+    )
 
 
 def _remove_red_free(dag):

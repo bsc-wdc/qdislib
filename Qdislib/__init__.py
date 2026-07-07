@@ -54,6 +54,8 @@ __all__ = [
     "gate_cutting_sampling",
     "gate_cutting_sampling_subcircuits",
     "gate_cutting_sampling_reconstruction",
+    "gate_cutting_hadamard_sampling",
+    "gate_cutting_hadamard_sampling_subcircuits",
     "wire_cutting_sampling",
     "wire_cutting_sampling_subcircuits",
     # Subcircuit containers.

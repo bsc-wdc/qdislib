@@ -55,6 +55,20 @@ class DecompositionTest(BaseTimedTestCase):
         terms, _ = self._reconstruct("CP", (0.2,))
         self.assertLess(gamma_factor(terms), 1.2)
 
+    def test_cut_pmf_normalization(self):
+        # The sampling PMF must be a valid distribution whose 1-norm phi matches the
+        # closed form 2||c||_1^2 - ||c||_2^2 (and equals gamma+... = phi_factor).
+        from Qdislib.core.cutting_algorithms.hadamard_cut import _cut_pmf, phi_factor
+
+        for name in ("CZ", "CP"):
+            params = (0.7,) if name == "CP" else ()
+            terms = local_unitary_decomposition(name, params)
+            settings, probs, phi = _cut_pmf(terms)
+            self.assertAlmostEqual(sum(probs), 1.0, places=12)
+            self.assertTrue(all(p >= 0 for p in probs))
+            self.assertAlmostEqual(phi, phi_factor(terms), places=9)
+            self.assertEqual(len(settings), len(probs))
+
     def test_pauli_fallback_reconstructs(self):
         # The qiskit-free fallback (used when the KAK engine is unavailable) still
         # yields a correct unitary decomposition -- just not gamma-optimal.
@@ -328,6 +342,124 @@ class HadamardThreeStepTest(BaseTimedTestCase):
             values, weights, config_of
         )
         self.assertAlmostEqual(got, expected, places=12)
+
+
+@unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")
+class HadamardSamplingTest(BaseTimedTestCase):
+    """The Monte-Carlo (PMF-sampling) driver -- the native Harrow-Lowe estimator."""
+
+    def setUp(self):
+        super().setUp()
+        import qibo
+
+        qibo.set_backend("numpy")
+
+    def _bell_like(self):
+        from qibo import gates, models
+
+        c = models.Circuit(2)
+        c.add(gates.H(0))
+        c.add(gates.CZ(0, 1))
+        c.add(gates.RY(0, 0.8))
+        return c
+
+    def test_sampling_converges_single_cut(self):
+        # Config-sampling with exact fragments: only the PMF draws are stochastic, so a
+        # large sample count lands within Monte-Carlo noise of the analytical value.
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_sampling,
+        )
+
+        c = self._bell_like()
+        analytical = qd.analytical_solution(c, "ZZ")
+        got = gate_cutting_hadamard_sampling(
+            c, ["CZ_2"], "ZZ", num_samples=40000, shots=None, seed=7
+        )
+        self.assertLess(abs(analytical - got), 0.05)
+
+    def test_sampling_two_cuts(self):
+        # Enumeration would be 36 configs; sampling stays at num_samples.
+        import Qdislib as qd
+        from qibo import gates, models
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_sampling,
+        )
+
+        c = models.Circuit(3)
+        c.add(gates.RY(0, 0.5))
+        c.add(gates.RY(1, 0.7))
+        c.add(gates.RY(2, 0.9))
+        c.add(gates.CZ(0, 1))
+        c.add(gates.CZ(1, 2))
+        c.add(gates.RX(2, 0.3))
+        analytical = qd.analytical_solution(c, "ZZZ")
+        got = gate_cutting_hadamard_sampling(
+            c, ["CZ_4", "CZ_5"], "ZZZ", num_samples=40000, shots=None, seed=3
+        )
+        self.assertLess(abs(analytical - got), 0.05)
+
+    def test_sampling_non_diagonal_cut(self):
+        import Qdislib as qd
+        from qibo import gates, models
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_sampling,
+        )
+
+        c = models.Circuit(2)
+        c.add(gates.RY(0, 0.9))
+        c.add(gates.RY(1, 0.4))
+        c.add(gates.iSWAP(0, 1))
+        analytical = qd.analytical_solution(c, "ZZ")
+        got = gate_cutting_hadamard_sampling(
+            c, ["ISWAP_3"], "ZZ", num_samples=40000, shots=None, seed=5
+        )
+        self.assertLess(abs(analytical - got), 0.06)
+
+    def test_sampling_subcircuits_workflow(self):
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_sampling_subcircuits,
+        )
+
+        c = self._bell_like()
+        analytical = qd.analytical_solution(c, "ZZ")
+        subs = gate_cutting_hadamard_sampling_subcircuits(
+            c, ["CZ_2"], "ZZ", software="qibo", num_samples=40000, seed=1
+        )
+        # exact per-fragment eval isolates the config-sampling noise
+        from Qdislib.core.cutting_algorithms.hadamard_cut import _expectation_z
+
+        values = [
+            _expectation_z(frag, [q for q, ch in enumerate(obs) if ch == "Z"])
+            for frag, obs in subs
+        ]
+        self.assertLess(abs(analytical - subs.reconstruct(values)), 0.05)
+
+    def test_seed_reproducible(self):
+        # The seed fixes the PMF draws (the stochastic part); the reconstructed value
+        # matches to ~machine eps (only BLAS-level float noise in the simulation, not
+        # the sampling, differs between runs).
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_sampling,
+            _sample_configs,
+            _hadamard_setup,
+        )
+
+        c = self._bell_like()
+        _, _, decomps = _hadamard_setup(c, ["CZ_2"])
+        cfg_a, _ = _sample_configs(decomps, 2000, 42)
+        cfg_b, _ = _sample_configs(decomps, 2000, 42)
+        self.assertEqual(cfg_a, cfg_b)  # the draws themselves are reproducible
+
+        a = gate_cutting_hadamard_sampling(
+            c, ["CZ_2"], "ZZ", num_samples=2000, shots=None, seed=42
+        )
+        b = gate_cutting_hadamard_sampling(
+            c, ["CZ_2"], "ZZ", num_samples=2000, shots=None, seed=42
+        )
+        self.assertAlmostEqual(a, b, places=10)
 
 
 if __name__ == "__main__":
