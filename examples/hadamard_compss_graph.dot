@@ -78,27 +78,61 @@ Synchro0 -> 27;
 Synchro0 -> 28;
 29[shape=circle, style=filled fillcolor="#0000ff" fontcolor="#ffffff"];
 Synchro0 -> 29;
-30[shape=circle, style=filled fillcolor="#ffffff" fontcolor="#000000"];
+30[shape=circle, style=filled fillcolor="#0000ff" fontcolor="#ffffff"];
 Synchro0 -> 30;
-14 -> 30 [label="[d31v2]",color="#024b30",penwidth=2];
-15 -> 30 [label="[d33v2]",color="#024b30",penwidth=2];
-23 -> 30 [label="[d49v2]",color="#024b30",penwidth=2];
-22 -> 30 [label="[d47v2]",color="#024b30",penwidth=2];
-16 -> 30 [label="[d35v2]",color="#024b30",penwidth=2];
-26 -> 30 [label="[d55v2]",color="#024b30",penwidth=2];
-17 -> 30 [label="[d37v2]",color="#024b30",penwidth=2];
-27 -> 30 [label="[d57v2]",color="#024b30",penwidth=2];
-21 -> 30 [label="[d45v2]",color="#024b30",penwidth=2];
-25 -> 30 [label="[d53v2]",color="#024b30",penwidth=2];
-19 -> 30 [label="[d41v2]",color="#024b30",penwidth=2];
-18 -> 30 [label="[d39v2]",color="#024b30",penwidth=2];
-28 -> 30 [label="[d59v2]",color="#024b30",penwidth=2];
-29 -> 30 [label="[d61v2]",color="#024b30",penwidth=2];
-20 -> 30 [label="[d43v2]",color="#024b30",penwidth=2];
-24 -> 30 [label="[d51v2]",color="#024b30",penwidth=2];
+31[shape=circle, style=filled fillcolor="#0000ff" fontcolor="#ffffff"];
+Synchro0 -> 31;
+32[shape=circle, style=filled fillcolor="#0000ff" fontcolor="#ffffff"];
+Synchro0 -> 32;
+33[shape=circle, style=filled fillcolor="#0000ff" fontcolor="#ffffff"];
+Synchro0 -> 33;
+34[shape=circle, style=filled fillcolor="#0000ff" fontcolor="#ffffff"];
+Synchro0 -> 34;
+35[shape=circle, style=filled fillcolor="#0000ff" fontcolor="#ffffff"];
+Synchro0 -> 35;
+36[shape=circle, style=filled fillcolor="#0000ff" fontcolor="#ffffff"];
+Synchro0 -> 36;
+37[shape=circle, style=filled fillcolor="#0000ff" fontcolor="#ffffff"];
+Synchro0 -> 37;
+38[shape=circle, style=filled fillcolor="#ffffff" fontcolor="#000000"];
+Synchro0 -> 38;
+16 -> 38 [label="[d35v2]",color="#024b30",penwidth=2];
+19 -> 38 [label="[d41v2]",color="#024b30",penwidth=2];
+18 -> 38 [label="[d39v2]",color="#024b30",penwidth=2];
+20 -> 38 [label="[d43v2]",color="#024b30",penwidth=2];
+14 -> 38 [label="[d31v2]",color="#024b30",penwidth=2];
+17 -> 38 [label="[d37v2]",color="#024b30",penwidth=2];
+15 -> 38 [label="[d33v2]",color="#024b30",penwidth=2];
+21 -> 38 [label="[d45v2]",color="#024b30",penwidth=2];
+39[shape=circle, style=filled fillcolor="#ffffff" fontcolor="#000000"];
+Synchro0 -> 39;
+22 -> 39 [label="[d47v2]",color="#024b30",penwidth=2];
+28 -> 39 [label="[d59v2]",color="#024b30",penwidth=2];
+29 -> 39 [label="[d61v2]",color="#024b30",penwidth=2];
+26 -> 39 [label="[d55v2]",color="#024b30",penwidth=2];
+24 -> 39 [label="[d51v2]",color="#024b30",penwidth=2];
+27 -> 39 [label="[d57v2]",color="#024b30",penwidth=2];
+23 -> 39 [label="[d49v2]",color="#024b30",penwidth=2];
+25 -> 39 [label="[d53v2]",color="#024b30",penwidth=2];
+40[shape=circle, style=filled fillcolor="#ffffff" fontcolor="#000000"];
+Synchro0 -> 40;
+30 -> 40 [label="[d63v2]",color="#024b30",penwidth=2];
+33 -> 40 [label="[d69v2]",color="#024b30",penwidth=2];
+36 -> 40 [label="[d75v2]",color="#024b30",penwidth=2];
+35 -> 40 [label="[d73v2]",color="#024b30",penwidth=2];
+31 -> 40 [label="[d65v2]",color="#024b30",penwidth=2];
+37 -> 40 [label="[d77v2]",color="#024b30",penwidth=2];
+34 -> 40 [label="[d71v2]",color="#024b30",penwidth=2];
+32 -> 40 [label="[d67v2]",color="#024b30",penwidth=2];
+41[shape=circle, style=filled fillcolor="#ff0000" fontcolor="#000000"];
+Synchro0 -> 41;
+40 -> 41 [label="[d89v2]",color="#024b30",penwidth=2];
+39 -> 41 [label="[d85v2]",color="#024b30",penwidth=2];
+38 -> 41 [label="[d81v2]",color="#024b30",penwidth=2];
 Synchro1[label="sync", shape=octagon, style=filled fillcolor="#ff0000" fontcolor="#FFFFFF"];
 Synchro0 -> Synchro1;
-13 -> Synchro1 [label="d29v2"];  }
+13 -> Synchro1 [label="d29v2"];
+41 -> Synchro1 [label="d91v2"];  }
   subgraph legend {
     rank=sink;
     node [shape=plaintext, height=0.75];
@@ -113,6 +147,10 @@ Synchro0 -> Synchro1;
 <tr>
 <td align="right">Qdislib.core.cutting_algorithms.hadamard_cut._reduce_hadamard</td>
 <td bgcolor="#ffffff">&nbsp;</td>
+</tr>
+<tr>
+<td align="right">Qdislib.core.cutting_algorithms.hadamard_cut._sum_reduce</td>
+<td bgcolor="#ff0000">&nbsp;</td>
 </tr>
       </table>
     >]
