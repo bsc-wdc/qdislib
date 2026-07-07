@@ -603,6 +603,65 @@ def _reduce_hadamard(values, weights, config_of):
     return gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of)
 
 
+@task(returns=1, partials=COLLECTION_IN)
+def _sum_reduce(partials):
+    """Sum a batch of partial reductions -- one node of the reduction tree."""
+    return sum(p for p in partials if p is not None)
+
+
+def _reduce_hadamard_tree(values, weights, config_of, chunk):
+    """Hierarchical fan-in reduction (returns the final future).
+
+    Funnelling every fragment value into one :func:`_reduce_hadamard` becomes a
+    data-transfer + serial-compute bottleneck once the fragment count is large (e.g.
+    the sampling driver with many ``num_samples``). Instead, reduce ``chunk``
+    configurations at a time with independent partial :func:`_reduce_hadamard` tasks,
+    then combine those partial sums through a balanced tree of :func:`_sum_reduce`
+    tasks (arity ``chunk``) -- so the reduction itself parallelises and no single task
+    sees all values. Configurations partition cleanly (a fragment product never spans
+    configs), so the result is identical to the single reduction, just regrouped.
+    """
+    from collections import defaultdict
+
+    frags_by_config = defaultdict(list)
+    for value, cfg in zip(values, config_of):
+        frags_by_config[cfg].append(value)
+
+    n_configs = len(weights)
+    if n_configs == 0:
+        return _reduce_hadamard([], [], [])
+
+    partials = []  # one partial-sum future per chunk of configurations
+    for start in range(0, n_configs, chunk):
+        chunk_values, chunk_weights, chunk_config_of = [], [], []
+        for local, cfg in enumerate(range(start, min(start + chunk, n_configs))):
+            for value in frags_by_config[cfg]:
+                chunk_values.append(value)
+                chunk_config_of.append(local)
+            chunk_weights.append(weights[cfg])
+        partials.append(_reduce_hadamard(chunk_values, chunk_weights, chunk_config_of))
+
+    # Combine the partial sums up a balanced tree. The arity must be >= 2 or the count
+    # never shrinks (chunk == 1 would loop forever).
+    arity = max(2, chunk)
+    while len(partials) > 1:
+        partials = [
+            _sum_reduce(partials[i : i + arity]) for i in range(0, len(partials), arity)
+        ]
+    return partials[0]
+
+
+def _dispatch_reduce(values, weights, config_of, reduce_chunk, sync):
+    """Reduce the fan-out either with a single fan-in task or, when ``reduce_chunk`` is
+    set and there are more configurations than that, a balanced reduction tree. Returns
+    the value (``sync=True``) or the reduction future (``sync=False``)."""
+    if reduce_chunk and len(weights) > reduce_chunk:
+        result = _reduce_hadamard_tree(values, weights, config_of, reduce_chunk)
+    else:
+        result = _reduce_hadamard(values, weights, config_of)
+    return compss_wait_on(result) if sync else result
+
+
 def gate_cutting_hadamard(
     circuit,
     gates_cut,
@@ -613,6 +672,7 @@ def gate_cutting_hadamard(
     qpu=False,
     qpu_dict=None,
     sync=True,
+    reduce_chunk=None,
 ):
     """Estimate ``<observable>`` via the ancilla / double-Hadamard-test gate cut.
 
@@ -642,6 +702,10 @@ def gate_cutting_hadamard(
         ``False`` return the (unresolved) reduction future so several independent cuts
         can be launched back-to-back and awaited together (no barrier between them --
         the caller resolves with ``compss_wait_on``). Ignored on the exact path.
+    :param reduce_chunk: If set, reduce the fan-out through a balanced tree that folds
+        this many configurations per partial reduction (and combines partials with the
+        same arity) instead of a single fan-in task -- keeps the reduction parallel
+        when the fragment count is large. ``None`` (default) uses one reduction task.
     :return: The reconstructed expectation value, or its future when ``sync=False``.
     """
     exact = software == "qibo" and shots is None
@@ -669,10 +733,9 @@ def gate_cutting_hadamard(
         return gate_cutting_hadamard_subcircuit_reconstruction(
             values, weights, config_of
         )
-    # Fan the per-fragment futures into one reduction task (fan-out -> fan-in). With
-    # sync=False the future is returned unresolved so callers can overlap several cuts.
-    result = _reduce_hadamard(values, weights, config_of)
-    return compss_wait_on(result) if sync else result
+    # Fan the per-fragment futures into the reduction (single task, or a tree when
+    # reduce_chunk is set); sync=False returns the future so callers can overlap cuts.
+    return _dispatch_reduce(values, weights, config_of, reduce_chunk, sync)
 
 
 class HadamardCutSubcircuits(list):
@@ -830,6 +893,7 @@ def gate_cutting_hadamard_sampling(
     qpu=False,
     qpu_dict=None,
     sync=True,
+    reduce_chunk=None,
 ):
     """Estimate ``<observable>`` by **Monte-Carlo sampling** the Hadamard-test cut.
 
@@ -859,6 +923,9 @@ def gate_cutting_hadamard_sampling(
     :param sync: If ``True`` (default) block on the reduction and return the value; if
         ``False`` return the (unresolved) reduction future so several cuts can run
         concurrently without a barrier between them. Ignored on the exact path.
+    :param reduce_chunk: If set, reduce through a balanced tree folding this many
+        configurations per partial reduction (recommended for large ``num_samples`` so
+        the reduction stays parallel); ``None`` (default) uses one reduction task.
     :return: The estimated expectation value, or its future when ``sync=False``.
     """
     exact = software == "qibo" and shots is None
@@ -888,8 +955,7 @@ def gate_cutting_hadamard_sampling(
         return gate_cutting_hadamard_subcircuit_reconstruction(
             values, weights, config_of
         )
-    result = _reduce_hadamard(values, weights, config_of)
-    return compss_wait_on(result) if sync else result
+    return _dispatch_reduce(values, weights, config_of, reduce_chunk, sync)
 
 
 def gate_cutting_hadamard_sampling_subcircuits(
