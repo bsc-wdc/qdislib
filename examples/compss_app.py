@@ -125,6 +125,28 @@ def main():
         f"(|diff| = {abs(wire_opt_step - analytical):.4f})"
     )
 
+    # Hadamard-test gate cut: each (configuration, fragment) is one
+    # ``_evaluate_hadamard_fragment`` @task and they fan into a single
+    # ``_reduce_hadamard`` @task -- the fan-out/fan-in this app renders under
+    # ``runcompss --graph``. Sampled (shot-based) so it exercises the backend tasks.
+    had_value = qd.gate_cutting_hadamard(
+        build_circuit(), gate_cut, observable, software=SOFTWARE, shots=100000
+    )
+    print(
+        f"Hadamard gate cutting {gate_cut} -> {had_value:+.4f} "
+        f"(|diff| = {abs(had_value - analytical):.4f})"
+    )
+
+    had_subs = qd.gate_cutting_hadamard_subcircuits(
+        build_circuit(), gate_cut, observable, software=SOFTWARE
+    )
+    had_step = had_subs.reconstruct(
+        [qd.expectation_value(s, shots=100000) for s in had_subs]
+    )
+    print(
+        f"3-step Hadamard -> {had_step:+.4f} (|diff| = {abs(had_step - analytical):.4f})"
+    )
+
     ok = all(
         abs(v - analytical) < TOLERANCE
         for v in (
@@ -134,6 +156,8 @@ def main():
             wire_step,
             wire_opt,
             wire_opt_step,
+            had_value,
+            had_step,
         )
     )
     print("RESULT:", "PASS" if ok else "FAIL")
