@@ -139,12 +139,35 @@ def _apply_pennylane_gate(gate, qubits, parameters):
     elif g in ("RX", "RY", "RZ"):
         angle = float(parameters[0]) if parameters else 0.0
         getattr(qml, g)(angle, wires=qubits[0])
+    elif g == "U1":  # phase gate diag(1, e^{i lam})
+        qml.PhaseShift(float(parameters[0]), wires=qubits[0])
+    elif g == "U2":
+        qml.U2(float(parameters[0]), float(parameters[1]), wires=qubits[0])
+    elif g == "U3":
+        qml.U3(*[float(p) for p in parameters], wires=qubits[0])
     elif g in ("CNOT", "CX"):
         qml.CNOT(wires=[qubits[0], qubits[1]])
     elif g == "CZ":
         qml.CZ(wires=[qubits[0], qubits[1]])
     elif g == "CY":
         qml.CY(wires=[qubits[0], qubits[1]])
+    elif g in ("CU1", "CPHASE"):  # controlled phase on |11>
+        qml.ControlledPhaseShift(float(parameters[0]), wires=[qubits[0], qubits[1]])
+    elif g == "CU3":
+        # Controlled SU(2) U3. qml.U3 carries an e^{i(phi+lam)/2} global phase, which
+        # under control becomes a relative phase on the control-1 block; cancel it with
+        # a phase on the control qubit so the block is exactly qibo's SU(2) U3.
+        theta, phi, lam = (float(p) for p in parameters)
+        qml.ctrl(qml.U3(theta, phi, lam, wires=qubits[1]), control=qubits[0])
+        qml.PhaseShift(-(phi + lam) / 2, wires=qubits[0])
+    elif g == "SWAP":
+        qml.SWAP(wires=[qubits[0], qubits[1]])
+    elif g == "ISWAP":
+        qml.ISWAP(wires=[qubits[0], qubits[1]])
+    elif g == "RZZ":  # qibo RZZ(theta) == qml.IsingZZ(theta)
+        qml.IsingZZ(float(parameters[0]), wires=[qubits[0], qubits[1]])
+    elif g in ("TOFFOLI", "CCX"):
+        qml.Toffoli(wires=[qubits[0], qubits[1], qubits[2]])
     elif g == "MEASURE":
         # Gate-cut measure: a projective Z measurement that collapses the qubit to
         # its outcome |s> and lets it CONTINUE (the CZ cut's (I +/- Z)/2 projector,

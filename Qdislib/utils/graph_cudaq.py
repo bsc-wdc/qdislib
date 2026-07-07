@@ -298,6 +298,15 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
             for qb in qubits:
                 getattr(kernel, gate.lower())(angle, q[qb])
 
+        # --- General single-qubit unitary / phase ---
+        elif gate == "U3":
+            for qb in qubits:
+                kernel.u3(params[0], params[1], params[2], q[qb])
+
+        elif gate in ["U1", "CPHASE_SINGLE"]:  # r1 = phase gate diag(1, e^{i lam})
+            for qb in qubits:
+                kernel.r1(params[0], q[qb])
+
         # --- Controlled gates ---
         elif gate in ["CNOT", "CX"]:
             ctrl, tgt = qubits
@@ -306,6 +315,37 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
         elif gate == "CZ":
             ctrl, tgt = qubits
             kernel.cz(q[ctrl], q[tgt])
+
+        elif gate == "CU3":
+            # Controlled SU(2) U3. cudaq's cu3 applies the OpenQASM u3 (an extra
+            # e^{i(phi+lam)/2} global phase) on the control-1 block; cancel it with a
+            # phase (r1) on the control so the block is exactly qibo's SU(2) U3.
+            ctrl, tgt = qubits
+            theta, phi, lam = params[0], params[1], params[2]
+            kernel.cu3(theta, phi, lam, q[ctrl], q[tgt])
+            kernel.r1(-(phi + lam) / 2, q[ctrl])
+
+        elif gate in ["CU1", "CPHASE"]:  # controlled phase on |11>
+            ctrl, tgt = qubits
+            kernel.cr1(params[0], q[ctrl], q[tgt])
+
+        elif gate == "SWAP":
+            kernel.swap(q[qubits[0]], q[qubits[1]])
+
+        elif gate == "RZZ":  # exp(-i theta/2 ZZ) = CX . RZ(theta) . CX (no native rzz)
+            ctrl, tgt = qubits
+            kernel.cx(q[ctrl], q[tgt])
+            kernel.rz(params[0], q[tgt])
+            kernel.cx(q[ctrl], q[tgt])
+
+        elif gate == "ISWAP":  # no native iswap; standard 6-gate decomposition
+            a, b = qubits
+            kernel.s(q[a])
+            kernel.s(q[b])
+            kernel.h(q[a])
+            kernel.cx(q[a], q[b])
+            kernel.cx(q[b], q[a])
+            kernel.h(q[b])
 
         # --- Measurement gates ---
         elif gate in ["MZ", "MX", "MY"]:
