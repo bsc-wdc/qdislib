@@ -41,6 +41,7 @@ from Qdislib.api import *
 __all__ = [
     # Cutting algorithms -- all-in-one.
     "gate_cutting",
+    "gate_cutting_hadamard",
     "wire_cutting",
     # Cutting -- explicit subcircuits + reconstruction (the three-step workflow).
     "gate_cutting_subcircuits",
