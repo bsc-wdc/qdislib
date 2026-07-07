@@ -34,7 +34,10 @@ from Qdislib.utils.runtime import compss_wait_on
 TOLERANCE = 0.15
 SOFTWARE = os.environ.get("QDISLIB_SOFTWARE", "qibo")
 SHOTS = int(os.environ.get("QDISLIB_SHOTS", "8192"))
-NUM_SAMPLES = int(os.environ.get("QDISLIB_NUM_SAMPLES", "8"))
+NUM_SAMPLES = int(os.environ.get("QDISLIB_NUM_SAMPLES", "12"))
+# Configurations per partial reduction -> a balanced reduction tree for the sampling
+# driver (0/None keeps the single fan-in task).
+REDUCE_CHUNK = int(os.environ.get("QDISLIB_REDUCE_CHUNK", "4")) or None
 
 
 def build_circuit():
@@ -59,6 +62,9 @@ def main():
     enum_future = qd.gate_cutting_hadamard(
         circuit, cut, observable, software=SOFTWARE, shots=SHOTS, sync=False
     )
+    # reduce_chunk turns the sampling driver's single fan-in into a balanced reduction
+    # tree (partial reduces per chunk of configs -> combine), so the reduction itself
+    # parallelises -- visible in the graph as a two-level fan-in on the sampling side.
     samp_future = qd.gate_cutting_hadamard_sampling(
         build_circuit(),
         cut,
@@ -68,6 +74,7 @@ def main():
         num_samples=NUM_SAMPLES,
         seed=1,
         sync=False,
+        reduce_chunk=REDUCE_CHUNK,
     )
     enum = compss_wait_on(enum_future)
     samp = compss_wait_on(samp_future)
