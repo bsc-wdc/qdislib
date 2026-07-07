@@ -57,7 +57,7 @@ __all__ = [
 
 import itertools
 
-from Qdislib.utils.runtime import task, compss_wait_on
+from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
 
 # Single-qubit Paulis (the building blocks of the local unitaries below).
@@ -555,6 +555,18 @@ def _evaluate_hadamard_fragment(frag_dag, num_qubits, software, shots, qpu, qpu_
     return backend.evaluate_expectation(frag_dag, num_qubits, shots=shots)
 
 
+@task(returns=1, values=COLLECTION_IN)
+def _reduce_hadamard(values, weights, config_of):
+    """Fold the per-fragment values into ``<observable>`` (the fan-in COMPSs task).
+
+    Takes the whole fan-out (``values`` a ``COLLECTION_IN`` of the fragment futures)
+    and returns ``sum_config weight * prod_fragment value`` -- so the task graph is a
+    clean fan-out of fragment tasks into this single reduction, and the reduction runs
+    off the master.
+    """
+    return gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of)
+
+
 def gate_cutting_hadamard(
     circuit,
     gates_cut,
@@ -594,9 +606,11 @@ def gate_cutting_hadamard(
     exact = software == "qibo" and shots is None
     specs = _hadamard_fragment_specs(circuit, gates_cut, observable)
 
-    pending = []  # (weight, [value-or-future, ...]) preserving the fan-out order
-    for weight, fragments in specs:
-        values = []
+    # Flat fan-out: one value (exact) or future (@task) per fragment, with parallel
+    # weights / config_of bookkeeping so a single reduction folds them back.
+    values, config_of, weights = [], [], []
+    for cfg_idx, (weight, fragments) in enumerate(specs):
+        weights.append(weight)
         for frag, z_qubits in fragments:
             if exact:
                 values.append(_expectation_z(frag, z_qubits))
@@ -608,18 +622,14 @@ def gate_cutting_hadamard(
                         frag_dag, frag.nqubits, software, shots or 1024, qpu, qpu_dict
                     )
                 )
-        pending.append((weight, values))
+            config_of.append(cfg_idx)
 
-    total = 0.0
-    for weight, values in pending:
-        values = compss_wait_on(
-            values
-        )  # resolve the per-fragment futures (no-op serial)
-        product = 1.0
-        for v in values:
-            product *= v
-        total += weight * product
-    return total
+    if exact:  # in-process, no tasks to synchronise
+        return gate_cutting_hadamard_subcircuit_reconstruction(
+            values, weights, config_of
+        )
+    # Fan the per-fragment futures into one reduction task (fan-out -> fan-in).
+    return compss_wait_on(_reduce_hadamard(values, weights, config_of))
 
 
 class HadamardCutSubcircuits(list):
