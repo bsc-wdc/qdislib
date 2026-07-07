@@ -59,6 +59,19 @@ _Z = np.array([[1, 0], [0, -1]], dtype=complex)
 SUPPORTED_HADAMARD_GATES = ("CZ", "CP", "CPHASE", "CU1", "RZZ", "CX", "CNOT")
 
 
+def _diag_angles(diag):
+    """The ``(II, IZ, ZI, ZZ)`` generator angles ``(alpha, beta, gamma, delta)`` of a
+    diagonal 2-qubit unitary ``diag(e^{i phi_ab})`` -- i.e.
+    ``D = e^{i alpha}(e^{i gamma Z}(x)e^{i beta Z}).exp(i delta Z(x)Z)``."""
+    p00, p01, p10, p11 = np.angle(np.asarray(diag, dtype=complex))
+    return (
+        (p00 + p01 + p10 + p11) / 4,  # alpha: II (global phase)
+        (p00 - p01 + p10 - p11) / 4,  # beta:  IZ (Z on the 2nd qubit)
+        (p00 + p01 - p10 - p11) / 4,  # gamma: ZI (Z on the 1st qubit)
+        (p00 - p01 - p10 + p11) / 4,  # delta: ZZ (the non-local part)
+    )
+
+
 def _diagonal_zz_decomposition(diag):
     """Decompose a *diagonal* 2-qubit unitary into local-unitary terms.
 
@@ -70,13 +83,7 @@ def _diagonal_zz_decomposition(diag):
     into ``V``/``W``. Returns ``[(c1, V1, W1), (c2, V2, W2)]`` with ``c_k > 0`` and
     ``V_k, W_k`` unitary, dropping a term whose coefficient is ~0.
     """
-    phi = np.angle(np.asarray(diag, dtype=complex))  # phi_00, phi_01, phi_10, phi_11
-    p00, p01, p10, p11 = phi
-    alpha = (p00 + p01 + p10 + p11) / 4  # II (global phase)
-    beta = (p00 - p01 + p10 - p11) / 4  # IZ (local on B)
-    gamma = (p00 + p01 - p10 - p11) / 4  # ZI (local on A)
-    delta = (p00 - p01 - p10 + p11) / 4  # ZZ (the only non-local part)
-
+    alpha, beta, gamma, delta = _diag_angles(diag)
     rz_a = np.diag([cmath.exp(1j * gamma), cmath.exp(-1j * gamma)])  # e^{i gamma Z}
     rz_b = np.diag([cmath.exp(1j * beta), cmath.exp(-1j * beta)])  # e^{i beta Z}
     phase = cmath.exp(1j * alpha)
@@ -214,19 +221,25 @@ def _cut_settings(num_terms):
 def _subs_gadget(circuit, gates, qubit, ancilla, u_i, u_j, g):
     """Append the double-Hadamard-test gadget for one cut side to ``circuit``.
 
-    Implements ``|0><0| (x) U_i + |1><1| (x) U_j`` controlled by a fresh ``ancilla``
-    (as ``U_i`` then controlled-``U_i^dag U_j``), wrapped in the Hadamard test
-    ``H . G(g) . [ctrl-select] . H`` on the ancilla. ``G = I`` if ``g == 0`` else the
-    ``S`` phase gate (which turns the real-part test into the imaginary-part test).
-    The ancilla is measured (as a Z expectation) by the caller.
+    Implements the select gate ``|0><0| (x) U_i + |1><1| (x) U_j`` (``ancilla`` the
+    control), wrapped in the Hadamard test ``H . G(g) . [select] . H``. ``G = I`` if
+    ``g == 0`` else ``S`` (real- vs imaginary-part test). ``U_i, U_j`` are diagonal
+    for the supported gates, so the select gate is a diagonal 2-qubit unitary and is
+    emitted in **standard gates** (RZ + CX for its ZZ part) -- no arbitrary ``Unitary``
+    matrix -- so the fragment is expressible in the neutral DAG and runnable on any
+    backend. The ancilla is read out as a Z expectation by the caller.
     """
+    # Select gate diagonal on (ancilla, qubit): anc=0 -> U_i, anc=1 -> U_j.
+    gsel = [u_i[0, 0], u_i[1, 1], u_j[0, 0], u_j[1, 1]]
+    _, beta, gamma, delta = _diag_angles(gsel)  # global phase (alpha) is irrelevant
     circuit.add(gates.H(ancilla))
     if g == 1:
         circuit.add(gates.S(ancilla))
-    circuit.add(gates.Unitary(u_i, qubit))  # V_i unconditionally ...
-    circuit.add(
-        gates.Unitary(u_i.conj().T @ u_j, qubit).controlled_by(ancilla)
-    )  # ... then ctrl-(V_i^dag V_j): selects V_i (anc=0) or V_j (anc=1)
+    circuit.add(gates.RZ(ancilla, -2 * gamma))  # e^{i gamma Z} on the control
+    circuit.add(gates.RZ(qubit, -2 * beta))  # e^{i beta Z} on the target
+    circuit.add(gates.CNOT(ancilla, qubit))  # exp(i delta ZZ) = CX . RZ . CX
+    circuit.add(gates.RZ(qubit, -2 * delta))
+    circuit.add(gates.CNOT(ancilla, qubit))
     circuit.add(gates.H(ancilla))
 
 
