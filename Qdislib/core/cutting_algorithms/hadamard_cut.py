@@ -50,9 +50,15 @@ __all__ = [
     "gamma_factor",
     "phi_factor",
     "gate_cutting_hadamard",
+    "gate_cutting_hadamard_subcircuits",
+    "gate_cutting_hadamard_subcircuit_reconstruction",
+    "HadamardCutSubcircuits",
 ]
 
 import itertools
+
+from Qdislib.utils.runtime import task, compss_wait_on
+from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
 
 # Single-qubit Paulis (the building blocks of the local unitaries below).
 _I = np.eye(2, dtype=complex)
@@ -466,53 +472,31 @@ def _expectation_z(circuit, z_qubits):
     return float(total)
 
 
-def _expectation_z_sampled(circuit, z_qubits, shots, seed=None):
-    """Shot-based estimate of ``<prod_q Z_q>`` for the fragment (measures all qubits,
-    then averages the parity over ``z_qubits`` across the shot frequencies)."""
-    from qibo import gates
-
-    circ = circuit.copy(deep=True)
-    circ.add(gates.M(*range(circ.nqubits)))
-    freqs = circ(nshots=shots).frequencies(binary=True)  # bitstring -> count
-    total = 0.0
-    for bitstring, count in freqs.items():
-        sign = 1
-        for q in z_qubits:  # bitstring[q] is qubit q (M added in 0..n-1 order)
-            if bitstring[q] == "1":
-                sign = -sign
-        total += sign * count
-    return total / shots
+def _z_observable(num_qubits, z_qubits):
+    """The per-qubit Pauli string with ``Z`` on ``z_qubits`` and ``I`` elsewhere --
+    the fragment observable (joint ``Z`` over the ancillas + the observed qubits)."""
+    obs = ["I"] * num_qubits
+    for q in z_qubits:
+        obs[q] = "Z"
+    return "".join(obs)
 
 
-def gate_cutting_hadamard(
-    circuit, gates_cut, observable, software="qibo", shots=None, seed=None
-):
-    """Estimate ``<observable>`` via the ancilla / double-Hadamard-test gate cut.
+def _hadamard_fragment_specs(circuit, gates_cut, observable):
+    """Enumerate the double-Hadamard-test fragments for a set of cuts.
 
-    Cuts the two-qubit ``gates_cut`` (names like ``"CZ_2"``) with the Harrow-Lowe
-    space-like cut (arXiv:2403.01018): each fragment carries one local ancilla
-    running a Hadamard test, the fragments are independent, and the result is
-    combined classically. This is the **exact** (statevector, full-enumeration)
-    reconstruction -- the correctness anchor for the sampling variant.
-
-    :param circuit: A qibo circuit.
-    :param gates_cut: List of cut gate names (each a two-qubit gate in
-        :data:`SUPPORTED_HADAMARD_GATES`).
-    :param observable: A Z/I Pauli string over the circuit's qubits.
-    :param software: Only ``"qibo"`` today.
-    :param shots: If given, estimate each fragment value from ``shots`` measurement
-        samples (unbiased, with shot noise); if ``None``, use the exact state vector.
-    :param seed: Optional RNG seed for the sampled path.
-    :return: The reconstructed expectation value.
+    Returns a list with one record per non-zero enumeration setting:
+    ``(weight, [(fragment_circuit, z_qubits), ...])``. Each fragment is an independent
+    qibo circuit carrying its local ancilla(s); ``z_qubits`` are the qubits read out as
+    a joint ``Z`` (ancillas + observed qubits). The reconstruction of ``<observable>``
+    is ``sum_record weight * prod_fragment <Z_{z_qubits}>`` -- the shared core of the
+    all-in-one, sampled and three-step drivers.
     """
-    if software != "qibo":
-        raise NotImplementedError("gate_cutting_hadamard supports software='qibo'")
     import networkx as nx
 
     from Qdislib.utils.backends import convert_to_dag
 
     dag = convert_to_dag(circuit)
-    # Per-cut local-unitary decompositions [(c, V, W), ...] and the settings.
+    # Per-cut local-unitary decompositions [(c, V, W), ...] and their (i, j, g) settings.
     decomps, settings_per_cut = [], []
     for name in gates_cut:
         gate = (dag.nodes[name].get("gate") or "").upper()
@@ -522,10 +506,14 @@ def gate_cutting_hadamard(
         settings_per_cut.append(_cut_settings(len(terms)))
 
     cut_dag = _generate_cut_hadamard(dag, gates_cut)  # SUBS1_k / SUBS2_k (+ CX H-conj)
-    num_qubits = circuit.nqubits
+    # The fragment partition (connected components) is fixed by the cut graph; only the
+    # per-node gadget assignment changes per configuration, so compute it once.
+    components = list(
+        nx.connected_components(_remove_red_free(cut_dag).to_undirected())
+    )
 
-    total = 0.0
-    for config in itertools.product(*settings_per_cut):  # one (i,j,g) per cut
+    specs = []
+    for config in itertools.product(*settings_per_cut):  # one (i, j, g) per cut
         weight = 1.0
         assignments = {}
         for k, (i, j, g) in enumerate(config, start=1):
@@ -536,22 +524,210 @@ def gate_cutting_hadamard(
             assignments[f"SUBS2_{k}"] = (w_i, w_j, g)  # target side -> W
         if weight == 0.0:
             continue
-        # Split into independent fragments and multiply their signed Z-expectations.
-        undirected = _remove_red_free(cut_dag).to_undirected()
-        product = 1.0
-        for comp_nodes in nx.connected_components(undirected):
+        fragments = []
+        for comp_nodes in components:
             comp = cut_dag.subgraph(comp_nodes).copy()
             frag, qmap, ancillas = _component_hadamard_circuit(comp, assignments)
             z_qubits = list(ancillas)
             for q, ch in enumerate(observable):
                 if ch == "Z" and q in qmap:
                     z_qubits.append(qmap[q])
-            if shots is None:
-                product *= _expectation_z(frag, z_qubits)
+            fragments.append((frag, z_qubits))
+        specs.append((weight, fragments))
+    return specs
+
+
+@task(returns=1)
+def _evaluate_hadamard_fragment(frag_dag, num_qubits, software, shots, qpu, qpu_dict):
+    """Evaluate one fragment's ``<Z_{z_qubits}>`` on any backend (a COMPSs task).
+
+    The fragment rides as a neutral DAG whose non-read-out qubits are marked
+    "Observable I", so :meth:`build_execution_backend(...).evaluate_expectation`
+    returns exactly the joint ``Z`` over the ancillas + observed qubits. This is the
+    per-fragment unit of work fanned out across PyCOMPSs and routed (qibo / Qiskit /
+    CUDA-Q / PennyLane / a QPU) by ``software``/``qpu``.
+    """
+    from Qdislib.core.backend.registry import build_execution_backend
+
+    backend = build_execution_backend(
+        software, num_qubits=num_qubits, qpu=bool(qpu), qpu_dict=qpu_dict
+    )
+    return backend.evaluate_expectation(frag_dag, num_qubits, shots=shots)
+
+
+def gate_cutting_hadamard(
+    circuit,
+    gates_cut,
+    observable,
+    software="qibo",
+    shots=None,
+    seed=None,
+    qpu=False,
+    qpu_dict=None,
+):
+    """Estimate ``<observable>`` via the ancilla / double-Hadamard-test gate cut.
+
+    Cuts the two-qubit ``gates_cut`` (names like ``"CZ_2"``, ``"ISWAP_3"``) with the
+    Harrow-Lowe space-like cut (arXiv:2403.01018): each fragment carries one local
+    ancilla running a Hadamard test, the fragments are independent, and the result is
+    combined classically as ``sum_config weight * prod_fragment <Z>``.
+
+    With ``software="qibo"`` and ``shots=None`` this is the **exact** (statevector,
+    full-enumeration) reconstruction -- the correctness anchor. Otherwise each fragment
+    is evaluated by :func:`build_execution_backend` on the chosen backend (qibo /
+    Qiskit / CUDA-Q / PennyLane / a QPU) from ``shots`` samples, fanned out as
+    independent PyCOMPSs tasks (one per fragment per configuration).
+
+    :param circuit: A qibo circuit.
+    :param gates_cut: List of cut gate names (each a two-qubit gate; the ZZ-diagonal
+        gates use the optimal fast path, others the general KAK decomposition).
+    :param observable: A Z/I Pauli string over the circuit's qubits.
+    :param software: Execution backend for the sampled path (``"qibo"``, ``"qiskit"``,
+        ``"cudaq"``, ``"pennylane"``).
+    :param shots: Samples per fragment; ``None`` selects the exact statevector path
+        (``software="qibo"`` only).
+    :param seed: Unused placeholder kept for signature compatibility.
+    :param qpu: Route fragment execution to a QPU via ``build_execution_backend``.
+    :param qpu_dict: QPU connection settings forwarded to the backend.
+    :return: The reconstructed expectation value (resolved, not a future).
+    """
+    exact = software == "qibo" and shots is None
+    specs = _hadamard_fragment_specs(circuit, gates_cut, observable)
+
+    pending = []  # (weight, [value-or-future, ...]) preserving the fan-out order
+    for weight, fragments in specs:
+        values = []
+        for frag, z_qubits in fragments:
+            if exact:
+                values.append(_expectation_z(frag, z_qubits))
             else:
-                product *= _expectation_z_sampled(frag, z_qubits, shots, seed)
+                obs = _z_observable(frag.nqubits, z_qubits)
+                frag_dag = circuit_qibo_to_dag(frag, obs_I=obs)
+                values.append(
+                    _evaluate_hadamard_fragment(
+                        frag_dag, frag.nqubits, software, shots or 1024, qpu, qpu_dict
+                    )
+                )
+        pending.append((weight, values))
+
+    total = 0.0
+    for weight, values in pending:
+        values = compss_wait_on(
+            values
+        )  # resolve the per-fragment futures (no-op serial)
+        product = 1.0
+        for v in values:
+            product *= v
         total += weight * product
     return total
+
+
+class HadamardCutSubcircuits(list):
+    """The Hadamard-cut fragments plus the metadata to recombine them.
+
+    Behaves like the ``list`` of subcircuits it is (iterate/index/``len``), and adds
+    :meth:`reconstruct` so the three-step workflow needs no manual bookkeeping::
+
+        subs = qd.gate_cutting_hadamard_subcircuits(circuit, ["CZ_2"], "ZZ")
+        values = [qd.expectation_value(s) for s in subs]
+        result = subs.reconstruct(values)
+
+    Each item is a ``[fragment_circuit, observable]`` pair; every fragment belongs to
+    one enumeration configuration (``config_of[i]``) whose signed coefficient is
+    ``weights[config_of[i]]``. Reconstruction multiplies the values within a
+    configuration and sums the weighted products.
+    """
+
+    def __init__(self, subcircuits, *, weights, config_of, number_cuts):
+        super().__init__(subcircuits)
+        #: Signed coefficient of each configuration (``c_i c_j (-1)^g`` product).
+        self.weights = weights
+        #: Configuration index each subcircuit (in order) belongs to.
+        self.config_of = config_of
+        #: Number of gates cut.
+        self.number_cuts = number_cuts
+
+    def reconstruct(self, values):
+        """Recombine per-subcircuit expectation values into ``<observable>``.
+
+        :param values: One value per subcircuit, in this object's order.
+        :return: The reconstructed expectation value of the uncut circuit.
+        """
+        return gate_cutting_hadamard_subcircuit_reconstruction(
+            values, self.weights, self.config_of
+        )
+
+
+def _materialize_subcircuit(frag, z_qubits, software):
+    """Turn a fragment qibo circuit into a ``[circuit, observable]`` subcircuit for the
+    requested backend, so :func:`expectation_value` can evaluate it directly."""
+    obs = _z_observable(frag.nqubits, z_qubits)
+    if software == "qibo":
+        return [frag, obs]
+    # Convert through the neutral DAG (the non-read-out qubits become "Observable I",
+    # which each backend converter turns back into the observable string).
+    frag_dag = circuit_qibo_to_dag(frag, obs_I=obs)
+    n = frag.nqubits
+    if software == "qiskit":
+        from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+
+        return dag_to_circuit_qiskit(frag_dag, n)
+    if software in ("cudaq", "cuda-q", "cuda_q"):
+        from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq
+
+        return dag_to_circuit_cudaq(frag_dag, n)
+    if software == "pennylane":
+        from Qdislib.utils.graph_pennylane import dag_to_circuit_pennylane
+
+        return dag_to_circuit_pennylane(frag_dag, n)
+    raise NotImplementedError(f"unknown software backend {software!r}")
+
+
+def gate_cutting_hadamard_subcircuits(circuit, gates_cut, observable, software="qibo"):
+    """Build the Hadamard-cut fragments as standalone subcircuits (step one of three).
+
+    Returns a :class:`HadamardCutSubcircuits` -- a list of ``[fragment, observable]``
+    subcircuits that the caller evaluates independently (e.g. with
+    :func:`expectation_value`, on any backend / QPU, in parallel) and then feeds to
+    :meth:`~HadamardCutSubcircuits.reconstruct`. This is the explicit three-step form
+    of :func:`gate_cutting_hadamard`.
+
+    :param circuit: A qibo circuit.
+    :param gates_cut: List of cut gate names.
+    :param observable: A Z/I Pauli string over the circuit's qubits.
+    :param software: Backend the subcircuits are materialised for.
+    :return: A :class:`HadamardCutSubcircuits`.
+    """
+    specs = _hadamard_fragment_specs(circuit, gates_cut, observable)
+    subcircuits, weights, config_of = [], [], []
+    for cfg_idx, (weight, fragments) in enumerate(specs):
+        weights.append(weight)
+        for frag, z_qubits in fragments:
+            subcircuits.append(_materialize_subcircuit(frag, z_qubits, software))
+            config_of.append(cfg_idx)
+    return HadamardCutSubcircuits(
+        subcircuits,
+        weights=weights,
+        config_of=config_of,
+        number_cuts=len(gates_cut),
+    )
+
+
+def gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of):
+    """Recombine per-fragment values into ``<observable>`` (step three of three).
+
+    :param values: One expectation value per subcircuit, in the order produced by
+        :func:`gate_cutting_hadamard_subcircuits`.
+    :param weights: Signed coefficient of each configuration.
+    :param config_of: Configuration index of each subcircuit (parallel to ``values``).
+    :return: ``sum_config weight * prod_fragment value``.
+    """
+    products = [1.0] * len(weights)
+    for value, cfg in zip(values, config_of):
+        if value is None:  # a skipped/empty fragment contributes the identity factor
+            continue
+        products[cfg] *= value
+    return sum(w * p for w, p in zip(weights, products))
 
 
 def _remove_red_free(dag):
