@@ -343,6 +343,34 @@ class HadamardThreeStepTest(BaseTimedTestCase):
         )
         self.assertAlmostEqual(got, expected, places=12)
 
+    def test_tree_reduction_matches_single(self):
+        # The hierarchical reduction just regroups the same weighted-product sum, so it
+        # equals the single fan-in reduction for every chunk size (configs partition
+        # cleanly -- a fragment product never spans configurations).
+        import numpy as np
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            _reduce_hadamard_tree,
+            gate_cutting_hadamard_subcircuit_reconstruction,
+        )
+        from Qdislib.utils.runtime import compss_wait_on
+
+        rng = np.random.default_rng(0)
+        n_configs = 37
+        weights = list(rng.normal(size=n_configs))
+        values, config_of = [], []
+        for cfg in range(n_configs):
+            for _ in range(3):  # three fragments per configuration
+                values.append(float(rng.uniform(-1, 1)))
+                config_of.append(cfg)
+        single = gate_cutting_hadamard_subcircuit_reconstruction(
+            values, weights, config_of
+        )
+        for chunk in (1, 2, 5, 8, 37, 100):
+            tree = compss_wait_on(
+                _reduce_hadamard_tree(values, weights, config_of, chunk)
+            )
+            self.assertAlmostEqual(tree, single, places=9, msg=f"chunk={chunk}")
+
 
 @unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")
 class HadamardSamplingTest(BaseTimedTestCase):
@@ -460,6 +488,22 @@ class HadamardSamplingTest(BaseTimedTestCase):
             c, ["CZ_2"], "ZZ", num_samples=2000, shots=None, seed=42
         )
         self.assertAlmostEqual(a, b, places=10)
+
+    def test_tree_reduction_end_to_end(self):
+        # reduce_chunk (hierarchical fan-in) must not change the estimate: same seed +
+        # exact fragments -> identical draws and values, only the reduction is regrouped.
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_sampling,
+        )
+
+        c = self._bell_like()
+        single = gate_cutting_hadamard_sampling(
+            c, ["CZ_2"], "ZZ", num_samples=3000, shots=None, seed=9
+        )
+        tree = gate_cutting_hadamard_sampling(
+            c, ["CZ_2"], "ZZ", num_samples=3000, shots=None, seed=9, reduce_chunk=16
+        )
+        self.assertAlmostEqual(single, tree, places=9)
 
 
 if __name__ == "__main__":
