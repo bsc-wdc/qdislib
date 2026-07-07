@@ -29,6 +29,7 @@ import qibo
 from qibo import gates, models
 
 import Qdislib as qd
+from Qdislib.utils.runtime import compss_wait_on
 
 TOLERANCE = 0.15
 SOFTWARE = os.environ.get("QDISLIB_SOFTWARE", "qibo")
@@ -52,16 +53,13 @@ def main():
     print(f"Backend: {SOFTWARE}  shots={SHOTS}  num_samples={NUM_SAMPLES}")
     print(f"Analytical <{observable}> = {analytical:+.4f}")
 
-    # (1) Enumeration all-in-one: 6 configs x 2 fragments = 12 fragment tasks -> reduce.
-    enum = qd.gate_cutting_hadamard(
-        circuit, cut, observable, software=SOFTWARE, shots=SHOTS
+    # (1) + (2) Submit the enumeration and the Monte-Carlo sampling fan-outs WITHOUT
+    # blocking (sync=False), so both clusters' fragment tasks are in flight at once --
+    # no barrier between them. The master only synchronises once, at the end.
+    enum_future = qd.gate_cutting_hadamard(
+        circuit, cut, observable, software=SOFTWARE, shots=SHOTS, sync=False
     )
-    print(
-        f"Hadamard (enumerate)  -> {enum:+.4f} (|diff| = {abs(enum - analytical):.4f})"
-    )
-
-    # (2) Monte-Carlo sampling all-in-one: num_samples x 2 fragment tasks -> reduce.
-    samp = qd.gate_cutting_hadamard_sampling(
+    samp_future = qd.gate_cutting_hadamard_sampling(
         build_circuit(),
         cut,
         observable,
@@ -69,6 +67,12 @@ def main():
         shots=SHOTS,
         num_samples=NUM_SAMPLES,
         seed=1,
+        sync=False,
+    )
+    enum = compss_wait_on(enum_future)
+    samp = compss_wait_on(samp_future)
+    print(
+        f"Hadamard (enumerate)  -> {enum:+.4f} (|diff| = {abs(enum - analytical):.4f})"
     )
     print(
         f"Hadamard (sampling)   -> {samp:+.4f} (|diff| = {abs(samp - analytical):.4f})"

@@ -612,6 +612,7 @@ def gate_cutting_hadamard(
     seed=None,
     qpu=False,
     qpu_dict=None,
+    sync=True,
 ):
     """Estimate ``<observable>`` via the ancilla / double-Hadamard-test gate cut.
 
@@ -637,7 +638,11 @@ def gate_cutting_hadamard(
     :param seed: Unused placeholder kept for signature compatibility.
     :param qpu: Route fragment execution to a QPU via ``build_execution_backend``.
     :param qpu_dict: QPU connection settings forwarded to the backend.
-    :return: The reconstructed expectation value (resolved, not a future).
+    :param sync: If ``True`` (default) block on the reduction and return the value; if
+        ``False`` return the (unresolved) reduction future so several independent cuts
+        can be launched back-to-back and awaited together (no barrier between them --
+        the caller resolves with ``compss_wait_on``). Ignored on the exact path.
+    :return: The reconstructed expectation value, or its future when ``sync=False``.
     """
     exact = software == "qibo" and shots is None
     specs = _hadamard_fragment_specs(circuit, gates_cut, observable)
@@ -664,8 +669,10 @@ def gate_cutting_hadamard(
         return gate_cutting_hadamard_subcircuit_reconstruction(
             values, weights, config_of
         )
-    # Fan the per-fragment futures into one reduction task (fan-out -> fan-in).
-    return compss_wait_on(_reduce_hadamard(values, weights, config_of))
+    # Fan the per-fragment futures into one reduction task (fan-out -> fan-in). With
+    # sync=False the future is returned unresolved so callers can overlap several cuts.
+    result = _reduce_hadamard(values, weights, config_of)
+    return compss_wait_on(result) if sync else result
 
 
 class HadamardCutSubcircuits(list):
@@ -822,6 +829,7 @@ def gate_cutting_hadamard_sampling(
     seed=None,
     qpu=False,
     qpu_dict=None,
+    sync=True,
 ):
     """Estimate ``<observable>`` by **Monte-Carlo sampling** the Hadamard-test cut.
 
@@ -848,7 +856,10 @@ def gate_cutting_hadamard_sampling(
     :param seed: Seed for the configuration draws (reproducible).
     :param qpu: Route fragment execution to a QPU.
     :param qpu_dict: QPU connection settings.
-    :return: The estimated expectation value.
+    :param sync: If ``True`` (default) block on the reduction and return the value; if
+        ``False`` return the (unresolved) reduction future so several cuts can run
+        concurrently without a barrier between them. Ignored on the exact path.
+    :return: The estimated expectation value, or its future when ``sync=False``.
     """
     exact = software == "qibo" and shots is None
     cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
@@ -877,7 +888,8 @@ def gate_cutting_hadamard_sampling(
         return gate_cutting_hadamard_subcircuit_reconstruction(
             values, weights, config_of
         )
-    return compss_wait_on(_reduce_hadamard(values, weights, config_of))
+    result = _reduce_hadamard(values, weights, config_of)
+    return compss_wait_on(result) if sync else result
 
 
 def gate_cutting_hadamard_sampling_subcircuits(
