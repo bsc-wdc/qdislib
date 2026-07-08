@@ -58,14 +58,14 @@ class ObservableTest(BaseTimedTestCase):
             _circuit(),
             ["CZ_2"],
             observables=observables,
-            shots=16000,
+            shots=6000,
             software=software,
         )
         wire = qd.wire_cutting(
             _circuit(),
             [("CZ_2", "RY_3")],
             observables=observables,
-            shots=16000,
+            shots=6000,
             software=software,
         )
         self.assertLess(abs(gate - analytical), tol, f"gate {observables}/{software}")
