@@ -589,8 +589,12 @@ def _decimal_to_base6(num):
 # run on the master, populating graph_components in place with concrete DiGraphs.
 # Keeping it task-free (no COLLECTION_OUT futures) lets the generated subcircuits
 # be wrapped as serializable Subcircuit objects under PyCOMPSs.
-def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):
-
+def _apply_gate_substitution(updated_dag, gates_cut, index):
+    """Apply the base-6 measure-and-prepare substitution for gate-cut configuration
+    ``index`` to the SUBS1/SUBS2 marker nodes (mutates ``updated_dag`` in place, no
+    component split). Factored out of :func:`_generate_gate_cutting` so the mixed
+    wire+gate driver can apply the gate substitution and the wire substitution to the
+    same DAG before a single split."""
     base6_rep = _decimal_to_base6(index)
     base6_rep = base6_rep.zfill(len(gates_cut))
     list_substitutions = list(map(int, base6_rep))
@@ -734,6 +738,9 @@ def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):
         else:
             raise ValueError(f"Unexpected gate-cut substitution index: {idx}")
 
+
+def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):
+    _apply_gate_substitution(updated_dag, gates_cut, index)
     for i, c in enumerate(nx.connected_components(updated_dag.to_undirected())):
         new_subgraph = updated_dag.subgraph(c).copy()
         graph_components[i].add_nodes_from(new_subgraph.nodes(data=True))

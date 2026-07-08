@@ -925,23 +925,16 @@ def _generate_wire_cutting(
 # run on the master, populating graph_components in place with concrete DiGraphs.
 # Keeping it task-free (no COLLECTION_OUT futures) lets the generated subcircuits
 # be wrapped as serializable Subcircuit objects under PyCOMPSs.
-def _generate_subcircuits_wire_cutting(
+def _apply_wire_substitution(
     updated_dag: typing.Any,
     num_qubits: int,
     idx: int,
     edges_to_replace: typing.List[typing.Tuple[str, str]],
-    graph_components: typing.List[typing.Any],
 ) -> typing.Any:
-    """Generate the subcircuits from a circuit applying wire cutting.
-
-    :param updated_dag: Given DAG.
-    :param num_qubits: Current number of Qbits.
-    :param idx: Index.
-    :param edges_to_replace: List of edges to replace.
-    :param graph_components: List of graph components.
-    :raises ValueError: If it is not possible to generate subcircuits.
-    :return: The updated DAG.
-    """
+    """Apply the base-8 measure/prepare substitution for wire-cut configuration ``idx``
+    to the O_i/PS_i marker nodes (mutates ``updated_dag`` in place, no component split).
+    Factored out of :func:`_generate_subcircuits_wire_cutting` so the mixed wire+gate
+    driver can compose the wire substitution with the gate substitution on one DAG."""
     base8_rep = oct(idx)[2:]
     base8_rep = base8_rep.zfill(len(edges_to_replace))
     list_substitutions = list(map(int, base8_rep))
@@ -1034,6 +1027,25 @@ def _generate_subcircuits_wire_cutting(
         else:
             raise ValueError(f"Unexpected wire-cut substitution index: {index}")
 
+
+def _generate_subcircuits_wire_cutting(
+    updated_dag: typing.Any,
+    num_qubits: int,
+    idx: int,
+    edges_to_replace: typing.List[typing.Tuple[str, str]],
+    graph_components: typing.List[typing.Any],
+) -> typing.Any:
+    """Generate the subcircuits from a circuit applying wire cutting.
+
+    :param updated_dag: Given DAG.
+    :param num_qubits: Current number of Qbits.
+    :param idx: Index.
+    :param edges_to_replace: List of edges to replace.
+    :param graph_components: List of graph components.
+    :raises ValueError: If it is not possible to generate subcircuits.
+    :return: The updated DAG.
+    """
+    _apply_wire_substitution(updated_dag, num_qubits, idx, edges_to_replace)
     updated_dag = _remove_red_edges(updated_dag)
     for i, c in enumerate(networkx.connected_components(updated_dag.to_undirected())):
         new_subgraph = updated_dag.subgraph(c).copy()
