@@ -118,12 +118,17 @@ def gate_wire_cutting(
     # A non-CZ/CX cut gate is decomposed into CZ + single-qubit gates and its CZs cut.
     if gates_cut:
         dag, gates_cut = _expand_general_gate_cuts(dag, gates_cut)
-    # Gate surgery: insert the SUBS1/SUBS2 markers (also strips red edges internally).
-    dag = _generate_cut(dag, gates_cut) if gates_cut else _remove_red_edges(dag.copy())
-    # Wire surgery: expand gate-pair edges to single-wire cuts + insert O_i/PS_i markers.
+
+    # Wire surgery FIRST, then gate surgery. Doing wire cuts while the gate-cut gates
+    # are still present lets a wire cut that sits right after a gate cut attach its
+    # O_i/PS_i markers between the gate and its successor; the subsequent gate surgery
+    # then wires the gate's SUBS output straight into that marker. (Gate-first would
+    # have already replaced the gate, so an adjacent wire cut could not reference it.)
     wire_cuts = _expand_wire_cuts(dag, wire_cut) if wire_cut else []
     if wire_cuts:
         _insert_wire_cut_markers(dag, wire_cuts, num_qubits)
+    # Gate surgery: insert the SUBS1/SUBS2 markers (also strips red edges internally).
+    dag = _generate_cut(dag, gates_cut) if gates_cut else _remove_red_edges(dag.copy())
 
     n_gate, n_wire = len(gates_cut), len(wire_cuts)
     total_qubits = num_qubits + n_wire  # fresh wire lines are numbered above the rest

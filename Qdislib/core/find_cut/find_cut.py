@@ -710,6 +710,92 @@ def _sparsecut(circuit, coupling_map, layout, max_cuts, forbidden):
     return ranked
 
 
+def _circuit_to_mixed_graph(circuit, gate_cost=6, wire_cost=8):
+    """Unified graph for finding a **mixed** (gate + wire) cut.
+
+    Nodes are ``(qubit, position)`` along each qubit's timeline. A **wire** edge links
+    consecutive positions of a qubit (a wire-cut candidate); a **gate** edge links the
+    two positions a two-qubit gate couples (a gate-cut candidate). So a crossing gate
+    edge in a partition is a gate cut, a crossing wire edge is a wire cut -- one
+    partition yields both. Edge weights are ``log(cost)`` (``gate_cost`` for gate edges,
+    ``wire_cost`` for wire edges), so a minimum-weight partition minimises the product
+    ``gate_cost**n_gate * wire_cost**n_wire`` -- the actual number of subcircuit terms.
+    """
+    import math
+
+    graph = networkx.Graph()
+    last_node, last_gate, counter = {}, {}, {}
+    for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
+        gate_id = f"{name}_{index}"
+        here = {}
+        for q in qubits:
+            counter[q] = counter.get(q, 0) + 1
+            node = (q, counter[q])
+            graph.add_node(node)
+            here[q] = node
+            if q in last_node:
+                graph.add_edge(
+                    last_node[q],
+                    node,
+                    kind="wire",
+                    label=(last_gate[q], gate_id),
+                    weight=math.log(wire_cost),
+                )
+            last_node[q], last_gate[q] = node, gate_id
+        if len(qubits) == 2:
+            a, b = qubits
+            graph.add_edge(
+                here[a], here[b], kind="gate", label=gate_id, weight=math.log(gate_cost)
+            )
+    return graph
+
+
+def _find_cut_mixed(
+    circuit, max_cuts=None, seed=None, forbidden=None, gate_cost=6, wire_cost=8
+):
+    """Discover a **mixed** gate + wire cut by a cost-weighted bisection of the unified
+    qubit-timeline graph (:func:`_circuit_to_mixed_graph`), classifying each crossing
+    edge as a gate or wire cut. Cost-aware: the ``gate_cost``/``wire_cost`` edge weights
+    make the min-cut prefer whichever cut type is cheaper per severed connection (gate
+    ``6`` vs wire ``8`` by default; lower ``wire_cost`` -- e.g. ~4 for *optimized* wire
+    cutting -- flips the preference toward wire cuts).
+
+    :return: ``{"gate": [gate_id, ...], "wire": [(source, target), ...]}`` ready to feed
+        :func:`~Qdislib.gate_wire_cutting`.
+    """
+    from networkx.algorithms.community import kernighan_lin_bisection
+
+    empty = {"gate": [], "wire": []}
+    graph = _circuit_to_mixed_graph(circuit, gate_cost, wire_cost)
+    if graph.number_of_nodes() < 2 or graph.number_of_edges() == 0:
+        return empty
+    try:
+        part_a, _ = kernighan_lin_bisection(graph, weight="weight", seed=seed)
+    except Exception:  # pragma: no cover - degenerate graphs
+        return empty
+
+    forbidden = set(forbidden or ())
+    gate_cuts, wire_cuts = [], []
+    for u, v, data in graph.edges(data=True):
+        if (u in part_a) == (v in part_a):
+            continue  # not a crossing edge
+        if data["kind"] == "gate":
+            if data["label"] not in forbidden:
+                gate_cuts.append(data["label"])
+        elif data["label"] not in wire_cuts:
+            wire_cuts.append(data["label"])
+    gate_cuts = sorted(set(gate_cuts))
+    total = len(gate_cuts) + len(wire_cuts)
+    if max_cuts is not None and total > max_cuts:
+        logger.warning(
+            "find_cut(mixed=True) needs %s cuts to bisect the circuit, above "
+            "max_cuts=%s; returning the full mixed cut anyway.",
+            total,
+            max_cuts,
+        )
+    return {"gate": gate_cuts, "wire": wire_cuts}
+
+
 def find_cut(
     circuit,
     max_qubits=None,
@@ -724,6 +810,7 @@ def find_cut(
     top_n=None,
     coupling_map=None,
     layout=None,
+    mixed=False,
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
@@ -806,6 +893,14 @@ def find_cut(
         Logical-qubit -> physical-qubit mapping used with ``coupling_map`` (a dict, or a
         list indexed by logical qubit). Defaults to the identity mapping.
 
+    mixed : bool, default=False
+        Discover a **mixed** gate + wire cut in one shot: partition the unified
+        qubit-timeline graph (cost-weighted, gate ``6`` vs wire ``8`` per cut) and
+        classify each severed connection as a gate cut or a wire cut. Returns a
+        ``{"gate": [...], "wire": [...]}`` dict ready to feed
+        :func:`~Qdislib.gate_wire_cutting`, instead of the single gate-or-wire cut the
+        default mode picks. Only affects the ``implementation="qdislib"`` path.
+
     Diagnostic details about the partitioning process are logged at DEBUG level;
     enable them with ``qd.set_log_level("DEBUG")``.
 
@@ -861,6 +956,14 @@ def find_cut(
             for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
                 if len(qubits) > 1 and protected.intersection(qubits):
                     forbidden.add(f"{name}_{index}")
+
+        # Mixed mode: one cost-weighted partition of the unified qubit-timeline graph,
+        # classifying each severed connection as a gate cut or a wire cut -> a combined
+        # {"gate": [...], "wire": [...]} for gate_wire_cutting.
+        if mixed:
+            return _find_cut_mixed(
+                circuit, max_cuts=max_cuts, seed=seed, forbidden=forbidden
+            )
 
         # Hardware-aware "SparseCut" mode (arXiv:2511.05492): given the QPU coupling
         # map, cut the longest-routing two-qubit gates (a gate cut ranked by physical
