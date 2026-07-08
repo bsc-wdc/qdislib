@@ -66,11 +66,17 @@ Refer to the :doc:`quickstart guide <quickstart>` and :doc:`examples <examples>`
 Algorithms
 ----------
 
-Qdislib includes two core circuit cutting strategies:
+Qdislib includes several circuit cutting strategies:
 
-- **Gate Cutting**: Cuts selected two-qubit gates to divide a circuit into smaller, independently executable subcircuits. These are then simulated and post-processed to reconstruct the expectation value of the original circuit.
+- **Gate Cutting** (``gate_cutting``): Cuts selected two-qubit gates — a measure-and-prepare quasiprobability decomposition — to divide a circuit into smaller, independently executable subcircuits, then post-processes them to reconstruct the original expectation value. Cuts **any** two-qubit gate: ``CZ``/``CX`` natively, and other gates by automatically decomposing them into ``CZ`` + single-qubit gates. Cost is ``6`` terms per cut.
 
-- **Wire Cutting**: Cuts "wires" (qubit connections) between gates to disconnect logical qubits. This requires more advanced processing, often involving state preparation and postselection logic.
+- **Hadamard-test Gate Cutting** (``gate_cutting_hadamard``): An alternative gate cut (Harrow & Lowe, `arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) that replaces the mid-circuit measurement with **one local ancilla** per fragment running a Hadamard test. It cuts **any** two-qubit gate as a *single* cut at the **optimal** overhead (``gamma(CZ) = 3``, tending to ``1`` for weak interactions), which makes it a good fit for superconducting hardware where mid-circuit measurement is costly. Available as an all-in-one call, a three-step ``_subcircuits`` workflow, and a Monte-Carlo ``_sampling`` variant.
+
+- **Wire Cutting** (``wire_cutting``): Cuts "wires" (qubit connections) between gates to disconnect logical qubits, via a measure-and-prepare decomposition (``8`` terms per cut, or ``3**n + 4**n`` with ``optimized=True``).
+
+- **Mixed Gate + Wire Cutting** (``gate_wire_cutting``): Cuts some gates *and* some wires on the **same circuit** in one integrated workflow. The two quasiprobability decompositions tensor, and every fragment across the combined configuration space runs in parallel.
+
+Every subcircuit is an independent PyCOMPSs task, so all methods fan out and run in parallel; for large fan-outs, ``sync=False`` overlaps independent cuts and ``reduce_chunk=n`` folds the results through a balanced reduction tree.
 
 
 **Find Cut Function**

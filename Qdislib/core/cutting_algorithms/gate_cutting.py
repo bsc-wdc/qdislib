@@ -407,31 +407,33 @@ def gate_cutting(
         return final_recons
 
 
-# Gate cutting implements the CZ measure-and-prepare quasiprobability
-# decomposition. A CX/CNOT is cut via the identity CX(c, t) = H(t) CZ(c, t) H(t)
-# (see ``_generate_cut``), so both are accepted here. Any other two-qubit gate
-# would be silently mis-cut, so we reject it explicitly.
+# The measure-and-prepare substitution below implements the CZ decomposition; a
+# CX/CNOT is cut via the identity CX(c, t) = H(t) CZ(c, t) H(t) (see ``_generate_cut``).
+# Any OTHER two-qubit gate is decomposed into CZ + single-qubit gates up front
+# (``_expand_general_gate_cuts``), so only these reach the direct substitution.
 _CUTTABLE_GATES = {"cz", "cx", "cnot"}
 
 
 def _assert_cuttable_gate(dag, gate_name):
-    """Reject a requested cut on a node gate cutting cannot decompose.
+    """Guard the direct-substitution path: the SUBS insertion below only handles a
+    two-qubit ``CZ`` or ``CX``/``CNOT``. General two-qubit gates ARE supported -- the
+    public entry points call :func:`_expand_general_gate_cuts` first, which decomposes
+    them into ``CZ`` + single-qubit gates -- so by the time a cut reaches here it must
+    already be a ``CZ``/``CX``.
 
     :param dag: DAG the cut is applied to (after ``_remove_red_edges``).
     :param gate_name: Node id from ``gates_cut``.
-    :raises InvalidCutError: if the node is not a two-qubit CZ or CX/CNOT. A CX is
-        cut as ``H*CZ*H`` at the cut site; other two-qubit gates are not
-        supported (they would be silently mis-cut as if they were a CZ).
+    :raises InvalidCutError: if the node is not a two-qubit CZ or CX/CNOT.
     """
     gate = dag.nodes[gate_name].get("gate") or ""
     qubits = dag.nodes[gate_name].get("qubits") or ()
     if gate.lower() not in _CUTTABLE_GATES or len(qubits) != 2:
         raise InvalidCutError(
-            f"Gate cutting can only cut a two-qubit CZ or CX/CNOT (a CX is cut via "
+            f"Gate cutting substitutes a two-qubit CZ or CX/CNOT (a CX is cut via "
             f"CX = H*CZ*H), but node {gate_name!r} is a {gate!r} on qubits "
-            f"{tuple(qubits)}. Other two-qubit gates are not supported yet: "
-            f"decompose the gate into CZ/CX + single-qubit gates first, or run "
-            f"find_cut on the circuit to obtain a valid cut."
+            f"{tuple(qubits)}. General gates are decomposed to CZ automatically by the "
+            f"public entry points; call _expand_general_gate_cuts first, or use "
+            f"gate_cutting_hadamard (which cuts any gate directly)."
         )
 
 

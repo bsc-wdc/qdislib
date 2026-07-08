@@ -58,5 +58,43 @@ If you'd rather not manage the loop, ``qd.gate_cutting(...)`` and
 call — convenient for quick experiments. The three-step workflow above is the
 flexible, production-oriented path.
 
+Cutting any gate (Hadamard test)
+--------------------------------
+
+``gate_cutting`` cuts any two-qubit gate, but a non-``CZ``/``CX`` gate becomes
+several ``CZ`` cuts. The ancilla-based **Hadamard-test** cut (Harrow & Lowe,
+`arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) cuts *any* gate as a single
+cut at the optimal overhead, with no mid-circuit measurement:
+
+.. code-block:: python
+
+    circuit = models.Circuit(2)
+    circuit.add(gates.RY(0, 0.9))
+    circuit.add(gates.RY(1, 0.4))
+    circuit.add(gates.iSWAP(0, 1))
+
+    val = qd.gate_cutting_hadamard(circuit, ["ISWAP_3"], "ZZ", software="qibo")
+
+    # three-step form, and a Monte-Carlo variant for many cuts:
+    subs = qd.gate_cutting_hadamard_subcircuits(circuit, ["ISWAP_3"], "ZZ")
+    val = subs.reconstruct([qd.expectation_value(s) for s in subs])
+    val = qd.gate_cutting_hadamard_sampling(circuit, ["ISWAP_3"], "ZZ", num_samples=5000)
+
+Mixing gate and wire cutting
+----------------------------
+
+``gate_wire_cutting`` cuts some gates **and** some wires on the same circuit in a
+single, fully parallel workflow:
+
+.. code-block:: python
+
+    val = qd.gate_wire_cutting(
+        circuit,
+        gates_cut=["CZ_2"],
+        wire_cut=[("RY_3", "CZ_4")],
+        observable="ZZZ",
+        software="qibo",
+    )
+
 See the :doc:`User guide <user_guide>` for the full API, GPU acceleration, and
 distributed execution on PyCOMPSs.
