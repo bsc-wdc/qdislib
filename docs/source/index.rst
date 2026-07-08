@@ -18,7 +18,7 @@ With Qdislib, researchers and developers can:
 - Leverage **GPU acceleration** using Qiskit Aer, cuQuantum or Qibojit.
 - Submit subcircuits to **remote QPUs** like IBM Quantum.
 - Work with circuits defined in **Qibo**, **Qiskit**, **CUDA-Q**, and **PennyLane**.
-- Automatically identify good cut points with `find_cut`.
+- Automatically identify good cut points with `find_cut`, including **hardware-aware** selection that cuts the longest-routing gates for a given QPU ``coupling_map`` (SparseCut, `arXiv:2511.05492 <https://arxiv.org/abs/2511.05492>`_).
 - Extract and manipulate subcircuits independently.
 
 Whether you're targeting HPC systems, hybrid quantum-classical setups, or constrained simulators, Qdislib is a flexible and modular tool to bridge the gap between current hardware limitations and large-scale quantum algorithm design.

@@ -486,6 +486,11 @@ def _story():
                 ("max_qubits=n", "Max qubits per subcircuit (device size)."),
                 ("max_cuts=k", "Cap the number of cuts."),
                 ("gate_cut / wire_cut", "Which cut types to consider."),
+                (
+                    "coupling_map=",
+                    "Hardware-aware: cut the longest-routing gates "
+                    "(SparseCut, arXiv:2511.05492).",
+                ),
                 ("implementation=", "'qdislib' (default) or 'ibm-ckt'."),
                 ("seed=n", "Reproducible cut selection."),
             ]
