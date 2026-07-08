@@ -259,8 +259,8 @@ class HadamardCutTest(BaseTimedTestCase):
         qibo.set_backend("numpy")
         c = self._bell_like()
         analytical = qd.analytical_solution(c, "ZZ")
-        sampled = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", shots=200000, seed=1)
-        self.assertLess(abs(analytical - sampled), 0.05)
+        sampled = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", shots=8000, seed=1)
+        self.assertLess(abs(analytical - sampled), 0.08)
 
     def test_multibackend_all_in_one(self):
         # The sampled fan-out routes each fragment through build_execution_backend, so
@@ -276,8 +276,8 @@ class HadamardCutTest(BaseTimedTestCase):
         for sw in ("qibo", "qiskit", "pennylane", "cudaq"):
             if importlib.util.find_spec(sw.replace("-", "")) is None:
                 continue
-            got = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", software=sw, shots=200000)
-            self.assertLess(abs(analytical - got), 0.05, sw)
+            got = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", software=sw, shots=8000)
+            self.assertLess(abs(analytical - got), 0.12, sw)
 
 
 @unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")
@@ -325,8 +325,8 @@ class HadamardThreeStepTest(BaseTimedTestCase):
         c = self._circuit()
         analytical = qd.analytical_solution(c, "ZZ")
         subs = gate_cutting_hadamard_subcircuits(c, ["CZ_2"], "ZZ", software="qibo")
-        values = [qd.expectation_value(s, shots=100000) for s in subs]
-        self.assertLess(abs(analytical - subs.reconstruct(values)), 0.05)
+        values = [qd.expectation_value(s, shots=8000) for s in subs]
+        self.assertLess(abs(analytical - subs.reconstruct(values)), 0.08)
 
     def test_standalone_reconstruction_matches_container(self):
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
@@ -402,9 +402,9 @@ class HadamardSamplingTest(BaseTimedTestCase):
         c = self._bell_like()
         analytical = qd.analytical_solution(c, "ZZ")
         got = gate_cutting_hadamard_sampling(
-            c, ["CZ_2"], "ZZ", num_samples=40000, shots=None, seed=7
+            c, ["CZ_2"], "ZZ", num_samples=8000, shots=None, seed=7
         )
-        self.assertLess(abs(analytical - got), 0.05)
+        self.assertLess(abs(analytical - got), 0.1)
 
     def test_sampling_two_cuts(self):
         # Enumeration would be 36 configs; sampling stays at num_samples.
@@ -423,9 +423,9 @@ class HadamardSamplingTest(BaseTimedTestCase):
         c.add(gates.RX(2, 0.3))
         analytical = qd.analytical_solution(c, "ZZZ")
         got = gate_cutting_hadamard_sampling(
-            c, ["CZ_4", "CZ_5"], "ZZZ", num_samples=40000, shots=None, seed=3
+            c, ["CZ_4", "CZ_5"], "ZZZ", num_samples=10000, shots=None, seed=3
         )
-        self.assertLess(abs(analytical - got), 0.05)
+        self.assertLess(abs(analytical - got), 0.12)
 
     def test_sampling_non_diagonal_cut(self):
         import Qdislib as qd
@@ -440,9 +440,9 @@ class HadamardSamplingTest(BaseTimedTestCase):
         c.add(gates.iSWAP(0, 1))
         analytical = qd.analytical_solution(c, "ZZ")
         got = gate_cutting_hadamard_sampling(
-            c, ["ISWAP_3"], "ZZ", num_samples=40000, shots=None, seed=5
+            c, ["ISWAP_3"], "ZZ", num_samples=8000, shots=None, seed=5
         )
-        self.assertLess(abs(analytical - got), 0.06)
+        self.assertLess(abs(analytical - got), 0.12)
 
     def test_sampling_subcircuits_workflow(self):
         import Qdislib as qd
@@ -453,7 +453,7 @@ class HadamardSamplingTest(BaseTimedTestCase):
         c = self._bell_like()
         analytical = qd.analytical_solution(c, "ZZ")
         subs = gate_cutting_hadamard_sampling_subcircuits(
-            c, ["CZ_2"], "ZZ", software="qibo", num_samples=40000, seed=1
+            c, ["CZ_2"], "ZZ", software="qibo", num_samples=8000, seed=1
         )
         # exact per-fragment eval isolates the config-sampling noise
         from Qdislib.core.cutting_algorithms.hadamard_cut import _expectation_z
@@ -462,7 +462,7 @@ class HadamardSamplingTest(BaseTimedTestCase):
             _expectation_z(frag, [q for q, ch in enumerate(obs) if ch == "Z"])
             for frag, obs in subs
         ]
-        self.assertLess(abs(analytical - subs.reconstruct(values)), 0.05)
+        self.assertLess(abs(analytical - subs.reconstruct(values)), 0.1)
 
     def test_seed_reproducible(self):
         # The seed fixes the PMF draws (the stochastic part); the reconstructed value

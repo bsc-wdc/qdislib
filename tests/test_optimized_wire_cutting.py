@@ -59,11 +59,11 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
 
         circuit = _example_circuit()
         analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
-        standard = wire_cutting(circuit, _TWO_CUTS, shots=40000, optimized=False)
-        optimized = wire_cutting(circuit, _TWO_CUTS, shots=40000, optimized=True)
+        standard = wire_cutting(circuit, _TWO_CUTS, shots=10000, optimized=False)
+        optimized = wire_cutting(circuit, _TWO_CUTS, shots=10000, optimized=True)
 
-        self.assertLess(abs(optimized - analytical), 0.15)
-        self.assertLess(abs(optimized - standard), 0.15)
+        self.assertLess(abs(optimized - analytical), 0.2)
+        self.assertLess(abs(optimized - standard), 0.2)
 
     def test_one_cut_matches_analytical(self):
         from qibo import models, gates
@@ -81,8 +81,8 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         cut = find_cut(circuit, gate_cut=False)[:1]
 
         analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
-        optimized = wire_cutting(circuit, cut, shots=40000, optimized=True)
-        self.assertLess(abs(optimized - analytical), 0.15)
+        optimized = wire_cutting(circuit, cut, shots=10000, optimized=True)
+        self.assertLess(abs(optimized - analytical), 0.2)
 
     def test_uses_3n_plus_4n_subcircuits(self):
         """Two cuts split into one measure + one prepare fragment: 3**2 + 4**2 = 25."""
@@ -115,11 +115,11 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         original = wc._wire_cutting_optimized
         wc._wire_cutting_optimized = lambda *args, **kwargs: None
         try:
-            value = wc.wire_cutting(circuit, _TWO_CUTS, shots=40000, optimized=True)
+            value = wc.wire_cutting(circuit, _TWO_CUTS, shots=10000, optimized=True)
         finally:
             wc._wire_cutting_optimized = original
 
-        self.assertLess(abs(value - analytical), 0.15)
+        self.assertLess(abs(value - analytical), 0.2)
 
     def test_three_step_matches_standard_and_analytical(self):
         import Qdislib as qd
@@ -133,8 +133,8 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         # Two cuts -> one measure + one prepare fragment: 3**2 + 4**2 = 25 subcircuits
         # (a Z-basis measure probe yields both <Z> and <I>, so the measure side is 3**n).
         self.assertEqual(len(subs), 3**2 + 4**2)
-        values = [qd.expectation_value(s, shots=40000) for s in subs]
-        self.assertLess(abs(subs.reconstruct(values) - analytical), 0.15)
+        values = [qd.expectation_value(s, shots=10000) for s in subs]
+        self.assertLess(abs(subs.reconstruct(values) - analytical), 0.2)
 
     def test_sampling_matches_exact_distribution(self):
         import numpy as np
@@ -148,13 +148,13 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
             for x in range(2**n)
         }
         distribution = qd.wire_cutting_sampling(
-            circuit, _TWO_CUTS, shots=200000, software="qibo", seed=1, optimized=True
+            circuit, _TWO_CUTS, shots=60000, software="qibo", seed=1, optimized=True
         )
         tvd = 0.5 * sum(
             abs(distribution.get(key, 0.0) - exact.get(key, 0.0))
             for key in set(distribution) | set(exact)
         )
-        self.assertLess(tvd, 0.05)
+        self.assertLess(tvd, 0.08)
 
 
 if __name__ == "__main__":

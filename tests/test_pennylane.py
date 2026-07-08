@@ -145,9 +145,7 @@ class PennylaneCuttingTest(BaseTimedTestCase):
 
         circuit = _qibo_circuit()
         cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)
-        reconstruction = qd.gate_cutting(
-            circuit, cut, software="pennylane", shots=20000
-        )
+        reconstruction = qd.gate_cutting(circuit, cut, software="pennylane", shots=8000)
         self.assertLess(abs(reconstruction - self.analytical), 0.2)
 
     def test_wire_cutting(self):
@@ -155,9 +153,7 @@ class PennylaneCuttingTest(BaseTimedTestCase):
 
         circuit = _qibo_circuit()
         cut = qd.find_cut(circuit, gate_cut=False)
-        reconstruction = qd.wire_cutting(
-            circuit, cut, software="pennylane", shots=20000
-        )
+        reconstruction = qd.wire_cutting(circuit, cut, software="pennylane", shots=8000)
         self.assertLess(abs(reconstruction - self.analytical), 0.2)
 
     def test_gate_cutting_three_step(self):
@@ -166,7 +162,7 @@ class PennylaneCuttingTest(BaseTimedTestCase):
         circuit = _qibo_circuit()
         cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)
         subcircuits = qd.gate_cutting_subcircuits(circuit, cut, software="pennylane")
-        values = [qd.expectation_value(s, shots=20000) for s in subcircuits]
+        values = [qd.expectation_value(s, shots=8000) for s in subcircuits]
         reconstruction = subcircuits.reconstruct(values)
         self.assertLess(abs(reconstruction - self.analytical), 0.2)
 
@@ -177,7 +173,7 @@ class PennylaneCuttingTest(BaseTimedTestCase):
         tape = _pennylane_tape()
         cut = qd.find_cut(tape, gate_cut=True, wire_cut=False)
         self.assertTrue(cut)  # find_cut works on a PennyLane circuit
-        reconstruction = qd.gate_cutting(tape, cut, software="pennylane", shots=20000)
+        reconstruction = qd.gate_cutting(tape, cut, software="pennylane", shots=8000)
         self.assertLess(abs(reconstruction - self.analytical), 0.2)
 
 
