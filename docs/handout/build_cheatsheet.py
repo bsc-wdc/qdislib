@@ -491,6 +491,10 @@ def _story():
                     "Hardware-aware: cut the longest-routing gates "
                     "(SparseCut, arXiv:2511.05492).",
                 ),
+                (
+                    "mixed=True",
+                    "Combined {gate, wire} cut for gate_wire_cutting (cost-aware).",
+                ),
                 ("implementation=", "'qdislib' (default) or 'ibm-ckt'."),
                 ("seed=n", "Reproducible cut selection."),
             ]

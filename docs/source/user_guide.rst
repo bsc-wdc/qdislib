@@ -118,6 +118,27 @@ device. This follows the *SparseCut* idea of Guo et al.,
 The result is a gate cut you feed to ``gate_cutting`` as usual; pass a ``layout``
 (logical → physical qubit map) if your circuit is not placed identity-first.
 
+**Mixed cut discovery.** With ``mixed=True``, ``find_cut`` partitions the circuit once
+and classifies each severed connection as a gate cut or a wire cut, returning a
+combined ``{"gate": [...], "wire": [...]}`` you feed straight to
+:func:`~Qdislib.gate_wire_cutting`. The partition is **cost-aware** — it weighs a gate
+cut (``6`` terms) against a wire cut (``8``) and prefers whichever is cheaper per
+severed connection — so a circuit with both a gate bottleneck and a wire bottleneck is
+cut with the cheapest mix rather than forced into one type.
+
+.. code-block:: python
+
+    cut = qd.find_cut(circuit, mixed=True)            # {"gate": [...], "wire": [...]}
+    val = qd.gate_wire_cutting(
+        circuit, gates_cut=cut["gate"], wire_cut=cut["wire"], observable="ZZZZ"
+    )
+
+.. note::
+
+   With the *optimized* wire cut the per-cut cost is closer to ``4`` than ``8``, which
+   can tip the balance toward wire cuts; the cost model used for the default mixed
+   discovery assumes the standard (``8``-term) wire cut that ``gate_wire_cutting`` runs.
+
 .. tip::
 
    Each cut multiplies the number of subcircuit evaluations — a **gate cut by 6**,
