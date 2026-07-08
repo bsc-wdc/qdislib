@@ -100,6 +100,7 @@ def gate_wire_cutting(
         _generate_cut,
         _apply_gate_substitution,
         _build_and_run_gate_subcircuit,
+        _expand_general_gate_cuts,
     )
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _expand_wire_cuts,
@@ -114,6 +115,9 @@ def gate_wire_cutting(
     num_qubits = _max_qubits_graph(dag)  # original qubit count (before wire additions)
 
     gates_cut = list(gates_cut or [])
+    # A non-CZ/CX cut gate is decomposed into CZ + single-qubit gates and its CZs cut.
+    if gates_cut:
+        dag, gates_cut = _expand_general_gate_cuts(dag, gates_cut)
     # Gate surgery: insert the SUBS1/SUBS2 markers (also strips red edges internally).
     dag = _generate_cut(dag, gates_cut) if gates_cut else _remove_red_edges(dag.copy())
     # Wire surgery: expand gate-pair edges to single-wire cuts + insert O_i/PS_i markers.

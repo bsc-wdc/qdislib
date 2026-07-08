@@ -442,7 +442,9 @@ def _remove_red_edges(graph: networkx.DiGraph) -> networkx.DiGraph:
     red_edges = []
 
     for ed in copy_dag.edges:
-        if copy_dag.get_edge_data(ed[0], ed[1])["color"] == "red":
+        # A few reconnection edges are added without a colour attribute; treat a
+        # missing colour as "not red" (keep it) rather than raising.
+        if copy_dag.get_edge_data(ed[0], ed[1]).get("color") == "red":
             red_edges.append(ed)
 
     copy_dag.remove_edges_from(red_edges)
