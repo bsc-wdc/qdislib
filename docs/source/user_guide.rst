@@ -101,6 +101,23 @@ The returned list contains candidate gate names or gate pairs that are suitable 
     cut = qd.find_cut(circuit, forbidden_qubits=[0, 1])   # never cut on these qubits
     cut = qd.find_cut(circuit, implementation="ibm-ckt")  # IBM's cut finder instead
 
+**Hardware-aware cut selection (SparseCut).** When you pass the target QPU's
+``coupling_map``, ``find_cut`` switches to a hardware-aware mode that ranks the
+two-qubit gates by the physical distance between their qubits and cuts the
+**longest-routing** ones — removing exactly the gates that would otherwise need the
+most SWAPs (and so cause the most crosstalk / error) on a connectivity-limited
+device. This follows the *SparseCut* idea of Guo et al.,
+`arXiv:2511.05492 <https://arxiv.org/abs/2511.05492>`_.
+
+.. code-block:: python
+
+    line = [(0, 1), (1, 2), (2, 3), (3, 4)]           # the QPU's connectivity
+    cut = qd.find_cut(circuit, coupling_map=line, max_cuts=2)
+    cut = qd.find_cut(circuit, coupling_map=line, layout={0: 2, 1: 0, 2: 4})
+
+The result is a gate cut you feed to ``gate_cutting`` as usual; pass a ``layout``
+(logical → physical qubit map) if your circuit is not placed identity-first.
+
 .. tip::
 
    Each cut multiplies the number of subcircuit evaluations — a **gate cut by 6**,

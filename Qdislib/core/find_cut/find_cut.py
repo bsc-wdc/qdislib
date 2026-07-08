@@ -660,6 +660,56 @@ def _find_cut_wire(
     return best_cut, best_score
 
 
+def _sparsecut(circuit, coupling_map, layout, max_cuts, forbidden):
+    """Hardware-aware gate-cut selection ("SparseCut", Guo et al., `arXiv:2511.05492
+    <https://arxiv.org/abs/2511.05492>`_).
+
+    Rank the circuit's two-qubit gates by the physical distance between their qubits on
+    the QPU **coupling graph** and cut the longest-routing ones first -- removing
+    exactly the gates that would otherwise need the most SWAPs (and so cause the most
+    crosstalk / error) on a connectivity-limited device. A distance of 1 means the two
+    physical qubits are already adjacent (no SWAP, nothing to gain from cutting), so
+    only gates that actually route (distance > 1, or unreachable) are candidates.
+
+    :param circuit: The circuit to cut.
+    :param coupling_map: QPU connectivity as an iterable of physical-qubit edges
+        ``[(0, 1), (1, 2), ...]`` (undirected).
+    :param layout: Logical-qubit -> physical-qubit mapping (a dict or a list indexed by
+        logical qubit); defaults to the identity mapping.
+    :param max_cuts: Cut at most this many gates (the longest-routing); ``None`` cuts
+        every routing gate.
+    :param forbidden: Gate ids (``"NAME_index"``) that must not be cut.
+    :return: ``[(gate_id, distance), ...]`` sorted by distance, longest first.
+    """
+    graph = networkx.Graph()
+    graph.add_edges_from((int(a), int(b)) for a, b in coupling_map)
+    distances = dict(networkx.all_pairs_shortest_path_length(graph))
+
+    if layout is None:
+        layout = {q: q for q in range(num_qubits(circuit))}
+    elif not isinstance(layout, dict):
+        layout = {q: p for q, p in enumerate(layout)}
+
+    forbidden = set(forbidden or ())
+    ranked = []
+    for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
+        if len(qubits) != 2:
+            continue
+        gate_id = f"{name}_{index}"
+        if gate_id in forbidden:
+            continue
+        try:
+            distance = distances[layout[qubits[0]]][layout[qubits[1]]]
+        except KeyError:
+            distance = float("inf")  # unreachable on this coupling map -> cut first
+        if distance > 1:
+            ranked.append((gate_id, distance))
+    ranked.sort(key=lambda item: item[1], reverse=True)
+    if max_cuts is not None:
+        ranked = ranked[:max_cuts]
+    return ranked
+
+
 def find_cut(
     circuit,
     max_qubits=None,
@@ -672,6 +722,8 @@ def find_cut(
     forbidden_gates=None,
     forbidden_qubits=None,
     top_n=None,
+    coupling_map=None,
+    layout=None,
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
@@ -739,6 +791,21 @@ def find_cut(
         :func:`~Qdislib.cut_cost`. ``None`` (default) returns the single best cut.
         Only affects the ``implementation="qdislib"`` path.
 
+    coupling_map : list of (int, int), optional
+        The target QPU connectivity, as physical-qubit edges ``[(0, 1), (1, 2), ...]``.
+        When given, ``find_cut`` switches to **hardware-aware "SparseCut" mode**
+        (Guo et al., `arXiv:2511.05492 <https://arxiv.org/abs/2511.05492>`_): it ranks
+        the two-qubit gates by the physical distance between their qubits on the
+        coupling graph and returns the longest-routing ones as a **gate cut** -- cutting
+        exactly the gates that would otherwise need the most SWAPs (crosstalk / error)
+        on a connectivity-limited device. Combine with ``max_cuts`` to bound how many
+        gates are cut. This mode ignores ``max_qubits`` / ``wire_cut`` (it is a
+        distance-driven gate cut). Only affects the ``implementation="qdislib"`` path.
+
+    layout : dict or list, optional
+        Logical-qubit -> physical-qubit mapping used with ``coupling_map`` (a dict, or a
+        list indexed by logical qubit). Defaults to the identity mapping.
+
     Diagnostic details about the partitioning process are logged at DEBUG level;
     enable them with ``qd.set_log_level("DEBUG")``.
 
@@ -794,6 +861,27 @@ def find_cut(
             for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
                 if len(qubits) > 1 and protected.intersection(qubits):
                     forbidden.add(f"{name}_{index}")
+
+        # Hardware-aware "SparseCut" mode (arXiv:2511.05492): given the QPU coupling
+        # map, cut the longest-routing two-qubit gates (a gate cut ranked by physical
+        # qubit distance) so the fragments route with the fewest SWAPs / least crosstalk.
+        if coupling_map is not None:
+            ranked = _sparsecut(circuit, coupling_map, layout, max_cuts, forbidden)
+            if top_n is not None:
+                # Longest distance first -> best; score = -distance to keep the
+                # "lowest score first" convention shared with the other modes.
+                return [
+                    {"cut": [gate_id], "kind": "gate", "score": -distance}
+                    for gate_id, distance in ranked[:top_n]
+                ]
+            best = [gate_id for gate_id, _ in ranked]
+            if not best:
+                logger.warning(
+                    "find_cut (SparseCut) found no routing two-qubit gate to cut: "
+                    "every two-qubit gate is already adjacent on the coupling map, or "
+                    "the routing ones are forbidden."
+                )
+            return best
 
         # Ranked mode: return the top_n candidate cuts (best score first) across
         # the enabled strategies, each as {"cut", "kind", "score"}, instead of the
