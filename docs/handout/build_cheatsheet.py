@@ -17,9 +17,10 @@
 
 """Generate the Qdislib tutorial handout / cheat sheet as a PDF.
 
-A two-column, digestible reference for a hands-on tutorial: what circuit cutting
-is, the two cut types and their cost, the core API, backends, caching, and the
-common gotchas. Requires reportlab (``pip install reportlab``)::
+A two-column, two-page reference for a hands-on tutorial: what circuit cutting is,
+the cut methods (gate, Hadamard-test, wire, mixed) and their cost, the core API,
+backends, parallelism knobs, caching, and the common gotchas. Requires reportlab
+(``pip install reportlab``)::
 
     python docs/handout/build_cheatsheet.py   # -> Qdislib_cheatsheet.pdf (beside this file)
 """
