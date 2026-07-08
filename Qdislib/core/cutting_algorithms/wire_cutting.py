@@ -1552,21 +1552,25 @@ def _expectation_from_samples_qibo(qc, observables, shots, backend, prep_qubits)
     :return: The expectation value.
     """
     qibo.set_backend(backend)
-    collapse = {
-        gate.qubits[0]: gate
-        for gate in qc.queue
-        if isinstance(gate, gates.M) and getattr(gate, "collapse", False)
-    }
+    # A qubit can be cut-measured MORE THAN ONCE (several gate cuts on the same wire,
+    # e.g. a general gate decomposed into 3 CZs), so collect every collapse gate per
+    # qubit -- a plain {qubit: gate} dict would keep only the last and drop the others'
+    # signs.
+    collapse = {}
+    for gate in qc.queue:
+        if isinstance(gate, gates.M) and getattr(gate, "collapse", False):
+            collapse.setdefault(gate.qubits[0], []).append(gate)
     qc.add(gates.M(*range(qc.nqubits)))
     final = np.asarray(qc(nshots=shots).samples())  # (shots, nqubits), qubit-0-first
     contribution = np.ones(len(final))
     for q, obs in enumerate(observables):
         if q in prep_qubits and q in collapse:
-            # Measured cut qubit: the (I +/- Z)/2 projector contributes the
-            # decomposition sign -(-1)**m from the cut-point outcome m for *any*
+            # Measured cut qubit: each (I +/- Z)/2 projector contributes the
+            # decomposition sign -(-1)**m from its cut-point outcome m for *any*
             # observable; Z then multiplies by the final measurement.
-            m = np.asarray(collapse[q].result.samples()).ravel()
-            contribution *= -((-1.0) ** m)
+            for cut_gate in collapse[q]:
+                m = np.asarray(cut_gate.result.samples()).ravel()
+                contribution *= -((-1.0) ** m)
             if obs == "Z":
                 contribution *= (-1.0) ** final[:, q]
             elif obs != "I":

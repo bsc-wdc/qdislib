@@ -308,6 +308,10 @@ def gate_cutting(
     if observables:
         dag = change_basis_dag(dag, observables)
 
+    # A non-CZ/CX cut gate is decomposed into CZ + single-qubit gates and its CZs are
+    # cut instead (transparently grows gates_cut, so 6**n / 1/2**n scale accordingly).
+    dag, gates_cut = _expand_general_gate_cuts(dag, gates_cut)
+
     if nx.number_connected_components(dag.to_undirected()) > 1:
         S = [
             dag.subgraph(c).copy() for c in nx.connected_components(dag.to_undirected())
@@ -497,6 +501,131 @@ def _generate_cut(dag, gates_cut):
                 dag_copy.add_edge(f"SUBS2_{index}", succ_1[0], color="blue")
 
     return dag_copy
+
+
+def _decompose_gate_to_cz(matrix):
+    """Decompose a general two-qubit unitary into ``CZ`` + single-qubit ``RZ``/``RY``.
+
+    Returns qibo-convention ops ``[(gate_name, (local_qubits...), [params]), ...]`` that
+    reconstruct ``matrix`` (qibo big-endian, ``q0 (x) q1``) up to a global phase -- so a
+    general gate can be cut in the measure-and-prepare method by cutting the ``CZ``\\ s of
+    its decomposition (the same way the Hadamard cut reuses the KAK decomposition).
+    Uses qiskit's ``TwoQubitBasisDecomposer`` with the ``CZ`` basis; qiskit is
+    little-endian, so both qubit orderings are tried and the reconstructing one is kept.
+
+    :raises RuntimeError: if no ordering reconstructs ``matrix`` (should not happen).
+    """
+    import qibo
+    from qibo import gates as qibo_gates, models
+    from qiskit.synthesis import TwoQubitBasisDecomposer
+    from qiskit.circuit.library import CZGate
+
+    matrix = np.asarray(matrix, dtype=complex)
+    decomposer = TwoQubitBasisDecomposer(CZGate(), euler_basis="ZYZ")
+    qc = decomposer(matrix)
+    backend = qibo.get_backend()
+
+    def _ops(swap):
+        ops = []
+        for instr in qc.data:
+            qubits = [qc.find_bit(b).index for b in instr.qubits]
+            if swap:  # qiskit little-endian -> qibo big-endian
+                qubits = [1 - q for q in qubits]
+            ops.append(
+                (
+                    instr.operation.name.upper(),
+                    tuple(qubits),
+                    [float(p) for p in instr.operation.params],
+                )
+            )
+        return ops
+
+    for swap in (True, False):  # the little->big-endian flip first (the usual case)
+        ops = _ops(swap)
+        circuit = models.Circuit(2)
+        for name, qubits, params in ops:
+            cls = getattr(qibo_gates, name)
+            circuit.add(cls(*qubits, *params) if params else cls(*qubits))
+        rebuilt = np.asarray(circuit.unitary(backend))
+        if abs(np.trace(rebuilt.conj().T @ matrix)) / 4 > 1 - 1e-6:
+            return ops
+    raise RuntimeError("could not decompose the two-qubit gate into CZ + single-qubit")
+
+
+def _decompose_gate_in_dag(dag, gate_name):
+    """Replace a general two-qubit gate node with its ``CZ`` + ``RZ``/``RY``
+    decomposition (mutates ``dag`` in place); return the new ``CZ`` node ids (the cut
+    targets). The single-qubit gates ride along in whichever fragment their qubit lands
+    in, exactly like any other gate on the cut qubits."""
+    import qibo
+    from Qdislib.utils.graph_qibo import _resolve_qibo_gate
+
+    node = dag.nodes[gate_name]
+    qubits = node["qubits"]
+    params = node.get("parameters") or ()
+    matrix = np.asarray(
+        _resolve_qibo_gate(str(node["gate"]))(0, 1, *params).matrix(qibo.get_backend())
+    )
+    if matrix.shape != (4, 4):
+        raise InvalidCutError(
+            f"Gate cutting needs a two-qubit gate; {gate_name!r} is {matrix.shape}"
+        )
+    ops = _decompose_gate_to_cz(matrix)
+
+    qmap = {0: qubits[0], 1: qubits[1]}
+    preds = {
+        q: _find_nodes_with_qubit(dag, gate_name, qubit=q, direction="predecessor")
+        for q in qubits
+    }
+    succs = {
+        q: _find_nodes_with_qubit(dag, gate_name, qubit=q, direction="successor")
+        for q in qubits
+    }
+    dag.remove_node(gate_name)
+
+    last = {q: (preds[q][0] if preds[q] else None) for q in qubits}
+    cz_names = []
+    for i, (name, local_qubits, op_params) in enumerate(ops):
+        node_qubits = tuple(qmap[lq] for lq in local_qubits)
+        # CZ is symmetric, but the measure-and-prepare cut assigns SUBS1/SUBS2 (and the
+        # identity-observable sign recovery) by qubit *position*, so pin the control on
+        # the lower qubit -- a (1, 0) orientation otherwise mis-reconstructs.
+        if name == "CZ":
+            node_qubits = tuple(sorted(node_qubits))
+        node_id = f"{name}_{gate_name}_{i}"
+        dag.add_node(node_id, gate=name, qubits=node_qubits, parameters=list(op_params))
+        for q in node_qubits:
+            if last[q] is not None:
+                dag.add_edge(last[q], node_id, color="blue")
+            last[q] = node_id
+        if name == "CZ":
+            cz_names.append(node_id)
+    for q in qubits:
+        if succs[q] and last[q] is not None:
+            dag.add_edge(last[q], succs[q][0], color="blue")
+    return cz_names
+
+
+def _expand_general_gate_cuts(dag, gates_cut):
+    """Expand any non-``CZ``/``CX`` gate in ``gates_cut`` into the ``CZ``\\ s of its
+    decomposition (mutating ``dag``). Returns ``(dag, expanded_gates_cut)`` where every
+    entry is now a cuttable ``CZ``/``CX`` node -- so the rest of the measure-and-prepare
+    pipeline (and its ``6 ** n`` enumeration) handles a general gate transparently.
+
+    A generic two-qubit gate needs up to 3 ``CZ``\\ s (so up to 3 cuts on the same qubit
+    pair). Reconstructing that correctly for an *identity* observable on a cut qubit
+    needs the per-cut sign recovery, which the qibo evaluator does; the Qiskit/CUDA-Q
+    evaluators record one cut-point bit per qubit, so for general gates observed with
+    identity on a cut qubit use ``software="qibo"`` (or the ancilla-based
+    :func:`gate_cutting_hadamard`, which handles any gate on any backend)."""
+    expanded = []
+    for name in gates_cut:
+        gate = (dag.nodes[name].get("gate") or "").lower()
+        if gate in ("cz", "cx", "cnot"):
+            expanded.append(name)
+        else:
+            expanded.extend(_decompose_gate_in_dag(dag, name))
+    return dag, expanded
 
 
 # CPU-simulation backends whose expectation reconstruction decouples the internal
@@ -1929,6 +2058,9 @@ def gate_cutting_subcircuits(
     dag = convert_to_dag(dag, observables)
     if observables:
         dag = change_basis_dag(dag, observables)
+
+    # A non-CZ/CX cut gate is decomposed into CZ + single-qubit gates and its CZs cut.
+    dag, gates_cut = _expand_general_gate_cuts(dag, gates_cut)
 
     # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
     dispatch_map = {
