@@ -273,14 +273,15 @@ def _story():
     )
     s.append(gap(4.5))
 
-    s.append(section("Two ways to cut"))
+    s.append(section("Ways to cut"))
     s.append(gap(3))
     s.append(
         body(
             "<b><font color='#7d6ab0'>Gate cutting</font></b> replaces a two-qubit "
-            "gate (CZ / CX) by a sum of single-qubit <i>measure-and-prepare</i> "
-            "operations, splitting the circuit where that gate was. "
-            "<b>Cost: 6<super>k</super></b> subcircuit terms for <i>k</i> cuts."
+            "gate by a sum of single-qubit <i>measure-and-prepare</i> operations, "
+            "splitting the circuit where that gate was. Cuts <b>any two-qubit gate</b> "
+            "(CZ/CX natively; others auto-decomposed to CZ). "
+            "<b>Cost: 6<super>k</super></b> terms for <i>k</i> cuts."
         )
     )
     s.append(gap(2))
@@ -288,7 +289,17 @@ def _story():
         body(
             "<b><font color='#3f8f9b'>Wire cutting</font></b> cuts a qubit's wire "
             "(its timeline) into “measure here / re-prepare there”. "
-            "<b>Cost: 8<super>k</super></b> subcircuit terms for <i>k</i> cuts."
+            "<b>Cost: 8<super>k</super></b> terms for <i>k</i> cuts."
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        body(
+            "<b><font color='#7d6ab0'>Hadamard gate cutting</font></b> "
+            "(<font face='Courier'>gate_cutting_hadamard</font>) cuts a gate with one "
+            "<b>local ancilla</b> per fragment instead of mid-circuit measurement — "
+            "cuts <b>any</b> gate with the <b>optimal</b> overhead "
+            "(&#947;(CZ)=3, &#8594;1 for weak gates). Great for superconducting QPUs."
         )
     )
     s.append(gap(2))
@@ -363,6 +374,8 @@ def _story():
                 ("find_cut(circ, ...)", "Choose where to cut (returns it)."),
                 ("gate_cutting(circ, cut)", "&lt;O&gt; via gate cutting."),
                 ("wire_cutting(circ, cut)", "&lt;O&gt; via wire cutting."),
+                ("gate_cutting_hadamard(...)", "&lt;O&gt; via the ancilla cut."),
+                ("gate_wire_cutting(...)", "Mixed gate + wire cut."),
                 ("..._sampling(circ, cut)", "Full output distribution."),
                 ("..._subcircuits(...)", "3-step: pieces + .reconstruct()."),
                 ("expectation_value(sub)", "Run one subcircuit."),
@@ -373,6 +386,61 @@ def _story():
                 ("from_qasm(qasm, ...)", "Import any OpenQASM 2."),
             ],
             key_frac=0.55,
+        )
+    )
+    s.append(gap(4.5))
+
+    s.append(section("Hadamard (ancilla) gate cut"))
+    s.append(gap(3))
+    s.append(
+        body(
+            "An alternative gate cut (Harrow–Lowe, <i>arXiv:2403.01018</i>): each "
+            "fragment carries <b>one extra ancilla</b> running a Hadamard test — <b>no "
+            "mid-circuit measurement</b>, and it cuts <b>any</b> two-qubit gate "
+            "(iSWAP, fSim, …) at the <b>optimal</b> overhead."
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        code(
+            "val = qd.gate_cutting_hadamard(\n"
+            "        circ, ['ISWAP_3'], 'ZZ', software='qibo')\n"
+            "# Monte-Carlo (bounded cost for many cuts):\n"
+            "val = qd.gate_cutting_hadamard_sampling(\n"
+            "        circ, cut, 'ZZ', num_samples=5000)\n"
+            "# three-step, runs on any backend / QPU:\n"
+            "subs = qd.gate_cutting_hadamard_subcircuits(\n"
+            "         circ, cut, 'ZZ')\n"
+            "val = subs.reconstruct(\n"
+            "  [qd.expectation_value(s) for s in subs])"
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        body(
+            "Fragments are independent (own ancilla, no feed-forward) → they fan out "
+            "as PyCOMPSs tasks like every other cut.",
+            BODY_MUTED,
+        )
+    )
+    s.append(gap(4.5))
+
+    s.append(section("Mixed wire + gate cutting", ACCENT2))
+    s.append(gap(3))
+    s.append(
+        body(
+            "Cut some <b>gates</b> and some <b>wires</b> on the <b>same circuit</b> in "
+            "one workflow. The two quasiprobability decompositions tensor, and every "
+            "fragment across the combined space runs in parallel."
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        code(
+            "val = qd.gate_wire_cutting(circ,\n"
+            "        gates_cut=['CZ_2'],\n"
+            "        wire_cut=[('RY_3', 'CZ_4')],\n"
+            "        observable='ZZZ', software='qibo')"
         )
     )
     s.append(gap(4.5))
@@ -511,6 +579,79 @@ def _story():
     )
     s.append(gap(4.5))
 
+    s.append(section("Choosing a method"))
+    s.append(gap(3))
+    s.append(
+        api_table(
+            [
+                ("gate_cutting", "Any 2-qubit gate; distribution too; no ancilla."),
+                (
+                    "gate_cutting_hadamard",
+                    "Any gate at optimal &#947;; no mid-circuit "
+                    "measure (best on superconducting QPUs); expectation only.",
+                ),
+                ("wire_cutting", "Cut a qubit's wire between two subcircuits."),
+                ("gate_wire_cutting", "Both cut types on one circuit at once."),
+                ("*_sampling", "Reconstruct the full output distribution."),
+            ],
+            key_frac=0.44,
+        )
+    )
+    s.append(gap(4.5))
+
+    s.append(section("Overhead at a glance", ACCENT2))
+    s.append(gap(3))
+    s.append(
+        api_table(
+            [
+                ("gate cut / cut", "6 terms  (&#947; = 3 for CZ/CX)."),
+                (
+                    "wire cut / cut",
+                    "8 terms  (or 3<super>n</super>+4<super>n</super> "
+                    "with optimized=True).",
+                ),
+                (
+                    "hadamard / cut",
+                    "&#947;(CZ)=3, &#947;(SWAP)=7, &#8594;1 for weak "
+                    "gates; sampling caps cost at num_samples.",
+                ),
+                (
+                    "general gate",
+                    "&#8804; 3 CZ &#8594; up to 6<super>3</super> terms "
+                    "(one cut with the Hadamard method).",
+                ),
+            ],
+            key_frac=0.40,
+        )
+    )
+    s.append(gap(4.5))
+
+    s.append(section("Scale the parallelism", ACCENT2))
+    s.append(gap(3))
+    s.append(
+        body("Every subcircuit is an independent task. Extra knobs for big fan-outs:")
+    )
+    s.append(gap(2))
+    s.append(
+        api_table(
+            [
+                ("sync=False", "Return futures; overlap several cuts (wait once)."),
+                ("reduce_chunk=n", "Tree reduction instead of one fan-in task."),
+                (
+                    "optimized=True",
+                    "Wire cut: 3<super>n</super>+4<super>n</super> "
+                    "fragments, not 8<super>n</super>.",
+                ),
+                (
+                    "num_samples=n",
+                    "Hadamard sampling: bound the cost, not 6<super>k</super>.",
+                ),
+            ],
+            key_frac=0.36,
+        )
+    )
+    s.append(gap(4.5))
+
     s.append(section("Gotchas", HexColor("#b5342b")))
     s.append(gap(3))
     s.append(
@@ -518,15 +659,102 @@ def _story():
             [
                 "Cost is exponential in #cuts (6<super>k</super> / 8<super>k</super>) — "
                 "fewer, well-placed cuts win; preview with <font face='Courier'>cut_cost</font>.",
-                "Gate cutting cuts only <b>CZ / CX / CNOT</b> — decompose other "
-                "two-qubit gates first.",
+                "Any two-qubit gate is cuttable now; a non-CZ/CX gate becomes "
+                "<b>3 CZ cuts</b>, so prefer <font face='Courier'>gate_cutting_hadamard</font> "
+                "(1 cut, optimal) for exotic gates.",
                 "Sampling needs <b>more shots</b> than an expectation value "
                 "(quasiprobability overhead).",
-                "Identity on a cut qubit: <b>CPU &amp; GPU yes</b>, <b>QPU no</b> "
-                "(hardware returns only aggregated counts).",
+                "Identity on a cut qubit: <b>CPU &amp; GPU yes</b>, <b>QPU no</b>; for a "
+                "general gate use <font face='Courier'>software='qibo'</font> or the "
+                "Hadamard cut.",
                 "Use <font face='Courier'>seed=</font> for a reproducible "
                 "<font face='Courier'>find_cut</font>.",
             ]
+        )
+    )
+    s.append(gap(4.5))
+
+    s.append(section("Real hardware", ACCENT2))
+    s.append(gap(3))
+    s.append(
+        body("Route the subcircuits to GPUs or QPUs — the cutting code is unchanged:")
+    )
+    s.append(gap(2))
+    s.append(
+        code(
+            "qd.gate_cutting(circ, cut, gpu=True)      # Aer GPU\n"
+            "qd.gate_cutting(circ, cut, qpu=True,\n"
+            "        qpu_dict={'MN_Ona': 4})           # BSC QPU\n"
+            "qd.gate_cutting(circ, cut, qpu=True,\n"
+            "        qpu_dict={'IBM_Quantum': 127})    # IBM"
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        body(
+            "Under PyCOMPSs different fragments can even run on <b>different devices "
+            "at once</b> (<font face='Courier'>QdBackEnd(pool)</font>).",
+            BODY_MUTED,
+        )
+    )
+    s.append(gap(4.5))
+
+    s.append(section("Bring your own circuit"))
+    s.append(gap(3))
+    s.append(
+        body(
+            "Pass a <b>Qibo, Qiskit, CUDA-Q or PennyLane</b> circuit — Qdislib converts "
+            "it through a neutral DAG that speaks every backend (U3/CU3/… included). "
+            "Or import OpenQASM 2:"
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        code(
+            "circ = qd.from_qasm(open('c.qasm').read())\n"
+            "qd.gate_cutting(circ, cut, software='qiskit')"
+        )
+    )
+    s.append(gap(4.5))
+
+    s.append(section("Learn more"))
+    s.append(gap(3))
+    s.append(
+        body(
+            "Full docs, the nine tutorial notebooks (Bell states → 25-qubit lattices) "
+            "and the API reference:"
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        api_table(
+            [
+                ("Docs", "qdislib.readthedocs.io"),
+                ("Source", "gitlab.bsc.es/wdc/quantum/qdislib"),
+                ("Notebooks", "examples/ — cutting, sampling, scaling, QPUs."),
+                ("estimate(...)", "One call: find-cut + cut + reconstruct."),
+            ],
+            key_frac=0.30,
+        )
+    )
+    s.append(gap(4.5))
+
+    s.append(section("Sanity check", HexColor("#2f8f6b")))
+    s.append(gap(3))
+    s.append(
+        body(
+            "Validate a cut against the exact value on a small instance before you "
+            "scale it up (cutting reconstructs the same &lt;O&gt;, within shot noise):"
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        code(
+            "exact = qd.analytical_solution(circ, 'ZZ')\n"
+            "val   = qd.gate_cutting(circ, cut, 'ZZ',\n"
+            "                        shots=8192)\n"
+            "assert abs(val - exact) < 0.05\n"
+            "qd.draw_cut(circ, cut, 'cut.png')   # see it"
         )
     )
     return s

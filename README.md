@@ -41,10 +41,11 @@ Qdislib is built on top of the [PyCOMPSs](<https://www.bsc.es/research-and-devel
 
 With Qdislib, researchers and developers can:
 
-- Perform **gate** and **wire cutting** to decompose complex quantum circuits.
+- Perform **gate** and **wire cutting** to decompose complex quantum circuits — including an ancilla-based **Hadamard-test gate cut** (`gate_cutting_hadamard`) that cuts *any* two-qubit gate at optimal overhead with no mid-circuit measurement, and **mixed** wire + gate cutting on one circuit (`gate_wire_cutting`).
+- Cut **any two-qubit gate** (CZ/CX natively; others auto-decomposed to CZ, or use the Hadamard cut).
 - Leverage **GPU acceleration** using cuQuantum or Qibojit.
 - Submit subcircuits to **remote QPUs** like IBM Quantum.
-- Work with circuits defined in **Qibo**, **Qiskit**, and **CUDA-Q**.
+- Work with circuits defined in **Qibo**, **Qiskit**, **CUDA-Q**, and **PennyLane**.
 - Automatically identify good cut points with `find_cut`.
 - Extract and manipulate subcircuits independently.
 

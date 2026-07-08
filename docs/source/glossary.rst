@@ -16,7 +16,8 @@ Qdislib's documentation:
     circuit cutting
       decomposing a large quantum circuit into smaller subcircuits that can be
       executed independently, then recombining their results. Qdislib supports
-      two strategies: :term:`gate cutting` and :term:`wire cutting`.
+      :term:`gate cutting`, :term:`Hadamard-test gate cutting`, :term:`wire cutting`,
+      and :term:`mixed cutting` (gate + wire on one circuit).
 
     expectation value
       the average value of an observable measured on a quantum state. Qdislib
@@ -25,8 +26,23 @@ Qdislib's documentation:
 
     gate cutting
       a circuit-cutting strategy that replaces a selected (two-qubit) gate with a
-      quasiprobability decomposition over single-qubit operations, splitting the
-      circuit into independent subcircuits.
+      measure-and-prepare quasiprobability decomposition over single-qubit
+      operations, splitting the circuit into independent subcircuits. Cuts any
+      two-qubit gate (``CZ``/``CX`` natively; others decomposed into ``CZ`` +
+      single-qubit gates). See also :term:`Hadamard-test gate cutting`.
+
+    Hadamard-test gate cutting
+      an alternative :term:`gate cutting` method (Harrow & Lowe,
+      `arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) that cuts a two-qubit
+      gate with **one local ancilla** per fragment running a Hadamard test instead of
+      a mid-circuit measurement. It cuts **any** gate as a single cut at the optimal
+      quasiprobability overhead, and (having no feed-forward) keeps the fragments
+      fully independent. Exposed as ``gate_cutting_hadamard``.
+
+    mixed cutting
+      cutting some gates *and* some wires on the same circuit in one workflow
+      (``gate_wire_cutting``); the two quasiprobability decompositions tensor and all
+      fragments run in parallel.
 
     output distribution
       the probability of each measurement bitstring, ``{bitstring: probability}``.

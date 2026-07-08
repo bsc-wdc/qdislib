@@ -12,10 +12,17 @@ Qdislib.core.cutting_algorithms: Circuit Cutting
 ------------------------------------------------
 
 :class:`cutting_algorithms.gate_cutting <Qdislib.core.cutting_algorithms.gate_cutting>`
-- Distributed Gate cutting algorithm.
+- Distributed gate cutting (measure-and-prepare); cuts any two-qubit gate.
 
 :class:`cutting_algorithms.wire_cutting <Qdislib.core.cutting_algorithms.wire_cutting>`
-- Distributed Wire cutting algorithm.
+- Distributed wire cutting algorithm.
+
+:class:`cutting_algorithms.hadamard_cut <Qdislib.core.cutting_algorithms.hadamard_cut>`
+- Ancilla / double-Hadamard-test gate cut (arXiv:2403.01018): any gate, optimal
+  overhead, no mid-circuit measurement (``gate_cutting_hadamard`` + sampling / three-step).
+
+:class:`cutting_algorithms.mixed_cutting <Qdislib.core.cutting_algorithms.mixed_cutting>`
+- Mixed wire + gate cutting on one circuit (``gate_wire_cutting``).
 
 
 Qdislib.core.graph_algorithms: Graph Algorithms
