@@ -56,9 +56,13 @@ class WireCuttingForwardsShotsTest(BaseTimedTestCase):
         seen = []
         original = wc._build_and_run_subcircuit
 
-        def spy(s, software, shots, backend, qpu):
+        def spy(*args, **kwargs):
+            # ``shots`` is the 3rd positional arg of _build_and_run_subcircuit on
+            # every branch (some add a trailing arg, e.g. resource_manager); capture
+            # it whether passed positionally or by keyword and forward untouched.
+            shots = args[2] if len(args) > 2 else kwargs.get("shots")
             seen.append(shots)
-            return original(s, software, shots, backend, qpu)
+            return original(*args, **kwargs)
 
         wc._build_and_run_subcircuit = spy
         try:
