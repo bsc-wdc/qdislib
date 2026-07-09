@@ -254,7 +254,13 @@ def wire_cutting(
                 cut_wires = _expand_wire_cuts(s, tmp_cuts)
                 total_wire_cuts += len(cut_wires)
                 graphs = _generate_wire_cutting(
-                    s, cut_wires, num_qubits=num_qubits, qpu=qpu, software=software
+                    s,
+                    cut_wires,
+                    num_qubits=num_qubits,
+                    shots=shots,
+                    backend=backend,
+                    qpu=qpu,
+                    software=software,
                 )
                 graphs = _sum_results(graphs)
                 results.append(graphs)
@@ -271,7 +277,13 @@ def wire_cutting(
         if cut:
             cut_wires = _expand_wire_cuts(dag, cut)
             results = _generate_wire_cutting(
-                dag, cut_wires, num_qubits=num_qubits, qpu=qpu, software=software
+                dag,
+                cut_wires,
+                num_qubits=num_qubits,
+                shots=shots,
+                backend=backend,
+                qpu=qpu,
+                software=software,
             )
 
             if sync:

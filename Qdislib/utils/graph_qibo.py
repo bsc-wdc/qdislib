@@ -481,6 +481,15 @@ def _update_qubits_serie(
         for qubit in s.nodes[node]["qubits"]:
             my_set.add(qubit)
 
+    # An empty component carries no qubits -- e.g. a fragment whose only marker was
+    # an Observable-I node (stripped before conversion). It contributes <I> = 1 to
+    # the reconstruction product, so report it as a single idle |0> qubit: the
+    # resulting gate-free circuit evaluates to 1.0. Without this guard max()/min()
+    # below would raise ValueError on the empty set (an isolated qubit observed with
+    # a single-qubit Z after a gate/wire cut used to crash here).
+    if not my_set:
+        return s, 1, 0
+
     for node, data in s.nodes(data=True):
         new_tuple = ()
         for qubit in s.nodes[node]["qubits"]:
@@ -504,6 +513,12 @@ def _max_qubits_graph(s: typing.Any) -> int:
     for node, data in s.nodes(data=True):
         for qubit in s.nodes[node]["qubits"]:
             my_set.add(qubit)
+
+    # An empty graph touches no qubits; report a single (idle) qubit so callers that
+    # size a circuit from this never build a 0-qubit circuit (mirrors the empty-set
+    # guard in _update_qubits_serie).
+    if not my_set:
+        return 1
 
     highest_qubit = max(my_set) + 1 - _count_missing_up_to(my_set, max(my_set))
     return highest_qubit
