@@ -337,6 +337,36 @@ latex_elements = {
         %%% Quote for all places except Chapter
         \newcommand{\sectionquote}[2]{{\quote{\textit{``#1''}}{\textbf {\textit{--#2}}}}}
 
+        %%% Unicode glyph coverage for the PDF. The default Latin Modern font lacks
+        %%% many technical glyphs the docs use, so xelatex silently drops them:
+        %%%  - box-drawing (the ``-``-like rules) in the qibo circuit diagrams in code,
+        %%%  - bra-kets, Greek, sub/superscripts and math operators in the prose.
+        %%% DejaVu Sans Mono (full Unicode coverage) renders the code glyphs; the
+        %%% prose symbols are mapped to their LaTeX math/text equivalents.
+        \setmonofont{DejaVuSansMono}[
+            Extension=.ttf, Scale=MatchLowercase,
+            BoldFont=DejaVuSansMono-Bold,
+            ItalicFont=DejaVuSansMono-Oblique,
+            BoldItalicFont=DejaVuSansMono-BoldOblique]
+        \usepackage{newunicodechar}
+        \newunicodechar{⟨}{\ensuremath{\langle}}
+        \newunicodechar{⟩}{\ensuremath{\rangle}}
+        \newunicodechar{θ}{\ensuremath{\theta}}
+        \newunicodechar{ψ}{\ensuremath{\psi}}
+        \newunicodechar{φ}{\ensuremath{\varphi}}
+        \newunicodechar{π}{\ensuremath{\pi}}
+        \newunicodechar{γ}{\ensuremath{\gamma}}
+        \newunicodechar{≈}{\ensuremath{\approx}}
+        \newunicodechar{⇒}{\ensuremath{\Rightarrow}}
+        \newunicodechar{→}{\ensuremath{\rightarrow}}
+        \newunicodechar{↔}{\ensuremath{\leftrightarrow}}
+        \newunicodechar{×}{\ensuremath{\times}}
+        \newunicodechar{≤}{\ensuremath{\leq}}
+        \newunicodechar{≥}{\ensuremath{\geq}}
+        \newunicodechar{₂}{\textsubscript{2}}
+        \newunicodechar{ᵢ}{\textsubscript{i}}
+        \newunicodechar{⁴}{\textsuperscript{4}}
+
         %%%%%%%%%%%%%%%%%% END PREAMBLE %%%%%%%%%%%%%%%%%
     """,
     "maketitle": r"""
