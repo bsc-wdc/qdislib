@@ -69,6 +69,7 @@ __all__ = [
     "expectation_value",
     "sample_subcircuit",
     "analytical_solution",
+    "exact_statevector",
     # Finding and inspecting cuts.
     "find_cut",
     "draw_cut",
