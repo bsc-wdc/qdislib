@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "analytical_solution",
+    "exact_statevector",
     "draw_to_circuit",
     "parse_qsim",
     "from_qasm",
@@ -127,20 +128,132 @@ def from_qasm(qasm, software="qibo"):
     )
 
 
+# Single-qubit Pauli matrices for the exact expectation-value oracle.
+_PAULI_MATRIX = {
+    "I": np.eye(2, dtype=complex),
+    "X": np.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex),
+    "Y": np.array([[0.0, -1.0j], [1.0j, 0.0]], dtype=complex),
+    "Z": np.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex),
+}
+
+
+def _reverse_qubit_order(statevector: np.ndarray, n: int) -> np.ndarray:
+    """Flip a flat statevector between little- and big-endian qubit order."""
+    return (
+        np.asarray(statevector, dtype=complex)
+        .reshape([2] * n)
+        .transpose(list(range(n))[::-1])
+        .reshape(-1)
+    )
+
+
+def exact_statevector(circuit: typing.Any) -> np.ndarray:
+    """Exact statevector of ``circuit`` as a flat numpy array, qubit-0-first.
+
+    Backend-agnostic oracle building block: accepts a Qibo ``Circuit``, a Qiskit
+    ``QuantumCircuit``, a CUDA-Q kernel, or a PennyLane ``QuantumTape`` / ``QNode``,
+    and returns the state in a single convention -- amplitude-index bit ``n-1-q`` is
+    qubit ``q`` (qubit 0 is the most-significant bit) -- so it lines up with an
+    ``observables`` string indexed qubit-0-first regardless of each SDK's native
+    endianness (Qibo and PennyLane are already qubit-0-first; Qiskit and CUDA-Q are
+    qubit-0-last and get reversed here).
+
+    :param circuit: A Qibo/Qiskit/CUDA-Q/PennyLane circuit.
+    :raises TypeError: If ``circuit`` is not a supported circuit type.
+    :return: The statevector as a length-``2**n`` complex numpy array.
+    """
+    # Qibo -- qubit 0 is the most-significant bit; use as-is.
+    if qibo_available and isinstance(circuit, models.Circuit):
+        return np.asarray(circuit().state(numpy=True), dtype=complex)
+
+    # Qiskit -- qubit 0 is the least-significant bit; reverse.
+    try:
+        from qiskit import QuantumCircuit
+        from qiskit.quantum_info import Statevector
+
+        if isinstance(circuit, QuantumCircuit):
+            data = np.asarray(Statevector(circuit).data, dtype=complex)
+            return _reverse_qubit_order(data, circuit.num_qubits)
+    except ImportError:
+        pass
+
+    # PennyLane tape / QNode -- qubit 0 is the most-significant bit; use as-is.
+    try:
+        import pennylane as qml
+        from pennylane.tape import QuantumScript
+
+        if isinstance(circuit, (QuantumScript, qml.QNode)):
+            from Qdislib.utils.graph_pennylane import _to_tape
+
+            tape = _to_tape(circuit)
+            n = len(tape.wires)
+            dev = qml.device("default.qubit", wires=n)
+
+            @qml.qnode(dev)
+            def _state():
+                for op in tape.operations:
+                    qml.apply(op)
+                return qml.state()
+
+            return np.asarray(_state(), dtype=complex)
+    except ImportError:
+        pass
+
+    # CUDA-Q kernel -- qubit 0 is the least-significant bit; reverse.
+    try:
+        from cudaq.kernel.kernel_decorator import PyKernelDecorator
+
+        if isinstance(circuit, PyKernelDecorator):
+            import cudaq
+            from Qdislib.utils.backends import num_qubits
+
+            n = num_qubits(circuit)
+            data = np.asarray(cudaq.get_state(circuit), dtype=complex).reshape(-1)
+            return _reverse_qubit_order(data, n)
+    except ImportError:
+        pass
+
+    raise TypeError(
+        f"analytical_solution: unsupported circuit type {type(circuit)!r}; "
+        "expected a Qibo, Qiskit, CUDA-Q or PennyLane circuit."
+    )
+
+
+def _pauli_expectation(state: np.ndarray, pauli: str) -> float:
+    """Exact ``<psi|P|psi>`` for a Pauli string ``P`` on a qubit-0-first ``state``.
+
+    Applies each single-qubit Pauli to the statevector tensor (``O(2**n)``) instead
+    of forming the dense ``2**n x 2**n`` operator (``O(4**n)``), so the oracle scales
+    to many more qubits than a full-matrix approach.
+    """
+    n = len(pauli)
+    psi = np.asarray(state, dtype=complex).reshape([2] * n)
+    out = psi
+    for qubit, ch in enumerate(pauli):
+        if ch == "I":
+            continue
+        out = np.moveaxis(
+            np.tensordot(_PAULI_MATRIX[ch], out, axes=([1], [qubit])), 0, qubit
+        )
+    return float(np.real(np.vdot(psi, out)))
+
+
 def analytical_solution(circuit: typing.Any, observables: str) -> float:
     """
     Compute the analytical expectation value of a given quantum circuit.
 
-    This function evaluates the expectation value of a quantum circuit with respect
-    to a set of observables, using a symbolic Hamiltonian approach. It assumes
-    the circuit returns the full quantum statevector.
+    This function evaluates the exact (statevector) expectation value of a quantum
+    circuit with respect to a set of observables. It is backend-agnostic: the circuit
+    may be a Qibo ``Circuit``, a Qiskit ``QuantumCircuit``, a CUDA-Q kernel, or a
+    PennyLane ``QuantumTape`` / ``QNode`` -- each SDK's native endianness is handled so
+    ``observables`` is always indexed qubit-0-first (see :func:`exact_statevector`).
 
     :param observables:
-        A string representing the sequence of observables to apply (e.g., "XZI").
-        Each character corresponds to a Pauli operator ("X", "Y", "Z", "I") applied
-        on successive qubits.
+        A string representing the sequence of observables to apply (e.g., "XZI"), or a
+        weighted sum of them. Each character is a Pauli operator ("X", "Y", "Z", "I")
+        on successive qubits (qubit 0 = first character).
     :param circuit:
-        A callable object (such as a Qibo circuit) that, when executed, returns the final quantum state.
+        A Qibo, Qiskit, CUDA-Q or PennyLane circuit.
     :return:
         The computed expectation value as a floating-point number.
 
@@ -178,28 +291,14 @@ def analytical_solution(circuit: typing.Any, observables: str) -> float:
     The function will compute the expectation value of the given observables for the state produced by the circuit and return the result as a floating-point number.
     """
 
-    state = circuit()
-    statevector = np.asarray(state.state(numpy=True))
-
-    symbol_of = {
-        "Z": qibo.symbols.Z,
-        "X": qibo.symbols.X,
-        "Y": qibo.symbols.Y,
-        "I": qibo.symbols.I,
-    }
-
-    # Evaluate <psi|H|psi> directly from each term's dense matrix, rather than via
-    # SymbolicHamiltonian.expectation(), whose signature changed across qibo
-    # releases (0.2.x: (state, normalize=...); 0.3.x: (circuit, nshots=...)).
-    # The matrix form is version-agnostic. ``observables`` may be a single Pauli
-    # string or a weighted sum of them; normalize_observables handles both.
+    # Backend-agnostic exact reference: get the statevector in a single qubit-0-first
+    # convention (see exact_statevector) and evaluate <psi|P|psi> per Pauli term with
+    # a scalable per-qubit contraction. ``observables`` may be a single Pauli string
+    # or a weighted sum of them; normalize_observables handles both.
+    psi = exact_statevector(circuit)
     total = 0.0
     for coeff, pauli in normalize_observables(observables):
-        term = np.prod([symbol_of[ch](qubit) for qubit, ch in enumerate(pauli)])
-        hamiltonian = hamiltonians.SymbolicHamiltonian(term)
-        term_value = float(
-            np.real(np.conj(statevector) @ (hamiltonian.matrix @ statevector))
-        )
+        term_value = _pauli_expectation(psi, pauli)
         logger.debug(
             "Term %s (coefficient %s) expectation value: %s",
             pauli,
