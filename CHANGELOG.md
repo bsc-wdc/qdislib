@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.1] - 2026-07-20
 ### Added
 - **Tutorial 09** (`09_scaling_up`): scale cutting past H₂. Reconstruct the energy of
   a real **N₂ molecule at 12 qubits** (active space CAS(6,6), 383-term Jordan–Wigner

@@ -21,7 +21,7 @@
 
 import logging
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 # Attach a NullHandler so the library never emits "no handlers" warnings and
 # stays silent unless the host application configures logging itself. Diagnostic
