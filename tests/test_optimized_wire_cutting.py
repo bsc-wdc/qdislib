@@ -51,6 +51,30 @@ def _example_circuit():
 _TWO_CUTS = [("H_5", "CZ_7"), ("RZ_6", "CZ_7")]
 
 
+def _chain_circuit():
+    """A 3-qubit linear chain, cuttable at two DIFFERENT wires in series.
+
+    q0 --CZ_2-- q1 --CZ_4-- q2. Cutting both wires puts the middle fragment
+    (CZ_2's q1 side + RY_3) in the position of owning both a prepare marker
+    (from cut 1) and a measure marker (from cut 2) -- a genuine chain/mixed
+    topology, unlike ``_example_circuit``'s two cuts converging on one gate.
+    """
+    from qibo import models, gates
+
+    circuit = models.Circuit(3)
+    circuit.add(gates.H(0))
+    circuit.add(gates.CZ(0, 1))
+    circuit.add(gates.RY(1, np.pi / 7))
+    circuit.add(gates.CZ(1, 2))
+    circuit.add(gates.RZ(2, np.pi / 5))
+    return circuit
+
+
+# Two DIFFERENT wires cut in series -> the middle fragment (CZ_2/RY_3) owns
+# both a prepare marker (cut 1) and a measure marker (cut 2): a mixed fragment.
+_CHAIN_CUTS = [("H_1", "CZ_2"), ("RY_3", "CZ_4")]
+
+
 @unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")
 class OptimizedWireCuttingTest(BaseTimedTestCase):
     def test_two_cuts_match_standard_and_analytical(self):
@@ -102,6 +126,59 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
             wc._sample_wire_fragment = original
 
         self.assertEqual(calls["n"], 3**2 + 4**2)
+
+    def test_chain_topology_matches_standard_and_analytical(self):
+        """Two cuts in series (a mixed fragment) still reconstruct correctly."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = _chain_circuit()
+        analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
+        standard = wire_cutting(circuit, _CHAIN_CUTS, shots=10000, optimized=False)
+        optimized = wire_cutting(circuit, _CHAIN_CUTS, shots=10000, optimized=True)
+
+        self.assertLess(abs(optimized - analytical), 0.2)
+        self.assertLess(abs(optimized - standard), 0.2)
+
+    def test_chain_topology_does_not_fall_back(self):
+        """The chain topology is handled directly, not via the standard fallback."""
+        import Qdislib.core.cutting_algorithms.wire_cutting as wc
+
+        original = wc._wire_cutting_optimized
+        called = {"returned_none": False}
+
+        def wrapped(*args, **kwargs):
+            result = original(*args, **kwargs)
+            called["returned_none"] = result is None
+            return result
+
+        wc._wire_cutting_optimized = wrapped
+        try:
+            wc.wire_cutting(_chain_circuit(), _CHAIN_CUTS, shots=2000, optimized=True)
+        finally:
+            wc._wire_cutting_optimized = original
+
+        self.assertFalse(called["returned_none"])
+
+    def test_chain_topology_uses_fewer_than_8n_subcircuits(self):
+        """Measure-only (3) + mixed (3*4) + prepare-only (4) = 19, not 8**2 = 64."""
+        import Qdislib.core.cutting_algorithms.wire_cutting as wc
+
+        calls = {"n": 0}
+        original = wc._sample_wire_fragment
+
+        def counting(*args, **kwargs):
+            calls["n"] += 1
+            return original(*args, **kwargs)
+
+        wc._sample_wire_fragment = counting
+        try:
+            wc.wire_cutting(_chain_circuit(), _CHAIN_CUTS, shots=2000, optimized=True)
+        finally:
+            wc._sample_wire_fragment = original
+
+        self.assertEqual(calls["n"], 3**1 + (3**1) * (4**1) + 4**1)
+        self.assertLess(calls["n"], 8**2)
 
     def test_falls_back_to_standard_when_not_separable(self):
         """A topology the optimizer can't separate returns the standard result."""
