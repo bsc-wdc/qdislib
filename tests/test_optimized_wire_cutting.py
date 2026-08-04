@@ -140,6 +140,31 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         self.assertLess(abs(optimized - analytical), 0.2)
         self.assertLess(abs(optimized - standard), 0.2)
 
+    def test_chain_topology_non_trivial_observable_matches_analytical(self):
+        """A non-degenerate expectation value (not -1/0/1, unlike a pure
+        GHZ/stabilizer circuit's Pauli expectations) with an X component
+        directly on a cut qubit -- exercises the basis-rotation gate
+        change_basis_dag inserts, which needs the same downstream relabeling
+        as an Observable-I marker (see test_core_wire_cutting.py's
+        identity-observable regression tests)."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = _chain_circuit()
+        obs = "XXZ"  # X on both cut qubits (1 and 2 in _CHAIN_CUTS)
+        analytical = analytical_solution(circuit, obs)
+        self.assertGreater(abs(analytical), 0.05)  # sanity: not a degenerate ~0 case
+
+        standard = wire_cutting(
+            circuit, _CHAIN_CUTS, observables=obs, shots=20000, optimized=False
+        )
+        optimized = wire_cutting(
+            circuit, _CHAIN_CUTS, observables=obs, shots=20000, optimized=True
+        )
+
+        self.assertLess(abs(standard - analytical), 0.1)
+        self.assertLess(abs(optimized - analytical), 0.1)
+
     def test_chain_topology_does_not_fall_back(self):
         """The chain topology is handled directly, not via the standard fallback."""
         import Qdislib.core.cutting_algorithms.wire_cutting as wc
