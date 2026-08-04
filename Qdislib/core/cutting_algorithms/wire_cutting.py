@@ -218,6 +218,8 @@ def wire_cutting(
     if observables:
         dag = change_basis_dag(dag, observables)
 
+    _validate_wire_cuts_partition(dag, _expand_wire_cuts(dag, cut), _max_qubit(dag))
+
     if optimized and cut:
         # Fragment-separated reconstruction: sum_f 3**i_f * 4**j_f subcircuits
         # instead of 8**n (measure, prepare, and -- for chain topologies -- mixed
@@ -652,6 +654,7 @@ def wire_cutting_sampling(
     dag = convert_to_dag(circuit)
     num_qubits = _dag_num_qubits(dag)
     wire_cuts = _expand_wire_cuts(dag, cut)
+    _validate_wire_cuts_partition(dag, wire_cuts, num_qubits)
 
     if not wire_cuts:
         from Qdislib.core.backend.registry import build_execution_backend
@@ -790,6 +793,7 @@ def wire_cutting_sampling_subcircuits(
     dag = convert_to_dag(circuit)
     num_qubits = _dag_num_qubits(dag)
     wire_cuts = _expand_wire_cuts(dag, cut)
+    _validate_wire_cuts_partition(dag, wire_cuts, num_qubits)
     components, per_config_counts, cut_source_index, prepared_to_orig = (
         _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
     )
@@ -828,6 +832,51 @@ def _expand_wire_cuts(dag, edges_to_replace):
         for qubit in shared:
             wire_cuts.append((source, target, qubit))
     return wire_cuts
+
+
+def _validate_wire_cuts_partition(dag, wire_cuts, num_qubits):
+    """Raise if a non-empty wire-cut set doesn't actually separate the circuit.
+
+    Wire cutting trades circuit count for reduced per-circuit qubit width; that
+    trade only pays off if the cut(s) actually split the circuit into more
+    independently-executable pieces than it already had. A cut whose wire isn't
+    the sole connectivity between the two sides it's meant to separate (some
+    other uncut path still links them) leaves the graph exactly as connected as
+    before, so reconstructing through it pays wire cutting's shot-count cost for
+    none of its benefit -- running the uncut circuit directly is strictly
+    better, and cheaper, and less noisy.
+
+    Compares the number of connected components before and after inserting the
+    cut markers (on a throwaway copy), so this is correct even when the circuit
+    already had multiple disconnected pieces before any cut -- it only cares
+    whether THIS cut set added separation beyond that baseline. An empty
+    ``wire_cuts`` is exempt: that means "no cut," which runs the circuit as-is
+    and needs no partition.
+
+    :param dag: The (uncut) circuit DAG.
+    :param wire_cuts: Single-wire cuts as ``(source, target, qubit)`` tuples, as
+        returned by :func:`_expand_wire_cuts`.
+    :param num_qubits: Highest qubit index; fresh lines are numbered above it.
+    :raises ValueError: If ``wire_cuts`` is non-empty but doesn't increase the
+        connected-component count.
+    """
+    if not wire_cuts:
+        return
+    before = networkx.number_connected_components(dag.to_undirected())
+    marked = dag.copy()
+    _insert_wire_cut_markers(marked, wire_cuts, num_qubits)
+    after = networkx.number_connected_components(
+        _remove_red_edges(marked).to_undirected()
+    )
+    if after <= before:
+        raise ValueError(
+            f"The given wire cut(s) {wire_cuts} do not partition the circuit "
+            "into independent fragments: some other, uncut path still connects "
+            "the two sides, so cutting here doesn't separate anything. Either "
+            "cut a wire that's the sole connectivity between the pieces you "
+            "want to separate, or pass an empty cut list to run the circuit "
+            "directly."
+        )
 
 
 @task(returns=1)
@@ -2568,10 +2617,12 @@ def wire_cutting_subcircuits(
     if observables:
         dag = change_basis_dag(dag, observables)
 
+    _validate_wire_cuts_partition(dag, _expand_wire_cuts(dag, cut), _max_qubit(dag))
+
     if optimized and cut:
         # Fragment-separated subcircuits (~4**n + 4**n instead of 8**n * components);
         # the returned object's reconstruct() does the classical base-8 sum. Falls
-        # back to the standard generator for non-separable topologies or on error.
+        # back to the standard generator on error.
         try:
             optimized_subcircuits = _optimized_wire_cutting_subcircuits(
                 dag.copy(), cut, _max_qubit(dag), software

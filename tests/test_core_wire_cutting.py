@@ -155,6 +155,41 @@ class CircuitTest(BaseTimedTestCase):
         else:
             self.assertTrue(False)
 
+    def test_wire_cutting_non_partitioning_cut_raises(self):
+        """A cut whose wire isn't the sole connectivity between its two sides
+        (here: CZ_1 and CZ_2 also stay linked through CZ_3, via the OTHER two
+        qubits) doesn't separate the circuit at all -- wire_cutting should
+        refuse it rather than silently pay the cut's shot-count cost for none
+        of its benefit."""
+        from qibo import models, gates
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+
+        circuit = models.Circuit(3)
+        circuit.add(gates.CZ(0, 1))  # CZ_1
+        circuit.add(gates.CZ(1, 2))  # CZ_2
+        circuit.add(gates.CZ(0, 2))  # CZ_3 -- keeps CZ_1/CZ_2 connected regardless
+
+        with self.assertRaises(ValueError):
+            wire_cutting(circuit, [("CZ_1", "CZ_2")], shots=1000, optimized=False)
+
+        with self.assertRaises(ValueError):
+            wire_cutting(circuit, [("CZ_1", "CZ_2")], shots=1000, optimized=True)
+
+    def test_wire_cutting_empty_cut_runs_unpartitioned(self):
+        """An empty cut list is exempt from the partition check: it means 'no
+        cut,' so the circuit just runs as-is."""
+        from qibo import models, gates
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = models.Circuit(2)
+        circuit.add(gates.H(0))
+        circuit.add(gates.CZ(0, 1))
+
+        result = wire_cutting(circuit, [], shots=10000)
+        analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
+        self.assertLess(abs(result - analytical), 0.2)
+
     def test_wire_cutting_qiskit(self):
         from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
         from Qdislib.utils.circuit import analytical_solution
