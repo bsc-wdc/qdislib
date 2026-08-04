@@ -100,14 +100,18 @@ class CudaqBackend(BaseBackend):
         """Sample a subcircuit via CUDA-Q; return qubit-0-first counts."""
         import cudaq
         from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
+        from Qdislib.core.backend.base_backend import marginalize_identity_qubits
 
         self._set_target()
         if seed is not None:
             cudaq.set_random_seed(seed)
         built = dag_to_circuit_cudaq_kernel(dag, num_qubits)
-        kernel = built[0] if isinstance(built, (list, tuple)) else built
+        kernel, observables = (
+            built[:2] if isinstance(built, (list, tuple)) else (built, None)
+        )
         result = cudaq.sample(kernel, shots_count=shots)
-        return {str(k): int(v) for k, v in result.items()}
+        counts = {str(k): int(v) for k, v in result.items()}
+        return marginalize_identity_qubits(counts, observables)
 
     def evaluate_joint_counts(
         self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None

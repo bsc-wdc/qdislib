@@ -320,13 +320,7 @@ def _wire_cut_sampling_components(dag, wire_cuts, num_qubits):
     for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
         if dag.has_edge(source, target):
             dag.remove_edge(source, target)
-        successors = [node for node in dag.nodes if dag.has_edge(target, node)]
-        for node in [target] + successors:
-            node_qubits = dag.nodes[node].get("qubits")
-            if node_qubits and qubit in node_qubits:
-                dag.nodes[node]["qubits"] = tuple(
-                    num_qubits + index if q == qubit else q for q in node_qubits
-                )
+        _relabel_qubit_downstream(dag, target, qubit, num_qubits + index)
         dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
         dag.add_node(
             f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
@@ -936,6 +930,42 @@ def _build_and_run_subcircuit(component, software, shots, backend, qpu):
     return _execute_subcircuit(prepared, software, shots, backend, qpu)
 
 
+def _relabel_qubit_downstream(dag, target, qubit, fresh_qubit):
+    """Relabel ``qubit`` onto ``fresh_qubit`` on ``target`` and every node
+    downstream of it that still carries ``qubit`` forward.
+
+    Used by wire-cut marker insertion to disconnect the "prepared" side of a
+    cut from the "measured" side: everything from ``target`` onward that still
+    references the cut qubit moves to a fresh line. This has to be transitive
+    -- not just ``target``'s immediate successors -- since a node more than one
+    hop downstream (e.g. an Observable-I terminal marker
+    :func:`~Qdislib.utils.backends.change_basis_dag` inserted after further
+    gates on that qubit) still carries the qubit forward and needs relabeling
+    too, or it's silently left referencing the stale original index -- putting
+    it in the wrong fragment, or at the wrong qubit position within the right
+    one, once the graph is actually cut apart.
+
+    :param dag: The circuit DAG (mutated in place).
+    :param target: The node where the cut's downstream side starts.
+    :param qubit: The original qubit index being relabeled.
+    :param fresh_qubit: The fresh line index to relabel onto.
+    """
+    frontier = [target]
+    visited = set()
+    while frontier:
+        node = frontier.pop()
+        if node in visited:
+            continue
+        visited.add(node)
+        node_qubits = dag.nodes[node].get("qubits")
+        if not (node_qubits and qubit in node_qubits):
+            continue
+        dag.nodes[node]["qubits"] = tuple(
+            fresh_qubit if q == qubit else q for q in node_qubits
+        )
+        frontier.extend(dag.successors(node))
+
+
 def _insert_wire_cut_markers(dag, wire_cuts, num_qubits):
     """Insert the measure (``O_i``) and prepare (``PS_i``) marker nodes for each cut.
 
@@ -958,15 +988,10 @@ def _insert_wire_cut_markers(dag, wire_cuts, num_qubits):
         if dag.has_edge(source, target):
             dag.remove_edge(source, target)
 
-        # Relabel this qubit on the target and its successors onto a fresh line so
-        # the prepared (PS) side is disconnected from the measured (O) side.
-        successors = [node for node in dag.nodes if dag.has_edge(target, node)]
-        for node in [target] + successors:
-            node_qubits = dag.nodes[node].get("qubits")
-            if node_qubits and qubit in node_qubits:
-                dag.nodes[node]["qubits"] = tuple(
-                    num_qubits + index if q == qubit else q for q in node_qubits
-                )
+        # Relabel this qubit on the target and everything downstream of it onto a
+        # fresh line so the prepared (PS) side is disconnected from the measured
+        # (O) side.
+        _relabel_qubit_downstream(dag, target, qubit, num_qubits + index)
 
         dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
         dag.add_node(
@@ -2724,13 +2749,7 @@ def _generate_wire_cutting_subcircuits(
         if dag.has_edge(source, target):
             dag.remove_edge(source, target)
 
-        successors = [node for node in dag.nodes if dag.has_edge(target, node)]
-        for node in [target] + successors:
-            node_qubits = dag.nodes[node].get("qubits")
-            if node_qubits and qubit in node_qubits:
-                dag.nodes[node]["qubits"] = tuple(
-                    num_qubits + index if q == qubit else q for q in node_qubits
-                )
+        _relabel_qubit_downstream(dag, target, qubit, num_qubits + index)
 
         dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
         dag.add_node(

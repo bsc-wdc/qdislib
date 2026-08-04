@@ -69,15 +69,17 @@ class QiboBackend(BaseBackend):
         import qibo
         from qibo import gates
         from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
+        from Qdislib.core.backend.base_backend import marginalize_identity_qubits
 
         qibo.set_backend(self._platform)
         if seed is not None:
             np.random.seed(seed)  # Qibo's numpy backend draws from the global RNG
         built = dag_to_circuit_qibo(dag, num_qubits)
-        qc = built[0] if isinstance(built, (list, tuple)) else built
+        qc, observables = built if isinstance(built, (list, tuple)) else (built, None)
         qc.add(gates.M(*range(qc.nqubits)))
         freq = qc(nshots=shots).frequencies(binary=True)
-        return {k: int(v) for k, v in freq.items()}
+        counts = {k: int(v) for k, v in freq.items()}
+        return marginalize_identity_qubits(counts, observables)
 
     def evaluate_joint_counts(
         self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
