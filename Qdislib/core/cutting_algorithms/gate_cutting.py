@@ -311,6 +311,7 @@ def gate_cutting(
     # A non-CZ/CX cut gate is decomposed into CZ + single-qubit gates and its CZs are
     # cut instead (transparently grows gates_cut, so 6**n / 1/2**n scale accordingly).
     dag, gates_cut = _expand_general_gate_cuts(dag, gates_cut)
+    _validate_gate_cuts_partition(dag, gates_cut)
 
     if nx.number_connected_components(dag.to_undirected()) > 1:
         S = [
@@ -503,6 +504,43 @@ def _generate_cut(dag, gates_cut):
                 dag_copy.add_edge(f"SUBS2_{index}", succ_1[0], color="blue")
 
     return dag_copy
+
+
+def _validate_gate_cuts_partition(dag, gates_cut):
+    """Raise if a non-empty gate-cut set doesn't actually separate the circuit.
+
+    Gate cutting (like wire cutting -- see
+    :func:`~Qdislib.core.cutting_algorithms.wire_cutting._validate_wire_cuts_partition`)
+    only pays off if it increases the number of independently executable
+    pieces beyond what the circuit already had. A cut gate whose two qubits
+    stay linked through some OTHER, uncut gate (e.g. a third gate bridging the
+    same two qubits through a different path) leaves the graph exactly as
+    connected as before, so reconstructing through it pays the cut's shot-count
+    cost (``6**n`` configurations) for none of its qubit-width benefit -- running
+    the uncut circuit directly is strictly better, cheaper, and less noisy.
+
+    :param dag: The circuit DAG the cut will actually be applied to (i.e. after
+        any general-gate expansion the caller has already done).
+    :param gates_cut: Gate node ids to cut, matching what will be passed to
+        :func:`_generate_cut`.
+    :raises ValueError: If ``gates_cut`` is non-empty but doesn't increase the
+        connected-component count.
+    """
+    if not gates_cut:
+        return
+    before = nx.number_connected_components(dag.to_undirected())
+    after = nx.number_connected_components(
+        _generate_cut(dag, gates_cut).to_undirected()
+    )
+    if after <= before:
+        raise ValueError(
+            f"The given gate cut(s) {gates_cut} do not partition the circuit "
+            "into independent fragments: some other, uncut gate still connects "
+            "the two qubits' continuations, so cutting here doesn't separate "
+            "anything. Either cut a gate that's the sole connectivity between "
+            "the pieces you want to separate, or pass an empty cut list to run "
+            "the circuit directly."
+        )
 
 
 def _decompose_gate_to_cz(matrix):
@@ -1347,6 +1385,7 @@ def gate_cutting_sampling(
     """
     dag = convert_to_dag(circuit)
     num_qubits = _dag_num_qubits(dag)
+    _validate_gate_cuts_partition(dag, gates_cut)
 
     if not gates_cut:
         from Qdislib.core.backend.registry import build_execution_backend
@@ -1496,6 +1535,7 @@ def gate_cutting_sampling_subcircuits(
     """
     dag = convert_to_dag(circuit)
     num_qubits = _dag_num_qubits(dag)
+    _validate_gate_cuts_partition(dag, gates_cut)
     components, number_components = _gate_cut_sampling_components(dag, gates_cut)
     units = [
         _SampleUnit(component, software, qpu, qpu_dict) for component in components
@@ -2063,6 +2103,7 @@ def gate_cutting_subcircuits(
 
     # A non-CZ/CX cut gate is decomposed into CZ + single-qubit gates and its CZs cut.
     dag, gates_cut = _expand_general_gate_cuts(dag, gates_cut)
+    _validate_gate_cuts_partition(dag, gates_cut)
 
     # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
     dispatch_map = {

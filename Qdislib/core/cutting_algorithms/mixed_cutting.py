@@ -113,6 +113,7 @@ def gate_wire_cutting(
     if observable:
         dag = change_basis_dag(dag, observable)
     num_qubits = _max_qubits_graph(dag)  # original qubit count (before wire additions)
+    components_before = nx.number_connected_components(dag.to_undirected())
 
     gates_cut = list(gates_cut or [])
     # A non-CZ/CX cut gate is decomposed into CZ + single-qubit gates and its CZs cut.
@@ -129,6 +130,21 @@ def gate_wire_cutting(
         _insert_wire_cut_markers(dag, wire_cuts, num_qubits)
     # Gate surgery: insert the SUBS1/SUBS2 markers (also strips red edges internally).
     dag = _generate_cut(dag, gates_cut) if gates_cut else _remove_red_edges(dag.copy())
+
+    # Same reasoning as gate_cutting._validate_gate_cuts_partition /
+    # wire_cutting._validate_wire_cuts_partition: a cut set that doesn't increase
+    # the connected-component count beyond the uncut circuit's baseline pays the
+    # combined gate+wire quasiprobability cost for no separation benefit.
+    if (gates_cut or wire_cuts) and nx.number_connected_components(
+        dag.to_undirected()
+    ) <= components_before:
+        raise ValueError(
+            f"The given gate cut(s) {gates_cut} and wire cut(s) {wire_cuts} do not "
+            "partition the circuit into independent fragments: some other, uncut "
+            "path still connects the pieces they're meant to separate. Either cut "
+            "wires/gates that are the sole connectivity between the pieces you "
+            "want to separate, or pass empty cut lists to run the circuit directly."
+        )
 
     n_gate, n_wire = len(gates_cut), len(wire_cuts)
     total_qubits = num_qubits + n_wire  # fresh wire lines are numbered above the rest

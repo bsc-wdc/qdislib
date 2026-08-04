@@ -151,6 +151,37 @@ class CircuitTest(BaseTimedTestCase):
         else:
             self.assertTrue(False)
 
+    def test_gate_cutting_non_partitioning_cut_raises(self):
+        """A cut gate whose two qubits stay linked through another, uncut gate
+        (here: CZ_1 and CZ_2 also stay bridged through CZ_3) doesn't separate
+        the circuit at all -- gate_cutting should refuse it rather than
+        silently pay the cut's shot-count cost for none of its benefit."""
+        from qibo import models, gates
+        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
+
+        circuit = models.Circuit(3)
+        circuit.add(gates.CZ(0, 1))  # CZ_1
+        circuit.add(gates.CZ(1, 2))  # CZ_2
+        circuit.add(gates.CZ(0, 2))  # CZ_3 -- keeps CZ_1's qubits linked regardless
+
+        with self.assertRaises(ValueError):
+            gate_cutting(circuit, ["CZ_1"], shots=1000)
+
+    def test_gate_cutting_empty_cut_runs_unpartitioned(self):
+        """An empty gates_cut list is exempt from the partition check: it means
+        'no cut,' so the circuit just runs as-is."""
+        from qibo import models, gates
+        from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = models.Circuit(2)
+        circuit.add(gates.H(0))
+        circuit.add(gates.CZ(0, 1))
+
+        result = gate_cutting(circuit, [], shots=1024, software="qibo")
+        analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
+        self.assertLess(abs(result - analytical), 0.2)
+
     def test_gate_cutting_qiskit(self):
         from Qdislib.core.cutting_algorithms.gate_cutting import gate_cutting
         from Qdislib.utils.circuit import analytical_solution

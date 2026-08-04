@@ -279,6 +279,34 @@ class HadamardCutTest(BaseTimedTestCase):
             got = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", software=sw, shots=8000)
             self.assertLess(abs(analytical - got), 0.12, sw)
 
+    def test_non_partitioning_cut_raises(self):
+        """A cut gate whose two qubits stay linked through another, uncut gate
+        (here: CZ_1 and CZ_2 also stay bridged through CZ_3) doesn't separate
+        the circuit at all -- gate_cutting_hadamard should refuse it rather
+        than silently pay the cut's cost for none of its benefit."""
+        from qibo import gates, models
+        from Qdislib.core.cutting_algorithms.hadamard_cut import gate_cutting_hadamard
+
+        c = models.Circuit(3)
+        c.add(gates.CZ(0, 1))  # CZ_1
+        c.add(gates.CZ(1, 2))  # CZ_2
+        c.add(gates.CZ(0, 2))  # CZ_3 -- keeps CZ_1's qubits linked regardless
+
+        with self.assertRaises(ValueError):
+            gate_cutting_hadamard(c, ["CZ_1"], "ZZZ", shots=1000)
+
+    def test_empty_cut_runs_unpartitioned(self):
+        """An empty gates_cut list is exempt from the partition check."""
+        import qibo
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.hadamard_cut import gate_cutting_hadamard
+
+        qibo.set_backend("numpy")
+        c = self._bell_like()
+        analytical = qd.analytical_solution(c, "ZZ")
+        got = gate_cutting_hadamard(c, [], "ZZ")
+        self.assertLess(abs(analytical - got), _TOL)
+
 
 @unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")
 class HadamardThreeStepTest(BaseTimedTestCase):

@@ -186,7 +186,7 @@ class CircuitTest(BaseTimedTestCase):
         circuit.add(gates.H(0))
         circuit.add(gates.CZ(0, 1))
 
-        result = wire_cutting(circuit, [], shots=10000)
+        result = wire_cutting(circuit, [], shots=1024)
         analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
         self.assertLess(abs(result - analytical), 0.2)
 
