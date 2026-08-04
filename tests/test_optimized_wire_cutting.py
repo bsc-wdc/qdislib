@@ -213,6 +213,22 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         values = [qd.expectation_value(s, shots=10000) for s in subs]
         self.assertLess(abs(subs.reconstruct(values) - analytical), 0.2)
 
+    def test_three_step_chain_topology_matches_standard_and_analytical(self):
+        """The three-step API also handles the mixed-fragment chain topology."""
+        import Qdislib as qd
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = _chain_circuit()
+        analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
+        subs = qd.wire_cutting_subcircuits(
+            circuit, _CHAIN_CUTS, software="qibo", optimized=True
+        )
+        self.assertIsNotNone(subs)
+        # Measure-only (3) + mixed (3*4) + prepare-only (4) = 19, not 8**2 = 64.
+        self.assertEqual(len(subs), 3**1 + (3**1) * (4**1) + 4**1)
+        values = [qd.expectation_value(s, shots=10000) for s in subs]
+        self.assertLess(abs(subs.reconstruct(values) - analytical), 0.2)
+
     def test_sampling_matches_exact_distribution(self):
         import numpy as np
         import Qdislib as qd
@@ -232,6 +248,54 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
             for key in set(distribution) | set(exact)
         )
         self.assertLess(tvd, 0.08)
+
+    def test_sampling_chain_topology_matches_exact_distribution(self):
+        """The sampling API also handles the mixed-fragment chain topology."""
+        import numpy as np
+        import Qdislib as qd
+
+        circuit = _chain_circuit()
+        n = circuit.nqubits
+        probs = np.abs(np.asarray(circuit().state(numpy=True))) ** 2
+        exact = {
+            "".join(str((x >> (n - 1 - q)) & 1) for q in range(n)): float(probs[x])
+            for x in range(2**n)
+        }
+        distribution = qd.wire_cutting_sampling(
+            circuit, _CHAIN_CUTS, shots=60000, software="qibo", seed=1, optimized=True
+        )
+        tvd = 0.5 * sum(
+            abs(distribution.get(key, 0.0) - exact.get(key, 0.0))
+            for key in set(distribution) | set(exact)
+        )
+        self.assertLess(tvd, 0.08)
+
+    def test_sampling_chain_topology_does_not_fall_back(self):
+        """The sampling path handles the chain directly, not via the fallback."""
+        import Qdislib.core.cutting_algorithms.wire_cutting as wc
+
+        original = wc._wire_sampling_optimized
+        called = {"returned_none": False}
+
+        def wrapped(*args, **kwargs):
+            result = original(*args, **kwargs)
+            called["returned_none"] = result is None
+            return result
+
+        wc._wire_sampling_optimized = wrapped
+        try:
+            wc.wire_cutting_sampling(
+                _chain_circuit(),
+                _CHAIN_CUTS,
+                shots=2000,
+                software="qibo",
+                seed=1,
+                optimized=True,
+            )
+        finally:
+            wc._wire_sampling_optimized = original
+
+        self.assertFalse(called["returned_none"])
 
 
 if __name__ == "__main__":

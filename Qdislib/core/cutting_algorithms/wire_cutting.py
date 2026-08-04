@@ -436,6 +436,7 @@ def _reconstruct_wire_cut_distribution_task(
     returns=1,
     measure_flat=COLLECTION_IN,
     prepare_flat=COLLECTION_IN,
+    mixed_flat=COLLECTION_IN,
     plain_flat=COLLECTION_IN,
 )
 def _reconstruct_optimized_wire_distribution_task(
@@ -445,6 +446,9 @@ def _reconstruct_optimized_wire_distribution_task(
     prepare_flat,
     prepare_keys,
     prepare_cuts,
+    mixed_flat,
+    mixed_keys,
+    mixed_cuts,
     plain_flat,
     num_cuts,
     num_qubits,
@@ -460,7 +464,10 @@ def _reconstruct_optimized_wire_distribution_task(
     identity (digits 0/1) and Z (digits 6/7) terms through the reconstruction's local
     mask -- and the prepare corrs by prepared state, with |-> / |-i> expanded as
     linear combinations of the base-state correlators (correlators are linear in the
-    input state). Reuses :func:`_reconstruct_wire_cut_distribution` unchanged.
+    input state). Mixed fragments (own both kinds of marker, e.g. a chain of cuts
+    in series) are looked up jointly by ``(basis_combo, prep_base_combo)`` -- one
+    physical circuit per pair -- and still get the |-> / |-i> expansion on their
+    prepare-type cuts. Reuses :func:`_reconstruct_wire_cut_distribution` unchanged.
     """
     basis_of = {0: "Z", 1: "Z", 2: "X", 3: "X", 4: "Y", 5: "Y", 6: "Z", 7: "Z"}
     measure_corr = {}
@@ -469,6 +476,9 @@ def _reconstruct_optimized_wire_distribution_task(
     prepare_corr = {}
     for (frag_idx, prep_combo), value in zip(prepare_keys, prepare_flat):
         prepare_corr.setdefault(frag_idx, {})[prep_combo] = value
+    mixed_corr = {}
+    for (frag_idx, basis_combo, prep_combo), value in zip(mixed_keys, mixed_flat):
+        mixed_corr.setdefault(frag_idx, {})[(basis_combo, prep_combo)] = value
 
     configs = []
     for index in range(8**num_cuts):
@@ -490,6 +500,20 @@ def _reconstruct_optimized_wire_distribution_task(
                 for mask, value in corr.items():
                     combined[mask] = combined.get(mask, 0.0) + coefficient * value
             per_component.append((combined, original))
+        for frag_idx, (m_cuts, p_cuts) in enumerate(mixed_cuts):
+            basis_combo = tuple(basis_of[settings[cut - 1]] for cut in m_cuts)
+            expansions = [_WIRE_PREP[settings[cut - 1]] for cut in p_cuts]
+            combined, original = {}, None
+            for choice in itertools.product(*expansions):
+                coefficient = 1.0
+                base_combo = []
+                for weight, base_state in choice:
+                    coefficient *= weight
+                    base_combo.append(base_state)
+                corr, original = mixed_corr[frag_idx][(basis_combo, tuple(base_combo))]
+                for mask, value in corr.items():
+                    combined[mask] = combined.get(mask, 0.0) + coefficient * value
+            per_component.append((combined, original))
         per_component.extend(plain_flat)
         configs.append(per_component)
 
@@ -501,16 +525,18 @@ def _reconstruct_optimized_wire_distribution_task(
 def _wire_sampling_optimized(
     dag, wire_cuts, num_qubits, shots, software, qpu, qpu_dict, seed
 ):
-    """Fragment-separated sampling reconstruction (``3**n + 4**n`` fragment samplings).
+    """Fragment-separated sampling reconstruction.
 
     The sampling counterpart of :func:`_wire_cutting_optimized`: sample each measure
-    fragment once per measurement basis and each prepare fragment once per base
-    preparation, then reconstruct the distribution over the ``8**n`` configurations
-    from those cached correlators. Returns the reconstruction future, or ``None`` if
-    the cut topology has a mixed fragment (owns both an ``O_i`` and a ``PS_i``
-    marker, e.g. a chain of cuts in series) -- unlike :func:`_wire_cutting_optimized`,
-    this distribution reconstruction (inverse Walsh-Hadamard transform) doesn't yet
-    generalize to mixed fragments, so it still defers to the standard method there.
+    fragment once per measurement basis, each prepare fragment once per base
+    preparation, and each mixed fragment (owns both an ``O_i`` and a ``PS_i``
+    marker, e.g. a chain of cuts in series) once per ``(basis_combo, prep_combo)``
+    pair -- applying both marker substitutions to the same fragment copy before
+    sampling, since :func:`_sample_gate_subcircuit` is agnostic to what the graph
+    represents -- then reconstruct the distribution over the ``8**n``
+    configurations from those cached correlators. Returns the reconstruction
+    future, or ``None`` only when a cut's marker went missing entirely (a
+    bookkeeping inconsistency).
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import _sample_gate_subcircuit
 
@@ -518,12 +544,6 @@ def _wire_sampling_optimized(
     if fragments is None:
         return None
     measure_frags, prepare_frags, mixed_frags, plain_frags = fragments
-    if mixed_frags:
-        # The exact-value path (_wire_cutting_optimized) handles mixed fragments;
-        # the sampling reconstruction below (Walsh-Hadamard over cached
-        # correlators) doesn't yet -- fall back to the standard method rather
-        # than silently mishandling a chain topology.
-        return None
 
     cut_source_index = {
         qubit: index for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
@@ -557,6 +577,17 @@ def _wire_sampling_optimized(
                 _apply_wire_prep_state(graph, cut, state)
             prepare_flat.append(_sample(graph))
             prepare_keys.append((frag_idx, prep_combo))
+    mixed_flat, mixed_keys = [], []
+    for frag_idx, (sub, m_cuts, _q, p_cuts) in enumerate(mixed_frags):
+        for basis_combo in itertools.product(_MEASURE_BASES, repeat=len(m_cuts)):
+            for prep_combo in itertools.product(_PREP_STATES, repeat=len(p_cuts)):
+                graph = sub.copy()
+                for cut, state in zip(p_cuts, prep_combo):
+                    _apply_wire_prep_state(graph, cut, state)
+                for cut, basis in zip(m_cuts, basis_combo):
+                    _apply_wire_measure_option(graph, cut, basis + "P")
+                mixed_flat.append(_sample(graph))
+                mixed_keys.append((frag_idx, basis_combo, prep_combo))
     plain_flat = [_sample(sub.copy()) for sub in plain_frags]
 
     return _reconstruct_optimized_wire_distribution_task(
@@ -566,6 +597,9 @@ def _wire_sampling_optimized(
         prepare_flat,
         prepare_keys,
         [cuts for _s, cuts in prepare_frags],
+        mixed_flat,
+        mixed_keys,
+        [(m_cuts, p_cuts) for _s, m_cuts, _q, p_cuts in mixed_frags],
         plain_flat,
         len(wire_cuts),
         num_qubits,
@@ -630,9 +664,10 @@ def wire_cutting_sampling(
         return {k: v / total for k, v in counts.items()}
 
     if optimized:
-        # Fragment-separated sampling: 3**n + 4**n fragment samplings instead of
-        # 8**n. Falls back to the standard method for non-separable topologies or
-        # on error, so optimized=True never changes the (shot-noise) result.
+        # Fragment-separated sampling: sum_f 3**i_f * 4**j_f fragment samplings
+        # instead of 8**n (measure, prepare, and mixed -- chain-topology --
+        # fragments all handled). Falls back to the standard method only on
+        # error, so optimized=True never changes the (shot-noise) result.
         try:
             optimized_distribution = _wire_sampling_optimized(
                 dag.copy(), wire_cuts, num_qubits, shots, software, qpu, qpu_dict, seed
@@ -1403,6 +1438,62 @@ def _run_wire_mixed_fragment(
             value += (-1 if parity else 1) * (count / total)
         results[extraction] = value
     return results
+
+
+class _OptimizedWireMixed:
+    """A mixed (measure AND prepare) fragment subcircuit for the three-step workflow.
+
+    Same protocol as :class:`_OptimizedWireMeasure` (duck-typed via
+    ``_is_optimized_wire_measure`` -- :func:`~Qdislib.utils.backends.expectation_value`
+    doesn't care which class sets it), but for a fragment that owns both kinds of
+    marker: evaluating it applies the ``prepare_cuts`` substitutions and then
+    returns the ``{extraction_combo: value}`` table for ``basis_combo``, exactly
+    like :func:`_run_wire_mixed_fragment`. One circuit still yields every P/I
+    observable for its measure-type cuts; the prepare-type cuts are fixed inputs
+    for that circuit, so a mixed fragment needs one of these per
+    ``(basis_combo, prep_combo)`` pair, not just per ``basis_combo``.
+    """
+
+    _is_optimized_wire_measure = True
+
+    def __init__(
+        self,
+        sub,
+        measure_cuts,
+        cut_qubits,
+        basis_combo,
+        prepare_cuts,
+        prep_combo,
+        software,
+    ):
+        self.sub = sub
+        self.measure_cuts = measure_cuts
+        self.cut_qubits = cut_qubits
+        self.basis_combo = basis_combo
+        self.prepare_cuts = prepare_cuts
+        self.prep_combo = prep_combo
+        self.software = software
+
+    def evaluate(self, shots):
+        """Return the ``{extraction_combo: value}`` table (a future under PyCOMPSs)."""
+        return _run_wire_mixed_fragment(
+            self.sub,
+            self.measure_cuts,
+            self.cut_qubits,
+            self.basis_combo,
+            self.prepare_cuts,
+            self.prep_combo,
+            shots,
+            None,
+            self.software,
+        )
+
+    def __repr__(self):
+        return (
+            f"_OptimizedWireMixed(measure_cuts={self.measure_cuts}, "
+            f"basis={self.basis_combo}, prepare_cuts={self.prepare_cuts}, "
+            f"prep={self.prep_combo})"
+        )
 
 
 def _optimized_wire_fragments(dag, wire_cuts, num_qubits):
@@ -2192,7 +2283,14 @@ def _change_sign(expectation_value, index):
 
 
 def _make_optimized_wire_reconstructor(
-    n_cuts, measure_index, prepare_index, plain_positions, measure_cuts, prepare_cuts
+    n_cuts,
+    measure_index,
+    prepare_index,
+    mixed_index,
+    plain_positions,
+    measure_cuts,
+    prepare_cuts,
+    mixed_cuts,
 ):
     """Build the ``reconstruct`` callback for the optimized three-step subcircuits.
 
@@ -2217,6 +2315,11 @@ def _make_optimized_wire_reconstructor(
         prepare_values = {}
         for (frag_idx, combo), position in prepare_index.items():
             prepare_values.setdefault(frag_idx, {})[combo] = values[position]
+        mixed_values = {}
+        for (frag_idx, basis_combo, prep_combo), position in mixed_index.items():
+            mixed_values.setdefault(frag_idx, {})[(basis_combo, prep_combo)] = values[
+                position
+            ]
         plain_factor = 1.0
         for position in plain_positions:
             plain_factor *= values[position]
@@ -2245,6 +2348,32 @@ def _make_optimized_wire_reconstructor(
                         coefficient * prepare_values[frag_idx][tuple(base_combo)]
                     )
                 term *= fragment_value
+            # Mixed fragments own cuts of BOTH types: basis_combo/extraction lookup
+            # (like a measure fragment) and the |-> / |-i> expansion (like a prepare
+            # fragment) both apply to the SAME fragment's joint table -- see
+            # _reconstruct_optimized_wire_cut for the all-in-one counterpart.
+            for frag_idx, (m_cuts, p_cuts) in enumerate(mixed_cuts):
+                basis_combo = tuple(
+                    _WIRE_MEASURE[settings[cut - 1]][0] for cut in m_cuts
+                )
+                extraction = tuple(
+                    _WIRE_MEASURE[settings[cut - 1]][1] for cut in m_cuts
+                )
+                expansions = [_WIRE_PREP[settings[cut - 1]] for cut in p_cuts]
+                fragment_value = 0.0
+                for choice in itertools.product(*expansions):
+                    coefficient = 1.0
+                    base_combo = []
+                    for weight, base_state in choice:
+                        coefficient *= weight
+                        base_combo.append(base_state)
+                    fragment_value += (
+                        coefficient
+                        * mixed_values[frag_idx][(basis_combo, tuple(base_combo))][
+                            extraction
+                        ]
+                    )
+                term *= fragment_value
             total += term * plain_factor
         return total / (2**n_cuts)
 
@@ -2257,14 +2386,11 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
     Returns a :class:`~Qdislib.utils.backends.CutSubcircuits` holding the reduced
     fragment subcircuits -- ``3**n`` measure probes (each an
     :class:`_OptimizedWireMeasure` returning all its P/I observables from one
-    circuit) and ``4**n`` base preparations, i.e. ``3**n + 4**n`` instead of
-    ``8**n * components`` -- whose ``reconstruct`` does the fragment-separated base-8
-    sum. Every subcircuit is a normal ``expectation_value`` target, so the standard
-    three-step loop is unchanged. Returns ``None`` when the cut topology has a mixed
-    fragment (owns both an ``O_i`` and a ``PS_i`` marker, e.g. a chain of cuts in
-    series), so the caller falls back to the standard generator -- unlike
-    :func:`_wire_cutting_optimized`, :func:`_make_optimized_wire_reconstructor`
-    doesn't yet generalize to mixed fragments.
+    circuit), ``4**n`` base preparations, and (for chain topologies) mixed-fragment
+    probes (each an :class:`_OptimizedWireMixed`), whose ``reconstruct`` does the
+    fragment-separated base-8 sum. Every subcircuit is a normal ``expectation_value``
+    target, so the standard three-step loop is unchanged. Returns ``None`` only
+    when a cut's marker is missing entirely (a bookkeeping inconsistency).
     """
     if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
         raise UnsupportedBackendError(
@@ -2276,15 +2402,9 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
     if fragments is None:
         return None
     measure_frags, prepare_frags, mixed_frags, plain_frags = fragments
-    if mixed_frags:
-        # The exact-value path (_wire_cutting_optimized) handles mixed fragments;
-        # the three-step subcircuit API's reconstructor
-        # (_make_optimized_wire_reconstructor) doesn't yet -- fall back to the
-        # standard generator rather than silently mishandling a chain topology.
-        return None
 
     subcircuits = []
-    measure_index, prepare_index, plain_positions = {}, {}, []
+    measure_index, prepare_index, mixed_index, plain_positions = {}, {}, {}, []
     for frag_idx, (sub, cuts, cut_qubits) in enumerate(measure_frags):
         # One _OptimizedWireMeasure per basis combo (3**n) -- evaluating it returns
         # every P/I observable of that circuit, so <Z> and <I> share one circuit.
@@ -2302,6 +2422,23 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
                 _apply_wire_prep_state(graph, cut_index, state)
             prepare_index[(frag_idx, prep_combo)] = len(subcircuits)
             subcircuits.append(_make_subcircuit_task(graph, software))
+    for frag_idx, (sub, m_cuts, cut_qubits, p_cuts) in enumerate(mixed_frags):
+        # One _OptimizedWireMixed per (basis_combo, prep_combo) pair --
+        # 3**(#m_cuts) * 4**(#p_cuts) probes for this fragment.
+        for basis_combo in itertools.product(_MEASURE_BASES, repeat=len(m_cuts)):
+            for prep_combo in itertools.product(_PREP_STATES, repeat=len(p_cuts)):
+                mixed_index[(frag_idx, basis_combo, prep_combo)] = len(subcircuits)
+                subcircuits.append(
+                    _OptimizedWireMixed(
+                        sub.copy(),
+                        m_cuts,
+                        cut_qubits,
+                        basis_combo,
+                        p_cuts,
+                        prep_combo,
+                        software,
+                    )
+                )
     for sub in plain_frags:
         plain_positions.append(len(subcircuits))
         subcircuits.append(_make_subcircuit_task(sub.copy(), software))
@@ -2310,9 +2447,11 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
         len(wire_cuts),
         measure_index,
         prepare_index,
+        mixed_index,
         plain_positions,
         [cuts for _s, cuts, _q in measure_frags],
         [cuts for _s, cuts in prepare_frags],
+        [(m_cuts, p_cuts) for _s, m_cuts, _q, p_cuts in mixed_frags],
     )
     return CutSubcircuits(
         subcircuits,
