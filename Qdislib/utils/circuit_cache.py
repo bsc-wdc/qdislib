@@ -53,6 +53,7 @@ is simply simulated as usual.
 import json
 import logging
 import math
+import re
 import time
 from fractions import Fraction
 
@@ -194,6 +195,23 @@ def _pennylane_circuit_to_qasm(circuit):
     return "\n".join(lines)
 
 
+# CUDA-Q's OpenQASM-2 exporter prints float gate parameters in MLIR's
+# `d.dddddde+dd` form (e.g. "3.000000e-01" for 0.3) regardless of magnitude.
+# PyZX's QASM parser doesn't recognise that as a numeric literal -- it treats
+# the whole thing as a symbolic phase expression and raises "Phase expression
+# ... contains unbound variables", so every CUDA-Q kernel with a rotation gate
+# silently lost caching. Rewrite scientific-notation literals to plain decimal
+# before handing the QASM to PyZX.
+_SCIENTIFIC_NOTATION_RE = re.compile(r"[-+]?\d*\.?\d+[eE][-+]?\d+")
+
+
+def _desci_notation(qasm):
+    """Rewrite scientific-notation float literals in ``qasm`` to plain decimal."""
+    return _SCIENTIFIC_NOTATION_RE.sub(
+        lambda m: format(float(m.group()), ".10f"), qasm
+    )
+
+
 def _circuit_to_qasm(circuit, software):
     """Serialise a circuit to OpenQASM 2.0 for PyZX to parse.
 
@@ -212,7 +230,7 @@ def _circuit_to_qasm(circuit, software):
     if software == "cudaq":
         import cudaq
 
-        return cudaq.translate(circuit, format="openqasm2")
+        return _desci_notation(cudaq.translate(circuit, format="openqasm2"))
     if software == "pennylane":
         return _pennylane_circuit_to_qasm(circuit)
     raise ValueError(f"Cannot serialise a {software!r} circuit to QASM for caching.")

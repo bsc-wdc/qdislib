@@ -58,7 +58,24 @@ classifiers = [
 [project.optional-dependencies]
 # Quantum SDK backends. At least one is required to run circuits; the library
 # imports fine with none installed (e.g. for documentation builds).
-qibo = ["qibo>=0.1.12,<0.2.17"]   # 0.2.17+ regressed collapse-measurement execution; 0.3.x rewrote the API
+# qibo>=0.3.5 fixes the numpy>=2.4 collapse_state crash (see requirements.txt)
+# via https://github.com/qiboteam/qibo/pull/1871, merged to qibo's master
+# 2026-08-05 but not yet in a PyPI release (latest is still 0.3.4 as of this
+# writing). Until a 0.3.5+ release ships, install qibo from git first --
+#   pip install "qibo @ git+https://github.com/qiboteam/qibo.git@master"
+# -- so it's already present (reporting version 0.3.5) when this extra's
+# floor is checked; CI does this in .gitlab-ci.yml ($QIBO_GIT_REQ). Once
+# 0.3.5+ is on PyPI, this pin resolves normally and the git-install step can
+# be dropped. The old pin was `qibo>=0.1.12,<0.2.17` (0.2.17+ regressed
+# collapse-measurement execution; 0.3.x rewrote the API) -- verified against
+# qibo's post-fix dev branch that Qdislib's full test suite passes
+# unmodified, so the 0.3.x API rewrite doesn't affect anything Qdislib
+# actually uses (Circuit/gates/queue/result.samples()/set_backend all kept
+# their old import paths and behavior), and the collapse-measurement
+# regression doesn't reproduce. Not independently re-verified:
+# circuit_cache.py's qibo+pyzx semantic-key path (needs pyzx+lmdb installed)
+# and the qiskit-combined cutting paths.
+qibo = ["qibo>=0.3.5"]
 qiskit = [
   "qiskit>=1.1.0",
   "qiskit-addon-cutting>=0.10.0",
@@ -66,9 +83,12 @@ qiskit = [
   "qiskit-ibm-runtime>=0.20.0",   # only needed for the IBM Quantum QPU path
 ]
 cudaq = ["cudaq"]   # unpinned: the cudaq meta-package selects a CUDA/CPU variant per platform, and a hard pin can request an unpublished one
+# PennyLane >=0.40 requires numpy>=2, so it was held at <0.40 only to keep
+# numpy<2 coexisting with the old qibo pin in [all]. Verified installed
+# alongside qibo (from git, see above) + numpy 2.5: `import Qdislib` and the
+# full test suite pass with pennylane, qibo, and qiskit all present together.
 pennylane = [
-  "pennylane<0.40",   # <0.40 keeps numpy<2 so it coexists with the qibo extra in [all]; PennyLane >=0.40 requires numpy>=2 (lift once the qibo pin above can)
-  "autoray<0.7",      # PennyLane 0.39 imports autoray.autoray.NumpyMimic, which autoray 0.7 removed; unpinned, pip pulls 0.7+ and `import pennylane` dies with AttributeError
+  "pennylane>=0.40",
 ]
 iqm = ["qiskit-iqm"]   # IQM hardware backend (Qdislib.core.backend.iqm_backend)
 # Semantic circuit cache (Qdislib.utils.circuit_cache): pyzx computes the
