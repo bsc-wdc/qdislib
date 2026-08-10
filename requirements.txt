@@ -2,16 +2,14 @@
 # Quantum SDKs (Qibo / Qiskit / CUDA-Q) are OPTIONAL and live in
 # pyproject.toml [project.optional-dependencies]; install at least one, e.g.
 #   pip install "qdislib[qibo]"      # or [qiskit], [cudaq], or [all]
-# NOT YET ACTIVE: the numpy<2.0 cap below was here because Qibo's
-# collapse_state (mid-circuit measurement, used by wire/gate cutting) does
-# `int(shot)` on the 1-element array `sample_shots` returns; numpy 1.x
-# allowed that (deprecated), numpy >= 2.4 made it a hard TypeError -- "only
-# 0-dimensional arrays can be converted to Python scalars". Fixed upstream:
-# https://github.com/qiboteam/qibo/pull/1871 (not yet in a PyPI release).
-# This file already assumes that fix has shipped and pairs with the
-# qibo>=0.3.5 floor in pyproject.toml's [qibo] extra -- do not merge/release
-# this until that qibo version actually exists on PyPI and pull #1871 is
-# confirmed in it. See the comment there for what's been verified.
+# The numpy<2.0 cap that used to be here existed because Qibo's collapse_state
+# (mid-circuit measurement, used by wire/gate cutting) does `int(shot)` on the
+# 1-element array `sample_shots` returns; numpy 1.x allowed that (deprecated),
+# numpy >= 2.4 made it a hard TypeError -- "only 0-dimensional arrays can be
+# converted to Python scalars". Fixed upstream via
+# https://github.com/qiboteam/qibo/pull/1871, merged to qibo's master but not
+# yet in a PyPI release -- see the qibo extra in pyproject.toml for how CI and
+# local installs get the fix (git install) until 0.3.5+ ships on PyPI.
 numpy>=1.17
 networkx>=3.1
 matplotlib>=3.4.3
