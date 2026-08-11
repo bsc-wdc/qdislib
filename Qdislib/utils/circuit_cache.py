@@ -207,9 +207,7 @@ _SCIENTIFIC_NOTATION_RE = re.compile(r"[-+]?\d*\.?\d+[eE][-+]?\d+")
 
 def _desci_notation(qasm):
     """Rewrite scientific-notation float literals in ``qasm`` to plain decimal."""
-    return _SCIENTIFIC_NOTATION_RE.sub(
-        lambda m: format(float(m.group()), ".10f"), qasm
-    )
+    return _SCIENTIFIC_NOTATION_RE.sub(lambda m: format(float(m.group()), ".10f"), qasm)
 
 
 def _circuit_to_qasm(circuit, software):
