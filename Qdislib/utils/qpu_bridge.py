@@ -28,6 +28,12 @@ hand subcircuits off through a **shared filesystem directory**:
 - on the quantum cluster a listener executes each circuit on a QPU (BSC **Blue**
   or **Red**) and writes the result back -- :func:`run_qpu_listener`.
 
+A listener may write either a pickled ``qililab`` result or the portable form
+``{"counts": {...}, "shots": N}``; the latter needs no ``qililab`` on the reading
+side, which is the point of the split. :func:`submit_and_wait` normalises both to
+an object exposing ``.counts()`` (see :class:`QPUResult`), so callers never
+branch on the listener's choice.
+
 Both sides resolve the directory through :func:`subcircuits_dir`
 (``$QDISLIB_SUBCIRCUITS_DIR``), so writer and listener always meet in the same
 place. Files are written atomically (temp + ``os.replace``) so neither side ever
@@ -63,6 +69,7 @@ _ERROR_KEY = "__qdislib_qpu_error__"
 _QPU_RUNCARD_ENV = {"red": "RUNCARD_RED", "blue": "RUNCARD_BLUE"}
 
 __all__ = [
+    "QPUResult",
     "subcircuits_dir",
     "run_qpu_listener",
     "QPUTimeoutError",
@@ -76,6 +83,37 @@ class QPUTimeoutError(QdislibException, TimeoutError):
 
 class QPUExecutionError(QdislibException, RuntimeError):
     """Raised when the listener reports it failed to execute a submitted circuit."""
+
+
+class QPUResult:
+    """A QPU result carried as plain data.
+
+    The listener runs on the quantum cluster, where ``qililab`` lives; the cut
+    workflow runs on the classical cluster, where it does not. Pickling the
+    library's own result object makes the reader import the writer's
+    dependencies and fails with ``ModuleNotFoundError: No module named
+    'qililab'``. A listener may therefore write ``{"counts": {...}, "shots": N}``
+    instead, and :func:`submit_and_wait` wraps that in this class so callers keep
+    the single ``.counts()`` API either way.
+    """
+
+    __slots__ = ("_counts", "shots", "device", "n_qubits")
+
+    def __init__(self, payload):
+        self._counts = {str(k): int(v) for k, v in payload["counts"].items()}
+        self.shots = payload.get("shots") or sum(self._counts.values())
+        self.device = payload.get("device")
+        self.n_qubits = payload.get("n_qubits")
+
+    def counts(self):
+        """Measurement counts, ``{bitstring: n}`` -- qubit-0-first."""
+        return self._counts
+
+    def __repr__(self):
+        return (
+            f"QPUResult(device={self.device!r}, shots={self.shots}, "
+            f"outcomes={len(self._counts)})"
+        )
 
 
 def subcircuits_dir():
@@ -154,6 +192,10 @@ def submit_and_wait(circuit, directory=None, timeout=None, poll_interval=1.0):
 
     if isinstance(result, dict) and _ERROR_KEY in result:
         raise QPUExecutionError(result[_ERROR_KEY])
+    if isinstance(result, dict) and "counts" in result:
+        # A listener that writes plain data rather than a pickled qililab
+        # object, so the classical side needs no quantum-control library.
+        return QPUResult(result)
     return result
 
 

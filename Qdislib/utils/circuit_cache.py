@@ -202,6 +202,8 @@ def _pennylane_circuit_to_qasm(circuit):
 # ... contains unbound variables", so every CUDA-Q kernel with a rotation gate
 # silently lost caching. Rewrite scientific-notation literals to plain decimal
 # before handing the QASM to PyZX.
+from Qdislib.utils.qasm import qasm_drops_measurements
+
 _SCIENTIFIC_NOTATION_RE = re.compile(r"[-+]?\d*\.?\d+[eE][-+]?\d+")
 
 
@@ -319,6 +321,16 @@ def semantic_key(circuit, software=None):
         return None
     try:
         qasm = _circuit_to_qasm(circuit, software)
+        if qasm_drops_measurements(circuit, qasm, software):
+            # OpenQASM 2 cannot express a measurement with operations after it,
+            # so the exporter dropped one. Two circuits that differ only by that
+            # measurement would hash alike and the cache would serve one for the
+            # other -- skip caching rather than return a colliding key.
+            logger.warning(
+                "QASM export dropped a mid-circuit measurement; "
+                "caching skipped for this circuit."
+            )
+            return None
         zx_circuit = zx.Circuit.from_qasm(qasm)
         graph = zx_circuit.to_graph()
         zx.simplify.full_reduce(graph)

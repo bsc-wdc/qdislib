@@ -65,6 +65,9 @@ def _pennylane_types():
         return None
 
 
+from Qdislib.utils.exceptions import InvalidCutError
+
+
 class CircuitConverter:
     """Converts circuits between the supported formats and reports their size."""
 
@@ -76,7 +79,21 @@ class CircuitConverter:
         if qk and qb and isinstance(circuit, qb):
             from qiskit.qasm2 import loads
 
-            return loads(circuit.to_qasm())
+            from Qdislib.utils.qasm import qasm_drops_measurements
+
+            qasm = circuit.to_qasm()
+            if qasm_drops_measurements(circuit, qasm, "qibo"):
+                # Converting via QASM would return a circuit that is missing the
+                # measurement and still looks valid; fail instead of degrading.
+                raise InvalidCutError(
+                    "Cannot convert this Qibo circuit to Qiskit: it measures a "
+                    "qubit and then keeps operating on it, which OpenQASM 2 "
+                    "cannot express, so the measurement would be silently lost. "
+                    "Evaluate it with software='qibo', or use "
+                    "gate_cutting_hadamard, whose fragments carry a local "
+                    "ancilla instead of a mid-circuit measurement."
+                )
+            return loads(qasm)
         raise TypeError(f"Cannot convert {type(circuit).__name__} to a Qiskit circuit")
 
     @staticmethod

@@ -145,5 +145,66 @@ class SubmitAndWaitTest(BaseTimedTestCase):
             listener.join()
 
 
+class PortableResultTest(BaseTimedTestCase):
+    """A listener may write plain data instead of a pickled qililab object.
+
+    The classical cluster has no qililab, so a result pickled as a library
+    object cannot even be unpickled there. Both shapes must reach the caller
+    through the same ``.counts()`` API.
+    """
+
+    def test_plain_dict_is_wrapped_with_the_counts_api(self):
+        import tempfile
+
+        from Qdislib.utils.qpu_bridge import QPUResult
+
+        payload = {
+            "counts": {"00": 1, "10": 1923, "11": 76},
+            "shots": 2000,
+            "device": "red",
+            "n_qubits": 2,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            listener = threading.Thread(target=_fake_listener, args=(tmp, payload))
+            listener.start()
+            result = submit_and_wait("c", directory=tmp, timeout=5, poll_interval=0.02)
+            listener.join()
+
+        self.assertIsInstance(result, QPUResult)
+        self.assertEqual(result.counts(), payload["counts"])
+        self.assertEqual(result.shots, 2000)
+        self.assertEqual(result.device, "red")
+
+    def test_pickled_result_object_still_passes_through_untouched(self):
+        import tempfile
+
+        payload = _FakeResult({"01": 500, "10": 500})
+        with tempfile.TemporaryDirectory() as tmp:
+            listener = threading.Thread(target=_fake_listener, args=(tmp, payload))
+            listener.start()
+            result = submit_and_wait("c", directory=tmp, timeout=5, poll_interval=0.02)
+            listener.join()
+
+        self.assertIsInstance(result, _FakeResult)
+        self.assertEqual(result.counts(), {"01": 500, "10": 500})
+
+    def test_shots_default_to_the_sum_of_counts(self):
+        from Qdislib.utils.qpu_bridge import QPUResult
+
+        result = QPUResult({"counts": {"0": 3, "1": 7}})
+        self.assertEqual(result.shots, 10)
+
+    def test_error_marker_still_wins_over_the_counts_shape(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = {_ERROR_KEY: "boom", "counts": {"0": 1}}
+            listener = threading.Thread(target=_fake_listener, args=(tmp, payload))
+            listener.start()
+            with self.assertRaises(QPUExecutionError):
+                submit_and_wait("c", directory=tmp, timeout=5, poll_interval=0.02)
+            listener.join()
+
+
 if __name__ == "__main__":
     unittest.main()
