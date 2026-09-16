@@ -1751,8 +1751,9 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
 def _counts_qiskit(qc, shots=1024, method="automatic", seed=None):
     """Simulate a Qiskit circuit with Aer and return its measurement counts.
 
-    Appends ``measure_all`` in place -- so the circuit is single-use (evaluate
-    once), consistent with the Qibo evaluator -- then runs it on the CPU Aer
+    Appends ``measure_all`` to a *copy*, so the caller's circuit is left
+    untouched and a subcircuit can be evaluated more than once (e.g. simulate
+    first, then submit the same cut to hardware). Then runs it on the CPU Aer
     simulator. Backend/method details are logged at DEBUG level.
 
     :param qc: A Qiskit ``QuantumCircuit``.
@@ -1761,6 +1762,7 @@ def _counts_qiskit(qc, shots=1024, method="automatic", seed=None):
     :param seed: Optional Aer ``seed_simulator`` for a reproducible sample.
     :return: The Aer ``get_counts()`` dict (keys are ``"<measure-all reg> ..."``).
     """
+    qc = qc.copy()
     qc.measure_all()
 
     import subprocess
@@ -1897,6 +1899,7 @@ def _expec_value_qiskit_qpu(
         observables = ["Z"] * qc.num_qubits
         observables = "".join(observables)
 
+    qc = qc.copy()  # don't append measure_all to the caller's subcircuit
     qc.measure_all()
 
     pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
@@ -1952,6 +1955,7 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
         for instr in qc.data
         if instr.operation.name == "measure"
     ]
+    qc = qc.copy()  # don't append measure_all to the caller's subcircuit
     qc.measure_all()
 
     import subprocess

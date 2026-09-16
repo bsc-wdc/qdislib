@@ -87,7 +87,9 @@ cudaq = ["cudaq"]   # unpinned: the cudaq meta-package selects a CUDA/CPU varian
 pennylane = [
   "pennylane>=0.40",
 ]
-iqm = ["qiskit-iqm"]   # IQM hardware backend (Qdislib.core.backend.iqm_backend)
+# iqm-client[qiskit] (not the older standalone `qiskit-iqm` distribution, whose
+# latest release pins qiskit<1.3 and would downgrade the Qiskit stack).
+iqm = ["iqm-client[qiskit]>=35"]   # IQM hardware backend (Qdislib.core.backend.iqm_backend)
 # Semantic circuit cache (Qdislib.utils.circuit_cache): pyzx computes the
 # ZX/Weisfeiler-Lehman key; lmdb is the persistent on-disk store. The BSC
 # COMPSs PSCO/Redis store used under PyCOMPSs comes from the COMPSs runtime.

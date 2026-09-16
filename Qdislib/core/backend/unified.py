@@ -71,9 +71,11 @@ class QdBackEnd:
         else:
             for name, data in qpu_dict.items():
                 extra = {k: v for k, v in data.items() if k != "num_qubits"}
-                cfg = BackendConfig(
-                    num_qubits=data.get("num_qubits", DEFAULT_NUM_QUBITS), extra=extra
-                )
+                # No num_qubits: let the backend resolve it (a device reports
+                # its own width; build_backend supplies DEFAULT_NUM_QUBITS
+                # otherwise), rather than assuming a simulator-sized default for
+                # hardware that is narrower than that.
+                cfg = BackendConfig(num_qubits=data.get("num_qubits", 0), extra=extra)
                 self._backends.append(build_backend(name, cfg))
                 logger.info("Registered backend: %s (%d qubits)", name, cfg.num_qubits)
 

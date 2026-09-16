@@ -120,7 +120,9 @@ def build_backend(name: str, config: BackendConfig) -> BaseBackend:
     """Lazily import and instantiate a registered backend.
 
     The backend module -- and its third-party dependencies -- are imported only
-    at this point, not at registry import time.
+    at this point, not at registry import time::
+
+        build_backend("IQM_BACKEND", BackendConfig(quantum_computer="garnet"))
     """
     if name not in _BACKEND_REGISTRY:
         raise ValueError(
@@ -137,4 +139,10 @@ def build_backend(name: str, config: BackendConfig) -> BaseBackend:
         ) from exc
 
     cls: type[BaseBackend] = getattr(module, class_name)
-    return cls(config)
+    backend = cls(config)
+    if not config.num_qubits:
+        # A backend that talks to a real device sets this from the device in its
+        # __init__ (see IQMBackend); for the rest an unstated width means "the
+        # usual simulator budget", exactly as before this was optional.
+        config.num_qubits = DEFAULT_NUM_QUBITS
+    return backend

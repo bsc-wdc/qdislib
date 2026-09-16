@@ -670,7 +670,9 @@ def _evaluate_subcircuit(subcircuit, shots, cache=None, cache_mode="expectation"
     return _cached_expectation(native, shots, cache, cache_mode)
 
 
-def expectation_value(subcircuit, shots=1024, cache=None, cache_mode="expectation"):
+def expectation_value(
+    subcircuit, shots=1024, cache=None, cache_mode="expectation", backend=None
+):
     """Evaluate one cut subcircuit's expectation value, dispatching on its type.
 
     Convenience wrapper for the recommended workflow::
@@ -700,6 +702,14 @@ def expectation_value(subcircuit, shots=1024, cache=None, cache_mode="expectatio
         expectations keyed by semantic hash + observable; ``"counts"`` caches raw
         measurement counts keyed by the semantic hash and re-derives the
         expectation (maximal reuse, matching the paper).
+    :param backend: A :class:`~Qdislib.core.backend.base_backend.BaseBackend` to
+        evaluate this subcircuit on -- how the three-step workflow submits to real
+        hardware instead of a local simulator::
+
+            iqm = build_backend("IQM_BACKEND", BackendConfig(quantum_computer="garnet"))
+            values = [qd.expectation_value(s, backend=iqm) for s in subcircuits]
+
+        ``None`` (the default) keeps the simulator dispatch below.
     :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
     """
     if subcircuit is None:  # empty component produced by a cut; contributes nothing
@@ -709,7 +719,20 @@ def expectation_value(subcircuit, shots=1024, cache=None, cache_mode="expectatio
     # (a dict), so a Z-basis measurement gives both <Z> and <I>. Detected by a
     # duck-typed marker to avoid importing the wire-cutting module here.
     if getattr(subcircuit, "_is_optimized_wire_measure", False):
+        if backend is not None:
+            from Qdislib.utils.exceptions import UnsupportedBackendError
+
+            raise UnsupportedBackendError(
+                "The optimized wire-cut measure probe evaluates itself on a "
+                "simulator; it cannot be routed to backend "
+                f"'{getattr(backend, 'name', backend)}'."
+            )
         return subcircuit.evaluate(shots)
+
+    # A backend was named: it owns the whole evaluation (build -> submit ->
+    # reconstruct), so neither the cache nor the simulator dispatch applies.
+    if backend is not None:
+        return backend.evaluate_subcircuit(subcircuit, shots=shots)
 
     if cache is True:
         cache = default_circuit_cache()

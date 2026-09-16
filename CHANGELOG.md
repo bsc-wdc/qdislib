@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Added
+- **The IQM backend can run a cut circuit on IQM hardware.** `IQMBackend` now
+  implements the cutting hooks (`evaluate_expectation` for the all-in-one path,
+  `evaluate_subcircuit` for the three-step one), reconstructing each subcircuit's
+  expectation with the same Z/I + cut-point-sign rule the simulators use, so a cut
+  evaluated on the device recombines exactly as it does on Aer. Step 2 of the
+  three-step workflow takes the backend directly::
+
+      iqm = build_backend("IQM_BACKEND", BackendConfig(quantum_computer="garnet"))
+      subs = qd.gate_cutting_subcircuits(circuit, ["CZ_3"], observables="ZZZZ")
+      values = [qd.expectation_value(s, shots=2000, backend=iqm) for s in subs]
+      result = subs.reconstruct(values)
+
+  Verified end to end on IQM Resonance (Garnet, 20 qubits): a 4-qubit circuit cut
+  into 12 subcircuits reconstructed `<ZZZZ> = 0.852` against an exact 1.0, the gap
+  being hardware noise. Garnet accepts the mid-circuit measurement the gate-cut
+  decomposition needs, so no fallback is required. Expectations remain Z/I-only
+  (an X or Y term raises), and `gate_cutting(qpu=True, ...)` still routes only to
+  `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
+
+### Fixed
+- **A Qiskit subcircuit could only be evaluated once.** `_counts_qiskit` (and the
+  GPU/QPU evaluators) appended `measure_all` **in place**, so evaluating the same
+  cut twice -- simulate first, then submit to hardware -- silently read the wrong
+  classical register and returned a plausible but wrong number. They now measure a
+  copy. The IQM path additionally refuses a subcircuit that already carries a
+  `meas` register rather than paying for the shots to get a wrong answer.
+- **The IQM backend could not authenticate against IQM Resonance.** It required a
+  Cortex-CLI tokens *file* (`tokens_path` -> `IQM_TOKENS_FILE`) and hardcoded
+  `quantum_computer="default"`, so a plain cloud token raised
+  `KeyError: 'tokens_path'`. `token`, `tokens_path`, `url` and `quantum_computer`
+  are now all configurable, each falling back to its `IQM_*` env var. The URL is
+  the server base URL -- the current client rejects one with the device name in it.
+- **`QdBackEnd` assumed a simulator-sized width for hardware.** A `qpu_dict` entry
+  without `num_qubits` was recorded as `DEFAULT_NUM_QUBITS` (30), so a 20-qubit
+  device would accept 25-qubit circuits. `num_qubits` is now optional everywhere: a
+  backend that talks to a device reports the device's own width, and only a
+  backend that can resolve nothing falls back to the default.
+
+### Changed
+- **Backend options are named directly on `BackendConfig`** --
+  `BackendConfig(quantum_computer="garnet")` rather than
+  `BackendConfig(20, extra={"quantum_computer": "garnet"})`. They are still
+  collected into `.extra` (which every backend reads), and `extra={...}` is still
+  accepted for callers holding a ready-made dict.
+- **The `iqm` extra installs `iqm-client[qiskit]>=35`**, not the older standalone
+  `qiskit-iqm` distribution, whose latest release pins `qiskit<1.3` and would
+  downgrade the Qiskit stack on install.
+
 ## [1.0.1] - 2026-07-20
 ### Added
 - **Tutorial 09** (`09_scaling_up`): scale cutting past H₂. Reconstruct the energy of

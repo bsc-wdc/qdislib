@@ -79,12 +79,35 @@ def marginalize_identity_qubits(counts: dict, observables) -> dict:
     return merged
 
 
-@dataclass
+@dataclass(init=False)
 class BackendConfig:
-    """Static configuration for a backend (its size and any extra options)."""
+    """Static configuration for a backend: its width and its own options.
 
-    num_qubits: int
+    A backend's options are named directly -- they are what you actually
+    configure, so they need no wrapper::
+
+        BackendConfig(url=..., token=..., quantum_computer="garnet")   # IQM
+        BackendConfig(use_gpu=True)                                    # Aer
+        BackendConfig(platform="numpy")                                # Qibo
+
+    Each backend documents the ones it reads (and ignores the rest), which is why
+    they aren't declared here. They are collected into :attr:`extra`, so a caller
+    holding a ready-made dict can still pass ``extra={...}`` instead.
+
+    ``num_qubits`` is the width the backend is allowed to use. Omit it and the
+    backend resolves its own -- a real device reports what it physically has, and
+    anything that can't resolve one falls back to ``DEFAULT_NUM_QUBITS`` in
+    :func:`~Qdislib.core.backend.registry.build_backend`. State it only to *cap* a
+    backend below its natural width.
+    """
+
+    num_qubits: int = 0
+    #: The backend's own options, however they were passed.
     extra: dict = field(default_factory=dict)
+
+    def __init__(self, num_qubits: int = 0, extra: dict | None = None, **options):
+        self.num_qubits = num_qubits
+        self.extra = {**(extra or {}), **options}
 
 
 @dataclass
@@ -157,6 +180,8 @@ class BaseBackend(ABC):
             return list(self._queue)
 
     def can_run(self, circuit: SupportedCircuit) -> bool:
+        if not self.num_qubits:  # width never resolved: don't claim to know
+            return True
         return CircuitConverter.num_qubits(circuit) <= self.num_qubits
 
     # ------------------------------------------------------------------
