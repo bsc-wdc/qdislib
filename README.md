@@ -80,12 +80,9 @@ Installing the bare package (`pip3 install qdislib`) pulls only the core
 dependencies — you need a backend extra to run circuits.
 
 > **Qibo + numpy 2.x:** the `[qibo]` extra requires qibo>=0.3.5 for a
-> numpy>=2.4 fix ([qiboteam/qibo#1871](https://github.com/qiboteam/qibo/pull/1871)),
-> which is merged to qibo's `master` but not yet in a PyPI release. Until it
-> ships, install qibo from git first so the extra's version floor is already
-> satisfied:
+> numpy>=2.4 fix ([qiboteam/qibo#1871](https://github.com/qiboteam/qibo/pull/1871)).
+> That shipped in qibo 0.3.5 on PyPI, so a plain install now resolves it:
 > ```bash
-> pip3 install "qibo @ git+https://github.com/qiboteam/qibo.git@master"
 > pip3 install "qdislib[qibo]"
 > ```
 
