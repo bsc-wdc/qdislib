@@ -115,6 +115,46 @@ class MixedCuttingTest(BaseTimedTestCase):
 
         self.assertTrue(hasattr(qd, "gate_wire_cutting"))
 
+    def test_non_partitioning_cut_raises(self):
+        """A gate cut whose two qubits stay linked through another, uncut gate
+        (a 3-qubit triangle: CZ_1's qubits also stay bridged through CZ_3)
+        doesn't separate the circuit at all -- gate_wire_cutting should refuse
+        it rather than silently pay the cut's cost for none of its benefit."""
+        from qibo import gates, models
+        from Qdislib.core.cutting_algorithms.mixed_cutting import gate_wire_cutting
+
+        circuit = models.Circuit(3)
+        circuit.add(gates.CZ(0, 1))  # CZ_1
+        circuit.add(gates.CZ(1, 2))  # CZ_2
+        circuit.add(gates.CZ(0, 2))  # CZ_3 -- keeps CZ_1's qubits linked regardless
+
+        with self.assertRaises(ValueError):
+            gate_wire_cutting(
+                circuit,
+                gates_cut=["CZ_1"],
+                wire_cut=[],
+                observable="ZZZ",
+                software="qibo",
+                shots=1000,
+            )
+
+    def test_empty_cuts_run_unpartitioned(self):
+        """Empty gates_cut and wire_cut are exempt from the partition check."""
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.mixed_cutting import gate_wire_cutting
+
+        circuit = self._circuit()
+        analytical = qd.analytical_solution(circuit, "ZIZ")
+        got = gate_wire_cutting(
+            circuit,
+            gates_cut=[],
+            wire_cut=[],
+            observable="ZIZ",
+            software="qibo",
+            shots=1024,
+        )
+        self.assertLess(abs(analytical - got), 0.2)
+
 
 if __name__ == "__main__":
     unittest.main()

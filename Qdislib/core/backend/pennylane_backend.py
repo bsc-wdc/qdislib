@@ -122,10 +122,14 @@ class PennylaneBackend(BaseBackend):
         """Sample a subcircuit via PennyLane; return qubit-0-first counts."""
         from Qdislib.utils.graph_pennylane import dag_to_circuit_pennylane
         from Qdislib.core.cutting_algorithms.wire_cutting import _counts_pennylane
+        from Qdislib.core.backend.base_backend import marginalize_identity_qubits
 
         built = dag_to_circuit_pennylane(dag, num_qubits)
-        circuit = built[0] if isinstance(built, (list, tuple)) else built
-        return _counts_pennylane(circuit, shots, device=self._device, seed=seed)
+        circuit, observables = (
+            built if isinstance(built, (list, tuple)) else (built, None)
+        )
+        counts = _counts_pennylane(circuit, shots, device=self._device, seed=seed)
+        return marginalize_identity_qubits(counts, observables)
 
     def evaluate_joint_counts(
         self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None

@@ -44,6 +44,41 @@ SupportedCircuit = Any
 logger = logging.getLogger(__name__)
 
 
+def marginalize_identity_qubits(counts: dict, observables) -> dict:
+    """Marginalize out any ``"I"``-observed qubit positions from a sampling result.
+
+    ``dag_to_circuit_*`` (e.g. :func:`~Qdislib.utils.graph_qibo.dag_to_circuit_qibo`,
+    and its Qiskit/CUDA-Q/PennyLane counterparts) returns ``[circuit, observables]``,
+    where ``observables`` is a per-qubit ``"Z"``/``"I"`` string -- an ``"I"`` marks a
+    qubit that :func:`~Qdislib.utils.backends.change_basis_dag` inserted an
+    Observable-I terminal node for (the user's observable was identity there, so its
+    measured value shouldn't affect the result). ``evaluate_expectation`` honours
+    this by construction (it's handed the whole ``[circuit, observables]`` pair). A
+    raw-sampling ``evaluate_samples`` must call this explicitly on its result, since
+    a bare ``{bitstring: count}`` dict has nowhere to carry which positions are
+    identity-observed: forcing those positions to a constant character and merging
+    the resulting duplicate keys recovers exactly the marginal distribution over the
+    remaining bits (the "don't care about this qubit's value" semantics of an
+    identity observable) -- equivalent to XOR-ing a constant into a downstream
+    Z-parity computation, i.e. a no-op there, which is what "identity" means.
+
+    :param counts: ``{qubit-0-first bitstring: count}``, before masking.
+    :param observables: The per-qubit ``"Z"``/``"I"`` string from ``dag_to_circuit_*``,
+        or ``None``/empty (no-op) when the source has no observable metadata (e.g. a
+        bare native circuit with no ``[circuit, observables]`` wrapping).
+    :return: ``counts`` unchanged if there's no ``"I"`` in ``observables``, else the
+        marginalized ``{bitstring: count}`` dict (same key width, duplicates merged).
+    """
+    if not observables or "I" not in observables:
+        return counts
+    positions = {i for i, ch in enumerate(observables) if ch == "I"}
+    merged: dict = {}
+    for key, count in counts.items():
+        masked = "".join("0" if i in positions else ch for i, ch in enumerate(key))
+        merged[masked] = merged.get(masked, 0) + count
+    return merged
+
+
 @dataclass
 class BackendConfig:
     """Static configuration for a backend (its size and any extra options)."""
@@ -195,15 +230,23 @@ class BaseBackend(ABC):
     ) -> dict[str, int]:
         """Sample a Qdislib subcircuit DAG and return counts in a standard convention.
 
-        Used by the sampling reconstruction of gate cutting. Every backend returns
-        keys as **qubit-0-first** bitstrings (``key[i]`` is qubit ``i``), regardless
-        of the SDK's native endianness, so the reconstruction combines components
-        uniformly.
+        Used by the sampling reconstruction of gate and wire cutting (including the
+        optimized fragment-separated wire-cutting path). Every backend returns keys
+        as **qubit-0-first** bitstrings (``key[i]`` is qubit ``i``), regardless of the
+        SDK's native endianness, so the reconstruction combines components uniformly.
+
+        Implementations: ``dag_to_circuit_*`` returns ``[circuit, observables]`` when
+        ``dag`` carries Observable-I markers (an ``"I"`` per-qubit observable
+        component); pass that ``observables`` string through
+        :func:`marginalize_identity_qubits` on the raw counts before returning, so an
+        identity-observed qubit doesn't leak into a caller's Z-parity extraction as
+        if it were a real ``"Z"`` observation.
 
         :param dag: A renumbered connected-component DAG of the cut circuit.
         :param num_qubits: Qubit count of the component.
         :param shots: Number of measurement shots.
-        :return: ``{qubit-0-first bitstring: count}``.
+        :return: ``{qubit-0-first bitstring: count}``, with any Observable-I
+            positions already marginalized.
         """
         raise NotImplementedError(
             f"{self.name} does not implement evaluate_samples (sampling reconstruction)"

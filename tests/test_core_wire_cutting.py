@@ -155,6 +155,121 @@ class CircuitTest(BaseTimedTestCase):
         else:
             self.assertTrue(False)
 
+    @staticmethod
+    def _two_cuts_circuit():
+        """4-qubit circuit cuttable at two wires that both feed the same CZ,
+        needing a full downstream chain (H_5/RZ_6/CZ_7/RY_8) on the cut qubits
+        plus qubit3's own CZ_11 -- the shape that exposed the identity-
+        observable regressions below (a shorter/simpler circuit doesn't)."""
+        from qibo import models, gates
+        import numpy as np
+
+        circuit = models.Circuit(4)
+        circuit.add(gates.H(0))
+        circuit.add(gates.H(1))
+        circuit.add(gates.CZ(0, 1))
+        circuit.add(gates.CZ(1, 2))
+        circuit.add(gates.H(1))
+        circuit.add(gates.RZ(2, np.pi / 3))
+        circuit.add(gates.CZ(1, 2))
+        circuit.add(gates.RY(1, np.pi / 5))
+        circuit.add(gates.RZ(3, np.pi / 2))
+        circuit.add(gates.H(3))
+        circuit.add(gates.CZ(2, 3))
+        circuit.add(gates.H(3))
+        return circuit
+
+    def test_wire_cutting_identity_observable_on_regular_qubit(self):
+        """Regression: evaluate_samples() used to drop the Observable-I marker
+        list dag_to_circuit_* returns, so the optimized (raw-sampling) wire-cut
+        path folded an identity-observed *regular* qubit into the Z-parity as
+        if it were really observed with Z. Fixed by
+        Backend.marginalize_identity_qubits; the standard (expectation-value)
+        path was never affected, so this mainly guards the optimized path."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = self._two_cuts_circuit()
+        cuts = [("H_5", "CZ_7"), ("RZ_6", "CZ_7")]
+        obs = "IZZZ"  # qubit 0: not a cut qubit
+        analytical = analytical_solution(circuit, obs)
+        self.assertLess(abs(analytical), 0.05)  # sanity: this IS a degenerate ~0 case
+
+        standard = wire_cutting(
+            circuit, cuts, observables=obs, shots=20000, optimized=False
+        )
+        optimized = wire_cutting(
+            circuit, cuts, observables=obs, shots=20000, optimized=True
+        )
+        self.assertLess(abs(standard - analytical), 0.15)
+        self.assertLess(abs(optimized - analytical), 0.15)
+
+    def test_wire_cutting_identity_observable_on_cut_qubit(self):
+        """Regression: the wire-cut marker relabeling that moves the "prepared"
+        side of a cut onto a fresh qubit line only walked one hop of successors,
+        so a node further downstream on that qubit -- e.g. an Observable-I
+        terminal marker change_basis_dag inserted after more gates on the same
+        line -- kept its stale, pre-cut qubit index. It ended up correctly
+        placed in the right fragment but pointing at the wrong (or a phantom)
+        qubit position within it, corrupting the reconstruction. Fixed by
+        making _relabel_qubit_downstream walk the whole downstream chain.
+        Affects both the standard and optimized paths (same marker-insertion
+        code); only reproduces with a real downstream chain past the cut
+        target, which is why this needs _two_cuts_circuit rather than a
+        minimal one."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = self._two_cuts_circuit()
+        cuts = [("H_5", "CZ_7"), ("RZ_6", "CZ_7")]
+        obs = "ZIZZ"  # qubit 1: IS a cut qubit
+        analytical = analytical_solution(circuit, obs)
+        self.assertLess(abs(analytical), 0.05)  # sanity: this IS a degenerate ~0 case
+
+        standard = wire_cutting(
+            circuit, cuts, observables=obs, shots=20000, optimized=False
+        )
+        optimized = wire_cutting(
+            circuit, cuts, observables=obs, shots=20000, optimized=True
+        )
+        self.assertLess(abs(standard - analytical), 0.15)
+        self.assertLess(abs(optimized - analytical), 0.15)
+
+    def test_wire_cutting_non_partitioning_cut_raises(self):
+        """A cut whose wire isn't the sole connectivity between its two sides
+        (here: CZ_1 and CZ_2 also stay linked through CZ_3, via the OTHER two
+        qubits) doesn't separate the circuit at all -- wire_cutting should
+        refuse it rather than silently pay the cut's shot-count cost for none
+        of its benefit."""
+        from qibo import models, gates
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+
+        circuit = models.Circuit(3)
+        circuit.add(gates.CZ(0, 1))  # CZ_1
+        circuit.add(gates.CZ(1, 2))  # CZ_2
+        circuit.add(gates.CZ(0, 2))  # CZ_3 -- keeps CZ_1/CZ_2 connected regardless
+
+        with self.assertRaises(ValueError):
+            wire_cutting(circuit, [("CZ_1", "CZ_2")], shots=1000, optimized=False)
+
+        with self.assertRaises(ValueError):
+            wire_cutting(circuit, [("CZ_1", "CZ_2")], shots=1000, optimized=True)
+
+    def test_wire_cutting_empty_cut_runs_unpartitioned(self):
+        """An empty cut list is exempt from the partition check: it means 'no
+        cut,' so the circuit just runs as-is."""
+        from qibo import models, gates
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = models.Circuit(2)
+        circuit.add(gates.H(0))
+        circuit.add(gates.CZ(0, 1))
+
+        result = wire_cutting(circuit, [], shots=1024)
+        analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
+        self.assertLess(abs(result - analytical), 0.2)
+
     def test_wire_cutting_qiskit(self):
         from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
         from Qdislib.utils.circuit import analytical_solution
