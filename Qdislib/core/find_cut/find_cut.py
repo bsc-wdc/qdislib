@@ -19,6 +19,7 @@
 
 """Find cut algorithms."""
 
+import itertools
 import logging
 
 logger = logging.getLogger(__name__)
@@ -796,6 +797,67 @@ def _find_cut_mixed(
     return {"gate": gate_cuts, "wire": wire_cuts}
 
 
+def separable_components(circuit, max_qubits=None):
+    """Groups of qubits the circuit already splits into, needing no cuts.
+
+    Every strategy :func:`find_cut` runs -- Kernighan-Lin, Girvan-Newman,
+    spectral, METIS -- searches for the *cheapest cut*. None of them asks
+    whether a cut is needed at all, and a circuit whose qubit interaction graph
+    is already disconnected does not need one: the state is a product across
+    that boundary, so the fragments are independent circuits whose results
+    multiply. Cutting one anyway costs ``gamma = 3`` and nine times the shots
+    for nothing.
+
+    It is not a corner case. Bernstein-Vazirani only entangles a qubit where its
+    secret bit is 1, so a 24-qubit instance leaves twelve qubits touched by no
+    two-qubit gate at all, and splits 12/12 for free -- where ``find_cut`` used
+    to propose a gate cut and hand back lopsided 1q and 11q fragments.
+
+    Components are packed into as few groups as possible, largest first, so the
+    answer is a partition that respects ``max_qubits`` rather than merely a list
+    of components.
+
+    :param max_qubits: Qubit budget per fragment. ``None`` means only that the
+        circuit must split into at least two parts, so any grouping will do.
+    :return: List of qubit-index lists, one per fragment, or ``None`` when the
+        circuit cannot be separated without cutting.
+    """
+    graph = networkx.Graph()
+    total = num_qubits(circuit)
+    graph.add_nodes_from(range(total))
+    for _, qubits in iter_gates(circuit):
+        for left, right in itertools.combinations(sorted(qubits), 2):
+            graph.add_edge(left, right)
+
+    components = sorted(
+        (sorted(c) for c in networkx.connected_components(graph)), key=len, reverse=True
+    )
+    if len(components) < 2:
+        return None
+    if max_qubits is None:
+        # Any split will do, so take the cheapest balanced one: largest
+        # component alone against everything else.
+        return [components[0], sorted(q for c in components[1:] for q in c)]
+    if len(components[0]) > max_qubits:
+        # One component is already too wide; it has to be cut, and that is the
+        # normal search's job.
+        return None
+
+    # First-fit-decreasing: enough fragments that each fits the budget, and no
+    # more.
+    bins: typing.List[typing.List[int]] = []
+    for component in components:
+        for group in bins:
+            if len(group) + len(component) <= max_qubits:
+                group.extend(component)
+                break
+        else:
+            bins.append(list(component))
+    if len(bins) < 2:
+        return None
+    return [sorted(group) for group in bins]
+
+
 def find_cut(
     circuit,
     max_qubits=None,
@@ -936,6 +998,23 @@ def find_cut(
     """
 
     if implementation == "qdislib":
+        # Before searching for a cut, check whether one is needed. A circuit
+        # whose interaction graph is already disconnected splits for free, and
+        # every strategy below would instead return a cut costing gamma = 3.
+        separable = separable_components(circuit, max_qubits)
+        if separable is not None:
+            logger.info(
+                "find_cut: the circuit already separates into %d fragments of "
+                "%s qubits with no cut at all; returning none.",
+                len(separable),
+                [len(g) for g in separable],
+            )
+            if mixed:
+                return {"gate": [], "wire": []}
+            if top_n is not None:
+                return [{"cut": [], "kind": "none", "score": 0.0}]
+            return []
+
         # Target number of subcircuits for the clustering-based strategies
         # (spectral, METIS). Derived from max_qubits when given (enough pieces so
         # each fits the qubit budget), otherwise a simple bisection. The
