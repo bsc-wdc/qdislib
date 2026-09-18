@@ -14,17 +14,6 @@ stages:
   - lint
   - test
 
-variables:
-  UV_PYTHON: "3.12"                                # the >=3.10 interpreter uv provisions
-  UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
-  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"      # for the one-off `pip3 install --user uv`
-  # qibo>=0.3.5 (needed for numpy>=2, see requirements.txt) has not been cut as a
-  # PyPI release yet -- only its master branch has the fix (qiboteam/qibo#1871).
-  # Installing it from git here, before the `[qibo]` extra, satisfies that extra's
-  # version floor without pulling from PyPI. Drop this + the two `uv pip install
-  # "qibo @ ..."` lines below once qibo>=0.3.5 ships on PyPI.
-  QIBO_GIT_REQ: "qibo @ git+https://github.com/qiboteam/qibo.git@master"
-
 cache:
   paths:
     - .cache/uv
@@ -60,7 +49,6 @@ lint:
 test:
   stage: test
   script:
-    - uv pip install "$QIBO_GIT_REQ"
     - uv pip install ".[qibo,qiskit,cache,ci]"
     - python -m unittest discover -s tests/ -v
 
@@ -70,7 +58,6 @@ test:
 coverage:
   stage: test
   script:
-    - uv pip install "$QIBO_GIT_REQ"
     - uv pip install ".[qibo,qiskit,cache,ci]"
     - coverage run -m unittest discover -s tests/
     - coverage report
@@ -88,7 +75,6 @@ coverage:
 import-smoke:qibo:
   stage: test
   script:
-    - uv pip install "$QIBO_GIT_REQ"
     - uv pip install ".[qibo]"
     - python -c "import Qdislib; print('qibo-only import OK')"
 
@@ -120,6 +106,5 @@ test:cudaq:
   stage: test
   allow_failure: true
   script:
-    - uv pip install "$QIBO_GIT_REQ"
     - uv pip install ".[all,ci]"
     - python -m unittest discover -s tests/ -v
