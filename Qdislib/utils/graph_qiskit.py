@@ -141,7 +141,9 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
 
             qubits = ()
             for elem in gate.qubits:
-                qubits = qubits + (elem._index,)
+                # Use the global index so indices from different registers
+                # do not collide.
+                qubits = qubits + (circuit.find_bit(elem).index,)
 
             # Add the gate to the DAG, including the gate type, qubits, and parameters
             dag.add_node(
