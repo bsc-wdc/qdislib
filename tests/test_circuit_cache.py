@@ -190,6 +190,27 @@ class SemanticKeyTest(BaseTimedTestCase):
         padded.add(gates.X(0))
         self.assertEqual(semantic_key(base), semantic_key(padded))
 
+    def test_qubit_permuted_circuits_differ(self):
+        """bsc-wdc/qdislib#11: X on qubit 0 and X on qubit 1 must not share a key."""
+        from qibo import models, gates
+        from Qdislib.utils.backends import expectation_value
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache, semantic_key
+
+        def x_on(qubit):
+            circuit = models.Circuit(2)
+            circuit.add(gates.X(qubit))
+            return circuit
+
+        self.assertNotEqual(semantic_key(x_on(0)), semantic_key(x_on(1)))
+
+        cache = InMemoryCircuitCache()
+        self.assertEqual(
+            expectation_value([x_on(0), "ZI"], shots=100, cache=cache), -1.0
+        )
+        self.assertEqual(
+            expectation_value([x_on(1), "ZI"], shots=100, cache=cache), 1.0
+        )
+
     def test_unsupported_backend_returns_none(self):
         from Qdislib.utils.circuit_cache import semantic_key
 
