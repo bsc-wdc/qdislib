@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Optimized wire cutting handles chain topologies.** When a fragment owns both
+  a measure-side and a prepare-side cut (e.g. two wires cut in series), it runs
+  `3**i * 4**j` circuits instead of sending the whole circuit back to the standard
+  `8**n` method -- for `wire_cutting`, `wire_cutting_sampling` and
+  `wire_cutting_subcircuits` with `optimized=True`.
+- **`find_cut` checks whether a cut is needed at all.** A circuit whose qubits
+  already split into independent groups gets no cut (`[]`); the groups are packed
+  into fragments within `max_qubits` (`separable_components`). Before, it proposed
+  a cut that cost overhead for nothing.
 - **`CombinedCutSubcircuits`**: the subcircuit container `*_subcircuits` return
   when a circuit has several independent pieces or the observable is a weighted
   Pauli sum. It is still one flat list to evaluate; `reconstruct` multiplies the
@@ -30,6 +39,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **An identity observable on a wire-cut qubit gave a wrong value**, on the
+  standard and optimized paths, and an identity on a regular qubit broke the
+  optimized path. The same wire-relabelling bug made `gate_wire_cutting` wrong when
+  a general gate cut followed a wire cut on the same qubit. Reported by David Ryan
+  (bsc-wdc/qdislib#8, bsc-wdc/qdislib#17).
+- **The circuit cache never cached a CUDA-Q kernel with a rotation**: its QASM
+  prints floats in scientific notation, which PyZX could not parse.
+- **Two silent failures at the QASM boundary.** Qibo's QASM export drops a
+  mid-circuit measurement, so gate-cut fragments could share a cache key, and
+  converting such a fragment to Qiskit lost the measurement. The cache now skips
+  such circuits, and the conversion raises `InvalidCutError`.
 - **Gate cutting on IBM Quantum hardware returned about 0 for any measured cut.**
   The IBM reader looked only at the final measurements, so it dropped every
   cut's decomposition sign, and it ran the sampler with its default shot count
@@ -105,6 +125,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **A cut that doesn't split the circuit raises `ValueError`**, in gate, wire,
+  Hadamard and mixed cutting. Such a cut paid the reconstruction overhead for no
+  width reduction (and could cost more than no cut). An empty cut list still runs
+  the circuit as-is.
+- **Dependencies: numpy 2 is supported, and the `qibo` extra needs
+  `qibo>=0.3.5`**, the first release with the numpy >= 2.4 fix
+  (qiboteam/qibo#1871). The `numpy<2.0` cap is gone.
+- **igraph is no longer a dependency.** It was only used to draw random test
+  circuits; networkx does the same. Its bundled OpenMP library also failed to
+  load on some Linux machines, breaking `import Qdislib`.
 - **`wire_cutting` runs the subcircuits in the circuit's own SDK by default.**
   `software` defaulted to `"qibo"` whatever the input, so a Qiskit circuit
   containing `cx` failed unless `software="qiskit"` was passed. The default is now
