@@ -114,6 +114,15 @@ class CircuitTest(BaseTimedTestCase):
             self.assertEqual(
                 find_cut(build(), max_qubits=2, max_cuts=0, seed=0, **kwargs), []
             )
+        # Mixed mode returns an over-budget cut with a warning, but 0 is a hard stop.
+        self.assertEqual(
+            find_cut(build(), max_qubits=2, max_cuts=0, seed=0, mixed=True),
+            {"gate": [], "wire": []},
+        )
+        # q1 and q2 are two hops apart here, so CZ(1, 2) is a SparseCut candidate.
+        star = [(0, 1), (0, 2)]
+        self.assertTrue(find_cut(build(), coupling_map=star))
+        self.assertEqual(find_cut(build(), max_cuts=0, coupling_map=star), [])
         with self.assertRaises(ValueError):
             find_cut(build(), max_qubits=0)
         with self.assertRaises(ValueError):

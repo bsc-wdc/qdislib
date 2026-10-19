@@ -767,6 +767,9 @@ def _find_cut_mixed(
     from networkx.algorithms.community import kernighan_lin_bisection
 
     empty = {"gate": [], "wire": []}
+    if max_cuts == 0:
+        # No cut allowed: a hard stop, unlike a budget that is merely exceeded.
+        return empty
     graph = _circuit_to_mixed_graph(circuit, gate_cost, wire_cost)
     if graph.number_of_nodes() < 2 or graph.number_of_edges() == 0:
         return empty
@@ -900,7 +903,7 @@ def find_cut(
     max_cuts : int, optional
         Maximum number of cuts permitted across the circuit. Controls the complexity
         and computational overhead of the partitioning. ``0`` allows no cut, so the
-        result is ``[]`` unless the circuit is already separable.
+        result is ``[]`` (``{"gate": [], "wire": []}`` with ``mixed=True``).
 
     wire_cut : bool, default=True
         Whether to consider wire cuts (cutting dependencies between gates)
@@ -1066,7 +1069,7 @@ def find_cut(
                     for gate_id, distance in ranked[:top_n]
                 ]
             best = [gate_id for gate_id, _ in ranked]
-            if not best:
+            if not best and max_cuts != 0:
                 logger.warning(
                     "find_cut (SparseCut) found no routing two-qubit gate to cut: "
                     "every two-qubit gate is already adjacent on the coupling map, or "
