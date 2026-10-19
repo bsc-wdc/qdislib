@@ -28,7 +28,7 @@ across the cutting algorithms.
 
 import logging
 
-from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
+from Qdislib.utils.graph_qibo import _final_measurements, circuit_qibo_to_dag
 from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
 from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
 from Qdislib.utils.graph_pennylane import circuit_pennylane_to_dag, PennylaneCircuit
@@ -218,21 +218,26 @@ def iter_gates(circuit):
     - ``qubits`` is a tuple of integer qubit indices the gate acts on.
 
     One entry is produced per operation, in circuit order, matching the 1-based
-    indexing used by the DAG converters. A Qiskit ``barrier`` keeps its slot (the
-    DAG converter skips it but keeps the numbering) but acts on no qubit, so it is
-    never offered as a cut.
+    indexing used by the DAG converters. What those converters skip while keeping
+    the numbering -- a Qiskit ``barrier``, and a measurement that ends its qubits
+    (see :func:`~Qdislib.utils.graph_qibo._final_measurements`) -- keeps its slot
+    but acts on no qubit, so it is never offered as a cut.
 
     :param circuit: A Qibo ``Circuit``, Qiskit ``QuantumCircuit`` or CUDA-Q kernel.
     :raises TypeError: If the circuit type is not recognised.
     :return: List of ``(name, qubits)`` tuples.
     """
     if isinstance(circuit, QiboCircuit):
-        return [
-            (gate.__class__.__name__.upper(), tuple(gate.qubits))
+        gates = [
+            (
+                gate.__class__.__name__.upper(),
+                tuple(gate.qubits),
+                gate.__class__.__name__ == "M" and not getattr(gate, "collapse", False),
+            )
             for gate in circuit.queue
         ]
-    if isinstance(circuit, QuantumCircuit):
-        return [
+    elif isinstance(circuit, QuantumCircuit):
+        gates = [
             (
                 instruction.operation.name.upper(),
                 (
@@ -240,8 +245,17 @@ def iter_gates(circuit):
                     if instruction.operation.name == "barrier"
                     else tuple(circuit.find_bit(q).index for q in instruction.qubits)
                 ),
+                instruction.operation.name == "measure",
             )
             for instruction in circuit.data
+        ]
+    else:
+        gates = None
+    if gates is not None:
+        final = _final_measurements([(m, qubits) for _, qubits, m in gates])
+        return [
+            (name, () if position in final else qubits)
+            for position, (name, qubits, _) in enumerate(gates)
         ]
     if isinstance(circuit, PyKernelDecorator):
         # CUDA-Q has no gate-iteration API; reuse the source parser that

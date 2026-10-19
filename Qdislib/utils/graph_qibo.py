@@ -94,6 +94,30 @@ def _unpack_parameters(parameters):
     return (parameters,)
 
 
+def _final_measurements(operations):
+    """Positions of the measurements that end their qubits.
+
+    ``operations`` is the circuit in order as ``(is_measurement, qubits)`` pairs.
+    A measurement with no later non-measurement operation on any of its qubits
+    does not change an expectation value -- Qdislib measures every qubit at the
+    end anyway -- so the DAG converters leave it out (keeping the numbering).
+    Kept, it would read as a gate cut's own mid-circuit ``measure`` marker, or as
+    a gate joining all the qubits it measures. Measurements followed by more
+    gates do change the state and are kept.
+
+    :return: The set of 0-based positions of such final measurements.
+    """
+    final, touched_later = set(), set()
+    for position in range(len(operations) - 1, -1, -1):
+        is_measurement, qubits = operations[position]
+        if is_measurement:
+            if not touched_later.intersection(qubits):
+                final.add(position)
+        else:
+            touched_later.update(qubits)
+    return final
+
+
 def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph:
     """Convert a Qibo circuit into a directed acyclic graph (DAG) where each node represents a gate.
 
@@ -137,8 +161,22 @@ def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph
     # Create a directed graph
     dag = networkx.DiGraph()
 
+    # A final M is left out (see _final_measurements); a collapsing M is a gate
+    # cut's own cut-point measurement and always kept.
+    final = _final_measurements(
+        [
+            (
+                isinstance(gate, gates.M) and not getattr(gate, "collapse", False),
+                gate.qubits,
+            )
+            for gate in circuit.queue
+        ]
+    )
+
     # Add gates to the DAG as nodes with unique identifiers
     for gate_idx, gate in enumerate(circuit.queue, start=1):
+        if gate_idx - 1 in final:
+            continue
         # Unique identifier for each gate instance
         gate_name = f"{gate.__class__.__name__}_{gate_idx}".upper()
 

@@ -336,5 +336,82 @@ class SerialWireCutsTest(BaseTimedTestCase):
             self.assertLess(abs(counts.get(key, 0) / total - p), 0.03, key)
 
 
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class FinalMeasurementTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#4: a circuit's final measurements change nothing."""
+
+    @staticmethod
+    def _qiskit(measure):
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(2)
+        circuit.ry(0.7, 0)
+        circuit.ry(1.2, 1)
+        circuit.cz(0, 1)
+        circuit.rx(0.5, 0)
+        circuit.ry(0.3, 1)
+        if measure:
+            circuit.measure_all()
+        return circuit
+
+    def test_qiskit_measure_all(self):
+        import Qdislib as qd
+
+        exact = _exact(self._qiskit(False), "ZZ")
+        for cut in (["CZ_3"], []):
+            value = qd.gate_cutting(
+                self._qiskit(True), cut, observables="ZZ", shots=40000
+            )
+            self.assertLess(abs(value - exact), 0.05, cut)
+
+    def test_qibo_final_m(self):
+        import Qdislib as qd
+        from qibo import models, gates
+
+        def build(measure):
+            circuit = models.Circuit(2)
+            circuit.add(gates.RY(0, 0.7))
+            circuit.add(gates.RY(1, 1.2))
+            circuit.add(gates.CZ(0, 1))
+            circuit.add(gates.RX(0, 0.5))
+            if measure:
+                circuit.add(gates.M(0, 1))
+            return circuit
+
+        exact = qd.analytical_solution(build(False), "ZZ")
+        value = qd.gate_cutting(
+            build(True), ["CZ_3"], observables="ZZ", software="qibo", shots=40000
+        )
+        self.assertLess(abs(value - exact), 0.05)
+        # M(0, 1) must not look like a two-qubit gate to find_cut.
+        self.assertEqual(qd.find_cut(build(True), wire_cut=False, seed=0), ["CZ_3"])
+
+    def test_estimate(self):
+        import Qdislib as qd
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(3)
+        circuit.h(0)
+        circuit.cz(0, 1)
+        circuit.cz(1, 2)
+        circuit.measure_all()
+        value = qd.estimate(circuit, "ZZZ", max_qubits=2, software="qiskit")
+        self.assertLess(abs(value - 0.0), 0.1)
+
+    def test_mid_circuit_measurement_is_kept(self):
+        import Qdislib as qd
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(2, 1)
+        circuit.h(0)
+        circuit.measure(0, 0)
+        circuit.h(0)
+        circuit.cz(0, 1)
+        gates = [
+            data["gate"] for _, data in qd.convert_to_dag(circuit).nodes(data=True)
+        ]
+        self.assertIn("measure", gates)
+
+
 if __name__ == "__main__":
     unittest.main()

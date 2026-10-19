@@ -44,7 +44,7 @@ except ImportError:  # qiskit is optional; functions that need it fail when call
     QuantumCircuit = QuantumRegister = ClassicalRegister = None
     qiskit_available = False
 
-from Qdislib.utils.graph_qibo import _update_qubits_serie
+from Qdislib.utils.graph_qibo import _final_measurements, _update_qubits_serie
 
 from Qdislib.utils.runtime import task
 
@@ -131,10 +131,25 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
     # Create a directed graph
     dag = networkx.DiGraph()
 
+    # A final measure (e.g. from measure_all) is left out: see _final_measurements.
+    final = _final_measurements(
+        [
+            (
+                gate.operation.name == "measure",
+                (
+                    []  # a barrier is no operation on its qubits
+                    if gate.operation.name == "barrier"
+                    else [circuit.find_bit(q).index for q in gate.qubits]
+                ),
+            )
+            for gate in circuit.data
+        ]
+    )
+
     # Add gates to the DAG as nodes with unique identifiers
     for gate_idx, gate in enumerate(circuit.data, start=1):
 
-        if gate.operation.name != "barrier":
+        if gate.operation.name != "barrier" and gate_idx - 1 not in final:
 
             # Unique identifier for each gate instance
             gate_name = f"{gate.operation.name}_{gate_idx}".upper()
