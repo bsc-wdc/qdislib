@@ -94,3 +94,27 @@ class CircuitTest(BaseTimedTestCase):
             self.assertTrue(True)
         else:
             self.assertTrue(False)
+
+    def test_zero_budgets_are_limits_not_none(self):
+        """bsc-wdc/qdislib#15: max_cuts=0 allows no cut; max_qubits=0 is rejected."""
+        from Qdislib.core.find_cut.find_cut import find_cut
+        from qibo import models, gates
+
+        def build():
+            circuit = models.Circuit(3)
+            for q in range(3):
+                circuit.add(gates.RY(q, 0.3))
+            circuit.add(gates.CZ(0, 1))
+            circuit.add(gates.RY(1, 0.4))
+            circuit.add(gates.CZ(1, 2))
+            return circuit
+
+        self.assertTrue(find_cut(build(), max_qubits=2, seed=0))
+        for kwargs in ({}, {"gate_cut": False}, {"wire_cut": False}):
+            self.assertEqual(
+                find_cut(build(), max_qubits=2, max_cuts=0, seed=0, **kwargs), []
+            )
+        with self.assertRaises(ValueError):
+            find_cut(build(), max_qubits=0)
+        with self.assertRaises(ValueError):
+            find_cut(build(), max_cuts=-1)
