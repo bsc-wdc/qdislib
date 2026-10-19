@@ -5,7 +5,6 @@ typing-extensions
 numpy
 networkx
 matplotlib
-igraph
 scikit-learn
 Sphinx>=8.0.2,<9.0.0
 sphinxcontrib.contentui==0.2.5

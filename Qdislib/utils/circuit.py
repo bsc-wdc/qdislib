@@ -37,7 +37,6 @@ __all__ = [
     "from_qasm",
 ]
 
-import igraph
 import inspect
 import numpy as np
 import random
@@ -322,18 +321,20 @@ def _random_circuit(
     :raise QdislibException: If num_cz or p are both None.
     :return: New random circuit.
     """
+    import networkx
+
+    # Seeded from `random`, so random.seed() keeps the whole circuit reproducible.
+    seed = random.randrange(2**32)
     if p == None:
-        graph = igraph.Graph.Erdos_Renyi(
-            n=qubits, m=num_cz, directed=False, loops=False
-        )
+        graph = networkx.gnm_random_graph(qubits, num_cz, seed=seed)
     elif num_cz == None:
-        graph = igraph.Graph.Erdos_Renyi(n=qubits, p=p, directed=False, loops=False)
+        graph = networkx.gnp_random_graph(qubits, p, seed=seed)
     else:
         raise QdislibException(
             "Error: only the number of edges or the probability of adding an edge must be specified"
         )
 
-    edge_list = graph.get_edgelist()
+    edge_list = list(graph.edges())
 
     gates_pull = [gates.X, gates.H, gates.S, gates.T]  # pull of single-qubit gates
     circuit = models.Circuit(qubits)
