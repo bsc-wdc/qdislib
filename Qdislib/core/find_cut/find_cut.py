@@ -221,7 +221,7 @@ def _find_best_kernighan_lin_partition(
         for ele in sorted(list(c) for c in partition):
             if max_qubits and len(ele) > max_qubits:
                 flag = True
-        if max_cuts and cutset_size > max_cuts:
+        if max_cuts is not None and cutset_size > max_cuts:
             flag = True
         # This run violates the qubit/cut budget: skip it and try the next
         # random partition rather than abandoning the whole search.
@@ -271,7 +271,7 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
         if flag:
             break
 
-    if max_cuts and cut_wires > max_cuts:
+    if max_cuts is not None and cut_wires > max_cuts:
         return [], []
     elif cut_edges == []:
         return [], []
@@ -321,7 +321,7 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts, seed=N
             # gates_list = [value["gate"] for value in data.values()]
             cut_edges = cut_edges + [gate["gate"]]
 
-    if max_cuts and len(cut_edges) > max_cuts:
+    if max_cuts is not None and len(cut_edges) > max_cuts:
         return [], []
     elif cut_edges == []:
         return [], []
@@ -358,7 +358,7 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
             # data = graph.get_edge_data(u, v)
             # gates_list = [value["gate"] for value in data.values()]
             cut_edges = cut_edges + [gate["gate"]]
-    if max_cuts and len(cut_edges) > max_cuts:
+    if max_cuts is not None and len(cut_edges) > max_cuts:
         return [], []
     elif cut_edges == []:
         return [], []
@@ -767,6 +767,9 @@ def _find_cut_mixed(
     from networkx.algorithms.community import kernighan_lin_bisection
 
     empty = {"gate": [], "wire": []}
+    if max_cuts == 0:
+        # No cut allowed: a hard stop, unlike a budget that is merely exceeded.
+        return empty
     graph = _circuit_to_mixed_graph(circuit, gate_cost, wire_cost)
     if graph.number_of_nodes() < 2 or graph.number_of_edges() == 0:
         return empty
@@ -899,7 +902,8 @@ def find_cut(
 
     max_cuts : int, optional
         Maximum number of cuts permitted across the circuit. Controls the complexity
-        and computational overhead of the partitioning.
+        and computational overhead of the partitioning. ``0`` allows no cut, so the
+        result is ``[]`` (``{"gate": [], "wire": []}`` with ``mixed=True``).
 
     wire_cut : bool, default=True
         Whether to consider wire cuts (cutting dependencies between gates)
@@ -973,6 +977,9 @@ def find_cut(
 
     Raises
     ------
+    ValueError
+        If ``max_qubits`` is less than 1 or ``max_cuts`` is negative.
+
     NameError
         If neither `wire_cut` nor `gate_cut` is enabled.
 
@@ -996,6 +1003,11 @@ def find_cut(
     >>> cut = find_cut(my_circuit, max_qubits=5, gate_cut=True, wire_cut=False)
     >>> print(cut)  # Output: Best cut information (e.g., ['CX_3'])
     """
+    # 0 is a budget, not "no limit": check against None, never truthiness.
+    if max_qubits is not None and max_qubits < 1:
+        raise ValueError(f"max_qubits must be at least 1, got {max_qubits}")
+    if max_cuts is not None and max_cuts < 0:
+        raise ValueError(f"max_cuts must be 0 or more, got {max_cuts}")
 
     if implementation == "qdislib":
         # Before searching for a cut, check whether one is needed. A circuit
@@ -1057,7 +1069,7 @@ def find_cut(
                     for gate_id, distance in ranked[:top_n]
                 ]
             best = [gate_id for gate_id, _ in ranked]
-            if not best:
+            if not best and max_cuts != 0:
                 logger.warning(
                     "find_cut (SparseCut) found no routing two-qubit gate to cut: "
                     "every two-qubit gate is already adjacent on the coupling map, or "

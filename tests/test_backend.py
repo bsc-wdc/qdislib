@@ -127,6 +127,16 @@ class QiboBackendTest(BaseTimedTestCase):
         smp = be.sample_circuit(_qibo_circuit(), shots=4000)
         self.assertEqual(sum(smp.counts.values()), 4000)
 
+    def test_sample_leaves_caller_circuit_unchanged(self):
+        """bsc-wdc/qdislib#12: sampling must not add M to the caller's circuit."""
+        import Qdislib as qd
+
+        circuit = _qibo_circuit()
+        be = qd.QdBackEnd({"QIBO_BACKEND": {"num_qubits": 5}})
+        be.sample_circuit(circuit, shots=100)
+        self.assertEqual([g.name for g in circuit.queue], ["ry", "cz", "ry"])
+        self.assertFalse(circuit.measurements)
+
 
 @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq required")
 class CudaqBackendTest(BaseTimedTestCase):

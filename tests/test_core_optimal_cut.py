@@ -94,3 +94,36 @@ class CircuitTest(BaseTimedTestCase):
             self.assertTrue(True)
         else:
             self.assertTrue(False)
+
+    def test_zero_budgets_are_limits_not_none(self):
+        """bsc-wdc/qdislib#15: max_cuts=0 allows no cut; max_qubits=0 is rejected."""
+        from Qdislib.core.find_cut.find_cut import find_cut
+        from qibo import models, gates
+
+        def build():
+            circuit = models.Circuit(3)
+            for q in range(3):
+                circuit.add(gates.RY(q, 0.3))
+            circuit.add(gates.CZ(0, 1))
+            circuit.add(gates.RY(1, 0.4))
+            circuit.add(gates.CZ(1, 2))
+            return circuit
+
+        self.assertTrue(find_cut(build(), max_qubits=2, seed=0))
+        for kwargs in ({}, {"gate_cut": False}, {"wire_cut": False}):
+            self.assertEqual(
+                find_cut(build(), max_qubits=2, max_cuts=0, seed=0, **kwargs), []
+            )
+        # Mixed mode returns an over-budget cut with a warning, but 0 is a hard stop.
+        self.assertEqual(
+            find_cut(build(), max_qubits=2, max_cuts=0, seed=0, mixed=True),
+            {"gate": [], "wire": []},
+        )
+        # q1 and q2 are two hops apart here, so CZ(1, 2) is a SparseCut candidate.
+        star = [(0, 1), (0, 2)]
+        self.assertTrue(find_cut(build(), coupling_map=star))
+        self.assertEqual(find_cut(build(), max_cuts=0, coupling_map=star), [])
+        with self.assertRaises(ValueError):
+            find_cut(build(), max_qubits=0)
+        with self.assertRaises(ValueError):
+            find_cut(build(), max_cuts=-1)

@@ -328,6 +328,28 @@ class CircuitTest(BaseTimedTestCase):
         else:
             self.assertTrue(False)
 
+    def test_wire_cutting_default_software_follows_circuit(self):
+        """bsc-wdc/qdislib#14: a Qiskit circuit with cx runs without naming software."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.utils.circuit import analytical_solution
+        from qibo import models, gates
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.cx(0, 1)
+        qc.ry(0.3, 1)
+
+        circ = models.Circuit(2)
+        circ.add(gates.H(0))
+        circ.add(gates.CNOT(0, 1))
+        circ.add(gates.RY(1, 0.3))
+
+        reconstruction = wire_cutting(
+            qc, [("CX_2", "RY_3")], observables="ZZ", shots=20000
+        )
+        self.assertLess(abs(reconstruction - analytical_solution(circ, "ZZ")), 0.05)
+
     @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq not installed")
     def test_wire_cutting_cudaq(self):
         from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting

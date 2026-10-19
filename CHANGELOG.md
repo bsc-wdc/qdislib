@@ -26,6 +26,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **Qiskit circuits with more than one quantum register were cut on the wrong
+  qubits.** `circuit_qiskit_to_dag` and `iter_gates` (which `find_cut` reads) used
+  each qubit's index within its own register, so a gate between `a[0]` and `b[0]`
+  landed on `(0, 0)` and cutting returned a wrong value with no error. They now use
+  the global index (`circuit.find_bit(q).index`). Contributed by David Ryan
+  (bsc-wdc/qdislib#5, fixes bsc-wdc/qdislib#2).
+- **Sampling on `QIBO_BACKEND` changed the caller's circuit.** `sample_circuit`
+  added an `M` gate to the Qibo circuit it was given, so every later run of that
+  circuit read the wrong result. It now samples a copy. Reported by David Ryan
+  (bsc-wdc/qdislib#12).
+- **`find_cut(max_cuts=0)` still returned a cut.** The budget checks treated `0` as
+  "no limit". `max_cuts=0` now allows no cut in every mode, including `mixed=True`
+  (which otherwise still returns an over-budget cut with a warning), and
+  `max_qubits < 1` or `max_cuts < 0` raise `ValueError`. Reported by David Ryan
+  (bsc-wdc/qdislib#15).
+- **`wire_cutting(optimized=True)` was ignored for a weighted sum of Paulis.** Each
+  term of the Hamiltonian ran the standard 8**n reconstruction instead of the
+  optimized one.
 - **A Qiskit subcircuit could only be evaluated once.** `_counts_qiskit` (and the
   GPU/QPU evaluators) appended `measure_all` **in place**, so evaluating the same
   cut twice -- simulate first, then submit to hardware -- silently read the wrong
@@ -45,6 +63,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **`wire_cutting` runs the subcircuits in the circuit's own SDK by default.**
+  `software` defaulted to `"qibo"` whatever the input, so a Qiskit circuit
+  containing `cx` failed unless `software="qiskit"` was passed. The default is now
+  taken from the circuit (`"qibo"` for a DAG, as before). Reported by David Ryan
+  (bsc-wdc/qdislib#14).
 - **Backend options are named directly on `BackendConfig`** --
   `BackendConfig(quantum_computer="garnet")` rather than
   `BackendConfig(20, extra={"quantum_computer": "garnet"})`. They are still
