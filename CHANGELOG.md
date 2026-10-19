@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`CombinedCutSubcircuits`**: the subcircuit container `*_subcircuits` return
+  when a circuit has several independent pieces or the observable is a weighted
+  Pauli sum. It is still one flat list to evaluate; `reconstruct` multiplies the
+  pieces' results or sums the terms with their coefficients.
 - **The IQM backend can run a cut circuit on IQM hardware.** `IQMBackend` now
   implements the cutting hooks (`evaluate_expectation` for the all-in-one path,
   `evaluate_subcircuit` for the three-step one), reconstructing each subcircuit's
@@ -26,6 +30,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **Several gate cuts on one qubit lost all but one sign.** Two cuts on the same
+  qubit pair, or a general gate decomposed into several CZs (SWAP, RXX, ...),
+  kept only the last cut-point outcome on the Qiskit path (two CZ cuts: +0.07
+  instead of -0.95), and on the sampling paths of every backend. Each cut now
+  keeps its own outcome. Reported by David Ryan (bsc-wdc/qdislib#3).
+- **A circuit's final measurements broke gate cutting.** Qiskit's `measure_all()`
+  was read as the gate cut's own cut-point measurement (ZZ gave 1.0 instead of
+  -0.009), and a final Qibo `M(0, 1)` joined all its qubits so a valid cut was
+  rejected. Final measurements are now left out of the DAG; measurements followed
+  by more gates are kept. Reported by David Ryan (bsc-wdc/qdislib#4).
+- **The three-step workflow ignored a weighted Pauli sum** and gave the all-Z
+  value; `gate_cutting_hadamard` silently read a list, or an X/Y, as identity and
+  now raises `ValueError`. Reported by David Ryan (bsc-wdc/qdislib#6).
+- **Two wire cuts in series on one wire gave a wrong value** (0.000 instead of
+  -0.226): the second cut used the qubit index from before the first one moved
+  the wire. Reported by David Ryan (bsc-wdc/qdislib#7).
+- **`*_subcircuits` and `cache=` were wrong when part of the circuit was not
+  cut**, or when several pieces were cut (+0.75 instead of +0.17): the pieces'
+  subcircuits were grouped by guessing from the list length. Reported by David
+  Ryan (bsc-wdc/qdislib#9).
+- **`find_cut` wire mode ignored `max_qubits` and `forbidden_qubits`.** It
+  counted gates instead of qubits, and never matched a protected wire. Every wire
+  candidate is now checked as `wire_cutting` will apply it. Reported by David Ryan
+  (bsc-wdc/qdislib#10).
+- **The circuit cache served one circuit's result for the same circuit on other
+  qubits** (X on qubit 0 vs qubit 1): the ZX key now tells qubits apart. Entries
+  stored under the old keys are no longer hit. Reported by David Ryan
+  (bsc-wdc/qdislib#11).
+- **A Qibo CU3 changed meaning on the Aer backend** (0.999 instead of 0.696), and
+  Qibo circuits with SWAP, SX, CRX, RXX, iSWAP, CCZ and similar gates could not be
+  converted for Aer at all. Reported by David Ryan (bsc-wdc/qdislib#13).
+- **`find_cut` could return a cut on a Qiskit barrier**, which `wire_cutting` then
+  rejected with `KeyError`. Reported by David Ryan (bsc-wdc/qdislib#16).
 - **Qiskit circuits with more than one quantum register were cut on the wrong
   qubits.** `circuit_qiskit_to_dag` and `iter_gates` (which `find_cut` reads) used
   each qubit's index within its own register, so a gate between `a[0]` and `b[0]`
