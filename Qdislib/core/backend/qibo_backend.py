@@ -98,7 +98,9 @@ class QiboBackend(BaseBackend):
         from qibo import gates
 
         qibo.set_backend(self._platform)
-        qc = CircuitConverter.to_qibo(circuit)
+        # Copy: to_qibo returns a Qibo circuit as-is, and adding M to the caller's
+        # circuit would change every later run of it.
+        qc = CircuitConverter.to_qibo(circuit).copy(deep=True)
         if not qc.measurements:
             qc.add(gates.M(*range(qc.nqubits)))
         result = qc(nshots=shots)
