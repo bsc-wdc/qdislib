@@ -38,6 +38,18 @@ default:
     - . .venv-ci/bin/activate
     - python --version
 
+# Wheels such as scikit-learn and qiskit-aer each bundle their own OpenMP runtime
+# (<package>.libs/libgomp-<hash>.so). On this node's glibc (Debian 11, 2.31) such a
+# library fails to load late in a process -- "cannot allocate memory in static TLS
+# block" -- once other extensions have used up the static TLS reserve; the more
+# SDKs a job installs, the sooner. Preloading every copy gives each its slot at
+# startup. (GLIBC_TUNABLES=glibc.rtld.optional_static_tls would need glibc 2.32.)
+# Run after the install step, so the libraries exist.
+.preload_openmp:
+  script:
+    - export LD_PRELOAD="$(python -c 'import os, site; sp = site.getsitepackages()[0]; print(":".join(sorted(os.path.join(d, f) for d, _, fs in os.walk(sp) for f in fs if f.startswith("libgomp") and ".so" in f)))')"
+    - echo "LD_PRELOAD=$LD_PRELOAD"
+
 # ---------------------------------------------------------------------------
 # Lint
 # ---------------------------------------------------------------------------
@@ -55,13 +67,7 @@ test:
   stage: test
   script:
     - uv pip install ".[qibo,qiskit,cache,ci]"
-    # scikit-learn bundles its own OpenMP runtime (libgomp). On this node's glibc
-    # (Debian 11, 2.31) it fails to load late in a process ("cannot allocate
-    # memory in static TLS block") once other extensions have used up the
-    # static TLS reserve, breaking find_cut. Preloading gives it its slot at
-    # startup. (GLIBC_TUNABLES=glibc.rtld.optional_static_tls needs glibc 2.32.)
-    - export LD_PRELOAD="$(python -c 'import glob, site; print(":".join(glob.glob(site.getsitepackages()[0] + "/scikit_learn.libs/libgomp*.so*")))')"
-    - echo "LD_PRELOAD=$LD_PRELOAD"
+    - !reference [.preload_openmp, script]
     - python -m unittest discover -s tests/ -v
 
 # ---------------------------------------------------------------------------
@@ -71,9 +77,7 @@ coverage:
   stage: test
   script:
     - uv pip install ".[qibo,qiskit,cache,ci]"
-    # Same libgomp preload as the test job.
-    - export LD_PRELOAD="$(python -c 'import glob, site; print(":".join(glob.glob(site.getsitepackages()[0] + "/scikit_learn.libs/libgomp*.so*")))')"
-    - echo "LD_PRELOAD=$LD_PRELOAD"
+    - !reference [.preload_openmp, script]
     - coverage run -m unittest discover -s tests/
     - coverage report
     - coverage xml
@@ -122,7 +126,5 @@ test:cudaq:
   allow_failure: true
   script:
     - uv pip install ".[all,ci]"
-    # Same libgomp preload as the test job.
-    - export LD_PRELOAD="$(python -c 'import glob, site; print(":".join(glob.glob(site.getsitepackages()[0] + "/scikit_learn.libs/libgomp*.so*")))')"
-    - echo "LD_PRELOAD=$LD_PRELOAD"
+    - !reference [.preload_openmp, script]
     - python -m unittest discover -s tests/ -v
