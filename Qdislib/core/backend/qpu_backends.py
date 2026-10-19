@@ -199,5 +199,9 @@ class IBMBackend(_QpuBackendBase):
 
         subcirc = dag_to_circuit_qiskit(dag, num_qubits)
         return _expec_value_qiskit_qpu(
-            subcirc, shots=shots, batch=self._session, backend=self._ibm_backend
+            subcirc,
+            shots=shots,
+            batch=self._session,
+            backend=self._ibm_backend,
+            prep_qubits=list(prep_qubits) or None,
         )

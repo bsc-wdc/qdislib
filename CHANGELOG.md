@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **Gate cutting on IBM Quantum hardware returned about 0 for any measured cut.**
+  The IBM reader looked only at the final measurements, so it dropped every
+  cut's decomposition sign, and it ran the sampler with its default shot count
+  while dividing by `shots`. It now reads the cut-point registers like the
+  simulators and passes `shots`; checked through SamplerV2 in local testing mode.
 - **Several gate cuts on one qubit lost all but one sign.** Two cuts on the same
   qubit pair, or a general gate decomposed into several CZs (SWAP, RXX, ...),
   kept only the last cut-point outcome on the Qiskit path (two CZ cuts: +0.07
