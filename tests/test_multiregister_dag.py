@@ -58,3 +58,15 @@ class MultiRegisterDagTest(BaseTimedTestCase):
             2,
             "cx collapsed to a self-loop (per-register index bug)",
         )
+
+    def test_iter_gates_multi_register_global_indices(self):
+        """find_cut reads qubits through iter_gates, so it must use global indices too."""
+        from Qdislib.utils.backends import iter_gates
+
+        a = QuantumRegister(2, "a")
+        b = QuantumRegister(2, "b")
+        qc = QuantumCircuit(a, b)
+        qc.cx(a[0], b[0])  # global qubits 0 and 2
+        qc.x(b[1])  # global qubit 3
+
+        self.assertEqual(iter_gates(qc), [("CX", (0, 2)), ("X", (3,))])
