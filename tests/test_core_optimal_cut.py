@@ -127,3 +127,27 @@ class CircuitTest(BaseTimedTestCase):
             find_cut(build(), max_qubits=0)
         with self.assertRaises(ValueError):
             find_cut(build(), max_cuts=-1)
+
+    def test_barriers_are_never_cut(self):
+        """bsc-wdc/qdislib#16: a Qiskit barrier is not a cut point in any mode."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
+        from Qdislib.core.find_cut.find_cut import find_cut
+        from qiskit import QuantumCircuit
+
+        def build():
+            circuit = QuantumCircuit(3)
+            circuit.h(0)
+            circuit.barrier()
+            circuit.ry(0.4, 1)
+            circuit.cz(0, 1)
+            circuit.cz(1, 2)
+            circuit.ry(0.2, 2)
+            return circuit
+
+        wire = find_cut(build(), gate_cut=False, max_qubits=2, seed=0)
+        gate = find_cut(build(), wire_cut=False, max_qubits=2, seed=0)
+        mixed = find_cut(build(), max_qubits=2, seed=0, mixed=True)
+        self.assertTrue(wire)
+        self.assertNotIn("BARRIER", repr((wire, gate, mixed)))
+        # The cut must be usable: the barrier's index is kept, so names line up.
+        wire_cutting(build(), wire, observables="ZZZ", software="qiskit", shots=1000)

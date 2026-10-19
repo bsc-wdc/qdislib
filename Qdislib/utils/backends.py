@@ -217,7 +217,9 @@ def iter_gates(circuit):
     - ``qubits`` is a tuple of integer qubit indices the gate acts on.
 
     One entry is produced per operation, in circuit order, matching the 1-based
-    indexing used by the DAG converters.
+    indexing used by the DAG converters. A Qiskit ``barrier`` keeps its slot (the
+    DAG converter skips it but keeps the numbering) but acts on no qubit, so it is
+    never offered as a cut.
 
     :param circuit: A Qibo ``Circuit``, Qiskit ``QuantumCircuit`` or CUDA-Q kernel.
     :raises TypeError: If the circuit type is not recognised.
@@ -232,7 +234,11 @@ def iter_gates(circuit):
         return [
             (
                 instruction.operation.name.upper(),
-                tuple(circuit.find_bit(q).index for q in instruction.qubits),
+                (
+                    ()
+                    if instruction.operation.name == "barrier"
+                    else tuple(circuit.find_bit(q).index for q in instruction.qubits)
+                ),
             )
             for instruction in circuit.data
         ]
