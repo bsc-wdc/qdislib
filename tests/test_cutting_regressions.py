@@ -157,5 +157,319 @@ class IsolatedQubitAfterCutTest(BaseTimedTestCase):
         self.assertEqual((highest, smallest), (1, 0))
 
 
+def _exact(circuit, pauli):
+    """<pauli> of a Qiskit circuit, pauli qubit-0-first."""
+    from qiskit.quantum_info import SparsePauliOp, Statevector
+
+    return float(
+        Statevector(circuit).expectation_value(SparsePauliOp(pauli[::-1])).real
+    )
+
+
+def _two_blocks():
+    """Qubits 0-1 and qubits 2-3 never interact: two disconnected pieces."""
+    from qiskit import QuantumCircuit
+
+    circuit = QuantumCircuit(4)
+    circuit.ry(0.5, 0)
+    circuit.ry(0.7, 1)
+    circuit.cz(0, 1)
+    circuit.rx(0.4, 1)
+    circuit.ry(1.1, 2)
+    circuit.ry(0.3, 3)
+    circuit.cz(2, 3)
+    circuit.rx(0.9, 2)
+    return circuit
+
+
+def _three_step(subcircuits, shots=60000):
+    import Qdislib as qd
+
+    return subcircuits.reconstruct(
+        [qd.expectation_value(s, shots=shots) for s in subcircuits]
+    )
+
+
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class SubcircuitsGroupingTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#9: a piece that is not cut must not shift the grouping."""
+
+    def test_gate_cut_with_an_uncut_piece(self):
+        import Qdislib as qd
+
+        subs = qd.gate_cutting_subcircuits(
+            _two_blocks(), ["CZ_3"], observables="ZZZZ", software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
+
+    def test_gate_cut_on_both_pieces(self):
+        import Qdislib as qd
+
+        subs = qd.gate_cutting_subcircuits(
+            _two_blocks(), ["CZ_3", "CZ_7"], observables="ZZZZ", software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
+
+    def test_wire_cut_with_an_uncut_piece(self):
+        import Qdislib as qd
+
+        subs = qd.wire_cutting_subcircuits(
+            _two_blocks(), [("RY_1", "CZ_3")], observables="ZZZZ", software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
+
+    def test_cache_with_an_uncut_piece(self):
+        import Qdislib as qd
+
+        value = qd.gate_cutting(
+            _two_blocks(),
+            ["CZ_3"],
+            observables="ZZZZ",
+            shots=60000,
+            cache=qd.InMemoryCircuitCache(),
+        )
+        self.assertLess(abs(value - _exact(_two_blocks(), "ZZZZ")), 0.05)
+
+
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class SubcircuitsPauliSumTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#6: the three-step workflow honours a weighted Pauli sum."""
+
+    H = [(0.5, "ZZZZ"), (-1.0, "IZIZ"), (0.3, "XIZI")]
+
+    def _exact_h(self):
+        return sum(c * _exact(_two_blocks(), p) for c, p in self.H)
+
+    def test_gate_cutting_subcircuits(self):
+        import Qdislib as qd
+
+        subs = qd.gate_cutting_subcircuits(
+            _two_blocks(), ["CZ_3"], observables=self.H, software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - self._exact_h()), 0.05)
+
+    def test_wire_cutting_subcircuits(self):
+        import Qdislib as qd
+
+        subs = qd.wire_cutting_subcircuits(
+            _two_blocks(), [("RY_1", "CZ_3")], observables=self.H, software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - self._exact_h()), 0.05)
+
+    def test_reconstruct_checks_the_value_count(self):
+        import Qdislib as qd
+
+        subs = qd.gate_cutting_subcircuits(
+            _two_blocks(), ["CZ_3"], observables=self.H, software="qiskit"
+        )
+        with self.assertRaises(ValueError):
+            subs.reconstruct([0.0] * (len(subs) - 1))
+
+    def test_hadamard_rejects_what_it_cannot_measure(self):
+        import Qdislib as qd
+
+        for observable in (self.H, "XZZZ"):
+            with self.assertRaises(ValueError):
+                qd.gate_cutting_hadamard(
+                    _two_blocks(), ["CZ_3"], observable=observable, shots=100
+                )
+
+
+def _serial_wire():
+    """Qubit 0 runs H, RY, RX, CZ, RY: two wire cuts in series fit on it."""
+    from qiskit import QuantumCircuit
+
+    circuit = QuantumCircuit(2)
+    circuit.h(0)
+    circuit.ry(0.7, 0)
+    circuit.rx(0.4, 0)
+    circuit.h(1)
+    circuit.cz(0, 1)
+    circuit.ry(0.3, 0)
+    return circuit
+
+
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class SerialWireCutsTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#7: two cuts one after the other on the same wire."""
+
+    CUTS = [("H_1", "RY_2"), ("RY_2", "RX_3")]
+
+    def test_expectation_paths(self):
+        import Qdislib as qd
+
+        exact = _exact(_serial_wire(), "ZZ")
+        for kwargs in ({}, {"optimized": True}):
+            value = qd.wire_cutting(
+                _serial_wire(),
+                self.CUTS,
+                observables="ZZ",
+                software="qiskit",
+                shots=40000,
+                **kwargs,
+            )
+            self.assertLess(abs(value - exact), 0.05, kwargs)
+        for cuts in (self.CUTS[::-1],):
+            value = qd.wire_cutting(
+                _serial_wire(), cuts, observables="ZZ", software="qiskit", shots=40000
+            )
+            self.assertLess(abs(value - exact), 0.05, cuts)
+        subs = qd.wire_cutting_subcircuits(
+            _serial_wire(), self.CUTS, observables="ZZ", software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs, shots=40000) - exact), 0.05)
+
+    def test_sampling(self):
+        import Qdislib as qd
+        from qiskit.quantum_info import Statevector
+
+        # Qiskit keys are little-endian; Qdislib's are qubit-0-first.
+        exact = {
+            key[::-1]: p
+            for key, p in Statevector(_serial_wire()).probabilities_dict().items()
+        }
+        counts = qd.wire_cutting_sampling(
+            _serial_wire(), self.CUTS, shots=40000, software="qiskit"
+        )
+        total = sum(counts.values())
+        for key, p in exact.items():
+            self.assertLess(abs(counts.get(key, 0) / total - p), 0.03, key)
+
+
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class FinalMeasurementTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#4: a circuit's final measurements change nothing."""
+
+    @staticmethod
+    def _qiskit(measure):
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(2)
+        circuit.ry(0.7, 0)
+        circuit.ry(1.2, 1)
+        circuit.cz(0, 1)
+        circuit.rx(0.5, 0)
+        circuit.ry(0.3, 1)
+        if measure:
+            circuit.measure_all()
+        return circuit
+
+    def test_qiskit_measure_all(self):
+        import Qdislib as qd
+
+        exact = _exact(self._qiskit(False), "ZZ")
+        for cut in (["CZ_3"], []):
+            value = qd.gate_cutting(
+                self._qiskit(True), cut, observables="ZZ", shots=40000
+            )
+            self.assertLess(abs(value - exact), 0.05, cut)
+
+    def test_qibo_final_m(self):
+        import Qdislib as qd
+        from qibo import models, gates
+
+        def build(measure):
+            circuit = models.Circuit(2)
+            circuit.add(gates.RY(0, 0.7))
+            circuit.add(gates.RY(1, 1.2))
+            circuit.add(gates.CZ(0, 1))
+            circuit.add(gates.RX(0, 0.5))
+            if measure:
+                circuit.add(gates.M(0, 1))
+            return circuit
+
+        exact = qd.analytical_solution(build(False), "ZZ")
+        value = qd.gate_cutting(
+            build(True), ["CZ_3"], observables="ZZ", software="qibo", shots=40000
+        )
+        self.assertLess(abs(value - exact), 0.05)
+        # M(0, 1) must not look like a two-qubit gate to find_cut.
+        self.assertEqual(qd.find_cut(build(True), wire_cut=False, seed=0), ["CZ_3"])
+
+    def test_estimate(self):
+        import Qdislib as qd
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(3)
+        circuit.h(0)
+        circuit.cz(0, 1)
+        circuit.cz(1, 2)
+        circuit.measure_all()
+        value = qd.estimate(circuit, "ZZZ", max_qubits=2, software="qiskit")
+        self.assertLess(abs(value - 0.0), 0.1)
+
+    def test_mid_circuit_measurement_is_kept(self):
+        import Qdislib as qd
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(2, 1)
+        circuit.h(0)
+        circuit.measure(0, 0)
+        circuit.h(0)
+        circuit.cz(0, 1)
+        gates = [
+            data["gate"] for _, data in qd.convert_to_dag(circuit).nodes(data=True)
+        ]
+        self.assertIn("measure", gates)
+
+
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class RepeatedGateCutsTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#3: several gate cuts on one qubit keep every sign."""
+
+    @staticmethod
+    def _two_cz():
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(2)
+        circuit.ry(0.7, 0)
+        circuit.rx(1.1, 1)
+        circuit.cz(0, 1)
+        circuit.ry(0.9, 0)
+        circuit.rx(0.6, 1)
+        circuit.cz(0, 1)
+        circuit.ry(0.4, 0)
+        circuit.rx(0.8, 1)
+        return circuit
+
+    def test_two_cz_cuts_on_one_pair(self):
+        import Qdislib as qd
+
+        for observable in ("ZZ", "IZ"):
+            value = qd.gate_cutting(
+                self._two_cz(),
+                ["CZ_3", "CZ_6"],
+                observables=observable,
+                software="qiskit",
+                shots=40000,
+            )
+            exact = _exact(self._two_cz(), observable)
+            self.assertLess(abs(value - exact), 0.08, observable)
+
+    def test_general_gate_decomposed_into_several_cz(self):
+        import Qdislib as qd
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(2)
+        circuit.ry(0.7, 0)
+        circuit.rx(1.1, 1)
+        circuit.rxx(0.5, 0, 1)  # two CZs once decomposed
+        circuit.ry(0.4, 0)
+        circuit.rx(0.8, 1)
+        value = qd.gate_cutting(
+            circuit, ["RXX_3"], observables="ZZ", software="qiskit", shots=40000
+        )
+        self.assertLess(abs(value - _exact(circuit, "ZZ")), 0.08)
+
+    def test_fold_cut_outcomes(self):
+        from Qdislib.core.cutting_algorithms.wire_cutting import _fold_cut_outcomes
+
+        for outcomes in ([0], [1], [0, 0], [0, 1], [1, 1], [1, 0, 1]):
+            product = 1
+            for m in outcomes:
+                product *= -((-1) ** m)
+            self.assertEqual(-((-1) ** _fold_cut_outcomes(outcomes)), product)
+
+
 if __name__ == "__main__":
     unittest.main()

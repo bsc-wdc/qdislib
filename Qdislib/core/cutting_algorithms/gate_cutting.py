@@ -55,7 +55,11 @@ from Qdislib.utils.graph_qibo import (
     _remove_red_edges,
     _max_qubits_graph,
 )
-from Qdislib.core.cutting_algorithms.wire_cutting import _sum_results
+from Qdislib.core.cutting_algorithms.wire_cutting import (
+    _fold_cut_outcomes,
+    _folded_mid_samples,
+    _sum_results,
+)
 from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
 from Qdislib.utils.graph_pennylane import _apply_pennylane_gate, _build_pennylane_qnode
 
@@ -106,6 +110,7 @@ from Qdislib.utils.backends import (
     make_subcircuit,
     _make_subcircuit_task,
     CutSubcircuits,
+    CombinedCutSubcircuits,
 )
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
 
@@ -940,13 +945,26 @@ def _measured_cut_qubits(dag):
     :func:`_expectation_from_counts_qiskit`. Returns an empty set for a ``None``
     component (an empty gate-cut term, tolerated downstream).
     """
+    return frozenset(_cut_measurements(dag))
+
+
+def _cut_measurements(dag):
+    """Like :func:`_measured_cut_qubits`, but one entry per cut measurement, sorted.
+
+    A qubit cut twice appears twice, so each cut's sign is applied (see
+    :func:`_cut_point_rounds`).
+    """
     if dag is None:
-        return frozenset()
-    return frozenset(
-        (dag.nodes[n].get("qubits") or (None,))[0]
-        for n in dag
-        if dag.nodes[n].get("gate") == "measure"
-    ) - {None}
+        return []
+    return sorted(
+        q
+        for q in (
+            (dag.nodes[n].get("qubits") or (None,))[0]
+            for n in dag
+            if dag.nodes[n].get("gate") == "measure"
+        )
+        if q is not None
+    )
 
 
 def _dag_num_qubits(dag):
@@ -985,16 +1003,17 @@ def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots, seed=None):
     qibo.set_backend("numpy")
     if seed is not None:
         np.random.seed(seed)
-    collapse = {
-        g.qubits[0]: g
-        for g in qc.queue
-        if isinstance(g, qgates.M) and getattr(g, "collapse", False)
-    }
+    collapse = {}  # every collapse gate of each qubit (a qubit can be cut twice)
+    for gate in qc.queue:
+        if isinstance(gate, qgates.M) and getattr(gate, "collapse", False):
+            collapse.setdefault(gate.qubits[0], []).append(gate)
     qc.add(qgates.M(*range(qc.nqubits)))
     final = np.asarray(qc(nshots=shots).samples())  # (shots, nqubits), qubit-0-first
     cut = {
         q: (
-            np.asarray(collapse[q].result.samples()).ravel()
+            _fold_cut_outcomes(
+                [np.asarray(c.result.samples()).ravel() for c in collapse[q]]
+            )
             if q in collapse
             else np.zeros(len(final), dtype=int)
         )
@@ -1022,18 +1041,23 @@ def _joint_counts_qiskit(dag, num_qubits, prep_sorted, shots, seed=None):
     if built is None:
         return None
     qc = built[0] if isinstance(built, (list, tuple)) else built
+    rounds = _cut_point_rounds(
+        qc.find_bit(inst.qubits[0]).index
+        for inst in qc.data
+        if inst.operation.name == "measure"
+    )
     counts = _counts_qiskit(qc, shots=shots, seed=seed)
     joint = {}
     for key, cnt in counts.items():
-        regs = key.split()
-        measure_all = regs[0]
-        cut_measure = regs[1] if len(regs) > 1 else ""
+        measure_all = key.split()[0]
         ft = tuple(int(measure_all[num_qubits - 1 - q]) for q in range(num_qubits))
+        # One bit per qubit standing for all its cut-point outcomes: the sign
+        # -(-1)**bit the correlators apply is -1 for bit 0, +1 for bit 1.
         ct = tuple(
             (
-                int(cut_measure[num_qubits - 1 - q])
-                if len(cut_measure) == num_qubits
-                else 0
+                0
+                if _cut_point_sign_qiskit(key, q, rounds.get(q, 1), num_qubits) < 0
+                else 1
             )
             for q in prep_sorted
         )
@@ -1066,7 +1090,9 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None):
         kernel, _obs, measured_order = dag_to_circuit_cudaq_kernel(
             dag, num_qubits, explicit_final=True
         )
-        last_pos = {qb: i for i, qb in enumerate(measured_order)}
+        positions = {}  # every cut-point outcome of each qubit
+        for i, qb in enumerate(measured_order):
+            positions.setdefault(qb, []).append(i)
         n_mid = len(measured_order)
         records = cudaq.run(kernel, shots_count=shots)
         joint = {}
@@ -1074,7 +1100,11 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None):
             # record is an int; bit k = outcome k of [cut-points..., finals...].
             ft = tuple((record >> (n_mid + q)) & 1 for q in range(num_qubits))
             ct = tuple(
-                ((record >> last_pos[q]) & 1) if q in last_pos else 0
+                (
+                    _fold_cut_outcomes([(record >> p) & 1 for p in positions[q]])
+                    if q in positions
+                    else 0
+                )
                 for q in prep_sorted
             )
             joint[(ft, ct)] = joint.get((ft, ct), 0) + 1
@@ -1110,29 +1140,23 @@ def _joint_counts_pennylane(
     circuit = built[0] if isinstance(built, (list, tuple)) else built
     ops, width = circuit.ops, circuit.num_qubits
 
-    collapse_order = []
-    for gate, qubits, _params in ops:
-        if gate.upper() == "MEASURE":
-            for qubit in qubits:
-                if qubit not in collapse_order:
-                    collapse_order.append(qubit)
+    # Every collapse, in circuit order: a qubit cut twice is measured twice.
+    collapse_order = [
+        qubits[0] for gate, qubits, _params in ops if gate.upper() == "MEASURE"
+    ]
 
     def qfunc():
-        mids = {}
+        mids = []
         for gate, qubits, params in ops:
             value = _apply_pennylane_gate(gate, qubits, params)
             if value is not None:  # a MEASURE returns its MeasurementValue
-                mids[qubits[0]] = value
-        return [qml.sample(wires=range(width))] + [
-            qml.sample(mids[qubit]) for qubit in collapse_order
-        ]
+                mids.append(value)
+        return [qml.sample(wires=range(width))] + [qml.sample(value) for value in mids]
 
     qnode = _build_pennylane_qnode(qfunc, width, shots, device, seed)
     out = qnode()
     final = np.asarray(out[0]).reshape(shots, width)
-    mid_samples = {
-        qubit: np.asarray(out[1 + i]).ravel() for i, qubit in enumerate(collapse_order)
-    }
+    mid_samples = _folded_mid_samples(out[1:], collapse_order)
 
     joint = {}
     for shot in range(shots):
@@ -1561,7 +1585,7 @@ def _create_gate_subcircuit(component):
     CUDA-Q kernel cannot cross a task boundary).
     """
     s_new, highest_qubit = _update_qubits(component)
-    prep_qubits = sorted(_measured_cut_qubits(s_new))
+    prep_qubits = _cut_measurements(s_new)
     return (s_new, highest_qubit, prep_qubits)
 
 
@@ -1791,6 +1815,35 @@ def _counts_qiskit(qc, shots=1024, method="automatic", seed=None):
     return counts
 
 
+def _cut_point_rounds(prep_qubits):
+    """``{qubit: number of cut measurements}`` from a list of measured cut qubits.
+
+    A qubit listed twice was cut-measured twice (two gate cuts on one wire, e.g. a
+    general gate decomposed into several CZs). A set counts each qubit once.
+    """
+    rounds = {}
+    for q in prep_qubits or ():
+        rounds[q] = rounds.get(q, 0) + 1
+    return rounds
+
+
+def _cut_point_sign_qiskit(key, q, rounds, num_qubits):
+    """Decomposition sign of qubit ``q`` from a Qiskit counts key.
+
+    Each cut-point outcome ``s`` of ``q`` contributes ``-(-1)**s`` and they
+    multiply, as on the Qibo path. The key is ``"<meas> <c{K}> ... <c2> <c>"``:
+    ``graph_qiskit`` puts a qubit's k-th cut measurement in register ``c{k}``
+    (``c`` for the first), each little-endian.
+    """
+    cut_registers = key.split()[:0:-1]  # c, c2, c3, ...
+    sign = 1
+    for k in range(rounds):
+        bits = cut_registers[k] if k < len(cut_registers) else ""
+        s = int(bits[num_qubits - 1 - q]) if len(bits) == num_qubits else 0
+        sign *= -((-1) ** s)
+    return sign
+
+
 def _expectation_from_counts_qiskit(counts, observables, shots=1024, prep_qubits=None):
     """Compute ``<O>`` for a Z/I Pauli string from Qiskit measurement counts.
 
@@ -1809,35 +1862,29 @@ def _expectation_from_counts_qiskit(counts, observables, shots=1024, prep_qubits
         ``"<measure-all reg> <cut-measure reg c>"`` (space-separated, little-endian).
     :param observables: Per-qubit Pauli string over ``{I, Z}`` (qubit-0-first).
     :param shots: Number of shots the counts were drawn from.
-    :param prep_qubits: Iterable of renumbered qubit indices measured for the cut.
+    :param prep_qubits: Renumbered qubit indices measured for the cut, one entry
+        per cut measurement (a qubit cut twice is listed twice).
     :raises ValueError: If an unsupported observable character is encountered.
     :return: The expectation value.
     """
-    prep = set(prep_qubits or ())
+    prep = _cut_point_rounds(prep_qubits)
     num_qubits = len(observables)
     expectation_value = 0
     for key, value in counts.items():
-        # Qiskit get_counts() keys are "<measure-all reg> <cut-measure reg>", each
+        # Qiskit get_counts() keys are "<measure-all reg> <cut-measure regs>", each
         # little-endian (qubit 0 is the last bit); index bit q as position
         # num_qubits-1-q to align with the qubit-0-first observable string.
-        registers = key.split()
-        measure_all = registers[0]
-        cut_measure = registers[1] if len(registers) > 1 else ""
+        measure_all = key.split()[0]
         contribution = 1
         for q, obs in enumerate(observables):
             if q in prep:
-                # Measured cut qubit: the (I +/- Z)/2 projector contributes the
-                # decomposition sign -(-1)**s from the cut-point outcome s, for
+                # Measured cut qubit: each (I +/- Z)/2 projector contributes the
+                # decomposition sign -(-1)**s from its cut-point outcome s, for
                 # *any* observable. The observable then multiplies it: Z reads the
                 # final measurement, I is trivial. Reading the cut-point (not the
                 # final bit) is what makes this correct when the cut qubit keeps
                 # evolving after the cut.
-                s = (
-                    int(cut_measure[num_qubits - 1 - q])
-                    if len(cut_measure) == num_qubits
-                    else 0
-                )
-                contribution *= -((-1) ** s)
+                contribution *= _cut_point_sign_qiskit(key, q, prep[q], num_qubits)
                 if obs == "Z":
                     contribution *= (-1) ** int(measure_all[num_qubits - 1 - q])
                 elif obs != "I":
@@ -2043,10 +2090,12 @@ def gate_cutting_subcircuits(
         circuit is split into subcircuits. Use :func:`~Qdislib.find_cut` to discover
         good candidates.
 
-    observables : str, optional
+    observables : str or list of (float, str), optional
         Per-qubit observable string (e.g. ``"ZZ"``). When given, the measurement
         basis is rotated accordingly before cutting; ``"I"`` entries become identity
-        observables. Defaults to the all-``Z`` observable.
+        observables. Defaults to the all-``Z`` observable. A weighted Pauli sum
+        ``[(coef, "PAULI"), ...]`` gives one subcircuit set per term, and
+        ``reconstruct`` returns the weighted sum.
 
     software : str, optional
         The backend the subcircuits are emitted for, which must match the backend
@@ -2101,6 +2150,21 @@ def gate_cutting_subcircuits(
             "Invalid gate name format: each entry must match '<GATE>_<NUMBER>', e.g. 'CX_1'."
         )
 
+    # A weighted Pauli sum: one subcircuit set per term (each term rotates its own
+    # measurement basis), recombined as sum_k c_k <P_k>.
+    if observables is not None and not isinstance(observables, str):
+        terms = list(normalize_observables(observables))
+        parts = [
+            gate_cutting_subcircuits(
+                dag.copy() if isinstance(dag, nx.Graph) else dag,
+                gates_cut,
+                observables=pauli,
+                software=software,
+            )
+            for _coeff, pauli in terms
+        ]
+        return CombinedCutSubcircuits(parts, [coeff for coeff, _ in terms])
+
     dag = convert_to_dag(dag, observables)
     if observables:
         dag = change_basis_dag(dag, observables)
@@ -2120,25 +2184,36 @@ def gate_cutting_subcircuits(
     number_cuts = len(gates_cut)
 
     if nx.number_connected_components(dag.to_undirected()) > 1:
+        # Disconnected pieces are cut (or not) independently and multiply: keep each
+        # piece's subcircuits as its own part so reconstruct() can't mix them up.
         S = [
             dag.subgraph(c).copy() for c in nx.connected_components(dag.to_undirected())
         ]
-        subcircuits = []
+        parts = []
         for s in S:
             tmp_cuts = [c for c in gates_cut if s.has_node(c)]
             if tmp_cuts:
-                subcircuits += _execute_gate_cutting_subcircuits(
+                piece = _execute_gate_cutting_subcircuits(
                     s, tmp_cuts, software=software
                 )
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 try:
-                    subcircuits.append(dispatch_map[software](s_new, highest_qubit))
+                    piece = [dispatch_map[software](s_new, highest_qubit)]
                 except KeyError:
                     raise UnsupportedBackendError(
                         f"Unsupported software backend: '{software}'. "
                         f"Expected one of {list(dispatch_map.keys())}."
                     )
+            parts.append(
+                CutSubcircuits(
+                    piece,
+                    number_cuts=len(tmp_cuts),
+                    number_components=max(1, len(piece) // (6 ** len(tmp_cuts))),
+                    reconstructor=gate_cutting_subcircuit_reconstruction,
+                )
+            )
+        return CombinedCutSubcircuits(parts)
     elif gates_cut:
         subcircuits = _execute_gate_cutting_subcircuits(
             dag, gates_cut, software=software

@@ -264,13 +264,25 @@ def _normalize_phase(phase_str):
 
 
 def _zx_dict_to_nx(zx_dict):
-    """Convert PyZX's ``graph.to_dict()`` into a labelled ``networkx`` graph."""
+    """Convert PyZX's ``graph.to_dict()`` into a labelled ``networkx`` graph.
+
+    Boundary vertices are tagged with their qubit (``in:q`` / ``out:q``, from the
+    ordered ``inputs``/``outputs`` lists). Without that, the hash cannot tell which
+    wire a spider sits on, so circuits that differ only by a qubit permutation
+    (``X`` on qubit 0 vs qubit 1) would share a key and a cached result.
+    """
+    boundary = {}
+    for qubit, vertex in enumerate(zx_dict.get("inputs", ())):
+        boundary[vertex] = f"in:{qubit}"
+    for qubit, vertex in enumerate(zx_dict.get("outputs", ())):
+        boundary[vertex] = f"out:{qubit}"
     graph = networkx.Graph()
     for vertex in zx_dict["vertices"]:
         graph.add_node(
             vertex["id"],
             type=str(vertex["t"]),
             phase=str(vertex.get("phase", "0")),
+            boundary=boundary.get(vertex["id"], ""),
         )
     for source, target, edge_type in zx_dict["edges"]:
         graph.add_edge(source, target, type=str(edge_type))
@@ -278,12 +290,12 @@ def _zx_dict_to_nx(zx_dict):
 
 
 def _wl_hash_zx_graph(graph, iterations=3):
-    """Weisfeiler-Lehman hash of a ZX graph, keyed on spider type + phase."""
+    """Weisfeiler-Lehman hash of a ZX graph, keyed on spider type + phase + qubit."""
     labelled = graph.copy()
     for node, data in labelled.nodes(data=True):
         spider = data.get("type", "")
         phase = _normalize_phase(data.get("phase", "0"))
-        labelled.nodes[node]["label"] = f"{spider}:{phase}"
+        labelled.nodes[node]["label"] = f"{spider}:{phase}:{data.get('boundary', '')}"
     for source, target, data in labelled.edges(data=True):
         labelled[source][target]["edge_label"] = str(data.get("type", ""))
     return weisfeiler_lehman_graph_hash(

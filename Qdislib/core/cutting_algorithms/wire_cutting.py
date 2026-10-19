@@ -86,6 +86,7 @@ from Qdislib.utils.backends import (
     make_subcircuit,
     _make_subcircuit_task,
     CutSubcircuits,
+    CombinedCutSubcircuits,
 )
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
 
@@ -326,27 +327,12 @@ def _wire_cut_sampling_components(dag, wire_cuts, num_qubits):
     wire's output lives on its fresh line).
     """
     dag = dag.copy()
-    for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
-        if dag.has_edge(source, target):
-            dag.remove_edge(source, target)
-        _relabel_qubit_downstream(dag, target, qubit, num_qubits + index)
-        dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
-        dag.add_node(
-            f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
-        )
-        dag.add_edge(source, f"O_{index}", color="blue")
-        dag.add_edge(f"PS_{index}", target, color="blue")
+    placed = _place_wire_cuts(dag, wire_cuts, num_qubits)
 
-    # Cut-source qubit -> its 1-based cut index. The base-8 digit for that cut sets
+    # Cut-source line -> its 1-based cut index. The base-8 digit for that cut sets
     # the measure basis: identity for digits 0/1 (observe the cut-source with I), else
     # X/Y/Z (a Z decomposition factor). See :func:`_reconstruct_wire_cut_distribution`.
-    cut_source_index = {
-        qubit: index for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
-    }
-    prepared_to_orig = {
-        num_qubits + index: qubit
-        for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
-    }
+    cut_source_index, prepared_to_orig = _wire_cut_line_maps(placed, num_qubits)
 
     components = []
     per_config_counts = []
@@ -550,13 +536,9 @@ def _wire_sampling_optimized(
         return None
     measure_frags, prepare_frags, mixed_frags, plain_frags = fragments
 
-    cut_source_index = {
-        qubit: index for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
-    }
-    prepared_to_orig = {
-        num_qubits + index: qubit
-        for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
-    }
+    cut_source_index, prepared_to_orig = _wire_cut_line_maps(
+        _place_wire_cuts(dag.copy(), wire_cuts, num_qubits), num_qubits
+    )
 
     counter = itertools.count()
 
@@ -991,24 +973,62 @@ def _insert_wire_cut_markers(dag, wire_cuts, num_qubits):
     :param num_qubits: Highest qubit index; fresh lines are numbered above it.
     :return: The mutated DAG.
     """
+    _place_wire_cuts(dag, wire_cuts, num_qubits)
+    return dag
+
+
+def _place_wire_cuts(dag, wire_cuts, num_qubits):
+    """Do the cut surgery for ``wire_cuts``, in order; return the line each severed.
+
+    For cut ``i`` = ``(source, target, qubit)``: remove the ``source -> target``
+    edge, move ``target`` and everything downstream on that wire to the fresh line
+    ``num_qubits + i``, and add ``O_i`` (measure, after ``source``) and ``PS_i``
+    (prepare, before ``target``). Mutates ``dag``.
+
+    ``qubit`` names the wire as in the uncut circuit. Once an earlier cut on the
+    same wire has moved ``source`` onto a fresh line, the wire runs there instead,
+    so each cut looks up its line at ``source`` by position (relabelling keeps a
+    node's qubit order). Using the stale index, the second of two cuts in series
+    severed nothing and the reconstruction was wrong.
+
+    :return: ``[(source, target, line), ...]``, the line each cut actually severed.
+    """
+    original = {node: tuple(dag.nodes[node].get("qubits") or ()) for node in dag}
+    placed = []
     for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
+        line = dag.nodes[source]["qubits"][original[source].index(qubit)]
         # The shared edge is removed once; further wires between the same pair
         # are already disconnected.
         if dag.has_edge(source, target):
             dag.remove_edge(source, target)
 
-        # Relabel this qubit on the target and everything downstream of it onto a
+        # Move this wire on the target and everything downstream of it onto a
         # fresh line so the prepared (PS) side is disconnected from the measured
         # (O) side.
-        _relabel_qubit_downstream(dag, target, qubit, num_qubits + index)
+        _relabel_qubit_downstream(dag, target, line, num_qubits + index)
 
-        dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
+        dag.add_node(f"O_{index}", gate="S", qubits=(line,), parameters=())
         dag.add_node(
             f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
         )
         dag.add_edge(source, f"O_{index}", color="blue")
         dag.add_edge(f"PS_{index}", target, color="blue")
-    return dag
+        placed.append((source, target, line))
+    return placed
+
+
+def _wire_cut_line_maps(placed, num_qubits):
+    """Sampling bookkeeping for placed cuts (see :func:`_place_wire_cuts`).
+
+    :return: ``(cut_source_index, prepared_to_orig)``: the line each cut measures
+        -> its 1-based cut index, and each cut's fresh line -> the circuit qubit it
+        carries on (followed through earlier cuts on the same wire).
+    """
+    cut_source_index, prepared_to_orig = {}, {}
+    for index, (_, _, line) in enumerate(placed, start=1):
+        cut_source_index[line] = index
+        prepared_to_orig[num_qubits + index] = prepared_to_orig.get(line, line)
+    return cut_source_index, prepared_to_orig
 
 
 def _generate_wire_cutting(
@@ -2058,7 +2078,9 @@ def _expectation_cudaq_decoupled(
     """
     records = cudaq.run(kernel, shots_count=shots)
     n_mid = len(measured_order)
-    last_pos = {qb: i for i, qb in enumerate(measured_order)}
+    positions = {}  # every cut-point outcome of each qubit (a qubit can be cut twice)
+    for i, qb in enumerate(measured_order):
+        positions.setdefault(qb, []).append(i)
     total = 0.0
     drawn = 0
     for record in records:
@@ -2066,11 +2088,12 @@ def _expectation_cudaq_decoupled(
         contribution = 1
         # record is an int; bit k = outcome k of [cut-points..., finals...].
         for q, obs in enumerate(observables):
-            if q in prep_qubits and q in last_pos:
-                # Measured cut qubit: decomposition sign -(-1)**m from the
+            if q in prep_qubits and q in positions:
+                # Measured cut qubit: decomposition sign -(-1)**m from each
                 # cut-point outcome m for *any* observable; Z then multiplies by
                 # the final measurement.
-                contribution *= -((-1) ** ((record >> last_pos[q]) & 1))
+                for pos in positions[q]:
+                    contribution *= -((-1) ** ((record >> pos) & 1))
                 if obs == "Z":
                     contribution *= (-1) ** ((record >> (n_mid + q)) & 1)
                 elif obs != "I":
@@ -2206,6 +2229,27 @@ def _expectation_from_counts_pennylane(freq, observables, shots=1024):
     return expectation_value
 
 
+def _fold_cut_outcomes(outcomes):
+    """One bit standing for all of a qubit's cut-point outcomes.
+
+    Each cut measurement on a qubit contributes ``-(-1)**m`` to the
+    decomposition sign, and they multiply: ``(-1)**n * (-1)**(m_1+...+m_n)``.
+    The readers apply ``-(-1)**bit`` once per qubit, which equals that product
+    for ``bit = (m_1 + ... + m_n + n - 1) % 2``. Works on ints or per-shot arrays.
+
+    :param outcomes: The qubit's cut-point outcomes, in any order (at least one).
+    """
+    return (sum(outcomes) + len(outcomes) - 1) % 2
+
+
+def _folded_mid_samples(samples, collapse_order):
+    """``{qubit: folded per-shot cut-point bit}`` from one sample array per collapse."""
+    per_qubit = {}
+    for qubit, sample in zip(collapse_order, samples):
+        per_qubit.setdefault(qubit, []).append(np.asarray(sample).ravel())
+    return {q: _fold_cut_outcomes(arrays) for q, arrays in per_qubit.items()}
+
+
 def _expectation_from_samples_pennylane(
     circuit, observables, shots, prep_qubits, device="default.qubit", seed=None
 ):
@@ -2229,31 +2273,27 @@ def _expectation_from_samples_pennylane(
     """
     ops, num_qubits = circuit.ops, circuit.num_qubits
     # Collapse-measured qubits, in circuit order (matches the sample-return order).
-    collapse_order = []
-    for gate, qubits, _params in ops:
-        if gate.upper() == "MEASURE":
-            for qubit in qubits:
-                if qubit not in collapse_order:
-                    collapse_order.append(qubit)
+    # Every collapse, in circuit order: a qubit cut twice is measured twice.
+    collapse_order = [
+        qubits[0] for gate, qubits, _params in ops if gate.upper() == "MEASURE"
+    ]
 
     def qfunc():
-        mids = {}
+        mids = []
         for gate, qubits, params in ops:
             value = _apply_pennylane_gate(gate, qubits, params)
             if value is not None:  # a MEASURE returns its MeasurementValue
-                mids[qubits[0]] = value
+                mids.append(value)
         # Finals for every qubit, then each cut-point outcome -- one execution keeps
         # them correlated per shot (built here so the MeasurementValues are in scope).
         return [qml.sample(wires=range(num_qubits))] + [
-            qml.sample(mids[qubit]) for qubit in collapse_order
+            qml.sample(value) for value in mids
         ]
 
     qnode = _build_pennylane_qnode(qfunc, num_qubits, shots, device, seed)
     out = qnode()
     final = np.asarray(out[0]).reshape(shots, num_qubits)  # (shots, n), qubit-0-first
-    mid_samples = {
-        qubit: np.asarray(out[1 + i]).ravel() for i, qubit in enumerate(collapse_order)
-    }
+    mid_samples = _folded_mid_samples(out[1:], collapse_order)
 
     contribution = np.ones(shots)
     for qubit, obs in enumerate(observables):
@@ -2586,10 +2626,11 @@ def wire_cutting_subcircuits(
         the cut wire runs between, e.g. ``("H_1", "CZ_2")``. Use
         :func:`~Qdislib.find_cut` to discover good candidates.
 
-    observables : str, optional
+    observables : str or list of (float, str), optional
         Per-qubit observable string (e.g. ``"ZZ"``). When given, the measurement
         basis is rotated accordingly before cutting. Defaults to the all-``Z``
-        observable.
+        observable. A weighted Pauli sum ``[(coef, "PAULI"), ...]`` gives one
+        subcircuit set per term, and ``reconstruct`` returns the weighted sum.
 
     software : str, optional
         The backend the subcircuits are emitted for, which must match the backend
@@ -2647,6 +2688,22 @@ def wire_cutting_subcircuits(
                 "Invalid wire name format: each string in wire_cut tuples must match '<GATE>_<NUMBER>', e.g. 'CX_1'."
             )
 
+    # A weighted Pauli sum: one subcircuit set per term (each term rotates its own
+    # measurement basis), recombined as sum_k c_k <P_k>.
+    if observables is not None and not isinstance(observables, str):
+        terms = list(normalize_observables(observables))
+        parts = [
+            wire_cutting_subcircuits(
+                rand_qc.copy() if isinstance(rand_qc, networkx.Graph) else rand_qc,
+                cut,
+                observables=pauli,
+                software=software,
+                optimized=optimized,
+            )
+            for _coeff, pauli in terms
+        ]
+        return CombinedCutSubcircuits(parts, [coeff for coeff, _ in terms])
+
     dag = convert_to_dag(rand_qc, observables)
     if observables:
         dag = change_basis_dag(dag, observables)
@@ -2683,29 +2740,39 @@ def wire_cutting_subcircuits(
     }
 
     if networkx.number_connected_components(dag.to_undirected()) > 1:
+        # Disconnected pieces are cut (or not) independently and multiply: keep each
+        # piece's subcircuits as its own part so reconstruct() can't mix them up.
         S = [
             dag.subgraph(c).copy()
             for c in networkx.connected_components(dag.to_undirected())
         ]
-        subcircuits = []
-        number_cuts = 0
+        parts = []
         for s in S:
             num_qubits = _max_qubit(s)
             tmp_cuts = [c for c in cut if s.has_edge(*c)]
+            piece_cuts = len(_expand_wire_cuts(s, tmp_cuts)) if tmp_cuts else 0
             if tmp_cuts:
-                number_cuts += len(_expand_wire_cuts(s, tmp_cuts))
-                subcircuits += _generate_wire_cutting_subcircuits(
+                piece = _generate_wire_cutting_subcircuits(
                     s, tmp_cuts, num_qubits=num_qubits, software=software
                 )
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 try:
-                    subcircuits.append(dispatch_map[software](s_new, highest_qubit))
+                    piece = [dispatch_map[software](s_new, highest_qubit)]
                 except KeyError:
                     raise UnsupportedBackendError(
                         f"Unsupported software backend: '{software}'. "
                         f"Expected one of {list(dispatch_map.keys())}."
                     )
+            parts.append(
+                CutSubcircuits(
+                    piece,
+                    number_cuts=piece_cuts,
+                    number_components=max(1, len(piece) // (8**piece_cuts)),
+                    reconstructor=wire_cutting_subcircuit_reconstruction,
+                )
+            )
+        return CombinedCutSubcircuits(parts)
     else:
         num_qubits = _max_qubit(dag)
         if cut:
@@ -2754,18 +2821,7 @@ def _generate_wire_cutting_subcircuits(
     """
     wire_cuts = _expand_wire_cuts(dag, edges_to_replace)
 
-    for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
-        if dag.has_edge(source, target):
-            dag.remove_edge(source, target)
-
-        _relabel_qubit_downstream(dag, target, qubit, num_qubits + index)
-
-        dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
-        dag.add_node(
-            f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
-        )
-        dag.add_edge(source, f"O_{index}", color="blue")
-        dag.add_edge(f"PS_{index}", target, color="blue")
+    _place_wire_cuts(dag, wire_cuts, num_qubits)
 
     if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
         raise UnsupportedBackendError(

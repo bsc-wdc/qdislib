@@ -68,6 +68,33 @@ def _pennylane_types():
 from Qdislib.utils.exceptions import InvalidCutError
 
 
+def _qibo_qasm_instructions():
+    """Qiskit QASM 2 definitions that read Qibo's ``to_qasm()`` output faithfully.
+
+    Qiskit's strict ``qelib1.inc`` lacks gates Qibo exports (``swap``, ``sx``,
+    ``crx``, ``rxx``, ...), so start from its legacy set and add the rest. ``cu3``
+    must be redefined: Qibo's CU3 controls the SU(2) U3, while OpenQASM's controls
+    ``u3``, which carries an extra ``e^{i(phi+lam)/2}``. That phase only appears on
+    the control-1 block, so it changes the result; ``gamma = -(phi+lam)/2`` cancels
+    it (the same correction ``graph_qiskit._emit_qiskit_gate`` applies).
+    """
+    from qiskit import qasm2
+    from qiskit.circuit.library import CCZGate, CUGate, RYYGate, iSwapGate
+
+    cu3 = qasm2.CustomInstruction(
+        "cu3", 3, 2, lambda t, p, l: CUGate(t, p, l, -(p + l) / 2), builtin=True
+    )
+    extra = [
+        cu3,
+        qasm2.CustomInstruction("iswap", 0, 2, iSwapGate, builtin=True),
+        qasm2.CustomInstruction("ryy", 1, 2, RYYGate, builtin=True),
+        qasm2.CustomInstruction("ccz", 0, 3, CCZGate, builtin=True),
+    ]
+    names = {instruction.name for instruction in extra}
+    legacy = [i for i in qasm2.LEGACY_CUSTOM_INSTRUCTIONS if i.name not in names]
+    return legacy + extra
+
+
 class CircuitConverter:
     """Converts circuits between the supported formats and reports their size."""
 
@@ -93,7 +120,7 @@ class CircuitConverter:
                     "gate_cutting_hadamard, whose fragments carry a local "
                     "ancilla instead of a mid-circuit measurement."
                 )
-            return loads(qasm)
+            return loads(qasm, custom_instructions=_qibo_qasm_instructions())
         raise TypeError(f"Cannot convert {type(circuit).__name__} to a Qiskit circuit")
 
     @staticmethod

@@ -44,7 +44,7 @@ except ImportError:  # qiskit is optional; functions that need it fail when call
     QuantumCircuit = QuantumRegister = ClassicalRegister = None
     qiskit_available = False
 
-from Qdislib.utils.graph_qibo import _update_qubits_serie
+from Qdislib.utils.graph_qibo import _final_measurements, _update_qubits_serie
 
 from Qdislib.utils.runtime import task
 
@@ -131,10 +131,25 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
     # Create a directed graph
     dag = networkx.DiGraph()
 
+    # A final measure (e.g. from measure_all) is left out: see _final_measurements.
+    final = _final_measurements(
+        [
+            (
+                gate.operation.name == "measure",
+                (
+                    []  # a barrier is no operation on its qubits
+                    if gate.operation.name == "barrier"
+                    else [circuit.find_bit(q).index for q in gate.qubits]
+                ),
+            )
+            for gate in circuit.data
+        ]
+    )
+
     # Add gates to the DAG as nodes with unique identifiers
     for gate_idx, gate in enumerate(circuit.data, start=1):
 
-        if gate.operation.name != "barrier":
+        if gate.operation.name != "barrier" and gate_idx - 1 not in final:
 
             # Unique identifier for each gate instance
             gate_name = f"{gate.operation.name}_{gate_idx}".upper()
@@ -263,6 +278,7 @@ def dag_to_circuit_qiskit(dag, num_qubits):
 
     # Traverse the DAG in topological order
     topo_order = list(networkx.topological_sort(dag))
+    cut_rounds, round_registers = {}, {1: creg_c}
 
     for node in topo_order:
         node_data = dag.nodes[node]
@@ -279,10 +295,19 @@ def dag_to_circuit_qiskit(dag, num_qubits):
             # Gate-cut measure: a projective Z measurement that collapses the
             # qubit to its outcome |s> and lets it CONTINUE (the CZ cut's
             # (I +/- Z)/2 projector, Mitarai-Fujii arXiv:1909.07534). The outcome
-            # is recorded in the cut-point register c for the reconstruction sign;
+            # is recorded in a cut-point register for the reconstruction sign;
             # the qubit is NOT reset. Resetting it (the old "force to |0>") threw
             # away the collapse and gave the wrong state to any gate after the cut.
-            circuit.measure(*qubits, *qubits)
+            # Every cut keeps its own bit: a qubit's first cut goes to c[q], its
+            # k-th to c{k}[q] (added on demand, so one cut per qubit -- the common
+            # case -- still gives "<meas> <c>" keys). One shared c[q] kept only the
+            # last of several cuts on a wire.
+            (qubit,) = qubits
+            k = cut_rounds[qubit] = cut_rounds.get(qubit, 0) + 1
+            if k not in round_registers:
+                round_registers[k] = ClassicalRegister(num_qubits, f"c{k}")
+                circuit.add_register(round_registers[k])
+            circuit.measure(qubit, round_registers[k][qubit])
         else:
             # CNOT->cx, U3->u, CU3->cu, ... (Qiskit renamed the OpenQASM-2 gates).
             _emit_qiskit_gate(circuit, gate_name, parameters, qubits)
