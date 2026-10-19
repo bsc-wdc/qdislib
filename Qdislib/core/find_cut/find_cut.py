@@ -278,8 +278,26 @@ def _find_best_girvan_newman_cutset(graph, max_qubits, max_cuts):
     return partition_list, cut_edges
 
 
+_warned_no_sklearn = False
+
+
 def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts, seed=None):
-    from sklearn.cluster import SpectralClustering
+    global _warned_no_sklearn
+    try:
+        from sklearn.cluster import SpectralClustering
+    except ImportError as exc:
+        # scikit-learn missing, or its bundled OpenMP runtime failing to load
+        # (glibc < 2.32: "cannot allocate memory in static TLS block"). The other
+        # strategies still run, so find_cut degrades instead of crashing.
+        if not _warned_no_sklearn:
+            logger.warning(
+                "find_cut: spectral clustering skipped, scikit-learn could not be "
+                "imported (%s). If this is a static TLS error, start Python with "
+                "LD_PRELOAD pointing at scikit_learn.libs/libgomp*.so.",
+                exc,
+            )
+            _warned_no_sklearn = True
+        return [], []
 
     # Spectral clustering requires at least as many nodes as requested clusters;
     # clamp so an over-large target can never raise (needs n_samples >= n_clusters).
