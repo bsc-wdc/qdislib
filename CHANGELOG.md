@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **`find_cut` crashed when scikit-learn's OpenMP runtime could not load**
+  (`cannot allocate memory in static TLS block`, seen with glibc < 2.32). It now
+  skips the spectral strategy with a warning and uses the other three; preloading
+  `scikit_learn.libs/libgomp*.so` with `LD_PRELOAD` restores it.
 - **An identity observable on a wire-cut qubit gave a wrong value**, on the
   standard and optimized paths, and an identity on a regular qubit broke the
   optimized path. The same wire-relabelling bug made `gate_wire_cutting` wrong when
