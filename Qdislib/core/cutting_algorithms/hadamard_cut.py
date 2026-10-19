@@ -558,6 +558,13 @@ def _config_assignments(decomps, config):
 def _config_fragments(cut_dag, components, assignments, observable):
     """Build the ``[(fragment_circuit, z_qubits), ...]`` for one configuration's gadget
     assignments; ``z_qubits`` = ancillas + observed (``Z``) qubits, renumbered."""
+    # Only Z and I can be read off the ancilla-joint Z measurement. Anything else
+    # (an X/Y, or a weighted Pauli sum list) would be silently treated as I.
+    if not isinstance(observable, str) or set(observable) - {"Z", "I"}:
+        raise ValueError(
+            "Hadamard gate cutting takes a Z/I Pauli string (e.g. 'ZIZ'), got "
+            f"{observable!r}; use gate_cutting for X/Y terms or a weighted sum."
+        )
     fragments = []
     for comp_nodes in components:
         comp = cut_dag.subgraph(comp_nodes).copy()
