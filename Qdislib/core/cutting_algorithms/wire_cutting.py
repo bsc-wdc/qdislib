@@ -327,27 +327,12 @@ def _wire_cut_sampling_components(dag, wire_cuts, num_qubits):
     wire's output lives on its fresh line).
     """
     dag = dag.copy()
-    for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
-        if dag.has_edge(source, target):
-            dag.remove_edge(source, target)
-        _relabel_qubit_downstream(dag, target, qubit, num_qubits + index)
-        dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
-        dag.add_node(
-            f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
-        )
-        dag.add_edge(source, f"O_{index}", color="blue")
-        dag.add_edge(f"PS_{index}", target, color="blue")
+    placed = _place_wire_cuts(dag, wire_cuts, num_qubits)
 
-    # Cut-source qubit -> its 1-based cut index. The base-8 digit for that cut sets
+    # Cut-source line -> its 1-based cut index. The base-8 digit for that cut sets
     # the measure basis: identity for digits 0/1 (observe the cut-source with I), else
     # X/Y/Z (a Z decomposition factor). See :func:`_reconstruct_wire_cut_distribution`.
-    cut_source_index = {
-        qubit: index for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
-    }
-    prepared_to_orig = {
-        num_qubits + index: qubit
-        for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
-    }
+    cut_source_index, prepared_to_orig = _wire_cut_line_maps(placed, num_qubits)
 
     components = []
     per_config_counts = []
@@ -551,13 +536,9 @@ def _wire_sampling_optimized(
         return None
     measure_frags, prepare_frags, mixed_frags, plain_frags = fragments
 
-    cut_source_index = {
-        qubit: index for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
-    }
-    prepared_to_orig = {
-        num_qubits + index: qubit
-        for index, (_, _, qubit) in enumerate(wire_cuts, start=1)
-    }
+    cut_source_index, prepared_to_orig = _wire_cut_line_maps(
+        _place_wire_cuts(dag.copy(), wire_cuts, num_qubits), num_qubits
+    )
 
     counter = itertools.count()
 
@@ -992,24 +973,62 @@ def _insert_wire_cut_markers(dag, wire_cuts, num_qubits):
     :param num_qubits: Highest qubit index; fresh lines are numbered above it.
     :return: The mutated DAG.
     """
+    _place_wire_cuts(dag, wire_cuts, num_qubits)
+    return dag
+
+
+def _place_wire_cuts(dag, wire_cuts, num_qubits):
+    """Do the cut surgery for ``wire_cuts``, in order; return the line each severed.
+
+    For cut ``i`` = ``(source, target, qubit)``: remove the ``source -> target``
+    edge, move ``target`` and everything downstream on that wire to the fresh line
+    ``num_qubits + i``, and add ``O_i`` (measure, after ``source``) and ``PS_i``
+    (prepare, before ``target``). Mutates ``dag``.
+
+    ``qubit`` names the wire as in the uncut circuit. Once an earlier cut on the
+    same wire has moved ``source`` onto a fresh line, the wire runs there instead,
+    so each cut looks up its line at ``source`` by position (relabelling keeps a
+    node's qubit order). Using the stale index, the second of two cuts in series
+    severed nothing and the reconstruction was wrong.
+
+    :return: ``[(source, target, line), ...]``, the line each cut actually severed.
+    """
+    original = {node: tuple(dag.nodes[node].get("qubits") or ()) for node in dag}
+    placed = []
     for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
+        line = dag.nodes[source]["qubits"][original[source].index(qubit)]
         # The shared edge is removed once; further wires between the same pair
         # are already disconnected.
         if dag.has_edge(source, target):
             dag.remove_edge(source, target)
 
-        # Relabel this qubit on the target and everything downstream of it onto a
+        # Move this wire on the target and everything downstream of it onto a
         # fresh line so the prepared (PS) side is disconnected from the measured
         # (O) side.
-        _relabel_qubit_downstream(dag, target, qubit, num_qubits + index)
+        _relabel_qubit_downstream(dag, target, line, num_qubits + index)
 
-        dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
+        dag.add_node(f"O_{index}", gate="S", qubits=(line,), parameters=())
         dag.add_node(
             f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
         )
         dag.add_edge(source, f"O_{index}", color="blue")
         dag.add_edge(f"PS_{index}", target, color="blue")
-    return dag
+        placed.append((source, target, line))
+    return placed
+
+
+def _wire_cut_line_maps(placed, num_qubits):
+    """Sampling bookkeeping for placed cuts (see :func:`_place_wire_cuts`).
+
+    :return: ``(cut_source_index, prepared_to_orig)``: the line each cut measures
+        -> its 1-based cut index, and each cut's fresh line -> the circuit qubit it
+        carries on (followed through earlier cuts on the same wire).
+    """
+    cut_source_index, prepared_to_orig = {}, {}
+    for index, (_, _, line) in enumerate(placed, start=1):
+        cut_source_index[line] = index
+        prepared_to_orig[num_qubits + index] = prepared_to_orig.get(line, line)
+    return cut_source_index, prepared_to_orig
 
 
 def _generate_wire_cutting(
@@ -2782,18 +2801,7 @@ def _generate_wire_cutting_subcircuits(
     """
     wire_cuts = _expand_wire_cuts(dag, edges_to_replace)
 
-    for index, (source, target, qubit) in enumerate(wire_cuts, start=1):
-        if dag.has_edge(source, target):
-            dag.remove_edge(source, target)
-
-        _relabel_qubit_downstream(dag, target, qubit, num_qubits + index)
-
-        dag.add_node(f"O_{index}", gate="S", qubits=(qubit,), parameters=())
-        dag.add_node(
-            f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
-        )
-        dag.add_edge(source, f"O_{index}", color="blue")
-        dag.add_edge(f"PS_{index}", target, color="blue")
+    _place_wire_cuts(dag, wire_cuts, num_qubits)
 
     if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
         raise UnsupportedBackendError(

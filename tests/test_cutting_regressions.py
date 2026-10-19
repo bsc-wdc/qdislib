@@ -275,5 +275,66 @@ class SubcircuitsPauliSumTest(BaseTimedTestCase):
                 )
 
 
+def _serial_wire():
+    """Qubit 0 runs H, RY, RX, CZ, RY: two wire cuts in series fit on it."""
+    from qiskit import QuantumCircuit
+
+    circuit = QuantumCircuit(2)
+    circuit.h(0)
+    circuit.ry(0.7, 0)
+    circuit.rx(0.4, 0)
+    circuit.h(1)
+    circuit.cz(0, 1)
+    circuit.ry(0.3, 0)
+    return circuit
+
+
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class SerialWireCutsTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#7: two cuts one after the other on the same wire."""
+
+    CUTS = [("H_1", "RY_2"), ("RY_2", "RX_3")]
+
+    def test_expectation_paths(self):
+        import Qdislib as qd
+
+        exact = _exact(_serial_wire(), "ZZ")
+        for kwargs in ({}, {"optimized": True}):
+            value = qd.wire_cutting(
+                _serial_wire(),
+                self.CUTS,
+                observables="ZZ",
+                software="qiskit",
+                shots=40000,
+                **kwargs,
+            )
+            self.assertLess(abs(value - exact), 0.05, kwargs)
+        for cuts in (self.CUTS[::-1],):
+            value = qd.wire_cutting(
+                _serial_wire(), cuts, observables="ZZ", software="qiskit", shots=40000
+            )
+            self.assertLess(abs(value - exact), 0.05, cuts)
+        subs = qd.wire_cutting_subcircuits(
+            _serial_wire(), self.CUTS, observables="ZZ", software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs, shots=40000) - exact), 0.05)
+
+    def test_sampling(self):
+        import Qdislib as qd
+        from qiskit.quantum_info import Statevector
+
+        # Qiskit keys are little-endian; Qdislib's are qubit-0-first.
+        exact = {
+            key[::-1]: p
+            for key, p in Statevector(_serial_wire()).probabilities_dict().items()
+        }
+        counts = qd.wire_cutting_sampling(
+            _serial_wire(), self.CUTS, shots=40000, software="qiskit"
+        )
+        total = sum(counts.values())
+        for key, p in exact.items():
+            self.assertLess(abs(counts.get(key, 0) / total - p), 0.03, key)
+
+
 if __name__ == "__main__":
     unittest.main()
