@@ -98,7 +98,7 @@ def wire_cutting(
     shots: int = 1024,
     backend: str = "numpy",
     qpu: str = None,
-    software: str = "qibo",
+    software: str = None,
     cache=None,
     cache_mode="expectation",
     optimized: bool = False,
@@ -127,8 +127,9 @@ def wire_cutting(
         Backend to simulate or execute the circuits (e.g., "numpy").
     qpu : optional
         If specified (e.g., `"MN_Ona"`), indicates execution on a Quantum Processing Unit.
-    software : str, default="qibo"
+    software : str, optional
         Backend used to build and execute the subcircuits: "qibo", "qiskit" or "cudaq".
+        By default, the SDK the circuit was written in ("qibo" for a DAG).
     cache : CircuitCache, optional
         Enable the semantic subcircuit cache (see
         :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`). When given,
@@ -178,6 +179,13 @@ def wire_cutting(
         cuts = [("H_1","CZ_2")]  # List of gate tuples
         reconstruction = wire_cutting(qc, cuts, shots=2048, backend="qiskit")
     """
+    if software is None:
+        # Run the subcircuits in the circuit's own SDK: a Qiskit circuit's gate
+        # names (cx, ...) are not Qibo gate classes.
+        from Qdislib.utils.circuit_cache import _detect_software
+
+        software = _detect_software(rand_qc) or "qibo"
+
     # A weighted sum of Pauli observables (a Hamiltonian) is evaluated term by
     # term: <sum_i c_i P_i> = sum_i c_i <P_i>. Each term reuses the single
     # Pauli-string path below. A plain string (or None) skips this and runs once.
