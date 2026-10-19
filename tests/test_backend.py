@@ -80,6 +80,33 @@ class ConverterTest(BaseTimedTestCase):
         self.assertEqual(CircuitConverter.num_qubits((object(), 4)), 4)
         self.assertEqual(CircuitConverter.num_qubits(object()), 0)
 
+    def test_to_qiskit_keeps_each_gate_meaning(self):
+        """bsc-wdc/qdislib#13: CU3 (and gates qelib1.inc lacks) convert exactly."""
+        import numpy as np
+        from qibo import models, gates
+        from qiskit.quantum_info import Operator
+        from Qdislib.core.backend import CircuitConverter
+
+        for gate in (
+            gates.CU3(0, 1, 0.1, 0.9, 0.7),
+            gates.SWAP(0, 1),
+            gates.iSWAP(0, 1),
+            gates.RXX(0, 1, 0.3),
+            gates.RYY(0, 1, 0.3),
+            gates.CRX(0, 1, 0.3),
+            gates.CCZ(0, 1, 2),
+        ):
+            circuit = models.Circuit(3)
+            circuit.add(gates.H(0))
+            circuit.add(gates.H(1))
+            circuit.add(gate)
+            converted = CircuitConverter.to_qiskit(circuit)
+            # Qiskit orders qubits little-endian, Qibo big-endian.
+            self.assertTrue(
+                np.allclose(Operator(converted.reverse_bits()).data, circuit.unitary()),
+                gate.__class__.__name__,
+            )
+
 
 @unittest.skipUnless(AER_AVAILABLE and QIBO_AVAILABLE, "qiskit_aer+qibo required")
 class AerBackendTest(BaseTimedTestCase):
