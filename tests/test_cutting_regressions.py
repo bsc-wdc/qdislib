@@ -157,5 +157,123 @@ class IsolatedQubitAfterCutTest(BaseTimedTestCase):
         self.assertEqual((highest, smallest), (1, 0))
 
 
+def _exact(circuit, pauli):
+    """<pauli> of a Qiskit circuit, pauli qubit-0-first."""
+    from qiskit.quantum_info import SparsePauliOp, Statevector
+
+    return float(
+        Statevector(circuit).expectation_value(SparsePauliOp(pauli[::-1])).real
+    )
+
+
+def _two_blocks():
+    """Qubits 0-1 and qubits 2-3 never interact: two disconnected pieces."""
+    from qiskit import QuantumCircuit
+
+    circuit = QuantumCircuit(4)
+    circuit.ry(0.5, 0)
+    circuit.ry(0.7, 1)
+    circuit.cz(0, 1)
+    circuit.rx(0.4, 1)
+    circuit.ry(1.1, 2)
+    circuit.ry(0.3, 3)
+    circuit.cz(2, 3)
+    circuit.rx(0.9, 2)
+    return circuit
+
+
+def _three_step(subcircuits, shots=60000):
+    import Qdislib as qd
+
+    return subcircuits.reconstruct(
+        [qd.expectation_value(s, shots=shots) for s in subcircuits]
+    )
+
+
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class SubcircuitsGroupingTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#9: a piece that is not cut must not shift the grouping."""
+
+    def test_gate_cut_with_an_uncut_piece(self):
+        import Qdislib as qd
+
+        subs = qd.gate_cutting_subcircuits(
+            _two_blocks(), ["CZ_3"], observables="ZZZZ", software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
+
+    def test_gate_cut_on_both_pieces(self):
+        import Qdislib as qd
+
+        subs = qd.gate_cutting_subcircuits(
+            _two_blocks(), ["CZ_3", "CZ_7"], observables="ZZZZ", software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
+
+    def test_wire_cut_with_an_uncut_piece(self):
+        import Qdislib as qd
+
+        subs = qd.wire_cutting_subcircuits(
+            _two_blocks(), [("RY_1", "CZ_3")], observables="ZZZZ", software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
+
+    def test_cache_with_an_uncut_piece(self):
+        import Qdislib as qd
+
+        value = qd.gate_cutting(
+            _two_blocks(),
+            ["CZ_3"],
+            observables="ZZZZ",
+            shots=60000,
+            cache=qd.InMemoryCircuitCache(),
+        )
+        self.assertLess(abs(value - _exact(_two_blocks(), "ZZZZ")), 0.05)
+
+
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class SubcircuitsPauliSumTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#6: the three-step workflow honours a weighted Pauli sum."""
+
+    H = [(0.5, "ZZZZ"), (-1.0, "IZIZ"), (0.3, "XIZI")]
+
+    def _exact_h(self):
+        return sum(c * _exact(_two_blocks(), p) for c, p in self.H)
+
+    def test_gate_cutting_subcircuits(self):
+        import Qdislib as qd
+
+        subs = qd.gate_cutting_subcircuits(
+            _two_blocks(), ["CZ_3"], observables=self.H, software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - self._exact_h()), 0.05)
+
+    def test_wire_cutting_subcircuits(self):
+        import Qdislib as qd
+
+        subs = qd.wire_cutting_subcircuits(
+            _two_blocks(), [("RY_1", "CZ_3")], observables=self.H, software="qiskit"
+        )
+        self.assertLess(abs(_three_step(subs) - self._exact_h()), 0.05)
+
+    def test_reconstruct_checks_the_value_count(self):
+        import Qdislib as qd
+
+        subs = qd.gate_cutting_subcircuits(
+            _two_blocks(), ["CZ_3"], observables=self.H, software="qiskit"
+        )
+        with self.assertRaises(ValueError):
+            subs.reconstruct([0.0] * (len(subs) - 1))
+
+    def test_hadamard_rejects_what_it_cannot_measure(self):
+        import Qdislib as qd
+
+        for observable in (self.H, "XZZZ"):
+            with self.assertRaises(ValueError):
+                qd.gate_cutting_hadamard(
+                    _two_blocks(), ["CZ_3"], observable=observable, shots=100
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

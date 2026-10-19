@@ -73,6 +73,7 @@ __all__ = [
     "normalize_observables",
     "Subcircuit",
     "CutSubcircuits",
+    "CombinedCutSubcircuits",
 ]
 
 #: Mapping from a circuit's SDK class to the converter that turns it into a DAG.
@@ -819,3 +820,50 @@ class CutSubcircuits(list):
         return self._reconstructor(
             expected_values, self.number_cuts, self.number_components
         )
+
+
+class CombinedCutSubcircuits(CutSubcircuits):
+    """Several independently cut subcircuit sets, recombined into one value.
+
+    Behaves as the flat list of every part's subcircuits, in order, so the usual
+    three-step loop is unchanged. :meth:`reconstruct` hands each part its own slice
+    of the values and combines the parts' results:
+
+    - ``coefficients=None``: a **product**, for disconnected pieces of one circuit
+      (each cut, or uncut, on its own): ``<A (x) B> = <A><B>``.
+    - ``coefficients=[c_1, ...]``: a **weighted sum**, for the terms of a Pauli sum
+      ``sum_k c_k P_k``, each term cut separately.
+
+    Grouping the flat list by its length instead (``len // 6**n``) mixes up the
+    pieces as soon as they are not all alike, e.g. one cut piece and one uncut.
+    """
+
+    def __init__(self, parts, coefficients=None):
+        list.__init__(self, [sub for part in parts for sub in part])
+        self.parts = list(parts)
+        self.coefficients = None if coefficients is None else list(coefficients)
+        if self.coefficients is not None and len(self.coefficients) != len(self.parts):
+            raise ValueError("need one coefficient per part")
+        #: Cuts applied: across all pieces, or per term for a weighted sum.
+        counts = [part.number_cuts for part in self.parts]
+        self.number_cuts = sum(counts) if self.coefficients is None else max(counts)
+        #: Number of parts recombined.
+        self.number_components = len(self.parts)
+
+    def reconstruct(self, expected_values):
+        """Recombine one value per subcircuit, in this object's order."""
+        values = list(expected_values)
+        if len(values) != len(self):
+            raise ValueError(
+                f"expected {len(self)} values, one per subcircuit, got {len(values)}"
+            )
+        results, start = [], 0
+        for part in self.parts:
+            results.append(part.reconstruct(values[start : start + len(part)]))
+            start += len(part)
+        if self.coefficients is None:
+            product = 1.0
+            for result in results:
+                product *= result
+            return product
+        return sum(c * r for c, r in zip(self.coefficients, results))

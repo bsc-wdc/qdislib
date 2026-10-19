@@ -106,6 +106,7 @@ from Qdislib.utils.backends import (
     make_subcircuit,
     _make_subcircuit_task,
     CutSubcircuits,
+    CombinedCutSubcircuits,
 )
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
 
@@ -2043,10 +2044,12 @@ def gate_cutting_subcircuits(
         circuit is split into subcircuits. Use :func:`~Qdislib.find_cut` to discover
         good candidates.
 
-    observables : str, optional
+    observables : str or list of (float, str), optional
         Per-qubit observable string (e.g. ``"ZZ"``). When given, the measurement
         basis is rotated accordingly before cutting; ``"I"`` entries become identity
-        observables. Defaults to the all-``Z`` observable.
+        observables. Defaults to the all-``Z`` observable. A weighted Pauli sum
+        ``[(coef, "PAULI"), ...]`` gives one subcircuit set per term, and
+        ``reconstruct`` returns the weighted sum.
 
     software : str, optional
         The backend the subcircuits are emitted for, which must match the backend
@@ -2101,6 +2104,21 @@ def gate_cutting_subcircuits(
             "Invalid gate name format: each entry must match '<GATE>_<NUMBER>', e.g. 'CX_1'."
         )
 
+    # A weighted Pauli sum: one subcircuit set per term (each term rotates its own
+    # measurement basis), recombined as sum_k c_k <P_k>.
+    if observables is not None and not isinstance(observables, str):
+        terms = list(normalize_observables(observables))
+        parts = [
+            gate_cutting_subcircuits(
+                dag.copy() if isinstance(dag, nx.Graph) else dag,
+                gates_cut,
+                observables=pauli,
+                software=software,
+            )
+            for _coeff, pauli in terms
+        ]
+        return CombinedCutSubcircuits(parts, [coeff for coeff, _ in terms])
+
     dag = convert_to_dag(dag, observables)
     if observables:
         dag = change_basis_dag(dag, observables)
@@ -2120,25 +2138,36 @@ def gate_cutting_subcircuits(
     number_cuts = len(gates_cut)
 
     if nx.number_connected_components(dag.to_undirected()) > 1:
+        # Disconnected pieces are cut (or not) independently and multiply: keep each
+        # piece's subcircuits as its own part so reconstruct() can't mix them up.
         S = [
             dag.subgraph(c).copy() for c in nx.connected_components(dag.to_undirected())
         ]
-        subcircuits = []
+        parts = []
         for s in S:
             tmp_cuts = [c for c in gates_cut if s.has_node(c)]
             if tmp_cuts:
-                subcircuits += _execute_gate_cutting_subcircuits(
+                piece = _execute_gate_cutting_subcircuits(
                     s, tmp_cuts, software=software
                 )
             else:
                 s_new, highest_qubit = _update_qubits(s)
                 try:
-                    subcircuits.append(dispatch_map[software](s_new, highest_qubit))
+                    piece = [dispatch_map[software](s_new, highest_qubit)]
                 except KeyError:
                     raise UnsupportedBackendError(
                         f"Unsupported software backend: '{software}'. "
                         f"Expected one of {list(dispatch_map.keys())}."
                     )
+            parts.append(
+                CutSubcircuits(
+                    piece,
+                    number_cuts=len(tmp_cuts),
+                    number_components=max(1, len(piece) // (6 ** len(tmp_cuts))),
+                    reconstructor=gate_cutting_subcircuit_reconstruction,
+                )
+            )
+        return CombinedCutSubcircuits(parts)
     elif gates_cut:
         subcircuits = _execute_gate_cutting_subcircuits(
             dag, gates_cut, software=software

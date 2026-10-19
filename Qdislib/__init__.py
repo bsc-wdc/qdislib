@@ -62,6 +62,7 @@ __all__ = [
     # Subcircuit containers.
     "Subcircuit",
     "CutSubcircuits",
+    "CombinedCutSubcircuits",
     "HadamardCutSubcircuits",
     "SampledCutSubcircuits",
     "WireSampledCutSubcircuits",
