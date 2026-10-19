@@ -232,7 +232,7 @@ def iter_gates(circuit):
         return [
             (
                 instruction.operation.name.upper(),
-                tuple(q._index for q in instruction.qubits),
+                tuple(circuit.find_bit(q).index for q in instruction.qubits),
             )
             for instruction in circuit.data
         ]
