@@ -185,6 +185,39 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
 
         self.assertFalse(called["returned_none"])
 
+    def test_weighted_sum_runs_each_term_optimized(self):
+        """A Pauli-sum observable takes the optimized path for every term."""
+        import Qdislib.core.cutting_algorithms.wire_cutting as wc
+        from Qdislib.utils.circuit import analytical_solution
+
+        circuit = _example_circuit()
+        hamiltonian = [(0.5, "ZZZZ"), (-1.0, "ZIZI")]
+        exact = sum(
+            coeff * analytical_solution(circuit, pauli) for coeff, pauli in hamiltonian
+        )
+
+        original = wc._wire_cutting_optimized
+        calls = []
+
+        def wrapped(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        wc._wire_cutting_optimized = wrapped
+        try:
+            value = wc.wire_cutting(
+                circuit,
+                _TWO_CUTS,
+                observables=hamiltonian,
+                shots=10000,
+                optimized=True,
+            )
+        finally:
+            wc._wire_cutting_optimized = original
+
+        self.assertEqual(len(calls), len(hamiltonian))
+        self.assertLess(abs(value - exact), 0.2)
+
     def test_chain_topology_uses_fewer_than_8n_subcircuits(self):
         """Measure-only (3) + mixed (3*4) + prepare-only (4) = 19, not 8**2 = 64."""
         import Qdislib.core.cutting_algorithms.wire_cutting as wc

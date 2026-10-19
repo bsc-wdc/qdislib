@@ -204,6 +204,7 @@ def wire_cutting(
                 software=software,
                 cache=cache,
                 cache_mode=cache_mode,
+                optimized=optimized,
             )
         return total
 

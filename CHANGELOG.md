@@ -37,8 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   circuit read the wrong result. It now samples a copy. Reported by David Ryan
   (bsc-wdc/qdislib#12).
 - **`find_cut(max_cuts=0)` still returned a cut.** The budget checks treated `0` as
-  "no limit". `max_cuts=0` now allows no cut, and `max_qubits < 1` or
-  `max_cuts < 0` raise `ValueError`. Reported by David Ryan (bsc-wdc/qdislib#15).
+  "no limit". `max_cuts=0` now allows no cut in every mode, including `mixed=True`
+  (which otherwise still returns an over-budget cut with a warning), and
+  `max_qubits < 1` or `max_cuts < 0` raise `ValueError`. Reported by David Ryan
+  (bsc-wdc/qdislib#15).
+- **`wire_cutting(optimized=True)` was ignored for a weighted sum of Paulis.** Each
+  term of the Hamiltonian ran the standard 8**n reconstruction instead of the
+  optimized one.
 - **A Qiskit subcircuit could only be evaluated once.** `_counts_qiskit` (and the
   GPU/QPU evaluators) appended `measure_all` **in place**, so evaluating the same
   cut twice -- simulate first, then submit to hardware -- silently read the wrong
