@@ -9,7 +9,7 @@ a manual installation, or you can download our ready-to-use docker image.
 #### Dependencies
 
 Qdislib's core dependencies (installed automatically with `pip install qdislib`)
-are: `numpy`, `networkx`, `matplotlib`, `igraph`, `pymetis` and `scikit-learn`.
+are: `numpy`, `networkx`, `matplotlib`, `pymetis` and `scikit-learn`.
 
 In addition you need **at least one quantum SDK backend**, installed as an
 optional extra:
