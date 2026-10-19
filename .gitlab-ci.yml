@@ -14,6 +14,11 @@ stages:
   - lint
   - test
 
+variables:
+  UV_PYTHON: "3.12"                                # the >=3.10 interpreter uv provisions
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"      # for the one-off `pip3 install --user uv`
+
 cache:
   paths:
     - .cache/uv
