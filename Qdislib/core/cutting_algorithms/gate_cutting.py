@@ -1930,55 +1930,65 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic", prep_qubits=None):
     return expectation_value
 
 
+def _counts_from_sampler(pub_result, circuit):
+    """``get_counts()``-style counts from a SamplerV2 result, over all registers.
+
+    SamplerV2 returns one bit array per classical register. Join them per shot
+    into Qiskit's usual ``"<last register> ... <first register>"`` keys (each
+    little-endian), so :func:`_expectation_from_counts_qiskit` reads the final
+    ``meas`` bits and every gate-cut register (``c``, ``c2``, ...) as on the
+    simulators.
+    """
+    names = [register.name for register in reversed(circuit.cregs)]
+    columns = [getattr(pub_result.data, name).get_bitstrings() for name in names]
+    counts = {}
+    for bits in zip(*columns):
+        key = " ".join(bits)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 # Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _expec_value_qiskit_qpu(
-    qc, shots=1024, method="automatic", batch=None, backend=None
+    qc, shots=1024, method="automatic", batch=None, backend=None, prep_qubits=None
 ):
+    """Expectation value of a Qiskit subcircuit on IBM hardware (SamplerV2).
 
+    Same reconstruction as :func:`_expec_value_qiskit`: a gate cut's mid-circuit
+    measurements carry its decomposition sign, read from their registers. Reading
+    only the final ``meas`` register, as before, dropped those signs.
+    """
     if qc is None:
         return None
 
     if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
         observables = qc[1]
-        subcirc = qc[0]
-        qc = subcirc
+        qc = qc[0]
     else:
-        observables = ["Z"] * qc.num_qubits
-        observables = "".join(observables)
+        observables = "Z" * qc.num_qubits
+
+    if prep_qubits is None:
+        # As on the simulators: the mid-circuit measurements are the cut points.
+        prep_qubits = [
+            qc.find_bit(instr.qubits[0]).index
+            for instr in qc.data
+            if instr.operation.name == "measure"
+        ]
 
     qc = qc.copy()  # don't append measure_all to the caller's subcircuit
     qc.measure_all()
-
     pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
     isa_circuit = pm.run(qc)
-
     sampler = Sampler(mode=batch)
-    job = sampler.run([isa_circuit])
+    # Pass shots: without it the sampler used its own default while the value
+    # was still divided by ``shots``.
+    job = sampler.run([isa_circuit], shots=shots)
     logger.info(f"job id: {job.job_id()}")
-    job_result = job.result()
-    logger.info(job_result)
-    pub_result = job_result[0].data.meas.get_counts()
-    logger.info(pub_result)
-
-    expectation_value = 0
-    for key, value in pub_result.items():
-        contribution = 1
-        # Qiskit get_counts() keys are "<measure-all reg> <other regs>" with the
-        # measure-all register first and little-endian (qubit 0 is the last bit);
-        # take that register and reverse it to align with the qubit-0-first
-        # observable string.
-        for bit, obs in zip(reversed(key.split()[0]), observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
-            elif obs == "I":
-                contribution *= 1
-            else:
-                raise ValueError(f"Unsupported observable {obs}")
-
-        # Add the contribution weighted by its frequency
-        expectation_value += contribution * (value / shots)
-    # print(expectation_value)
-    return expectation_value
+    counts = _counts_from_sampler(job.result()[0], qc)
+    logger.info(counts)
+    return _expectation_from_counts_qiskit(
+        counts, observables, sum(counts.values()), prep_qubits=prep_qubits
+    )
 
 
 # Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
