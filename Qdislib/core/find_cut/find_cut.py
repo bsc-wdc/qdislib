@@ -51,7 +51,7 @@ except ImportError:  # qiskit is optional
 import pymetis
 
 from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
-from Qdislib.utils.backends import iter_gates, num_qubits
+from Qdislib.utils.backends import convert_to_dag, iter_gates, num_qubits
 
 try:
     from qiskit_addon_cutting.automated_cut_finding import (
@@ -594,6 +594,43 @@ def _refine_wire_cut(cut_set, gates):
     return refined_cut
 
 
+def _wire_cut_fits(dag, cut, max_qubits, max_cuts, forbidden_qubits):
+    """Whether wire cut ``cut`` is usable and within the user's limits.
+
+    Checks the cut as ``wire_cutting`` will apply it, on a copy of ``dag``: no cut
+    on a ``forbidden_qubits`` wire, at most ``max_cuts`` single-wire cuts, an actual
+    split into more pieces, and no piece wider than ``max_qubits`` qubits. (The
+    gate graph's partitions hold gates, so their size says nothing about qubits.)
+    """
+    from Qdislib.core.cutting_algorithms.wire_cutting import (
+        _expand_wire_cuts,
+        _insert_wire_cut_markers,
+    )
+    from Qdislib.utils.graph_qibo import _max_qubit, _remove_red_edges
+
+    try:
+        wire_cuts = _expand_wire_cuts(dag, cut)
+    except KeyError:  # an endpoint the DAG doesn't have
+        return False
+    if not wire_cuts:
+        return False
+    if forbidden_qubits and set(forbidden_qubits) & {q for _, _, q in wire_cuts}:
+        return False
+    if max_cuts is not None and len(wire_cuts) > max_cuts:
+        return False
+    marked = _insert_wire_cut_markers(dag.copy(), wire_cuts, _max_qubit(dag))
+    split = _remove_red_edges(marked).to_undirected()
+    pieces = list(networkx.connected_components(split))
+    if len(pieces) <= networkx.number_connected_components(dag.to_undirected()):
+        return False
+    if max_qubits is not None:
+        for piece in pieces:
+            width = {q for node in piece for q in marked.nodes[node].get("qubits", ())}
+            if len(width) > max_qubits:
+                return False
+    return True
+
+
 @task(returns=2)
 def _find_cut_wire(
     circuit,
@@ -604,6 +641,7 @@ def _find_cut_wire(
     seed=None,
     forbidden_gates=None,
     all_candidates=False,
+    forbidden_qubits=None,
 ):
     """Find the best *wire* cut for ``circuit`` by partitioning its gate graph.
 
@@ -613,30 +651,47 @@ def _find_cut_wire(
     between the two endpoints that shares a qubit with both becomes the actual
     cut location. Backend-agnostic (Qibo / Qiskit / CUDA-Q).
 
+    Every candidate is checked as it will be applied (:func:`_wire_cut_fits`):
+    ``max_qubits`` bounds each resulting piece's qubits and ``forbidden_qubits``
+    the wires that may be cut. The partitioners themselves get no ``max_qubits``:
+    their parts are sets of gates, so a gate count is no qubit bound.
+
     :return: ``(best_cut, best_score)`` where ``best_cut`` is a list of
         ``(source_gate, target_gate)`` identifier pairs.
     """
     logger.debug("Finding best wire cut")
 
     graph = _circuit_to_gate_graph(circuit)
+    # The partitioners never see forbidden_qubits; make severing a protected wire
+    # very expensive in the graph they partition (Kernighan-Lin and spectral
+    # clustering weigh edges) so they look for splits elsewhere. Scoring and the
+    # final check still use the real graph.
+    part_graph = graph
+    if forbidden_qubits:
+        protected = set(forbidden_qubits)
+        part_graph = graph.copy()
+        for u, v, data in part_graph.edges(data=True):
+            shared = set(graph.nodes[u]["qubits"]) & set(graph.nodes[v]["qubits"])
+            if shared & protected:
+                data["weight"] = data.get("weight", 1) * 1000
     candidates = {
         "Kernighan-Lin": _find_best_kernighan_lin_partition(
-            graph=graph, max_qubits=max_qubits, max_cuts=max_cuts, seed=seed
+            graph=part_graph, max_qubits=None, max_cuts=None, seed=seed
         ),
         "Girvan-Newman": _find_best_girvan_newman_cutset(
-            graph, max_qubits=max_qubits, max_cuts=max_cuts
+            part_graph, max_qubits=None, max_cuts=max_cuts
         ),
         "Spectral clustering": _find_best_spectral_clustering(
-            graph,
+            part_graph,
             clusters=max_components,
-            max_qubits=max_qubits,
+            max_qubits=None,
             max_cuts=max_cuts,
             seed=seed,
         ),
         "METIS": _metis_partition(
-            graph,
+            part_graph,
             num_clusters=max_components,
-            max_nodes_per_cluster=max_qubits,
+            max_nodes_per_cluster=None,
             max_cuts=max_cuts,
         ),
     }
@@ -649,14 +704,50 @@ def _find_cut_wire(
     # scored as two wire cuts (it severs two wires) rather than one.
     edge_weights = _gate_edge_weights(graph)
 
-    if all_candidates:
-        ranked = _rank_candidates(candidates, weights, forbidden_gates, edge_weights)
-        return [(_refine_wire_cut(cut, gates), score) for cut, score, _ in ranked], None
+    dag = convert_to_dag(circuit)
 
-    cut_set, best_score, _ = _score_candidates(
-        candidates, weights, forbidden=forbidden_gates, edge_weights=edge_weights
-    )
-    best_cut = _refine_wire_cut(cut_set, gates)
+    def fitting(candidates):
+        ranked = []
+        for cut, score, _ in _rank_candidates(
+            candidates, weights, forbidden_gates, edge_weights
+        ):
+            refined = _refine_wire_cut(cut, gates)
+            if _wire_cut_fits(dag, refined, max_qubits, max_cuts, forbidden_qubits):
+                ranked.append((refined, score))
+            else:
+                logger.debug("Wire cut %s: skipped (breaks a limit)", refined)
+        return ranked
+
+    ranked = fitting(candidates)
+    # A qubit bound or a protected wire can need more pieces than the target count
+    # derived from max_qubits (a chain of n qubits needs about n / (max_qubits - 1)).
+    # Ask the clustering strategies for more pieces until one fits.
+    clusters = max_components or 2
+    most = min(graph.number_of_nodes(), clusters + 8)
+    while not ranked and clusters < most:
+        clusters += 1
+        ranked = fitting(
+            {
+                "Spectral clustering": _find_best_spectral_clustering(
+                    part_graph,
+                    clusters=clusters,
+                    max_qubits=None,
+                    max_cuts=max_cuts,
+                    seed=seed,
+                ),
+                "METIS": _metis_partition(
+                    part_graph,
+                    num_clusters=clusters,
+                    max_nodes_per_cluster=None,
+                    max_cuts=max_cuts,
+                ),
+            }
+        )
+
+    if all_candidates:
+        return ranked, None
+
+    best_cut, best_score = ranked[0] if ranked else ([], float("inf"))
     logger.debug("Best wire cut: %s (score %s)", best_cut, best_score)
     return best_cut, best_score
 
@@ -1106,6 +1197,7 @@ def find_cut(
                     seed=seed,
                     forbidden_gates=forbidden,
                     all_candidates=True,
+                    forbidden_qubits=forbidden_qubits,
                 )
                 for cut, score in compss_wait_on(wire_cands):
                     ranked.append({"cut": cut, "kind": "wire", "score": score})
@@ -1132,6 +1224,7 @@ def find_cut(
                 weights=weights,
                 seed=seed,
                 forbidden_gates=forbidden,
+                forbidden_qubits=forbidden_qubits,
             )
 
         if gate_cut and wire_cut:

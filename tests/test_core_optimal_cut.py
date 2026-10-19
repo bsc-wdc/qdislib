@@ -151,3 +151,31 @@ class CircuitTest(BaseTimedTestCase):
         self.assertNotIn("BARRIER", repr((wire, gate, mixed)))
         # The cut must be usable: the barrier's index is kept, so names line up.
         wire_cutting(build(), wire, observables="ZZZ", software="qiskit", shots=1000)
+
+    def test_wire_mode_respects_max_qubits_and_forbidden_qubits(self):
+        """bsc-wdc/qdislib#10: wire cuts keep pieces within max_qubits and off
+        forbidden qubits."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import _expand_wire_cuts
+        from Qdislib.core.find_cut.find_cut import _wire_cut_fits, find_cut
+        from Qdislib.utils.backends import convert_to_dag
+        from qibo import models, gates
+
+        chain = models.Circuit(6)
+        for q in range(5):
+            chain.add(gates.CZ(q, q + 1))
+        cut = find_cut(chain, gate_cut=False, wire_cut=True, max_qubits=3, seed=0)
+        self.assertTrue(cut)
+        self.assertTrue(_wire_cut_fits(convert_to_dag(chain), cut, 3, None, None))
+
+        layered = models.Circuit(4)
+        for _ in range(2):
+            for q in range(4):
+                layered.add(gates.H(q))
+            for q in range(3):
+                layered.add(gates.CZ(q, q + 1))
+        cut = find_cut(
+            layered, gate_cut=False, wire_cut=True, forbidden_qubits=[1], seed=0
+        )
+        self.assertTrue(cut)
+        cut_qubits = {q for _, _, q in _expand_wire_cuts(convert_to_dag(layered), cut)}
+        self.assertNotIn(1, cut_qubits)
