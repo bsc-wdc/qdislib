@@ -101,6 +101,14 @@ The returned list contains candidate gate names or gate pairs that are suitable 
     cut = qd.find_cut(circuit, forbidden_qubits=[0, 1])   # never cut on these qubits
     cut = qd.find_cut(circuit, implementation="ibm-ckt")  # IBM's cut finder instead
 
+The limits are checked as each cut will be applied: every fragment of a wire cut
+must fit in ``max_qubits`` qubits, and no cut touches a ``forbidden_qubits`` wire.
+``max_cuts=0`` allows no cut at all (the result is ``[]``), and ``max_qubits`` must be
+at least 1. A circuit whose qubits already split into independent groups needs no
+cut, so ``find_cut`` returns ``[]`` and the groups simply run separately. The other
+way round, the cutting functions raise ``ValueError`` for a cut that does not split
+the circuit, since it would cost the cutting overhead for no smaller fragments.
+
 **Hardware-aware cut selection (SparseCut).** When you pass the target QPU's
 ``coupling_map``, ``find_cut`` switches to a hardware-aware mode that ranks the
 two-qubit gates by the physical distance between their qubits and cuts the
@@ -164,7 +172,7 @@ cutting and the reconstruction. This enables:
 .. code-block:: python
 
     # 1. Cut the circuit into independently executable subcircuits.
-    #    software is one of "qibo", "qiskit" or "cudaq".
+    #    software is one of "qibo", "qiskit", "cudaq" or "pennylane".
     subcircuits = qd.gate_cutting_subcircuits(circuit, gate_cut, software="qibo")
     # (or qd.wire_cutting_subcircuits(circuit, wire_cut, software="qibo"))
 
@@ -177,7 +185,11 @@ cutting and the reconstruction. This enables:
 The returned ``subcircuits`` object behaves like a list of subcomponents (so it
 can be iterated, indexed and executed independently using Qibo, Qiskit, CUDA-Q,
 PennyLane, or submitted to QPUs) and additionally carries the cut metadata needed by
-:meth:`~Qdislib.utils.backends.CutSubcircuits.reconstruct`.
+:meth:`~Qdislib.utils.backends.CutSubcircuits.reconstruct`. For a circuit with
+independent pieces, or a weighted sum of Pauli observables (see below), the object is
+a :class:`~Qdislib.utils.backends.CombinedCutSubcircuits`: still one flat list to
+evaluate, and ``reconstruct`` combines the parts (multiplying the pieces, adding the
+terms with their coefficients).
 
 If you prefer a single call, ``qd.gate_cutting(...)`` / ``qd.wire_cutting(...)``
 run the cut, execution and reconstruction together. This modular structure gives
@@ -205,7 +217,11 @@ mapping:
     # equivalently, as a mapping
     result = qd.gate_cutting(circuit, cut, observables={"ZZ": 0.5, "XI": 1.0, "IZ": -0.3})
 
-The same forms work with ``qd.wire_cutting`` and ``qd.analytical_solution``.
+The same forms work with ``qd.wire_cutting``, with the three-step
+``qd.gate_cutting_subcircuits`` / ``qd.wire_cutting_subcircuits`` (one set of
+subcircuits per term, and ``reconstruct`` returns the weighted sum) and with
+``qd.analytical_solution``. ``qd.gate_cutting_hadamard`` measures only ``Z``/``I``, so
+it takes a single Z/I string and raises ``ValueError`` for anything else.
 
 
 Sampling the output distribution
@@ -236,7 +252,8 @@ Caching repeated subcircuits
 Cutting produces many *functionally equivalent* subcircuits (repeated fragments,
 or the same ansatz across variational iterations). The **semantic cache** keys
 each subcircuit by a ZX-reduced graph hash and simulates an equivalent fragment
-only once. Install it with ``pip install "qdislib[cache]"`` and pass a store to
+only once. Equivalent means the same operation on the same qubits: a fragment that
+acts on other qubits gets its own entry. Install it with ``pip install "qdislib[cache]"`` and pass a store to
 any cutting call:
 
 .. code-block:: python
@@ -314,7 +331,39 @@ route each subcircuit to real hardware instead of a simulator:
     # IBM Quantum via qiskit-ibm-runtime:
     value = qd.gate_cutting(circuit, cut, qpu=True, qpu_dict={"IBM_Quantum": 127})
 
-Qdislib routes each subcircuit to a large-enough configured QPU. A real device
-returns only aggregated counts, so an identity observable on a cut qubit that
-keeps evolving *after* the cut is not supported on QPU (it is on CPU/GPU). The
-three-step workflow lets you submit each subcircuit to hardware yourself.
+Qdislib routes each subcircuit to a large-enough configured QPU. On **IBM Quantum**
+the mid-circuit measurement each gate cut makes is read back with the final
+measurements, so a cut reconstructs exactly as on the simulators, including an
+identity observable on a cut qubit and several cuts on one qubit. Give the
+credentials with ``qpu_config`` or the matching ``IBM_QUANTUM_*`` environment
+variables:
+
+.. code-block:: python
+
+    value = qd.gate_cutting(
+        circuit, cut, qpu=True, qpu_dict={"IBM_Quantum": 127},
+        qpu_config={"token": "...", "channel": "ibm_cloud", "instance": "...",
+                    "backend_name": "ibm_marrakesh"},  # omit -> least busy device
+    )
+
+The BSC bridge returns only aggregated counts, so there an identity observable on a
+cut qubit that keeps evolving *after* the cut is not supported (it is on CPU/GPU).
+
+The three-step workflow lets you submit each subcircuit to hardware yourself. For
+**IQM** (``pip install "qdislib[iqm]"``), evaluate each subcircuit with
+:meth:`~Qdislib.core.backend.iqm_backend.IQMBackend.evaluate_subcircuit`, which
+reconstructs with the same rules as the simulators:
+
+.. code-block:: python
+
+    iqm = qd.build_backend("IQM_BACKEND", qd.BackendConfig(
+        url="https://resonance.iqm.tech", quantum_computer="garnet", token="...",
+    ))
+    subcircuits = qd.gate_cutting_subcircuits(circuit, cut, software="qiskit")
+    value = subcircuits.reconstruct(
+        [iqm.evaluate_subcircuit(s, shots=4000) for s in subcircuits]
+    )
+
+Device noise is amplified by the cutting overhead, and more so with every extra
+cut, so expect hardware results to drift further from the exact value as cuts are
+added.

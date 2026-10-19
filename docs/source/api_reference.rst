@@ -63,7 +63,7 @@ Qdislib.utils: Utility functions
 --------------------------------
 
 :meth:`utils.backends <Qdislib.utils.backends>`
-    Backend-agnostic helpers, including ``expectation_value`` and ``CutSubcircuits``.
+    Backend-agnostic helpers, including ``expectation_value``, ``CutSubcircuits`` and ``CombinedCutSubcircuits``.
 
 :meth:`utils.circuit_cache <Qdislib.utils.circuit_cache>`
     Semantic subcircuit cache: ``default_circuit_cache``, ``semantic_key``.
