@@ -17,11 +17,22 @@ optional extra:
 * `pip install "qdislib[qibo]"`   — Qibo
 * `pip install "qdislib[qiskit]"` — Qiskit (+ Aer, qiskit-addon-cutting, IBM runtime)
 * `pip install "qdislib[cudaq]"`  — CUDA-Q
-* `pip install "qdislib[all]"`    — all of the above
+* `pip install "qdislib[pennylane]"` — PennyLane
+* `pip install "qdislib[all]"`    — all of the above, plus the semantic cache (`[cache]`)
+* `pip install "qdislib[iqm]"`    — IQM hardware (not part of `[all]`)
 
 For distributed execution on HPC you also need **PyCOMPSs >= 3.3** (see the
 installation steps below). GPU acceleration may additionally require
 `qiskit-aer-gpu` (with Qiskit) or `qibojit` (with Qibo).
+
+**Troubleshooting:** on Linux with glibc older than 2.32 (e.g. Debian 11),
+scikit-learn's bundled OpenMP runtime can fail to load with `cannot allocate
+memory in static TLS block`. `find_cut` then skips its spectral strategy with a
+warning. To keep it, preload the library before starting Python:
+
+```bash
+export LD_PRELOAD="$(python -c 'import glob, site; print(":".join(glob.glob(site.getsitepackages()[0] + "/scikit_learn.libs/libgomp*.so*")))')"
+```
 
 #### Installation steps
 
