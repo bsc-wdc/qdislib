@@ -25,13 +25,15 @@ For distributed execution on HPC you also need **PyCOMPSs >= 3.3** (see the
 installation steps below). GPU acceleration may additionally require
 `qiskit-aer-gpu` (with Qiskit) or `qibojit` (with Qibo).
 
-**Troubleshooting:** on Linux with glibc older than 2.32 (e.g. Debian 11),
-scikit-learn's bundled OpenMP runtime can fail to load with `cannot allocate
-memory in static TLS block`. `find_cut` then skips its spectral strategy with a
-warning. To keep it, preload the library before starting Python:
+**Troubleshooting:** on Linux with glibc older than 2.32 (e.g. Debian 11), the
+OpenMP runtime that scikit-learn and qiskit-aer each bundle (`libgomp`) can fail
+to load with `cannot allocate memory in static TLS block`, the more likely the
+more SDKs are imported. (`find_cut` then skips its spectral strategy with a
+warning; Aer cannot run at all.) Preload every bundled copy before starting
+Python:
 
 ```bash
-export LD_PRELOAD="$(python -c 'import glob, site; print(":".join(glob.glob(site.getsitepackages()[0] + "/scikit_learn.libs/libgomp*.so*")))')"
+export LD_PRELOAD="$(python -c 'import os, site; sp = site.getsitepackages()[0]; print(":".join(sorted(os.path.join(d, f) for d, _, fs in os.walk(sp) for f in fs if f.startswith("libgomp") and ".so" in f)))')"
 ```
 
 #### Installation steps
