@@ -2078,7 +2078,9 @@ def _expectation_cudaq_decoupled(
     """
     records = cudaq.run(kernel, shots_count=shots)
     n_mid = len(measured_order)
-    last_pos = {qb: i for i, qb in enumerate(measured_order)}
+    positions = {}  # every cut-point outcome of each qubit (a qubit can be cut twice)
+    for i, qb in enumerate(measured_order):
+        positions.setdefault(qb, []).append(i)
     total = 0.0
     drawn = 0
     for record in records:
@@ -2086,11 +2088,12 @@ def _expectation_cudaq_decoupled(
         contribution = 1
         # record is an int; bit k = outcome k of [cut-points..., finals...].
         for q, obs in enumerate(observables):
-            if q in prep_qubits and q in last_pos:
-                # Measured cut qubit: decomposition sign -(-1)**m from the
+            if q in prep_qubits and q in positions:
+                # Measured cut qubit: decomposition sign -(-1)**m from each
                 # cut-point outcome m for *any* observable; Z then multiplies by
                 # the final measurement.
-                contribution *= -((-1) ** ((record >> last_pos[q]) & 1))
+                for pos in positions[q]:
+                    contribution *= -((-1) ** ((record >> pos) & 1))
                 if obs == "Z":
                     contribution *= (-1) ** ((record >> (n_mid + q)) & 1)
                 elif obs != "I":
@@ -2226,6 +2229,27 @@ def _expectation_from_counts_pennylane(freq, observables, shots=1024):
     return expectation_value
 
 
+def _fold_cut_outcomes(outcomes):
+    """One bit standing for all of a qubit's cut-point outcomes.
+
+    Each cut measurement on a qubit contributes ``-(-1)**m`` to the
+    decomposition sign, and they multiply: ``(-1)**n * (-1)**(m_1+...+m_n)``.
+    The readers apply ``-(-1)**bit`` once per qubit, which equals that product
+    for ``bit = (m_1 + ... + m_n + n - 1) % 2``. Works on ints or per-shot arrays.
+
+    :param outcomes: The qubit's cut-point outcomes, in any order (at least one).
+    """
+    return (sum(outcomes) + len(outcomes) - 1) % 2
+
+
+def _folded_mid_samples(samples, collapse_order):
+    """``{qubit: folded per-shot cut-point bit}`` from one sample array per collapse."""
+    per_qubit = {}
+    for qubit, sample in zip(collapse_order, samples):
+        per_qubit.setdefault(qubit, []).append(np.asarray(sample).ravel())
+    return {q: _fold_cut_outcomes(arrays) for q, arrays in per_qubit.items()}
+
+
 def _expectation_from_samples_pennylane(
     circuit, observables, shots, prep_qubits, device="default.qubit", seed=None
 ):
@@ -2249,31 +2273,27 @@ def _expectation_from_samples_pennylane(
     """
     ops, num_qubits = circuit.ops, circuit.num_qubits
     # Collapse-measured qubits, in circuit order (matches the sample-return order).
-    collapse_order = []
-    for gate, qubits, _params in ops:
-        if gate.upper() == "MEASURE":
-            for qubit in qubits:
-                if qubit not in collapse_order:
-                    collapse_order.append(qubit)
+    # Every collapse, in circuit order: a qubit cut twice is measured twice.
+    collapse_order = [
+        qubits[0] for gate, qubits, _params in ops if gate.upper() == "MEASURE"
+    ]
 
     def qfunc():
-        mids = {}
+        mids = []
         for gate, qubits, params in ops:
             value = _apply_pennylane_gate(gate, qubits, params)
             if value is not None:  # a MEASURE returns its MeasurementValue
-                mids[qubits[0]] = value
+                mids.append(value)
         # Finals for every qubit, then each cut-point outcome -- one execution keeps
         # them correlated per shot (built here so the MeasurementValues are in scope).
         return [qml.sample(wires=range(num_qubits))] + [
-            qml.sample(mids[qubit]) for qubit in collapse_order
+            qml.sample(value) for value in mids
         ]
 
     qnode = _build_pennylane_qnode(qfunc, num_qubits, shots, device, seed)
     out = qnode()
     final = np.asarray(out[0]).reshape(shots, num_qubits)  # (shots, n), qubit-0-first
-    mid_samples = {
-        qubit: np.asarray(out[1 + i]).ravel() for i, qubit in enumerate(collapse_order)
-    }
+    mid_samples = _folded_mid_samples(out[1:], collapse_order)
 
     contribution = np.ones(shots)
     for qubit, obs in enumerate(observables):

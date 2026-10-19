@@ -413,5 +413,63 @@ class FinalMeasurementTest(BaseTimedTestCase):
         self.assertIn("measure", gates)
 
 
+@unittest.skipUnless(QIBO and QISKIT, "qibo and qiskit required")
+class RepeatedGateCutsTest(BaseTimedTestCase):
+    """bsc-wdc/qdislib#3: several gate cuts on one qubit keep every sign."""
+
+    @staticmethod
+    def _two_cz():
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(2)
+        circuit.ry(0.7, 0)
+        circuit.rx(1.1, 1)
+        circuit.cz(0, 1)
+        circuit.ry(0.9, 0)
+        circuit.rx(0.6, 1)
+        circuit.cz(0, 1)
+        circuit.ry(0.4, 0)
+        circuit.rx(0.8, 1)
+        return circuit
+
+    def test_two_cz_cuts_on_one_pair(self):
+        import Qdislib as qd
+
+        for observable in ("ZZ", "IZ"):
+            value = qd.gate_cutting(
+                self._two_cz(),
+                ["CZ_3", "CZ_6"],
+                observables=observable,
+                software="qiskit",
+                shots=40000,
+            )
+            exact = _exact(self._two_cz(), observable)
+            self.assertLess(abs(value - exact), 0.08, observable)
+
+    def test_general_gate_decomposed_into_several_cz(self):
+        import Qdislib as qd
+        from qiskit import QuantumCircuit
+
+        circuit = QuantumCircuit(2)
+        circuit.ry(0.7, 0)
+        circuit.rx(1.1, 1)
+        circuit.rxx(0.5, 0, 1)  # two CZs once decomposed
+        circuit.ry(0.4, 0)
+        circuit.rx(0.8, 1)
+        value = qd.gate_cutting(
+            circuit, ["RXX_3"], observables="ZZ", software="qiskit", shots=40000
+        )
+        self.assertLess(abs(value - _exact(circuit, "ZZ")), 0.08)
+
+    def test_fold_cut_outcomes(self):
+        from Qdislib.core.cutting_algorithms.wire_cutting import _fold_cut_outcomes
+
+        for outcomes in ([0], [1], [0, 0], [0, 1], [1, 1], [1, 0, 1]):
+            product = 1
+            for m in outcomes:
+                product *= -((-1) ** m)
+            self.assertEqual(-((-1) ** _fold_cut_outcomes(outcomes)), product)
+
+
 if __name__ == "__main__":
     unittest.main()
