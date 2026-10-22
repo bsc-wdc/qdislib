@@ -108,6 +108,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **Large joint Hadamard groups no longer hang.** A joint group of k gates has
+  `2**k` product terms and `2 * 4**k - 2**k` settings; they were written out as Python
+  lists, so `cutting_overhead`, `draw_cut` and `num_samples` hung on cuts like the
+  13-gate group `find_cut` proposes for a 100-qubit QAOA circuit. The terms are now
+  built on demand from their index, `gamma` and the setting counts come in closed
+  form, and settings are drawn gate by gate (also for
+  `gate_cutting_hadamard(..., num_samples=N)`): `cutting_overhead` on that cut takes
+  0.06 s.
 - **METIS partitioning in `find_cut` ignored repeated gates.** Two gates on the same
   qubit pair (or a gate-graph edge severing two wires) counted as one edge, so METIS
   minimised the wrong cut; on a ring with heavy and light links it cut the heavy ones.

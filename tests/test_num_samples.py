@@ -124,5 +124,51 @@ class NumSamplesTest(BaseTimedTestCase):
             qd.circuit_cutting(circuit, cuts, num_samples=0)
 
 
+class LargeJointGroupTest(BaseTimedTestCase):
+    """A joint Hadamard group's 2**k product terms are never listed."""
+
+    def test_product_terms_match_the_explicit_product(self):
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            _ProductTerms,
+            local_unitary_decomposition,
+            phi_factor,
+        )
+
+        decomps = [
+            local_unitary_decomposition("RZZ", (0.3,)),
+            local_unitary_decomposition("CZ"),
+            local_unitary_decomposition("CP", (1.1,)),
+        ]
+        explicit = [(1.0, [])]
+        for terms in decomps:
+            explicit = [
+                (c * c_m, factors + [(v, w)])
+                for c, factors in explicit
+                for c_m, v, w in terms
+            ]
+        lazy = _ProductTerms(decomps)
+        self.assertEqual(len(lazy), len(explicit))
+        for s, (c, factors) in enumerate(explicit):
+            c_lazy, factors_lazy = lazy[s]
+            self.assertAlmostEqual(c_lazy, c)
+            for (v, w), (v2, w2) in zip(factors, factors_lazy):
+                self.assertTrue(np.allclose(v, v2) and np.allclose(w, w2))
+        self.assertAlmostEqual(phi_factor(lazy), phi_factor(explicit))
+
+    @unittest.skipUnless(QISKIT, "qiskit not installed")
+    def test_overhead_of_a_twelve_gate_group_is_instant(self):
+        import time
+
+        import Qdislib as qd
+        from tests.test_circuit_cutting import _boundary
+
+        circuit, cuts = _boundary(12, "hadamard")
+        start = time.time()
+        cost = qd.cutting_overhead(circuit, cuts, joint=True)
+        self.assertLess(time.time() - start, 5)
+        self.assertAlmostEqual(cost["gamma"], 2**13 - 1)
+        self.assertEqual(cost["configurations"], 2**12 * (2**13 - 1))
+
+
 if __name__ == "__main__":
     unittest.main()

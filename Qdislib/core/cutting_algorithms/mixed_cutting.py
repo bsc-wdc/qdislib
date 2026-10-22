@@ -379,8 +379,6 @@ class _CutPlan:
         self.groups = (
             _cut_groups(graph, components, decomps, joint_gates) if had_cuts else []
         )
-        #: Each Hadamard cut's own coefficients (to draw a group's terms gate by gate).
-        self.had_coefficients = [[c for c, _, _ in terms] for terms in decomps]
         group_of = {
             k: index
             for index, (cut_indices, _) in enumerate(self.groups)
@@ -494,17 +492,11 @@ class _CutPlan:
         )
 
     def _group_settings(self):
-        """How many settings of each Hadamard group carry a non-zero weight."""
-        from Qdislib.core.cutting_algorithms.hadamard_cut import _cut_settings
+        """How many settings of each Hadamard group carry a non-zero weight, in
+        closed form (a joint group's settings are never listed)."""
+        from Qdislib.core.cutting_algorithms.hadamard_cut import _num_settings
 
-        return [
-            sum(
-                1
-                for s, t, _ in _cut_settings(len(terms))
-                if terms[s][0] * terms[t][0] != 0.0
-            )
-            for _, terms in self.groups
-        ]
+        return [_num_settings(terms) for _, terms in self.groups]
 
     def num_units(self):
         """How many fragment circuits :meth:`units` returns, without listing them.
@@ -570,25 +562,11 @@ class _CutPlan:
         flips = np.isin(digits, (3, 5)).sum(axis=1) + np.isin(wires, (3, 5, 7)).sum(
             axis=1
         )
+        from Qdislib.core.cutting_algorithms.hadamard_cut import _draw_settings
+
         settings = []
-        for cut_indices, _ in self.groups:
-            coeffs = [np.asarray(self.had_coefficients[k - 1]) for k in cut_indices]
-
-            def term():
-                index = np.zeros(n, dtype=np.int64)
-                for c in coeffs:  # first gate most significant, as _cut_groups
-                    index = index * len(c) + rng.choice(len(c), size=n, p=c / c.sum())
-                return index
-
-            s, t = term(), term()
-            # s == t has one setting (g = 0) where s != t has two: keep s == t
-            # half the time, so every valid (s, t, g) has probability c_s c_t / phi.
-            redo = (s == t) & (rng.random(n) < 0.5)
-            while redo.any():
-                s_new, t_new = term(), term()
-                s[redo], t[redo] = s_new[redo], t_new[redo]
-                redo = redo & (s == t) & (rng.random(n) < 0.5)
-            g = np.where(s == t, 0, rng.integers(0, 2, size=n))
+        for _, terms in self.groups:
+            s, t, g = _draw_settings(terms, n, rng)
             flips = flips + g
             settings.append((s, t, g))
         signs = np.where(flips % 2, -1.0, 1.0)

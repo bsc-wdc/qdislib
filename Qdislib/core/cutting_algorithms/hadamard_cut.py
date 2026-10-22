@@ -301,10 +301,69 @@ def local_unitary_decomposition(gate_name, params=()):
     return _diagonal_zz_decomposition(diag)
 
 
+class _ProductTerms:
+    """The decomposition of a joint group: the products of its gates' own terms,
+    ``(c_s, [(V, W) per gate])`` with ``c_s = prod_m c_{s_m}``, built on demand.
+
+    A group of k gates has ``prod_m r_m`` terms (``2**k`` for CZ/CX/RZZ), so they are
+    never listed: ``terms[s]`` builds term ``s`` from its per-gate indices (first gate
+    most significant), and the norms and counts come from the gates' own terms.
+    """
+
+    def __init__(self, per_gate):
+        self.per_gate = [list(t) for t in per_gate]
+        self.radix = [len(t) for t in self.per_gate]
+        self._len = int(np.prod(self.radix)) if self.radix else 1
+        #: ``||c||_1`` and ``||c||_2**2`` of the product, and its non-zero terms.
+        self.l1 = float(np.prod([sum(abs(c) for c, _, _ in t) for t in self.per_gate]))
+        self.l2sq = float(
+            np.prod([sum(abs(c) ** 2 for c, _, _ in t) for t in self.per_gate])
+        )
+        self.nonzero = int(
+            np.prod([sum(1 for c, _, _ in t if c != 0) for t in self.per_gate])
+        )
+
+    def __len__(self):
+        return self._len
+
+    def indices(self, s):
+        """Term ``s`` as one index per gate."""
+        out = []
+        for r in reversed(self.radix):
+            out.append(s % r)
+            s //= r
+        return out[::-1]
+
+    def __getitem__(self, s):
+        if not 0 <= s < self._len:
+            raise IndexError(s)
+        c, factors = 1.0, []
+        for terms, i in zip(self.per_gate, self.indices(s)):
+            c_m, v, w = terms[i]
+            c *= c_m
+            factors.append((v, w))
+        return c, factors
+
+    def __iter__(self):
+        return (self[s] for s in range(self._len))
+
+
 def phi_factor(terms):
     """The sampling-overhead 1-norm ``phi = 2||c||_1^2 - ||c||_2^2`` of a decomposition."""
+    if isinstance(terms, _ProductTerms):
+        return float(2 * terms.l1**2 - terms.l2sq)
     c = np.array([t[0] for t in terms], dtype=float)
     return float(2 * c.sum() ** 2 - (c**2).sum())
+
+
+def _num_settings(terms):
+    """How many ``(s, t, g)`` settings carry a non-zero weight: ``2 r**2 - r`` over the
+    ``r`` terms with a non-zero coefficient (``s = t`` has only ``g = 0``)."""
+    if isinstance(terms, _ProductTerms):
+        r = terms.nonzero
+    else:
+        r = sum(1 for t in terms if t[0] != 0)
+    return 2 * r * r - r
 
 
 def gamma_factor(terms):
@@ -638,13 +697,8 @@ def _cut_groups(cut_dag, components, decomps, joint=False):
         keys.setdefault(key, []).append(k)
     groups = []
     for cut_indices in keys.values():  # in order of each group's first cut
-        terms = [(1.0, [])]
-        for k in cut_indices:
-            terms = [
-                (c * c_m, factors + [(v, w)])
-                for c, factors in terms
-                for c_m, v, w in decomps[k - 1]
-            ]
+        # the product of the gates' terms, built term by term when needed
+        terms = _ProductTerms([decomps[k - 1] for k in cut_indices])
         groups.append((cut_indices, terms))
     return groups
 
@@ -1121,20 +1175,43 @@ def _sample_configs(decomps, num_samples, seed=None):
     ``decomps`` may be a group's terms (:func:`_cut_groups`) as well as a cut's: only
     each term's leading coefficient is read.
     """
-    pmfs = [_cut_pmf(terms) for terms in decomps]  # (settings, probs, phi) per cut
-    phi_total = 1.0
-    for _, _, phi in pmfs:
-        phi_total *= phi
     rng = np.random.default_rng(seed)
+    phi_total = 1.0
+    draws = []  # per cut / group: arrays s, t, g over the samples
+    for terms in decomps:
+        phi_total *= phi_factor(terms)
+        draws.append(_draw_settings(terms, num_samples, rng))
     configs = []
-    for _ in range(num_samples):
-        config, sign = [], 1
-        for settings, probs, _phi in pmfs:
-            i, j, g = settings[int(rng.choice(len(settings), p=probs))]
-            config.append((i, j, g))
-            sign *= (-1) ** g
-        configs.append((config, sign))
+    for n in range(num_samples):
+        config = [(int(s[n]), int(t[n]), int(g[n])) for s, t, g in draws]
+        configs.append((config, (-1) ** sum(g for _, _, g in config)))
     return configs, phi_total
+
+
+def _draw_settings(terms, num_samples, rng):
+    """``num_samples`` settings ``(s, t, g)`` with probability ``c_s c_t / phi``,
+    without listing the settings: ``s`` and ``t`` are drawn ``∝ c`` (gate by gate for
+    a joint group) and ``s = t``, which has one setting where ``s != t`` has two, is
+    kept half the time."""
+    if isinstance(terms, _ProductTerms):
+        per_gate = [np.array([abs(c) for c, _, _ in t]) for t in terms.per_gate]
+    else:
+        per_gate = [np.array([abs(t[0]) for t in terms])]
+
+    def term():
+        index = np.zeros(num_samples, dtype=np.int64)
+        for c in per_gate:
+            index = index * len(c) + rng.choice(len(c), size=num_samples, p=c / c.sum())
+        return index
+
+    s, t = term(), term()
+    redo = (s == t) & (rng.random(num_samples) < 0.5)
+    while redo.any():
+        s_new, t_new = term(), term()
+        s[redo], t[redo] = s_new[redo], t_new[redo]
+        redo = redo & (s == t) & (rng.random(num_samples) < 0.5)
+    g = np.where(s == t, 0, rng.integers(0, 2, size=num_samples))
+    return s, t, g
 
 
 def _sampling_weight(phi_total, sign, num_samples):
