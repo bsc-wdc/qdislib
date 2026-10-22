@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The Hadamard cut measures X and Y and takes weighted Pauli sums**, like
   `gate_cutting`: X/Y qubits are rotated into the Z basis before cutting, and a sum
   is cut term by term (`*_subcircuits` return a `CombinedCutSubcircuits`).
+- **Optimized wire cutting measures cut wires jointly.** With `optimized=True`, the
+  wires that leave the same fragment are measured together: `2**k + 1` measurement
+  circuits for k wires instead of `3**k`, each reading a commuting group of Paulis
+  (mutually unbiased bases from GF(2**k)), every Pauli once. Applies to
+  `wire_cutting`, `wire_cutting_subcircuits` and `wire_cutting_sampling`, for mixed
+  (chain) fragments too. Some of these circuits add CZ gates between the cut qubits;
+  `joint=False` keeps the previous per-wire measurement, whose results are unchanged.
 - **`CombinedCutSubcircuits`**: the subcircuit container `*_subcircuits` return
   when a circuit has several independent pieces or the observable is a weighted
   Pauli sum. It is still one flat list to evaluate; `reconstruct` multiplies the
@@ -131,6 +138,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `gate_cutting_hadamard(..., num_samples=N)` (and `gate_cutting_hadamard_subcircuits(...,
   num_samples=N)`). Calling the old way, with an observable, raises a `TypeError` that
   says so.
+- **`optimized=True` wire cutting runs fewer measurement circuits by default** (see
+  Added: joint measurement). Pass `joint=False` for the previous circuits.
 - **`wire_cutting` runs the subcircuits in the circuit's own SDK by default.**
   `software` defaulted to `"qibo"` whatever the input, so a Qiskit circuit
   containing `cx` failed unless `software="qiskit"` was passed. The default is now

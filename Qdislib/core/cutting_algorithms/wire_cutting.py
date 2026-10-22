@@ -32,6 +32,7 @@ __all__ = [
     "wire_cutting_subcircuit_reconstruction",
 ]
 
+import functools
 import itertools
 import math
 import networkx
@@ -103,6 +104,7 @@ def wire_cutting(
     cache=None,
     cache_mode="expectation",
     optimized: bool = False,
+    joint: bool = True,
 ):
     """Apply wire cutting to a quantum circuit to simplify its structure for distributed or hardware-constrained execution of subcircuits.
 
@@ -149,6 +151,16 @@ def wire_cutting(
         of the same size). Falls back to the standard method only if a cut's
         marker is missing entirely (a bookkeeping inconsistency, not a topology
         issue).
+
+    joint : bool, default=True
+        With ``optimized=True``, measure the cut wires each fragment sends together
+        instead of one by one: ``2**k + 1`` measurement circuits for ``k`` wires
+        leaving a fragment instead of ``3**k`` (5 instead of 9 at ``k = 2``, 9
+        instead of 27 at ``k = 3``), reading every Pauli of the wires exactly once.
+        Same value; usually fewer shots for the same error, not always for
+        ``k = 2``. Some of those circuits add CZ gates between the fragment's cut
+        qubits: pass ``False`` to measure each wire on its own (no entangling gates),
+        e.g. on hardware with costly two-qubit gates. Ignored without ``optimized``.
 
     Returns
     -------
@@ -206,6 +218,7 @@ def wire_cutting(
                 cache=cache,
                 cache_mode=cache_mode,
                 optimized=optimized,
+                joint=joint,
             )
         return total
 
@@ -244,6 +257,7 @@ def wire_cutting(
                 shots,
                 backend,
                 software,
+                joint=joint,
             )
             # The optimized path returns a single reconstruction future (task ->
             # task, no master barrier); wait on it once here.
@@ -460,24 +474,72 @@ def _reconstruct_optimized_wire_distribution_task(
     physical circuit per pair -- and still get the |-> / |-i> expansion on their
     prepare-type cuts. Reuses :func:`_reconstruct_wire_cut_distribution` unchanged.
     """
+    # The wire Pauli a cut bit stands for, per base-8 digit (0/1 never set it).
     basis_of = {0: "Z", 1: "Z", 2: "X", 3: "X", 4: "Y", 5: "Y", 6: "Z", 7: "Z"}
-    measure_corr = {}
-    for (frag_idx, basis_combo), value in zip(measure_keys, measure_flat):
-        measure_corr.setdefault(frag_idx, {})[basis_combo] = value
+
+    # Per fragment, one {(output_mask, pauli): value} table merged over its
+    # measurement settings (per-wire or joint), and its qubit order.
+    measure_tables, measure_original = {}, {}
+    for (frag_idx, setting), (corr, original) in zip(measure_keys, measure_flat):
+        cuts, cut_qubits = measure_cuts[frag_idx]
+        readout = _setting_readout(setting, len(cuts))
+        measure_tables.setdefault(frag_idx, []).append(
+            _corr_pauli_table(corr, original, cuts, cut_qubits, readout)
+        )
+        measure_original[frag_idx] = original
+    measure_tables = {f: _merge_tables(t) for f, t in measure_tables.items()}
     prepare_corr = {}
     for (frag_idx, prep_combo), value in zip(prepare_keys, prepare_flat):
         prepare_corr.setdefault(frag_idx, {})[prep_combo] = value
-    mixed_corr = {}
-    for (frag_idx, basis_combo, prep_combo), value in zip(mixed_keys, mixed_flat):
-        mixed_corr.setdefault(frag_idx, {})[(basis_combo, prep_combo)] = value
+    mixed_tables, mixed_original = {}, {}
+    for (frag_idx, setting, prep_combo), (corr, original) in zip(
+        mixed_keys, mixed_flat
+    ):
+        m_cuts, cut_qubits, _p = mixed_cuts[frag_idx]
+        readout = _setting_readout(setting, len(m_cuts))
+        mixed_tables.setdefault(frag_idx, {}).setdefault(prep_combo, []).append(
+            _corr_pauli_table(corr, original, m_cuts, cut_qubits, readout)
+        )
+        mixed_original[frag_idx] = original
+    mixed_tables = {
+        f: {prep: _merge_tables(t) for prep, t in by_prep.items()}
+        for f, by_prep in mixed_tables.items()
+    }
+    rebuilt = {}  # (kind, fragment, prep, letters) -> per-wire-shaped corr
+
+    def measure_corr(frag_idx, letters):
+        key = ("m", frag_idx, letters)
+        if key not in rebuilt:
+            cuts, cut_qubits = measure_cuts[frag_idx]
+            rebuilt[key] = _corr_from_pauli_table(
+                measure_tables[frag_idx],
+                measure_original[frag_idx],
+                cuts,
+                cut_qubits,
+                letters,
+            )
+        return rebuilt[key], measure_original[frag_idx]
+
+    def mixed_corr(frag_idx, letters, prep_combo):
+        key = ("x", frag_idx, letters, prep_combo)
+        if key not in rebuilt:
+            m_cuts, cut_qubits, _p = mixed_cuts[frag_idx]
+            rebuilt[key] = _corr_from_pauli_table(
+                mixed_tables[frag_idx][prep_combo],
+                mixed_original[frag_idx],
+                m_cuts,
+                cut_qubits,
+                letters,
+            )
+        return rebuilt[key], mixed_original[frag_idx]
 
     configs = []
     for index in range(8**num_cuts):
         settings = [(index // (8 ** (num_cuts - 1 - k))) % 8 for k in range(num_cuts)]
         per_component = []
-        for frag_idx, cuts in enumerate(measure_cuts):
-            basis_combo = tuple(basis_of[settings[cut - 1]] for cut in cuts)
-            per_component.append(measure_corr[frag_idx][basis_combo])
+        for frag_idx, (cuts, _q) in enumerate(measure_cuts):
+            letters = tuple(basis_of[settings[cut - 1]] for cut in cuts)
+            per_component.append(measure_corr(frag_idx, letters))
         for frag_idx, cuts in enumerate(prepare_cuts):
             expansions = [_WIRE_PREP[settings[cut - 1]] for cut in cuts]
             combined, original = {}, None
@@ -491,8 +553,8 @@ def _reconstruct_optimized_wire_distribution_task(
                 for mask, value in corr.items():
                     combined[mask] = combined.get(mask, 0.0) + coefficient * value
             per_component.append((combined, original))
-        for frag_idx, (m_cuts, p_cuts) in enumerate(mixed_cuts):
-            basis_combo = tuple(basis_of[settings[cut - 1]] for cut in m_cuts)
+        for frag_idx, (m_cuts, _q, p_cuts) in enumerate(mixed_cuts):
+            letters = tuple(basis_of[settings[cut - 1]] for cut in m_cuts)
             expansions = [_WIRE_PREP[settings[cut - 1]] for cut in p_cuts]
             combined, original = {}, None
             for choice in itertools.product(*expansions):
@@ -501,7 +563,7 @@ def _reconstruct_optimized_wire_distribution_task(
                 for weight, base_state in choice:
                     coefficient *= weight
                     base_combo.append(base_state)
-                corr, original = mixed_corr[frag_idx][(basis_combo, tuple(base_combo))]
+                corr, original = mixed_corr(frag_idx, letters, tuple(base_combo))
                 for mask, value in corr.items():
                     combined[mask] = combined.get(mask, 0.0) + coefficient * value
             per_component.append((combined, original))
@@ -514,7 +576,7 @@ def _reconstruct_optimized_wire_distribution_task(
 
 
 def _wire_sampling_optimized(
-    dag, wire_cuts, num_qubits, shots, software, qpu, qpu_dict, seed
+    dag, wire_cuts, num_qubits, shots, software, qpu, qpu_dict, seed, joint=False
 ):
     """Fragment-separated sampling reconstruction.
 
@@ -549,13 +611,12 @@ def _wire_sampling_optimized(
         )
 
     measure_flat, measure_keys = [], []
-    for frag_idx, (sub, cuts, _q) in enumerate(measure_frags):
-        for basis_combo in itertools.product(_MEASURE_BASES, repeat=len(cuts)):
+    for frag_idx, (sub, cuts, cut_qubits) in enumerate(measure_frags):
+        for setting in _measurement_settings(len(cuts), joint):
             graph = sub.copy()
-            for cut, basis in zip(cuts, basis_combo):
-                _apply_wire_measure_option(graph, cut, basis + "P")
+            _apply_measurement_setting(graph, cuts, cut_qubits, setting)
             measure_flat.append(_sample(graph))
-            measure_keys.append((frag_idx, basis_combo))
+            measure_keys.append((frag_idx, setting))
     prepare_flat, prepare_keys = [], []
     for frag_idx, (sub, cuts) in enumerate(prepare_frags):
         for prep_combo in itertools.product(_PREP_STATES, repeat=len(cuts)):
@@ -565,28 +626,27 @@ def _wire_sampling_optimized(
             prepare_flat.append(_sample(graph))
             prepare_keys.append((frag_idx, prep_combo))
     mixed_flat, mixed_keys = [], []
-    for frag_idx, (sub, m_cuts, _q, p_cuts) in enumerate(mixed_frags):
-        for basis_combo in itertools.product(_MEASURE_BASES, repeat=len(m_cuts)):
+    for frag_idx, (sub, m_cuts, cut_qubits, p_cuts) in enumerate(mixed_frags):
+        for setting in _measurement_settings(len(m_cuts), joint):
             for prep_combo in itertools.product(_PREP_STATES, repeat=len(p_cuts)):
                 graph = sub.copy()
                 for cut, state in zip(p_cuts, prep_combo):
                     _apply_wire_prep_state(graph, cut, state)
-                for cut, basis in zip(m_cuts, basis_combo):
-                    _apply_wire_measure_option(graph, cut, basis + "P")
+                _apply_measurement_setting(graph, m_cuts, cut_qubits, setting)
                 mixed_flat.append(_sample(graph))
-                mixed_keys.append((frag_idx, basis_combo, prep_combo))
+                mixed_keys.append((frag_idx, setting, prep_combo))
     plain_flat = [_sample(sub.copy()) for sub in plain_frags]
 
     return _reconstruct_optimized_wire_distribution_task(
         measure_flat,
         measure_keys,
-        [cuts for _s, cuts, _q in measure_frags],
+        [(cuts, q) for _s, cuts, q in measure_frags],
         prepare_flat,
         prepare_keys,
         [cuts for _s, cuts in prepare_frags],
         mixed_flat,
         mixed_keys,
-        [(m_cuts, p_cuts) for _s, m_cuts, _q, p_cuts in mixed_frags],
+        [(m_cuts, q, p_cuts) for _s, m_cuts, q, p_cuts in mixed_frags],
         plain_flat,
         len(wire_cuts),
         num_qubits,
@@ -605,6 +665,7 @@ def wire_cutting_sampling(
     qpu_dict=None,
     seed=None,
     optimized: bool = False,
+    joint: bool = True,
 ):
     """Reconstruct the output **probability distribution** of a wire-cut circuit.
 
@@ -629,6 +690,13 @@ def wire_cutting_sampling(
     :param seed: Optional seed for a reproducible distribution. Each fragment gets a
         distinct derived seed (``seed + i``); ``None`` keeps the previous
         non-deterministic sampling. Ignored on a QPU.
+    :param optimized: Sample each fragment once per measurement setting /
+        preparation (``sum_f 3**i_f * 4**j_f``, or fewer with ``joint``) instead of
+        every one of the ``8**n`` configurations.
+    :param joint: With ``optimized=True``, measure the cut wires each fragment
+        sends together: ``2**k + 1`` settings for ``k`` wires instead of ``3**k``
+        (see :func:`wire_cutting`). ``False`` measures each wire on its own, with no
+        entangling gates.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import (
@@ -658,7 +726,15 @@ def wire_cutting_sampling(
         # error, so optimized=True never changes the (shot-noise) result.
         try:
             optimized_distribution = _wire_sampling_optimized(
-                dag.copy(), wire_cuts, num_qubits, shots, software, qpu, qpu_dict, seed
+                dag.copy(),
+                wire_cuts,
+                num_qubits,
+                shots,
+                software,
+                qpu,
+                qpu_dict,
+                seed,
+                joint=joint,
             )
             if optimized_distribution is not None:
                 return (
@@ -1265,6 +1341,281 @@ _WIRE_PREP = {
 #: Cut settings whose quasiprobability sign is -1 (matches _reconstruction base-8).
 _WIRE_SIGN_FLIP = {3, 5, 7}
 
+#: The Pauli each base-8 cut setting needs from the measure side (0/1: identity).
+_SETTING_PAULI = {0: "I", 1: "I", 2: "X", 3: "X", 4: "Y", 5: "Y", 6: "Z", 7: "Z"}
+
+# ---------------------------------------------------------------------------
+# Joint measurement of the cut wires a fragment sends. The measure side must supply
+# <O (x) P> for every Pauli P on those k wires. Per wire, that takes 3**k circuits
+# (one basis per wire; a qubit's I is read by ignoring its bit). Measured jointly,
+# the 4**k - 1 non-identity Paulis split into 2**k + 1 commuting groups of 2**k - 1
+# (mutually unbiased bases): one circuit per group reads all of it, every Pauli
+# exactly once. The groups come from the field GF(2**k): group t holds X^a Z^(A_t a)
+# with (A_t)_ij = Tr(t e_i e_j), plus the all-Z group. A_t is symmetric, so each
+# group is measured by SDG (where A_t has a 1 on the diagonal), CZ (off-diagonal 1s)
+# and H on every wire.
+# ---------------------------------------------------------------------------
+
+#: Irreducible polynomials over GF(2) (bit i = coefficient of x**i), per degree k.
+_IRREDUCIBLE = {
+    1: 0b11,
+    2: 0b111,
+    3: 0b1011,
+    4: 0b10011,
+    5: 0b100101,
+    6: 0b1000011,
+    7: 0b10000011,
+    8: 0b100011011,
+}
+
+
+def _gf_mul(a, b, k):
+    """Product in GF(2**k), elements as bit masks over the polynomial basis."""
+    out = 0
+    while b:
+        if b & 1:
+            out ^= a
+        b >>= 1
+        a <<= 1
+        if (a >> k) & 1:
+            a ^= _IRREDUCIBLE[k]
+    return out
+
+
+def _gf_trace(y, k):
+    """Field trace GF(2**k) -> GF(2): ``y + y**2 + ... + y**(2**(k-1))``."""
+    total, power = 0, y
+    for _ in range(k):
+        total ^= power
+        power = _gf_mul(power, power, k)
+    return total
+
+
+def _pauli_matrix(label):
+    matrices = {
+        "I": np.eye(2),
+        "X": np.array([[0, 1], [1, 0]]),
+        "Y": np.array([[0, -1j], [1j, 0]]),
+        "Z": np.diag([1, -1]),
+    }
+    out = np.array([[1.0 + 0j]])
+    for letter in label:
+        out = np.kron(out, matrices[letter])
+    return out
+
+
+def _gate_matrix(name, qubits, k):
+    """``name`` on local ``qubits`` of a k-qubit register (qubit 0 most significant)."""
+    single = {
+        "H": np.array([[1, 1], [1, -1]]) / np.sqrt(2),
+        "SDG": np.diag([1, -1j]),
+    }
+    if name in single:
+        out = np.array([[1.0 + 0j]])
+        for q in range(k):
+            out = np.kron(out, single[name] if q == qubits[0] else np.eye(2))
+        return out
+    i, j = qubits  # CZ
+    return np.diag(
+        [
+            -1 if ((x >> (k - 1 - i)) & 1 and (x >> (k - 1 - j)) & 1) else 1
+            for x in range(2**k)
+        ]
+    ).astype(complex)
+
+
+@functools.lru_cache(maxsize=None)
+def _joint_measurement_settings(k):
+    """The ``2**k + 1`` joint measurement settings for ``k`` cut wires.
+
+    :return: A tuple of ``(gates, readout)``: ``gates`` is ``[(name, local_qubits),
+        ...]`` over the cut wires ``0..k-1``; ``readout`` is ``[(pauli, sign,
+        bits), ...]`` with ``<O (x) pauli> = sign * <O (x) Z_bits>`` measured after
+        the gates, for every Pauli the setting gives (the all-identity one too).
+    """
+    if k not in _IRREDUCIBLE:
+        raise ValueError(
+            f"joint measurement supports 1 to 8 wires per fragment, not {k}"
+        )
+    groups = []
+    for t in range(2**k):
+        a = [
+            [_gf_trace(_gf_mul(t, _gf_mul(1 << i, 1 << j, k), k), k) for j in range(k)]
+            for i in range(k)
+        ]
+        x_parts = [
+            [int(i == j) for i in range(k)] for j in range(k)
+        ]  # generator j: X_j
+        z_parts = [[a[i][j] for i in range(k)] for j in range(k)]  # times Z^(column j)
+        gates = [("SDG", (i,)) for i in range(k) if a[i][i]]
+        gates += [("CZ", (i, j)) for i in range(k) for j in range(i + 1, k) if a[i][j]]
+        gates += [("H", (i,)) for i in range(k)]
+        groups.append((gates, x_parts, z_parts))
+    identity = [[int(i == j) for i in range(k)] for j in range(k)]
+    groups.append(([], [[0] * k for _ in range(k)], identity))  # the all-Z group
+
+    settings, seen = [], set()
+    for gates, x_parts, z_parts in groups:
+        circuit = np.eye(2**k, dtype=complex)
+        for name, qubits in gates:
+            circuit = _gate_matrix(name, qubits, k) @ circuit
+        readout = [(("I",) * k, 1, ())]
+        for coeffs in itertools.product((0, 1), repeat=k):
+            if not any(coeffs):
+                continue
+            x = [sum(c * g[q] for c, g in zip(coeffs, x_parts)) % 2 for q in range(k)]
+            z = [sum(c * g[q] for c, g in zip(coeffs, z_parts)) % 2 for q in range(k)]
+            pauli = tuple("IXZY"[x[q] + 2 * z[q]] for q in range(k))
+            image = circuit @ _pauli_matrix(pauli) @ circuit.conj().T
+            sign = int(round(image[0, 0].real))
+            bits = tuple(
+                q
+                for q in range(k)
+                if round(image[1 << (k - 1 - q)][1 << (k - 1 - q)].real) == -sign
+            )
+            expected = np.diag(
+                [
+                    sign * (-1) ** sum((x_ >> (k - 1 - q)) & 1 for q in bits)
+                    for x_ in range(2**k)
+                ]
+            )
+            if not np.allclose(image, expected):  # pragma: no cover - construction bug
+                raise RuntimeError(f"joint setting does not diagonalise {pauli}")
+            readout.append((pauli, sign, bits))
+            seen.add(pauli)
+        settings.append((tuple(gates), tuple(readout)))
+    if len(seen) != 4**k - 1:  # pragma: no cover - construction bug
+        raise RuntimeError("joint settings do not cover every Pauli once")
+    return tuple(settings)
+
+
+def _per_wire_readout(basis_combo):
+    """Readout of a per-wire setting: every Pauli with letters ``b_i`` or ``I``
+    (``I`` only on Z-basis wires, so each Pauli is read by exactly one setting)."""
+    options = [(["P", "I"] if basis == "Z" else ["P"]) for basis in basis_combo]
+    readout = []
+    for extraction in itertools.product(*options):
+        pauli = tuple(b if e == "P" else "I" for b, e in zip(basis_combo, extraction))
+        bits = tuple(i for i, e in enumerate(extraction) if e == "P")
+        readout.append((pauli, 1, bits))
+    return readout
+
+
+def _measurement_settings(num_cuts, joint=False):
+    """The settings that measure ``num_cuts`` cut wires of one fragment: per-wire
+    basis combos (``3**k``), or joint ones (``2**k + 1``) when ``joint``."""
+    if joint and num_cuts > 1:
+        return [("joint", t) for t in range(2**num_cuts + 1)]
+    return list(itertools.product(_MEASURE_BASES, repeat=num_cuts))
+
+
+def _apply_measurement_setting(graph, cuts, cut_qubits, setting):
+    """Turn the fragment's ``O_i`` markers into one measurement setting, in place.
+
+    A per-wire setting rotates each cut qubit into its own basis
+    (:func:`_apply_wire_measure_option`). A joint setting removes the markers and
+    appends its gates on the cut qubits after their last gate -- nothing else acts
+    on a cut qubit in this fragment after the cut, so measuring later is the same.
+
+    :return: The setting's readout (see :func:`_joint_measurement_settings`).
+    """
+    if setting and setting[0] == "joint":
+        gates, readout = _joint_measurement_settings(len(cuts))[setting[1]]
+        last = {}
+        for local, cut in enumerate(cuts):
+            node = f"O_{cut}"
+            preds = list(graph.predecessors(node))
+            last[local] = preds[0] if preds else None
+            graph.remove_node(node)
+        for index, (name, qubits) in enumerate(gates):
+            node = f"JM_{cuts[0]}_{index}"
+            graph.add_node(
+                node,
+                gate=name,
+                qubits=tuple(cut_qubits[cuts[q]] for q in qubits),
+                parameters=(),
+            )
+            for q in qubits:
+                if last[q] is not None:
+                    graph.add_edge(last[q], node, color="blue")
+                last[q] = node
+        return readout
+    for cut, basis in zip(cuts, setting):
+        _apply_wire_measure_option(graph, cut, basis + "P")
+    return _per_wire_readout(setting)
+
+
+def _measure_table(counts, cut_positions, readout):
+    """``{pauli: <O (x) pauli>}`` from one setting's counts: ``O`` is the parity of
+    the fragment's other qubits, each Pauli the setting's ``sign`` times the parity
+    of its ``bits`` among the cut qubits."""
+    total = sum(counts.values()) or 1
+    width = len(next(iter(counts), "")) if counts else 0
+    observable_positions = [p for p in range(width) if p not in cut_positions]
+    table = {}
+    for pauli, sign, bits in readout:
+        selected = [cut_positions[b] for b in bits]
+        value = 0.0
+        for bitstring, count in counts.items():
+            parity = 0
+            for pos in observable_positions:
+                parity ^= int(bitstring[pos])
+            for pos in selected:
+                parity ^= int(bitstring[pos])
+            value += -count if parity else count
+        table[pauli] = sign * value / total
+    return table
+
+
+def _merge_tables(tables):
+    """One ``{pauli: value}`` table from several settings' tables; a Pauli read by
+    more than one setting (the all-identity one, when joint) is averaged."""
+    sums, counts = {}, {}
+    for table in tables:
+        for pauli, value in table.items():
+            sums[pauli] = sums.get(pauli, 0.0) + value
+            counts[pauli] = counts.get(pauli, 0) + 1
+    return {pauli: sums[pauli] / counts[pauli] for pauli in sums}
+
+
+def _setting_readout(setting, num_cuts):
+    """The readout of a measurement setting (per-wire basis combo or joint)."""
+    if setting and setting[0] == "joint":
+        return _joint_measurement_settings(num_cuts)[setting[1]][1]
+    return _per_wire_readout(setting)
+
+
+def _corr_pauli_table(corr, original, cuts, cut_qubits, readout):
+    """``{(output_mask, pauli): value}`` from one setting's Z correlators.
+
+    ``corr`` maps a mask over ``original`` (bit i = Z on ``original[i]``) to its
+    correlator. After the setting's gates, a mask whose cut bits equal a readout
+    entry's ``bits`` gives ``sign * <Z^output (x) pauli>`` on the remaining bits.
+    """
+    positions = [original.index(cut_qubits[cut]) for cut in cuts]
+    cut_mask = sum(1 << p for p in positions)
+    table = {}
+    for pauli, sign, bits in readout:
+        bits_mask = sum(1 << positions[b] for b in bits)
+        for mask, value in corr.items():
+            if mask & cut_mask == bits_mask:
+                table[(mask & ~cut_mask, pauli)] = sign * value
+    return table
+
+
+def _corr_from_pauli_table(table, original, cuts, cut_qubits, letters):
+    """The per-wire-shaped correlators the distribution reconstruction reads: a
+    cut bit set means that wire's Pauli ``letters[i]``, unset means identity."""
+    positions = [original.index(cut_qubits[cut]) for cut in cuts]
+    cut_mask = sum(1 << p for p in positions)
+    corr = {}
+    for mask in range(2 ** len(original)):
+        pauli = tuple(
+            letters[i] if (mask >> p) & 1 else "I" for i, p in enumerate(positions)
+        )
+        corr[mask] = table.get((mask & ~cut_mask, pauli), 0.0)
+    return corr
+
 
 def _apply_wire_prep_state(graph, cut_index, state):
     """Set a prepare marker ``PS_i`` to prepare one of the 4 base states, in place.
@@ -1350,12 +1701,13 @@ def _run_wire_measure_fragment(
     :param sub: The measure fragment DAG (carries the ``O_i`` markers).
     :param cuts: The cut indices this fragment owns (sorted).
     :param cut_qubits: ``{cut_index: original qubit}`` for each owned cut.
-    :param basis_combo: One of ``("X"|"Y"|"Z", ...)`` aligned with ``cuts``.
+    :param basis_combo: The measurement setting: a per-wire ``("X"|"Y"|"Z", ...)``
+        aligned with ``cuts``, or ``("joint", t)`` (see :func:`_measurement_settings`).
     :param shots: Number of measurement shots.
     :param backend: Qibo platform name.
     :param software: Execution backend selector.
-    :return: ``{extraction_combo: expectation}`` where ``extraction_combo`` is a
-        tuple over ``cuts`` of ``"P"``/``"I"`` (``"I"`` only when the basis is Z).
+    :return: ``{pauli: expectation}``, ``pauli`` a tuple of ``"I"/"X"/"Y"/"Z"`` over
+        ``cuts``, for every Pauli the setting reads.
     """
     graph = sub.copy()
     used = sorted(
@@ -1364,31 +1716,9 @@ def _run_wire_measure_fragment(
     new_position = {q: i for i, q in enumerate(used)}
     cut_positions = [new_position[cut_qubits[cut]] for cut in cuts]
 
-    for cut, basis in zip(cuts, basis_combo):
-        # X/Y/Z basis == the XP/YP/ZP measure option (I is recovered from the Z
-        # circuit's counts below, not a separate circuit).
-        _apply_wire_measure_option(graph, cut, basis + "P")
-
+    readout = _apply_measurement_setting(graph, cuts, cut_qubits, basis_combo)
     counts = _sample_wire_fragment(graph, shots, backend, software)
-    total = sum(counts.values()) or 1
-    width = len(next(iter(counts), "")) if counts else 0
-    observable_positions = [p for p in range(width) if p not in cut_positions]
-
-    options = [(["P", "I"] if basis == "Z" else ["P"]) for basis in basis_combo]
-    results = {}
-    for extraction in itertools.product(*options):
-        selected = [pos for pos, ext in zip(cut_positions, extraction) if ext == "P"]
-        value = 0.0
-        for bitstring, count in counts.items():
-            bits = [int(b) for b in bitstring]
-            parity = 0
-            for pos in observable_positions:
-                parity ^= bits[pos]
-            for pos in selected:
-                parity ^= bits[pos]
-            value += (-1 if parity else 1) * (count / total)
-        results[extraction] = value
-    return results
+    return _measure_table(counts, cut_positions, readout)
 
 
 class _OptimizedWireMeasure:
@@ -1497,14 +1827,15 @@ def _run_wire_mixed_fragment(
     :param sub: The fragment DAG (carries both ``O_i`` and ``PS_i`` markers).
     :param measure_cuts: The measure-type cut indices this fragment owns (sorted).
     :param cut_qubits: ``{cut_index: original qubit}`` for each owned measure-type cut.
-    :param basis_combo: One of ``("X"|"Y"|"Z", ...)`` aligned with ``measure_cuts``.
+    :param basis_combo: The measurement setting for ``measure_cuts`` (per-wire or
+        joint, see :func:`_measurement_settings`).
     :param prepare_cuts: The prepare-type cut indices this fragment owns (sorted).
     :param prep_combo: One of ``("0"|"1"|"+"|"+i", ...)`` aligned with ``prepare_cuts``.
     :param shots: Number of measurement shots.
     :param backend: Qibo platform name.
     :param software: Execution backend selector.
-    :return: ``{extraction_combo: expectation}``, same shape as
-        :func:`_run_wire_measure_fragment` (``extraction_combo`` is ``()`` when
+    :return: ``{pauli: expectation}``, same shape as
+        :func:`_run_wire_measure_fragment` (``pauli`` is ``()`` when
         ``measure_cuts`` is empty, matching :func:`_run_wire_prepare_fragment`'s
         single ``<Z...Z>`` parity).
     """
@@ -1518,29 +1849,9 @@ def _run_wire_mixed_fragment(
     new_position = {q: i for i, q in enumerate(used)}
     cut_positions = [new_position[cut_qubits[cut]] for cut in measure_cuts]
 
-    for cut, basis in zip(measure_cuts, basis_combo):
-        _apply_wire_measure_option(graph, cut, basis + "P")
-
+    readout = _apply_measurement_setting(graph, measure_cuts, cut_qubits, basis_combo)
     counts = _sample_wire_fragment(graph, shots, backend, software)
-    total = sum(counts.values()) or 1
-    width = len(next(iter(counts), "")) if counts else 0
-    observable_positions = [p for p in range(width) if p not in cut_positions]
-
-    options = [(["P", "I"] if basis == "Z" else ["P"]) for basis in basis_combo]
-    results = {}
-    for extraction in itertools.product(*options):
-        selected = [pos for pos, ext in zip(cut_positions, extraction) if ext == "P"]
-        value = 0.0
-        for bitstring, count in counts.items():
-            bits = [int(b) for b in bitstring]
-            parity = 0
-            for pos in observable_positions:
-                parity ^= bits[pos]
-            for pos in selected:
-                parity ^= bits[pos]
-            value += (-1 if parity else 1) * (count / total)
-        results[extraction] = value
-    return results
+    return _measure_table(counts, cut_positions, readout)
 
 
 class _OptimizedWireMixed:
@@ -1705,15 +2016,22 @@ def _reconstruct_optimized_wire_cut(
     :param n_cuts: Number of wire cuts.
     :return: The reconstructed expectation value.
     """
-    measure_values = {}
-    for (frag_idx, basis_combo), value in zip(measure_keys, measure_flat):
-        measure_values.setdefault(frag_idx, {})[basis_combo] = value
+    # One {pauli: value} table per measure fragment (and per prepared input of a
+    # mixed one), merged over its measurement settings.
+    measure_tables = {}
+    for (frag_idx, _setting), value in zip(measure_keys, measure_flat):
+        measure_tables.setdefault(frag_idx, []).append(value)
+    measure_values = {f: _merge_tables(t) for f, t in measure_tables.items()}
     prepare_values = {}
     for (frag_idx, prep_combo), value in zip(prepare_keys, prepare_flat):
         prepare_values.setdefault(frag_idx, {})[prep_combo] = value
-    mixed_values = {}
-    for (frag_idx, basis_combo, prep_combo), value in zip(mixed_keys, mixed_flat):
-        mixed_values.setdefault(frag_idx, {})[(basis_combo, prep_combo)] = value
+    mixed_tables = {}
+    for (frag_idx, _setting, prep_combo), value in zip(mixed_keys, mixed_flat):
+        mixed_tables.setdefault(frag_idx, {}).setdefault(prep_combo, []).append(value)
+    mixed_values = {
+        f: {prep: _merge_tables(t) for prep, t in by_prep.items()}
+        for f, by_prep in mixed_tables.items()
+    }
     plain_factor = 1.0
     for value in plain_flat:
         plain_factor *= value
@@ -1725,9 +2043,8 @@ def _reconstruct_optimized_wire_cut(
         term = sign
 
         for frag_idx, cuts in enumerate(measure_cuts):
-            basis_combo = tuple(_WIRE_MEASURE[settings[cut - 1]][0] for cut in cuts)
-            extraction = tuple(_WIRE_MEASURE[settings[cut - 1]][1] for cut in cuts)
-            term *= measure_values[frag_idx][basis_combo][extraction]
+            pauli = tuple(_SETTING_PAULI[settings[cut - 1]] for cut in cuts)
+            term *= measure_values[frag_idx][pauli]
 
         for frag_idx, cuts in enumerate(prepare_cuts):
             expansions = [_WIRE_PREP[settings[cut - 1]] for cut in cuts]
@@ -1748,8 +2065,7 @@ def _reconstruct_optimized_wire_cut(
         # a prepare fragment) both apply to the SAME fragment's joint table -- one
         # physical circuit was run per (basis_combo, prep_base_combo) pair.
         for frag_idx, (m_cuts, p_cuts) in enumerate(mixed_cuts):
-            basis_combo = tuple(_WIRE_MEASURE[settings[cut - 1]][0] for cut in m_cuts)
-            extraction = tuple(_WIRE_MEASURE[settings[cut - 1]][1] for cut in m_cuts)
+            pauli = tuple(_SETTING_PAULI[settings[cut - 1]] for cut in m_cuts)
             expansions = [_WIRE_PREP[settings[cut - 1]] for cut in p_cuts]
             fragment_value = 0.0
             for choice in itertools.product(*expansions):
@@ -1759,10 +2075,7 @@ def _reconstruct_optimized_wire_cut(
                     coefficient *= weight
                     base_combo.append(base_state)
                 fragment_value += (
-                    coefficient
-                    * mixed_values[frag_idx][(basis_combo, tuple(base_combo))][
-                        extraction
-                    ]
+                    coefficient * mixed_values[frag_idx][tuple(base_combo)][pauli]
                 )
             term *= fragment_value
 
@@ -1771,7 +2084,9 @@ def _reconstruct_optimized_wire_cut(
     return total / (2**n_cuts)
 
 
-def _wire_cutting_optimized(dag, wire_cuts, num_qubits, shots, backend, software):
+def _wire_cutting_optimized(
+    dag, wire_cuts, num_qubits, shots, backend, software, joint=False
+):
     """Fragment-separated wire-cut reconstruction.
 
     Splits the cut circuit into measure fragments (own cuts via their ``O_i``
@@ -1793,6 +2108,8 @@ def _wire_cutting_optimized(dag, wire_cuts, num_qubits, shots, backend, software
     :param shots: Number of measurement shots per fragment.
     :param backend: Qibo platform name.
     :param software: Execution backend selector.
+    :param joint: Measure each fragment's sent wires jointly (``2**k + 1`` circuits
+        instead of ``3**k``, see :func:`_joint_measurement_settings`).
     :return: The reconstructed expectation value, or ``None`` only when a cut's
         marker went missing entirely (a bookkeeping inconsistency).
     """
@@ -1805,7 +2122,7 @@ def _wire_cutting_optimized(dag, wire_cuts, num_qubits, shots, backend, software
     # Fan out every fragment execution (PyCOMPSs tasks), flattened with their keys.
     measure_flat, measure_keys = [], []
     for frag_idx, (sub, cuts, cut_qubits) in enumerate(measure_frags):
-        for combo in itertools.product(_MEASURE_BASES, repeat=len(cuts)):
+        for combo in _measurement_settings(len(cuts), joint):
             measure_flat.append(
                 _run_wire_measure_fragment(
                     sub, cuts, cut_qubits, combo, shots, backend, software
@@ -1821,7 +2138,7 @@ def _wire_cutting_optimized(dag, wire_cuts, num_qubits, shots, backend, software
             prepare_keys.append((frag_idx, combo))
     mixed_flat, mixed_keys = [], []
     for frag_idx, (sub, m_cuts, cut_qubits, p_cuts) in enumerate(mixed_frags):
-        for basis_combo in itertools.product(_MEASURE_BASES, repeat=len(m_cuts)):
+        for basis_combo in _measurement_settings(len(m_cuts), joint):
             for prep_combo in itertools.product(_PREP_STATES, repeat=len(p_cuts)):
                 mixed_flat.append(
                     _run_wire_mixed_fragment(
@@ -2432,17 +2749,22 @@ def _make_optimized_wire_reconstructor(
         # @tasks instead, but the optimized sum is cheap and done here).
         expected_values = compss_wait_on(expected_values)
         values = [_resolve_value(v) for v in expected_values]
-        measure_values = {}
-        for (frag_idx, combo), position in measure_index.items():
-            measure_values.setdefault(frag_idx, {})[combo] = values[position]
+        measure_tables = {}
+        for (frag_idx, _setting), position in measure_index.items():
+            measure_tables.setdefault(frag_idx, []).append(values[position])
+        measure_values = {f: _merge_tables(t) for f, t in measure_tables.items()}
         prepare_values = {}
         for (frag_idx, combo), position in prepare_index.items():
             prepare_values.setdefault(frag_idx, {})[combo] = values[position]
-        mixed_values = {}
-        for (frag_idx, basis_combo, prep_combo), position in mixed_index.items():
-            mixed_values.setdefault(frag_idx, {})[(basis_combo, prep_combo)] = values[
-                position
-            ]
+        mixed_tables = {}
+        for (frag_idx, _setting, prep_combo), position in mixed_index.items():
+            mixed_tables.setdefault(frag_idx, {}).setdefault(prep_combo, []).append(
+                values[position]
+            )
+        mixed_values = {
+            f: {prep: _merge_tables(t) for prep, t in by_prep.items()}
+            for f, by_prep in mixed_tables.items()
+        }
         plain_factor = 1.0
         for position in plain_positions:
             plain_factor *= values[position]
@@ -2453,11 +2775,10 @@ def _make_optimized_wire_reconstructor(
             sign = -1.0 if sum(s in _WIRE_SIGN_FLIP for s in settings) % 2 else 1.0
             term = sign
             for frag_idx, cuts in enumerate(measure_cuts):
-                # One Z-basis measure circuit yields both <Z> and <I> (dict of
-                # extractions), so the measure side is 3**n, matching the all-in-one.
-                basis_combo = tuple(_WIRE_MEASURE[settings[cut - 1]][0] for cut in cuts)
-                extraction = tuple(_WIRE_MEASURE[settings[cut - 1]][1] for cut in cuts)
-                term *= measure_values[frag_idx][basis_combo][extraction]
+                # Each measure circuit yields a {pauli: value} table (a Z-basis one
+                # gives <Z> and <I>, a joint one a whole commuting group).
+                pauli = tuple(_SETTING_PAULI[settings[cut - 1]] for cut in cuts)
+                term *= measure_values[frag_idx][pauli]
             for frag_idx, cuts in enumerate(prepare_cuts):
                 expansions = [_WIRE_PREP[settings[cut - 1]] for cut in cuts]
                 fragment_value = 0.0
@@ -2476,12 +2797,7 @@ def _make_optimized_wire_reconstructor(
             # fragment) both apply to the SAME fragment's joint table -- see
             # _reconstruct_optimized_wire_cut for the all-in-one counterpart.
             for frag_idx, (m_cuts, p_cuts) in enumerate(mixed_cuts):
-                basis_combo = tuple(
-                    _WIRE_MEASURE[settings[cut - 1]][0] for cut in m_cuts
-                )
-                extraction = tuple(
-                    _WIRE_MEASURE[settings[cut - 1]][1] for cut in m_cuts
-                )
+                pauli = tuple(_SETTING_PAULI[settings[cut - 1]] for cut in m_cuts)
                 expansions = [_WIRE_PREP[settings[cut - 1]] for cut in p_cuts]
                 fragment_value = 0.0
                 for choice in itertools.product(*expansions):
@@ -2491,10 +2807,7 @@ def _make_optimized_wire_reconstructor(
                         coefficient *= weight
                         base_combo.append(base_state)
                     fragment_value += (
-                        coefficient
-                        * mixed_values[frag_idx][(basis_combo, tuple(base_combo))][
-                            extraction
-                        ]
+                        coefficient * mixed_values[frag_idx][tuple(base_combo)][pauli]
                     )
                 term *= fragment_value
             total += term * plain_factor
@@ -2503,7 +2816,7 @@ def _make_optimized_wire_reconstructor(
     return reconstruct
 
 
-def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
+def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software, joint=False):
     """Three-step counterpart of :func:`_wire_cutting_optimized`.
 
     Returns a :class:`~Qdislib.utils.backends.CutSubcircuits` holding the reduced
@@ -2531,7 +2844,7 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
     for frag_idx, (sub, cuts, cut_qubits) in enumerate(measure_frags):
         # One _OptimizedWireMeasure per basis combo (3**n) -- evaluating it returns
         # every P/I observable of that circuit, so <Z> and <I> share one circuit.
-        for basis_combo in itertools.product(_MEASURE_BASES, repeat=len(cuts)):
+        for basis_combo in _measurement_settings(len(cuts), joint):
             measure_index[(frag_idx, basis_combo)] = len(subcircuits)
             subcircuits.append(
                 _OptimizedWireMeasure(
@@ -2548,7 +2861,7 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software):
     for frag_idx, (sub, m_cuts, cut_qubits, p_cuts) in enumerate(mixed_frags):
         # One _OptimizedWireMixed per (basis_combo, prep_combo) pair --
         # 3**(#m_cuts) * 4**(#p_cuts) probes for this fragment.
-        for basis_combo in itertools.product(_MEASURE_BASES, repeat=len(m_cuts)):
+        for basis_combo in _measurement_settings(len(m_cuts), joint):
             for prep_combo in itertools.product(_PREP_STATES, repeat=len(p_cuts)):
                 mixed_index[(frag_idx, basis_combo, prep_combo)] = len(subcircuits)
                 subcircuits.append(
@@ -2590,6 +2903,7 @@ def wire_cutting_subcircuits(
     observables=None,
     software="qiskit",
     optimized: bool = False,
+    joint: bool = True,
 ):
     """
     Partition a quantum circuit into subcircuits via wire (edge) cutting.
@@ -2638,6 +2952,16 @@ def wire_cutting_subcircuits(
         - ``"qiskit"`` (default): Qiskit ``QuantumCircuit`` objects
         - ``"qibo"``: Qibo ``Circuit`` objects
         - ``"cudaq"``: CUDA-Q ``(dag, num_qubits)`` payloads
+
+    joint : bool, default=True
+        With ``optimized=True``, measure the cut wires each fragment sends together
+        instead of one by one: ``2**k + 1`` measurement circuits for ``k`` wires
+        leaving a fragment instead of ``3**k`` (5 instead of 9 at ``k = 2``, 9
+        instead of 27 at ``k = 3``), reading every Pauli of the wires exactly once.
+        Same value; usually fewer shots for the same error, not always for
+        ``k = 2``. Some of those circuits add CZ gates between the fragment's cut
+        qubits: pass ``False`` to measure each wire on its own (no entangling gates),
+        e.g. on hardware with costly two-qubit gates. Ignored without ``optimized``.
 
     Returns
     -------
@@ -2699,6 +3023,7 @@ def wire_cutting_subcircuits(
                 observables=pauli,
                 software=software,
                 optimized=optimized,
+                joint=joint,
             )
             for _coeff, pauli in terms
         ]
@@ -2716,7 +3041,7 @@ def wire_cutting_subcircuits(
         # back to the standard generator on error.
         try:
             optimized_subcircuits = _optimized_wire_cutting_subcircuits(
-                dag.copy(), cut, _max_qubit(dag), software
+                dag.copy(), cut, _max_qubit(dag), software, joint=joint
             )
             if optimized_subcircuits is not None:
                 return optimized_subcircuits

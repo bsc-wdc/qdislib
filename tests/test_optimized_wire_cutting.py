@@ -109,23 +109,30 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         self.assertLess(abs(optimized - analytical), 0.2)
 
     def test_uses_3n_plus_4n_subcircuits(self):
-        """Two cuts split into one measure + one prepare fragment: 3**2 + 4**2 = 25."""
+        """Two cuts split into one measure + one prepare fragment: 3**2 + 4**2 = 25
+        measured per wire, 5 + 4**2 = 21 measured jointly (the default)."""
         import Qdislib.core.cutting_algorithms.wire_cutting as wc
 
-        calls = {"n": 0}
         original = wc._sample_wire_fragment
+        for joint, expected in ((False, 3**2 + 4**2), (True, 2**2 + 1 + 4**2)):
+            calls = {"n": 0}
 
-        def counting(*args, **kwargs):
-            calls["n"] += 1
-            return original(*args, **kwargs)
+            def counting(*args, **kwargs):
+                calls["n"] += 1
+                return original(*args, **kwargs)
 
-        wc._sample_wire_fragment = counting
-        try:
-            wc.wire_cutting(_example_circuit(), _TWO_CUTS, shots=4000, optimized=True)
-        finally:
-            wc._sample_wire_fragment = original
-
-        self.assertEqual(calls["n"], 3**2 + 4**2)
+            wc._sample_wire_fragment = counting
+            try:
+                wc.wire_cutting(
+                    _example_circuit(),
+                    _TWO_CUTS,
+                    shots=4000,
+                    optimized=True,
+                    joint=joint,
+                )
+            finally:
+                wc._sample_wire_fragment = original
+            self.assertEqual(calls["n"], expected, joint)
 
     def test_chain_topology_matches_standard_and_analytical(self):
         """Two cuts in series (a mixed fragment) still reconstruct correctly."""
@@ -262,14 +269,16 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
 
         circuit = _example_circuit()
         analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
-        subs = qd.wire_cutting_subcircuits(
-            circuit, _TWO_CUTS, software="qibo", optimized=True
-        )
         # Two cuts -> one measure + one prepare fragment: 3**2 + 4**2 = 25 subcircuits
-        # (a Z-basis measure probe yields both <Z> and <I>, so the measure side is 3**n).
-        self.assertEqual(len(subs), 3**2 + 4**2)
-        values = [qd.expectation_value(s, shots=10000) for s in subs]
-        self.assertLess(abs(subs.reconstruct(values) - analytical), 0.2)
+        # measured per wire (a Z-basis probe yields both <Z> and <I>), 5 + 16 = 21
+        # measured jointly (the default).
+        for joint, expected in ((False, 3**2 + 4**2), (True, 2**2 + 1 + 4**2)):
+            subs = qd.wire_cutting_subcircuits(
+                circuit, _TWO_CUTS, software="qibo", optimized=True, joint=joint
+            )
+            self.assertEqual(len(subs), expected)
+            values = [qd.expectation_value(s, shots=10000) for s in subs]
+            self.assertLess(abs(subs.reconstruct(values) - analytical), 0.2)
 
     def test_three_step_chain_topology_matches_standard_and_analytical(self):
         """The three-step API also handles the mixed-fragment chain topology."""

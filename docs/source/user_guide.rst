@@ -96,6 +96,25 @@ Qdislib includes several circuit cutting strategies:
 
 - **Wire Cutting** (``wire_cutting``): Cuts "wires" (qubit connections) between gates to disconnect logical qubits, via a measure-and-prepare decomposition (``8`` terms per cut, or ``3**n + 4**n`` with ``optimized=True``).
 
+  With ``optimized=True``, the cut wires that leave the same fragment are measured
+  together: ``2**k + 1`` measurement circuits for ``k`` such wires instead of ``3**k``
+  (5 instead of 9 at ``k = 2``, 9 instead of 27 at ``k = 3``). Each circuit reads a
+  whole group of commuting Paulis of those wires, so every Pauli is read exactly
+  once. Where the wires arrive does not matter, and it applies to
+  ``wire_cutting``, ``wire_cutting_subcircuits`` and ``wire_cutting_sampling``. The
+  value is the same; at equal total shots the error is usually lower (always lower
+  in tests with 3 wires), but with 2 wires per-wire measurement is sometimes
+  better. Some of the joint circuits add ``CZ`` gates between the fragment's cut
+  qubits; pass ``joint=False`` to measure each wire on its own, with no entangling
+  gates, e.g. on hardware with costly two-qubit gates. The preparation side
+  (``4**k``) is unchanged, and a wire cut's sampling overhead cannot drop below
+  ``4**n`` without classical communication between fragments.
+
+  .. code-block:: python
+
+      value = qd.wire_cutting(circuit, cut, observables="ZZZZ", optimized=True)
+      per_wire = qd.wire_cutting(circuit, cut, observables="ZZZZ", optimized=True, joint=False)
+
 - **Mixed Gate + Wire Cutting** (``gate_wire_cutting``): Cuts some gates *and* some wires on the **same circuit** in one integrated workflow. The two quasiprobability decompositions tensor, and every fragment across the combined configuration space runs in parallel.
 
 Every subcircuit is an independent PyCOMPSs task, so all methods fan out and run in parallel; for large fan-outs, ``sync=False`` overlaps independent cuts and ``reduce_chunk=n`` folds the results through a balanced reduction tree.
