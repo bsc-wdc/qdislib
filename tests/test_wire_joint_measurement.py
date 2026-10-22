@@ -105,7 +105,12 @@ class JointWireMeasurementTest(BaseTimedTestCase):
             )
             self.assertEqual(len(subs), count)
         value = qd.wire_cutting(
-            circuit, cuts, observables=obs, software="qiskit", shots=40000, joint=True
+            circuit,
+            cuts,
+            observables=obs,
+            software="qiskit",
+            shots=40000,
+            optimized=True,
         )
         self.assertLess(abs(value - _exact(circuit, obs)), 0.05)
 
@@ -139,6 +144,35 @@ class JointWireMeasurementTest(BaseTimedTestCase):
         b.layer(2, 3, 4)
         # A: 3 measure circuits; middle (receives 1, sends 2): 9*4 -> 5*4; C: 16.
         self._check(b.qc, cuts, optimized_count=3 + 36 + 16, joint_count=3 + 20 + 16)
+
+    def test_sampling_distribution(self):
+        """The output-distribution path measures jointly too (the default)."""
+        import Qdislib as qd
+        from qiskit.quantum_info import Statevector
+
+        b = _Builder(4, seed=4)
+        b.layer(0, 1, 2, 3)
+        b.cz(0, 1), b.cz(1, 2), b.cz(0, 2)
+        b.layer(0, 1, 2)
+        cuts = [b.cut_into(1, 3), b.cut_into(2, 3)]
+        b.layer(1, 2, 3)
+        exact = {
+            key[::-1]: p for key, p in Statevector(b.qc).probabilities_dict().items()
+        }
+        for joint in (False, True):
+            dist = qd.wire_cutting_sampling(
+                b.qc,
+                cuts,
+                shots=30000,
+                software="qiskit",
+                optimized=True,
+                joint=joint,
+                seed=3,
+            )
+            tvd = 0.5 * sum(
+                abs(dist.get(k, 0) - exact.get(k, 0)) for k in set(dist) | set(exact)
+            )
+            self.assertLess(tvd, 0.03, joint)
 
 
 if __name__ == "__main__":
