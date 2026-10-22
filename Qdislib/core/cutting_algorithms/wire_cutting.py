@@ -3299,6 +3299,7 @@ def wire_cutting(
     joint=True,
     cache=None,
     cache_mode="expectation",
+    num_samples=None,
     _legacy=None,
 ):
     """Reconstruct ``<observable>`` from a circuit cut at wires (8 terms per wire,
@@ -3318,9 +3319,11 @@ def wire_cutting(
         (``2**k + 1`` circuits instead of ``3**k``).
     :param cache: A semantic circuit cache (see :func:`expectation_value`).
     :param cache_mode: ``"expectation"`` or ``"counts"``.
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: The reconstructed expectation value.
     """
-    if shots is None:
+    if shots is None or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
 
         _exact_or_legacy(_legacy, cache)
@@ -3329,10 +3332,12 @@ def wire_cutting(
             {"wire": cuts},
             observable,
             backend=backend,
-            shots=None,
+            shots=shots,
+            seed=seed,
             sync=sync,
             optimized=optimized,
             joint=joint,
+            num_samples=num_samples,
         )
     legacy = _legacy or {}
     return _wire_cutting(
@@ -3363,14 +3368,17 @@ def wire_cutting_sampling(
     sync=True,
     optimized=False,
     joint=True,
+    num_samples=None,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
     wires. Arguments as in :func:`wire_cutting`.
 
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
-    if shots is None:
+    if shots is None or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import (
             circuit_cutting_sampling,
         )
@@ -3380,10 +3388,12 @@ def wire_cutting_sampling(
             circuit,
             {"wire": cuts},
             backend=backend,
-            shots=None,
+            shots=shots,
+            seed=seed,
             sync=sync,
             optimized=optimized,
             joint=joint,
+            num_samples=num_samples,
         )
     legacy = _legacy or {}
     return _wire_cutting_sampling(
@@ -3402,14 +3412,39 @@ def wire_cutting_sampling(
 
 @standard_arguments
 def wire_cutting_subcircuits(
-    circuit, cuts, observable=None, *, software=None, optimized=False, joint=True
+    circuit,
+    cuts,
+    observable=None,
+    *,
+    software=None,
+    optimized=False,
+    joint=True,
+    num_samples=None,
+    seed=None,
 ):
     """The subcircuits of :func:`wire_cutting`, to run yourself (three-step).
 
     :param software: The SDK the subcircuits are written in (``None``: the
         circuit's own); where they run is chosen when you run them.
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: A list of subcircuits with ``reconstruct(values)``.
     """
+    if num_samples is not None:
+        from Qdislib.core.cutting_algorithms.mixed_cutting import (
+            circuit_cutting_subcircuits,
+        )
+
+        return circuit_cutting_subcircuits(
+            circuit,
+            {"wire": cuts},
+            observable,
+            software=software,
+            optimized=optimized,
+            joint=joint,
+            num_samples=num_samples,
+            seed=seed,
+        )
     return _wire_cutting_subcircuits(
         circuit,
         cuts,
@@ -3422,19 +3457,34 @@ def wire_cutting_subcircuits(
 
 @standard_arguments
 def wire_cutting_sampling_subcircuits(
-    circuit, cuts, *, software=None, optimized=False, joint=True
+    circuit,
+    cuts,
+    *,
+    software=None,
+    optimized=False,
+    joint=True,
+    num_samples=None,
+    seed=None,
 ):
     """The subcircuits of :func:`wire_cutting_sampling`, to sample yourself.
 
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: A list of subcircuits with ``reconstruct(results)``.
     """
-    if optimized:
+    if optimized or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import (
             circuit_cutting_sampling_subcircuits,
         )
 
         return circuit_cutting_sampling_subcircuits(
-            circuit, {"wire": cuts}, software=software, optimized=True, joint=joint
+            circuit,
+            {"wire": cuts},
+            software=software,
+            optimized=optimized,
+            num_samples=num_samples,
+            seed=seed,
+            joint=joint,
         )
     return _wire_cutting_sampling_subcircuits(
         circuit, cuts, software=resolve_software(software, circuit)

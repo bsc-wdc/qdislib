@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`num_samples` on every cut type.** `gate_cutting`, `wire_cutting` and
+  `circuit_cutting` (with their `_sampling` and three-step forms) can draw `N`
+  configurations with probability `|weight| / gamma` instead of running them all,
+  and run only the fragment circuits the draws use, with `shots` per draw -- the
+  quasiprobability Monte-Carlo estimate, so the shots follow the weights. Unbiased
+  (error ~ `gamma / sqrt(N * shots)`); the way to run cuts with too many
+  configurations to list (`6**n`, `8**n`), and much cheaper than equal shots when
+  weights differ (Hadamard cuts of rotations: about 1,600x fewer shots on a QAOA-100
+  cut). With equal weights and few configurations, running them all with the same
+  total shots stays slightly more accurate (about 15% lower error). Three-step lists
+  give each subcircuit a `draws` count to size its shots. (`gate_cutting_hadamard`
+  already had `num_samples`; this brings it to every cut type.)
 - **`circuit_cutting`: any combination of cuts on one circuit.** Measure-and-prepare
   gate cuts, Hadamard gate cuts and wire cuts, in any number, with the same four forms
   as every other cut: `circuit_cutting` (expectation value, X/Y and weighted Pauli

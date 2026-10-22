@@ -379,6 +379,8 @@ class _CutPlan:
         self.groups = (
             _cut_groups(graph, components, decomps, joint_gates) if had_cuts else []
         )
+        #: Each Hadamard cut's own coefficients (to draw a group's terms gate by gate).
+        self.had_coefficients = [[c for c, _, _ in terms] for terms in decomps]
         group_of = {
             k: index
             for index, (cut_indices, _) in enumerate(self.groups)
@@ -548,15 +550,125 @@ class _CutPlan:
             tuple(config[g] for g in fragment["had_groups"]),
         )
 
-    def units(self):
-        """``[(key, f, gate_config, prep_states, setting), ...]``: the fragment
-        circuits to run. ``key`` is how the reconstruction finds them."""
+    def draw(self, num_samples, seed=None):
+        """Draw ``num_samples`` configurations with probability ``|weight| / gamma``
+        (Monte-Carlo quasiprobability sampling), without listing them all.
+
+        Measure-and-prepare and wire terms all weigh the same, so their digits are
+        uniform; a Hadamard group's setting ``(s, t, g)`` is drawn with probability
+        ``c_s c_t / phi`` (Harrow & Lowe), ``s`` and ``t`` gate by gate.
+
+        :return: ``[(digits, config, wire, weight, count), ...]``, one per distinct
+            draw: ``weight = gamma * sign / num_samples`` per draw, ``count`` the
+            times it was drawn.
+        """
+        rng = np.random.default_rng(seed)
+        n = int(num_samples)
+        gamma = self.gamma()
+        digits = rng.integers(0, 6, size=(n, len(self.gate_cuts)))
+        wires = rng.integers(0, 8, size=(n, len(self.wire_cuts)))
+        flips = np.isin(digits, (3, 5)).sum(axis=1) + np.isin(wires, (3, 5, 7)).sum(
+            axis=1
+        )
+        settings = []
+        for cut_indices, _ in self.groups:
+            coeffs = [np.asarray(self.had_coefficients[k - 1]) for k in cut_indices]
+
+            def term():
+                index = np.zeros(n, dtype=np.int64)
+                for c in coeffs:  # first gate most significant, as _cut_groups
+                    index = index * len(c) + rng.choice(len(c), size=n, p=c / c.sum())
+                return index
+
+            s, t = term(), term()
+            # s == t has one setting (g = 0) where s != t has two: keep s == t
+            # half the time, so every valid (s, t, g) has probability c_s c_t / phi.
+            redo = (s == t) & (rng.random(n) < 0.5)
+            while redo.any():
+                s_new, t_new = term(), term()
+                s[redo], t[redo] = s_new[redo], t_new[redo]
+                redo = redo & (s == t) & (rng.random(n) < 0.5)
+            g = np.where(s == t, 0, rng.integers(0, 2, size=n))
+            flips = flips + g
+            settings.append((s, t, g))
+        signs = np.where(flips % 2, -1.0, 1.0)
+        distinct = {}
+        for row in range(n):
+            config = tuple(
+                (int(s[row]), int(t[row]), int(g[row])) for s, t, g in settings
+            )
+            key = (
+                tuple(int(d) for d in digits[row]),
+                config,
+                tuple(int(w) for w in wires[row]),
+            )
+            entry = distinct.setdefault(key, [signs[row], 0])
+            entry[1] += 1
+        return [
+            (d, c, w, gamma * sign / n, count)
+            for (d, c, w), (sign, count) in distinct.items()
+        ]
+
+    def _setting_for(self, f, letters):
+        """The measurement setting of fragment ``f`` that reads the Pauli
+        ``letters`` on the wires it sends."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import (
+            _joint_measurement_settings,
+        )
+
+        m = len(letters)
+        if self.joint_wires and m > 1:
+            for t, (_, readout) in enumerate(_joint_measurement_settings(m)):
+                if any(tuple(p) == letters for p, _, _ in readout):
+                    return ("joint", t)
+        return tuple("Z" if letter in "IZ" else letter for letter in letters)
+
+    def units(self, draws=None):
+        """``[(key, f, gate_config, prep_states, setting, count), ...]``: the fragment
+        circuits to run. ``key`` is how the reconstruction finds them; ``count`` how
+        many draws use the circuit (1 when every configuration is run)."""
         from Qdislib.core.cutting_algorithms.wire_cutting import (
             _PREP_STATES,
+            _SETTING_PAULI,
+            _WIRE_PREP,
             _measurement_settings,
         )
 
         units = []
+        if draws is not None:
+            if not self.optimized:  # every fragment of every distinct draw
+                for c, (digits, config, wire, _, count) in enumerate(draws):
+                    for f, fragment in enumerate(self.fragments):
+                        setting = tuple(
+                            _WIRE_DIGIT_BASIS[wire[i - 1]] for i in fragment["measures"]
+                        )
+                        states = tuple(
+                            _WIRE_DIGIT_STATE[wire[i - 1]] for i in fragment["preps"]
+                        )
+                        units.append(
+                            ((c, f), f, (digits, config), states, setting, count)
+                        )
+                return units
+            needed = {}  # the circuits the draws read, and how many draws read each
+            for digits, config, wire, _, count in draws:
+                for f, fragment in enumerate(self.fragments):
+                    leg = self.gate_legs(f, digits, config)
+                    letters = tuple(
+                        _SETTING_PAULI[wire[i - 1]] for i in fragment["measures"]
+                    )
+                    setting = self._setting_for(f, letters)
+                    for choice in itertools.product(
+                        *(_WIRE_PREP[wire[i - 1]] for i in fragment["preps"])
+                    ):
+                        states = tuple(state for _, state in choice)
+                        entry = needed.setdefault(
+                            ((f, leg, states), setting), [(digits, config), 0]
+                        )
+                        entry[1] += count
+            for (key, setting), (gate_config, count) in needed.items():
+                f, _, states = key
+                units.append((key, f, gate_config, states, setting, count))
+            return units
         if not self.optimized:
             for c, ((digits, config, _), (wire, _)) in enumerate(
                 itertools.product(self.gate_configs, self.wire_configs)
@@ -568,7 +680,7 @@ class _CutPlan:
                     states = tuple(
                         _WIRE_DIGIT_STATE[wire[i - 1]] for i in fragment["preps"]
                     )
-                    units.append(((c, f), f, (digits, config), states, setting))
+                    units.append(((c, f), f, (digits, config), states, setting, 1))
             return units
         for f, fragment in enumerate(self.fragments):
             legs = {}  # distinct gate legs -> a configuration that has them
@@ -582,7 +694,7 @@ class _CutPlan:
                         len(fragment["measures"]), self.joint_wires
                     ):
                         units.append(
-                            ((f, leg, states), f, gate_config, states, setting)
+                            ((f, leg, states), f, gate_config, states, setting, 1)
                         )
         return units
 
@@ -742,6 +854,10 @@ class _FragmentCircuit(Subcircuit):
     ``dag`` keeps the circuit's qubit numbering; ``circuit`` is renumbered.
     """
 
+    #: How many drawn configurations use this circuit (``num_samples``); 1 when
+    #: every configuration is run.
+    draws = 1
+
     def __init__(self, dag, software, qpu=False, qpu_dict=None):
         qubits = {q for _, d in dag.nodes(data=True) for q in d.get("qubits") or ()}
         super().__init__(dag, len(qubits), software)
@@ -781,14 +897,16 @@ class _FragmentCircuit(Subcircuit):
         return self._sample(shots, None, seed)
 
 
-def _cut_z_correlators(plan, keys, readouts, results, masks):
+def _cut_z_correlators(plan, keys, readouts, results, masks, draws=None):
     """``<Z^A>`` of the uncut circuit for each global mask ``A`` in ``masks``.
 
     ``results`` holds one ``(corr, original)`` per fragment circuit (``keys`` and
     ``readouts`` parallel to it). Sums ``weight * prod_fragment value`` over every
     configuration; a fragment's value reads the circuit with its legs at the mask
     whose output bits come from ``A``, whose cut-wire bits are the needed Pauli's
-    readout bits, and whose ancilla bits are always set.
+    readout bits, and whose ancilla bits are always set. With ``draws`` (see
+    :meth:`_CutPlan.draw`) the sum runs over the drawn configurations instead,
+    each weighted ``gamma * sign / num_samples`` per draw -- an unbiased estimate.
     """
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _SETTING_PAULI,
@@ -836,11 +954,21 @@ def _cut_z_correlators(plan, keys, readouts, results, masks):
             cache[(key, letters)] = np.mean(values, axis=0)
         return cache[(key, letters)]
 
+    if draws is None:
+        configs = (
+            (digits, config, wire, w_gate * w_wire)
+            for (digits, config, w_gate), (wire, w_wire) in itertools.product(
+                plan.gate_configs, plan.wire_configs
+            )
+        )
+    else:
+        configs = (
+            (digits, config, wire, weight * count)
+            for digits, config, wire, weight, count in draws
+        )
     total = np.zeros(len(masks))
-    for c, ((digits, config, w_gate), (wire, w_wire)) in enumerate(
-        itertools.product(plan.gate_configs, plan.wire_configs)
-    ):
-        contribution = np.full(len(masks), w_gate * w_wire)
+    for c, (digits, config, wire, weight) in enumerate(configs):
+        contribution = np.full(len(masks), weight)
         for f, fragment in enumerate(plan.fragments):
             letters = tuple(_SETTING_PAULI[wire[i - 1]] for i in fragment["measures"])
             if not plan.optimized:
@@ -877,34 +1005,61 @@ def _distribution(z_correlators, width):
 
 
 @task(returns=1, results=COLLECTION_IN)
-def _reconstruct_cut_task(plan, keys, readouts, results, mode, observable):
+def _reconstruct_cut_task(plan, keys, readouts, results, mode, observable, draws=None):
     """Expectation (``mode="expectation"``) or distribution from the fragment
     results, as a task fed straight by the fragment futures."""
     if mode == "expectation":
         mask = _observable_mask(observable, plan.width)
-        return float(_cut_z_correlators(plan, keys, readouts, results, [mask])[0])
-    z = _cut_z_correlators(plan, keys, readouts, results, np.arange(2**plan.width))
+        return float(
+            _cut_z_correlators(plan, keys, readouts, results, [mask], draws)[0]
+        )
+    z = _cut_z_correlators(
+        plan, keys, readouts, results, np.arange(2**plan.width), draws
+    )
     return _distribution(z, plan.width)
 
 
 def _prepare_cut(
-    circuit, cuts, observable, hadamard, optimized, joint, software, qpu, qpu_dict
+    circuit,
+    cuts,
+    observable,
+    hadamard,
+    optimized,
+    joint,
+    software,
+    qpu,
+    qpu_dict,
+    num_samples=None,
+    seed=None,
 ):
-    """The plan plus one :class:`_FragmentCircuit` per fragment circuit to run;
-    ``software`` is what runs them (an SDK, registered backend or backend object)."""
+    """The plan, the drawn configurations (``None`` when all are run), and one
+    :class:`_FragmentCircuit` per fragment circuit to run; ``software`` is what
+    runs them (an SDK, registered backend or backend object)."""
     plan = _CutPlan(circuit, cuts, observable, hadamard, optimized, joint)
+    draws = None
+    if num_samples is not None:
+        if int(num_samples) < 1:
+            raise ValueError(f"num_samples must be at least 1, got {num_samples}")
+        draws = plan.draw(num_samples, next_seed(seed, "draws"))
     keys, readouts, circuits = [], [], []
-    for key, f, gate_config, states, setting in plan.units():
+    for key, f, gate_config, states, setting, count in plan.units(draws):
         dag, readout = plan.build(f, gate_config, states, setting)
         keys.append(key)
         readouts.append(readout)
-        circuits.append(_FragmentCircuit(dag, software, qpu, qpu_dict))
-    return plan, keys, readouts, circuits
+        circuit_ = _FragmentCircuit(dag, software, qpu, qpu_dict)
+        circuit_.draws = count
+        circuits.append(circuit_)
+    return plan, draws, keys, readouts, circuits
 
 
 def _run(circuits, shots, seed):
+    """Run every circuit; with drawn configurations a circuit gets ``shots`` per
+    draw that uses it (the shots follow the weights)."""
     return [
-        circuit.sample(shots, next_seed(seed, n)) for n, circuit in enumerate(circuits)
+        circuit.sample(
+            None if shots is None else shots * circuit.draws, next_seed(seed, n)
+        )
+        for n, circuit in enumerate(circuits)
     ]
 
 
@@ -929,6 +1084,7 @@ def circuit_cutting(
     hadamard=False,
     optimized=False,
     joint=True,
+    num_samples=None,
 ):
     """Reconstruct ``<observable>`` from a circuit cut by any combination of cuts.
 
@@ -945,14 +1101,26 @@ def circuit_cutting(
     :param observable: A Pauli string (``X``/``Y`` are rotated into ``Z``), or a
         weighted Pauli sum ``[(coefficient, string), ...]``; ``None`` is all ``Z``.
     :param backend: Where the fragments run (see :func:`gate_cutting`).
-    :param shots: Shots per fragment circuit; ``None`` is exact (statevector).
-    :param seed: Seed for the simulators' sampling (each circuit its own stream).
+    :param shots: Shots per fragment circuit (per draw with ``num_samples``);
+        ``None`` is exact (statevector).
+    :param seed: Seed for the simulators' sampling (each circuit its own stream)
+        and for the ``num_samples`` draws.
     :param sync: ``False`` returns the value as a future (PyCOMPSs).
     :param hadamard: Cut the ``"gate"`` cuts (or the gate names of a list) with the
         Hadamard test (:func:`gate_cutting_hadamard`) instead of measure-and-prepare.
     :param optimized: Run each fragment once per distinct setting of its own cuts.
     :param joint: Measure the wires a fragment sends together (with ``optimized``)
         and cut the Hadamard gates crossing one boundary together.
+    :param num_samples: Draw this many configurations with probability
+        ``|weight| / gamma`` instead of running them all (Monte-Carlo
+        quasiprobability sampling): only the circuits the draws use run, each with
+        ``shots`` per draw that uses it, so the shots follow the weights. Unbiased;
+        the error shrinks as ``gamma / sqrt(num_samples * shots)``. The way to run
+        cuts with too many configurations to list (``6**n`` for gate cuts, ``8**n``
+        for wire cuts; with ``optimized=True`` the circuits per fragment are
+        ``5**n`` and ``3**n + 4**n``), and the best use of shots when the weights
+        differ (Hadamard cuts). With equal weights, running every configuration
+        with the same total shots is slightly more accurate.
     :return: The reconstructed expectation value.
     """
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms
@@ -962,15 +1130,26 @@ def circuit_cutting(
     terms = _observable_terms(default_observable(observable, circuit))
     values = []
     for k, (coefficient, term) in enumerate(terms):
-        plan, keys, readouts, circuits = _prepare_cut(
-            circuit, cuts, term, hadamard, optimized, joint, software, False, None
+        term_seed = None if seed is None else next_seed(seed, k)
+        plan, draws, keys, readouts, circuits = _prepare_cut(
+            circuit,
+            cuts,
+            term,
+            hadamard,
+            optimized,
+            joint,
+            software,
+            False,
+            None,
+            num_samples,
+            term_seed,
         )
-        results = _run(circuits, shots, None if seed is None else next_seed(seed, k))
+        results = _run(circuits, shots, term_seed)
         values.append(
             (
                 coefficient,
                 _reconstruct_cut_task(
-                    plan, keys, readouts, results, "expectation", term
+                    plan, keys, readouts, results, "expectation", term, draws
                 ),
             )
         )
@@ -991,6 +1170,7 @@ def circuit_cutting_sampling(
     hadamard=False,
     optimized=False,
     joint=True,
+    num_samples=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut by any
     combination of cuts, from the same fragment circuits as :func:`circuit_cutting`.
@@ -1000,7 +1180,7 @@ def circuit_cutting_sampling(
         estimate abs-normalised like :func:`gate_cutting_sampling`.
     """
     _check_exact(shots, backend)
-    plan, keys, readouts, circuits = _prepare_cut(
+    plan, draws, keys, readouts, circuits = _prepare_cut(
         circuit,
         cuts,
         None,
@@ -1010,9 +1190,11 @@ def circuit_cutting_sampling(
         resolve_backend(backend, circuit),
         False,
         None,
+        num_samples,
+        seed,
     )
     future = _reconstruct_cut_task(
-        plan, keys, readouts, _run(circuits, shots, seed), "distribution", None
+        plan, keys, readouts, _run(circuits, shots, seed), "distribution", None, draws
     )
     return compss_wait_on(future) if sync else future
 
@@ -1026,16 +1208,22 @@ class CutCircuits(list):
         value = subs.reconstruct(values)
 
     ``reconstruct`` returns the expectation value, or the output distribution for
-    the list :func:`circuit_cutting_sampling_subcircuits` returns.
+    the list :func:`circuit_cutting_sampling_subcircuits` returns. With
+    ``num_samples``, each subcircuit's ``draws`` says how many drawn configurations
+    use it: give it shots in proportion (``shots=base * s.draws``) to follow the
+    weights; any shots keep the estimate unbiased.
     """
 
-    def __init__(self, circuits, *, plan, keys, readouts, mode, observable=None):
+    def __init__(
+        self, circuits, *, plan, keys, readouts, mode, observable=None, draws=None
+    ):
         super().__init__(circuits)
         self.plan = plan
         self.keys = keys
         self.readouts = readouts
         self.mode = mode
         self.observable = observable
+        self.draws = draws
         #: Cuts applied, of every kind.
         self.number_cuts = (
             len(plan.gate_cuts) + len(plan.had_cuts) + len(plan.wire_cuts)
@@ -1050,7 +1238,13 @@ class CutCircuits(list):
             )
         return compss_wait_on(
             _reconstruct_cut_task(
-                self.plan, self.keys, self.readouts, results, self.mode, self.observable
+                self.plan,
+                self.keys,
+                self.readouts,
+                results,
+                self.mode,
+                self.observable,
+                self.draws,
             )
         )
 
@@ -1065,6 +1259,8 @@ def circuit_cutting_subcircuits(
     hadamard=False,
     optimized=False,
     joint=True,
+    num_samples=None,
+    seed=None,
 ):
     """The fragment circuits of :func:`circuit_cutting`, to run yourself.
 
@@ -1074,6 +1270,10 @@ def circuit_cutting_subcircuits(
 
     :param software: The SDK the subcircuits are written in (``None``: the
         circuit's own); where they run is chosen when you run them.
+    :param num_samples: Draw configurations instead of running them all (see
+        :func:`circuit_cutting`); each subcircuit's ``draws`` says how many draws
+        use it.
+    :param seed: Seed for the ``num_samples`` draws.
     """
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms
     from Qdislib.utils.backends import CombinedCutSubcircuits
@@ -1081,9 +1281,19 @@ def circuit_cutting_subcircuits(
     software = resolve_software(software, circuit)
     terms = _observable_terms(default_observable(observable, circuit))
     parts = []
-    for _, term in terms:
-        plan, keys, readouts, circuits = _prepare_cut(
-            circuit, cuts, term, hadamard, optimized, joint, software, False, None
+    for k, (_, term) in enumerate(terms):
+        plan, draws, keys, readouts, circuits = _prepare_cut(
+            circuit,
+            cuts,
+            term,
+            hadamard,
+            optimized,
+            joint,
+            software,
+            False,
+            None,
+            num_samples,
+            None if seed is None else next_seed(seed, k),
         )
         parts.append(
             CutCircuits(
@@ -1093,6 +1303,7 @@ def circuit_cutting_subcircuits(
                 readouts=readouts,
                 mode="expectation",
                 observable=term,
+                draws=draws,
             )
         )
     if len(parts) == 1 and terms[0][0] == 1.0:
@@ -1102,12 +1313,20 @@ def circuit_cutting_subcircuits(
 
 @standard_arguments
 def circuit_cutting_sampling_subcircuits(
-    circuit, cuts, *, software=None, hadamard=False, optimized=False, joint=True
+    circuit,
+    cuts,
+    *,
+    software=None,
+    hadamard=False,
+    optimized=False,
+    joint=True,
+    num_samples=None,
+    seed=None,
 ):
     """The fragment circuits of :func:`circuit_cutting_sampling`, to sample
     yourself with :func:`~Qdislib.sample_subcircuit`; ``reconstruct`` gives the
     output distribution. Arguments as in :func:`circuit_cutting_subcircuits`."""
-    plan, keys, readouts, circuits = _prepare_cut(
+    plan, draws, keys, readouts, circuits = _prepare_cut(
         circuit,
         cuts,
         None,
@@ -1117,9 +1336,16 @@ def circuit_cutting_sampling_subcircuits(
         resolve_software(software, circuit),
         False,
         None,
+        num_samples,
+        seed,
     )
     return CutCircuits(
-        circuits, plan=plan, keys=keys, readouts=readouts, mode="distribution"
+        circuits,
+        plan=plan,
+        keys=keys,
+        readouts=readouts,
+        mode="distribution",
+        draws=draws,
     )
 
 

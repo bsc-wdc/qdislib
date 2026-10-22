@@ -33,10 +33,15 @@ QISKIT = importlib.util.find_spec("qiskit") is not None
 QIBO = importlib.util.find_spec("qibo") is not None
 
 FAMILIES = {
-    "gate_cutting": {"optimized": False},
-    "wire_cutting": {"optimized": False, "joint": True},
+    "gate_cutting": {"optimized": False, "num_samples": None},
+    "wire_cutting": {"optimized": False, "joint": True, "num_samples": None},
     "gate_cutting_hadamard": {"joint": True, "num_samples": None},
-    "circuit_cutting": {"hadamard": False, "optimized": False, "joint": True},
+    "circuit_cutting": {
+        "hadamard": False,
+        "optimized": False,
+        "joint": True,
+        "num_samples": None,
+    },
 }
 
 

@@ -2322,6 +2322,7 @@ def gate_cutting(
     optimized=False,
     cache=None,
     cache_mode="expectation",
+    num_samples=None,
     _legacy=None,
 ):
     """Reconstruct ``<observable>`` from a circuit cut at two-qubit gates
@@ -2344,9 +2345,11 @@ def gate_cutting(
         circuits per side of a cut gate instead of 6), see :func:`circuit_cutting`.
     :param cache: A semantic circuit cache (see :func:`expectation_value`).
     :param cache_mode: ``"expectation"`` or ``"counts"``.
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: The reconstructed expectation value.
     """
-    if shots is None or optimized:
+    if shots is None or optimized or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
 
         _route_to_circuit_cutting(_legacy, cache)
@@ -2359,6 +2362,7 @@ def gate_cutting(
             seed=seed,
             sync=sync,
             optimized=optimized,
+            num_samples=num_samples,
         )
     legacy = _legacy or {}
     return _gate_cutting(
@@ -2390,14 +2394,17 @@ def gate_cutting_sampling(
     seed=None,
     sync=True,
     optimized=False,
+    num_samples=None,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
     two-qubit gates. Arguments as in :func:`gate_cutting`.
 
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
-    if shots is None or optimized:
+    if shots is None or optimized or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import (
             circuit_cutting_sampling,
         )
@@ -2411,6 +2418,7 @@ def gate_cutting_sampling(
             seed=seed,
             sync=sync,
             optimized=optimized,
+            num_samples=num_samples,
         )
     legacy = _legacy or {}
     return _gate_cutting_sampling(
@@ -2427,21 +2435,36 @@ def gate_cutting_sampling(
 
 @standard_arguments
 def gate_cutting_subcircuits(
-    circuit, cuts, observable=None, *, software=None, optimized=False
+    circuit,
+    cuts,
+    observable=None,
+    *,
+    software=None,
+    optimized=False,
+    num_samples=None,
+    seed=None,
 ):
     """The subcircuits of :func:`gate_cutting`, to run yourself (three-step).
 
     :param software: The SDK the subcircuits are written in (``None``: the
         circuit's own); where they run is chosen when you run them.
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: A list of subcircuits with ``reconstruct(values)``.
     """
-    if optimized:
+    if optimized or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import (
             circuit_cutting_subcircuits,
         )
 
         return circuit_cutting_subcircuits(
-            circuit, {"gate": cuts}, observable, software=software, optimized=True
+            circuit,
+            {"gate": cuts},
+            observable,
+            software=software,
+            optimized=optimized,
+            num_samples=num_samples,
+            seed=seed,
         )
     return _gate_cutting_subcircuits(
         circuit,
@@ -2452,18 +2475,27 @@ def gate_cutting_subcircuits(
 
 
 @standard_arguments
-def gate_cutting_sampling_subcircuits(circuit, cuts, *, software=None, optimized=False):
+def gate_cutting_sampling_subcircuits(
+    circuit, cuts, *, software=None, optimized=False, num_samples=None, seed=None
+):
     """The subcircuits of :func:`gate_cutting_sampling`, to sample yourself.
 
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: A list of subcircuits with ``reconstruct(results)``.
     """
-    if optimized:
+    if optimized or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import (
             circuit_cutting_sampling_subcircuits,
         )
 
         return circuit_cutting_sampling_subcircuits(
-            circuit, {"gate": cuts}, software=software, optimized=True
+            circuit,
+            {"gate": cuts},
+            software=software,
+            optimized=optimized,
+            num_samples=num_samples,
+            seed=seed,
         )
     return _gate_cutting_sampling_subcircuits(
         circuit, cuts, software=resolve_software(software, circuit)
