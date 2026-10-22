@@ -759,6 +759,43 @@ def _decimal_to_base6(num):
     return base6
 
 
+#: Measure-and-prepare gate cut: what each side (1: first qubit, 2: second) of a cut
+#: CZ becomes in each of the 6 terms. "rz" is Rz(-pi/2); "z" Z then Rz(-pi/2);
+#: "measure" a mid-circuit measurement then Rz(-pi/2); "rzpi" Rz(-pi); "remove"
+#: nothing. Terms 3 and 5 carry a minus sign. Side 1 is the same for terms 2 and 3,
+#: side 2 for terms 4 and 5.
+_GATE_SIDE_OPS = {
+    1: ("rz", "z", "measure", "measure", "rzpi", "remove"),
+    2: ("rz", "z", "rzpi", "remove", "measure", "measure"),
+}
+
+
+def _apply_gate_side(dag, node, op, after):
+    """Turn one side marker of a measure-and-prepare gate cut into its part of a term
+    (see :data:`_GATE_SIDE_OPS`), in place. ``after`` names the Rz(-pi/2) node that
+    "z" and "measure" add behind the marker."""
+    preds, succs = list(dag.pred[node]), list(dag.succ[node])
+    data = dag.nodes[node]
+    if op == "remove":
+        dag.remove_node(node)
+        if preds and succs:
+            dag.add_edge(preds[0], succs[0], color="blue")
+    elif op in ("rz", "rzpi"):
+        data["gate"] = "rz"
+        data["parameters"] = [-np.pi / 2 if op == "rz" else -np.pi]
+    elif op in ("z", "measure"):
+        data["gate"] = op
+        dag.add_node(
+            after, gate="rz", qubits=data.get("qubits"), parameters=[-np.pi / 2]
+        )
+        if succs:
+            dag.remove_edge(node, succs[0])
+            dag.add_edge(after, succs[0], color="blue")
+        dag.add_edge(node, after, color="blue")
+    else:
+        raise ValueError(f"Unexpected gate-cut side operation: {op}")
+
+
 # Plain function (not a @task): the gate-cut substitution is cheap graph surgery,
 # run on the master, populating graph_components in place with concrete DiGraphs.
 # Keeping it task-free (no COLLECTION_OUT futures) lets the generated subcircuits
@@ -769,148 +806,17 @@ def _apply_gate_substitution(updated_dag, gates_cut, index):
     component split). Factored out of :func:`_generate_gate_cutting` so the mixed
     wire+gate driver can apply the gate substitution and the wire substitution to the
     same DAG before a single split."""
-    base6_rep = _decimal_to_base6(index)
-    base6_rep = base6_rep.zfill(len(gates_cut))
-    list_substitutions = list(map(int, base6_rep))
-
-    # print(list_substitutions)
-    for idx2, idx in enumerate(list_substitutions, start=1):
-        list_succ1 = list(updated_dag.succ[f"SUBS1_{idx2}"])
-        list_pred1 = list(updated_dag.pred[f"SUBS1_{idx2}"])
-
-        list_succ2 = list(updated_dag.succ[f"SUBS2_{idx2}"])
-        list_pred2 = list(updated_dag.pred[f"SUBS2_{idx2}"])
-
-        # 1 - Rz(-pi/2) -- Rz(-pi/2)
-        if idx == 0:
-            updated_dag.nodes[f"SUBS1_{idx2}"]["gate"] = "rz"
-            updated_dag.nodes[f"SUBS1_{idx2}"]["parameters"] = [-np.pi / 2]
-            updated_dag.nodes[f"SUBS2_{idx2}"]["gate"] = "rz"
-            updated_dag.nodes[f"SUBS2_{idx2}"]["parameters"] = [-np.pi / 2]
-
-        # 2 - Z Rz(-pi/2) -- Z Rz(-pi/2)
-        elif idx == 1:
-            updated_dag.nodes[f"SUBS1_{idx2}"]["gate"] = "z"
-            updated_dag.add_node(
-                f"SUBS11_{idx2}",
-                gate="rz",
-                qubits=updated_dag.nodes[f"SUBS1_{idx2}"].get("qubits"),
-                parameters=([-np.pi / 2]),
+    digits = list(map(int, _decimal_to_base6(index).zfill(len(gates_cut))))
+    for k, digit in enumerate(digits, start=1):
+        if digit > 5:
+            raise ValueError(f"Unexpected gate-cut substitution index: {digit}")
+        for side in (1, 2):
+            _apply_gate_side(
+                updated_dag,
+                f"SUBS{side}_{k}",
+                _GATE_SIDE_OPS[side][digit],
+                f"SUBS{side}{side}_{k}",
             )
-
-            if list_succ1:
-                succ1 = list_succ1[0]
-                updated_dag.remove_edge(f"SUBS1_{idx2}", succ1)
-                updated_dag.add_edge(f"SUBS11_{idx2}", succ1, color="blue")
-
-            updated_dag.add_edge(f"SUBS1_{idx2}", f"SUBS11_{idx2}", color="blue")
-
-            updated_dag.nodes[f"SUBS2_{idx2}"]["gate"] = "z"
-            updated_dag.add_node(
-                f"SUBS22_{idx2}",
-                gate="rz",
-                qubits=updated_dag.nodes[f"SUBS2_{idx2}"].get("qubits"),
-                parameters=([-np.pi / 2]),
-            )
-
-            if list_succ2:
-                succ2 = list_succ2[0]
-                updated_dag.remove_edge(f"SUBS2_{idx2}", succ2)
-                updated_dag.add_edge(f"SUBS22_{idx2}", succ2, color="blue")
-
-            updated_dag.add_edge(f"SUBS2_{idx2}", f"SUBS22_{idx2}", color="blue")
-
-        # 3 - MEASURE Rz(-pi/2) -- Rz(-pi)
-        elif idx == 2:
-            updated_dag.nodes[f"SUBS1_{idx2}"]["gate"] = "measure"
-            updated_dag.add_node(
-                f"SUBS11_{idx2}",
-                gate="rz",
-                qubits=updated_dag.nodes[f"SUBS1_{idx2}"].get("qubits"),
-                parameters=([-np.pi / 2]),
-            )
-
-            if list_succ1:
-                succ1 = list_succ1[0]
-                updated_dag.remove_edge(f"SUBS1_{idx2}", succ1)
-                updated_dag.add_edge(f"SUBS11_{idx2}", succ1, color="blue")
-
-            updated_dag.add_edge(f"SUBS1_{idx2}", f"SUBS11_{idx2}", color="blue")
-
-            updated_dag.nodes[f"SUBS2_{idx2}"]["gate"] = "rz"
-            updated_dag.nodes[f"SUBS2_{idx2}"]["parameters"] = [-np.pi]
-
-        # 4 - MEASURE Rz(-pi/2) -- RES
-        elif idx == 3:
-            updated_dag.nodes[f"SUBS1_{idx2}"]["gate"] = "measure"
-            updated_dag.add_node(
-                f"SUBS11_{idx2}",
-                gate="rz",
-                qubits=updated_dag.nodes[f"SUBS1_{idx2}"].get("qubits"),
-                parameters=([-np.pi / 2]),
-            )
-
-            if list_succ1:
-                succ1 = list_succ1[0]
-                updated_dag.remove_edge(f"SUBS1_{idx2}", succ1)
-                updated_dag.add_edge(f"SUBS11_{idx2}", succ1, color="blue")
-
-            updated_dag.add_edge(f"SUBS1_{idx2}", f"SUBS11_{idx2}", color="blue")
-
-            updated_dag.remove_node(f"SUBS2_{idx2}")
-
-            if list_succ2 and list_pred2:
-                succ2 = list_succ2[0]
-                pred2 = list_pred2[0]
-
-                updated_dag.add_edge(pred2, succ2)
-
-        # 5 - Rz(-pi) -- MEASURE Rz(-pi/2)
-        elif idx == 4:
-            updated_dag.nodes[f"SUBS1_{idx2}"]["gate"] = "rz"
-            updated_dag.nodes[f"SUBS1_{idx2}"]["parameters"] = [-np.pi]
-
-            updated_dag.nodes[f"SUBS2_{idx2}"]["gate"] = "measure"
-            updated_dag.add_node(
-                f"SUBS22_{idx2}",
-                gate="rz",
-                qubits=updated_dag.nodes[f"SUBS2_{idx2}"].get("qubits"),
-                parameters=([-np.pi / 2]),
-            )
-
-            if list_succ2:
-                succ2 = list_succ2[0]
-                updated_dag.remove_edge(f"SUBS2_{idx2}", succ2)
-                updated_dag.add_edge(f"SUBS22_{idx2}", succ2, color="blue")
-
-            updated_dag.add_edge(f"SUBS2_{idx2}", f"SUBS22_{idx2}", color="blue")
-
-        # 6 - RES -- MEASURE Rz(-pi/2)
-        elif idx == 5:
-            updated_dag.remove_node(f"SUBS1_{idx2}")
-
-            if list_succ1 and list_pred1:
-                succ1 = list_succ1[0]
-                pred1 = list_pred1[0]
-                updated_dag.add_edge(pred1, succ1, color="blue")
-
-            updated_dag.nodes[f"SUBS2_{idx2}"]["gate"] = "measure"
-            updated_dag.add_node(
-                f"SUBS22_{idx2}",
-                gate="rz",
-                qubits=updated_dag.nodes[f"SUBS2_{idx2}"].get("qubits"),
-                parameters=([-np.pi / 2]),
-            )
-
-            if list_succ2:
-                succ2 = list_succ2[0]
-                updated_dag.remove_edge(f"SUBS2_{idx2}", succ2)
-                updated_dag.add_edge(f"SUBS22_{idx2}", succ2, color="blue")
-
-            updated_dag.add_edge(f"SUBS2_{idx2}", f"SUBS22_{idx2}", color="blue")
-
-        else:
-            raise ValueError(f"Unexpected gate-cut substitution index: {idx}")
 
 
 def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):

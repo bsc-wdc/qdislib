@@ -43,6 +43,7 @@ __all__ = [
     "gate_cutting",
     "gate_cutting_hadamard",
     "wire_cutting",
+    "circuit_cutting",
     "gate_wire_cutting",
     # Cutting -- explicit subcircuits + reconstruction (the three-step workflow).
     "gate_cutting_subcircuits",
@@ -51,6 +52,7 @@ __all__ = [
     "gate_cutting_hadamard_subcircuit_reconstruction",
     "wire_cutting_subcircuits",
     "wire_cutting_subcircuit_reconstruction",
+    "circuit_cutting_subcircuits",
     # Cutting -- sampling-based reconstruction.
     "gate_cutting_sampling",
     "gate_cutting_sampling_subcircuits",
@@ -60,6 +62,8 @@ __all__ = [
     "gate_cutting_hadamard_sampling_reconstruction",
     "wire_cutting_sampling",
     "wire_cutting_sampling_subcircuits",
+    "circuit_cutting_sampling",
+    "circuit_cutting_sampling_subcircuits",
     # Subcircuit containers.
     "Subcircuit",
     "CutSubcircuits",
@@ -68,6 +72,7 @@ __all__ = [
     "HadamardSampledCutSubcircuits",
     "SampledCutSubcircuits",
     "WireSampledCutSubcircuits",
+    "CutCircuits",
     # Executing subcircuits / evaluating observables.
     "expectation_value",
     "sample_subcircuit",
@@ -75,6 +80,7 @@ __all__ = [
     "exact_statevector",
     # Finding and inspecting cuts.
     "hadamard_cut_overhead",
+    "circuit_cutting_overhead",
     "find_cut",
     "draw_cut",
     "cut_cost",

@@ -115,7 +115,65 @@ Qdislib includes several circuit cutting strategies:
       value = qd.wire_cutting(circuit, cut, observables="ZZZZ", optimized=True)
       per_wire = qd.wire_cutting(circuit, cut, observables="ZZZZ", optimized=True, joint=False)
 
-- **Mixed Gate + Wire Cutting** (``gate_wire_cutting``): Cuts some gates *and* some wires on the **same circuit** in one integrated workflow. The two quasiprobability decompositions tensor, and every fragment across the combined configuration space runs in parallel.
+- **Any combination of cuts** (``circuit_cutting``): measure-and-prepare gate cuts,
+  Hadamard gate cuts and wire cuts on the **same circuit**, in any number. Their
+  quasiprobability decompositions tensor, and every fragment runs in parallel. It has
+  the same four forms as the other cuts: ``circuit_cutting`` (expectation value),
+  ``circuit_cutting_subcircuits`` (three-step), ``circuit_cutting_sampling`` (output
+  distribution) and ``circuit_cutting_sampling_subcircuits``.
+
+  .. code-block:: python
+
+      cuts = {"gate": ["CX_7"], "hadamard": ["CZ_3"], "wire": [("U_5", "CZ_9")]}
+      value = qd.circuit_cutting(circuit, cuts, "ZZZZZ", optimized=True)
+      dist = qd.circuit_cutting_sampling(circuit, cuts, optimized=True)
+      qd.circuit_cutting_overhead(circuit, cuts, optimized=True)
+      # e.g. {'subcircuits': 81, 'configurations': 2304, 'fragments': 4, 'gamma': 144.0}
+
+  ``cuts`` is a dict (any subset of ``"gate"``, ``"hadamard"``, ``"wire"``, as
+  ``find_cut(..., mixed=True)`` returns) or a list of gate names and wire edges, with
+  ``hadamard=True`` to cut its gates with the Hadamard test. ``joint`` turns on the
+  joint wire measurement and the joint Hadamard cut (``None``, the default, keeps each
+  cut's own default). ``shots=None`` gives the exact result (statevector, qibo or
+  Qiskit), mid-circuit measurements included. ``gate_wire_cutting`` is still there and
+  forwards to it when given ``hadamard``, ``optimized`` or ``joint``.
+
+  **How the cost grows.** The sampling overhead ``gamma`` is the product of the cuts'
+  (3 per measure-and-prepare gate, 3 per Hadamard gate or ``2**(k+1) - 1`` for a joint
+  group of ``k``, 4 per wire), and the shots grow as ``gamma**2``. The number of
+  circuits depends on ``optimized``:
+
+  - ``optimized=False`` runs every fragment for every term of the combined
+    decomposition: ``6**g * 8**w * ...`` configurations, times the fragments.
+  - ``optimized=True`` runs each fragment once per setting of *the cuts that touch
+    it* and reuses it in every term. A product only builds up inside a fragment; across
+    fragments the counts add. Per cut and side: 5 circuits for a measure-and-prepare
+    gate (two of its 6 terms share each side's circuit), 3 per wire sent (``2**k + 1``
+    for ``k`` sent jointly), 4 per wire received.
+
+  ``k`` cuts between two fragments:
+
+  ===  ===========  ==========  ===========  ============  ==========  =============
+  k    gate, std    gate, opt   Hadamard,    wire, std     wire, opt   wire, opt +
+                                joint                                  joint
+  ===  ===========  ==========  ===========  ============  ==========  =============
+  1    12           10          12           16            7           7
+  2    72           50          56           128           25          21
+  3    432          250         240          1,024         91          73
+  4    2,592        1,250       992          8,192         337         273
+  ===  ===========  ==========  ===========  ============  ==========  =============
+
+  Three fragments, ``g`` gate cuts between the first two and ``w`` wire cuts between
+  the last two (the middle fragment holds both, so its settings multiply):
+
+  =====  =========  ===========  =============  ==================  ==========
+  g, w   std        opt          opt + joint    Hadamard joint +    gamma
+                                                wire joint          (mp / joint)
+  =====  =========  ===========  =============  ==================  ==========
+  1, 1   144        24           24             28                  12 / 12
+  2, 2   6,912      266          166            184                 144 / 112
+  3, 3   331,776    3,564        1,314          1,264               1,728 / 960
+  =====  =========  ===========  =============  ==================  ==========
 
 Every subcircuit is an independent PyCOMPSs task, so all methods fan out and run in parallel; for large fan-outs, ``sync=False`` overlaps independent cuts and ``reduce_chunk=n`` folds the results through a balanced reduction tree.
 
@@ -162,7 +220,7 @@ The result is a gate cut you feed to ``gate_cutting`` as usual; pass a ``layout`
 **Mixed cut discovery.** With ``mixed=True``, ``find_cut`` partitions the circuit once
 and classifies each severed connection as a gate cut or a wire cut, returning a
 combined ``{"gate": [...], "wire": [...]}`` you feed straight to
-:func:`~Qdislib.gate_wire_cutting`. The partition is **cost-aware** — it weighs a gate
+:func:`~Qdislib.circuit_cutting`. The partition is **cost-aware** — it weighs a gate
 cut (``6`` terms) against a wire cut (``8``) and prefers whichever is cheaper per
 severed connection — so a circuit with both a gate bottleneck and a wire bottleneck is
 cut with the cheapest mix rather than forced into one type.
@@ -170,15 +228,13 @@ cut with the cheapest mix rather than forced into one type.
 .. code-block:: python
 
     cut = qd.find_cut(circuit, mixed=True)            # {"gate": [...], "wire": [...]}
-    val = qd.gate_wire_cutting(
-        circuit, gates_cut=cut["gate"], wire_cut=cut["wire"], observable="ZZZZ"
-    )
+    val = qd.circuit_cutting(circuit, cut, "ZZZZ")
 
 .. note::
 
    With the *optimized* wire cut the per-cut cost is closer to ``4`` than ``8``, which
    can tip the balance toward wire cuts; the cost model used for the default mixed
-   discovery assumes the standard (``8``-term) wire cut that ``gate_wire_cutting`` runs.
+   discovery assumes the standard (``8``-term) wire cut, i.e. ``optimized=False``.
 
 .. tip::
 

@@ -22,7 +22,8 @@ Qdislib.core.cutting_algorithms: Circuit Cutting
     overhead, no mid-circuit measurement (``gate_cutting_hadamard`` + sampling / three-step).
 
 :class:`cutting_algorithms.mixed_cutting <Qdislib.core.cutting_algorithms.mixed_cutting>`
-    Mixed wire + gate cutting on one circuit (``gate_wire_cutting``).
+    Any combination of gate, Hadamard and wire cuts on one circuit
+    (``circuit_cutting`` + sampling / three-step / ``circuit_cutting_overhead``).
 
 
 Qdislib.core.graph_algorithms: Graph Algorithms

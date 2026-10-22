@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`circuit_cutting`: any combination of cuts on one circuit.** Measure-and-prepare
+  gate cuts, Hadamard gate cuts and wire cuts, in any number, with the same four forms
+  as every other cut: `circuit_cutting` (expectation value, X/Y and weighted Pauli
+  sums), `circuit_cutting_subcircuits`, `circuit_cutting_sampling` (output
+  distribution) and `circuit_cutting_sampling_subcircuits`. `optimized=True` runs each
+  fragment once per setting of the cuts that touch it, so the circuit count is a sum
+  over fragments instead of a product over cuts (e.g. 166 instead of 6,912 for two
+  gate cuts and two wire cuts across three fragments); this also brings each side of a
+  measure-and-prepare gate cut from 6 circuits to 5. `joint` turns on the joint wire
+  measurement and the joint Hadamard cut. `shots=None` is exact on qibo and Qiskit,
+  mid-circuit measurements included (deferred to an extra qubit).
+  `circuit_cutting_overhead` reports the circuits, configurations, fragments and
+  `gamma` of a cut without running it. `gate_wire_cutting` keeps its behaviour and
+  forwards to `circuit_cutting` when given `hadamard`, `optimized` or `joint`.
 - **Output distributions with the Hadamard cut (`gate_cutting_hadamard_sampling`,
   `gate_cutting_hadamard_sampling_subcircuits`).** Every fragment is read in the Z
   basis, so one run per fragment gives its correlators for every output subset; their
