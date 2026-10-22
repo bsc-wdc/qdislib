@@ -150,7 +150,6 @@ def gate_wire_cutting(
     if observable:
         dag = change_basis_dag(dag, observable)
     num_qubits = _max_qubits_graph(dag)  # original qubit count (before wire additions)
-    components_before = nx.number_connected_components(dag.to_undirected())
 
     gates_cut = list(gates_cut or [])
     # A non-CZ/CX cut gate is decomposed into CZ + single-qubit gates and its CZs cut.
@@ -168,20 +167,12 @@ def gate_wire_cutting(
     # Gate surgery: insert the SUBS1/SUBS2 markers (also strips red edges internally).
     dag = _generate_cut(dag, gates_cut) if gates_cut else _remove_red_edges(dag.copy())
 
-    # Same reasoning as gate_cutting._validate_gate_cuts_partition /
-    # wire_cutting._validate_wire_cuts_partition: a cut set that doesn't increase
-    # the connected-component count beyond the uncut circuit's baseline pays the
-    # combined gate+wire quasiprobability cost for no separation benefit.
-    if (gates_cut or wire_cuts) and nx.number_connected_components(
-        dag.to_undirected()
-    ) <= components_before:
-        raise ValueError(
-            f"The given gate cut(s) {gates_cut} and wire cut(s) {wire_cuts} do not "
-            "partition the circuit into independent fragments: some other, uncut "
-            "path still connects the pieces they're meant to separate. Either cut "
-            "wires/gates that are the sole connectivity between the pieces you "
-            "want to separate, or pass empty cut lists to run the circuit directly."
-        )
+    # Every cut, gate or wire, has to separate its two sides.
+    from Qdislib.core.cutting_algorithms._reconstruction import check_cuts_separate
+
+    sides = {g: (f"SUBS1_{k}", f"SUBS2_{k}") for k, g in enumerate(gates_cut, 1)}
+    sides.update({w: (f"O_{i}", f"PS_{i}") for i, w in enumerate(wire_cuts, 1)})
+    check_cuts_separate(_remove_red_edges(dag), sides)
 
     n_gate, n_wire = len(gates_cut), len(wire_cuts)
     total_qubits = num_qubits + n_wire  # fresh wire lines are numbered above the rest
@@ -330,7 +321,6 @@ class _CutPlan:
             default=0,
         )
         self.width = max(self.num_qubits, _num_circuit_qubits(circuit))
-        components_before = nx.number_connected_components(dag.to_undirected())
 
         # Read the Hadamard decompositions before any surgery touches the gates.
         decomps = [
@@ -365,15 +355,16 @@ class _CutPlan:
             dag = _generate_cut_hadamard(dag, had_cuts)
         graph = _remove_red_edges(dag)
 
-        if (gate_cuts or had_cuts or wire_cuts) and nx.number_connected_components(
-            graph.to_undirected()
-        ) <= components_before:
-            raise ValueError(
-                f"The cuts {{gate: {gate_cuts}, hadamard: {had_cuts}, wire: "
-                f"{wire_cuts}}} do not partition the circuit into independent "
-                "fragments: some other, uncut path still connects the pieces they're "
-                "meant to separate."
-            )
+        from Qdislib.core.cutting_algorithms._reconstruction import (
+            check_cuts_separate,
+        )
+
+        sides = {g: (f"GATE1_{k}", f"GATE2_{k}") for k, g in enumerate(gate_cuts, 1)}
+        sides.update(
+            {g: (f"SUBS1_{k}", f"SUBS2_{k}") for k, g in enumerate(had_cuts, 1)}
+        )
+        sides.update({w: (f"O_{i}", f"PS_{i}") for i, w in enumerate(wire_cuts, 1)})
+        check_cuts_separate(graph, sides)
         self.graph = graph
         self.gate_cuts, self.had_cuts, self.wire_cuts = gate_cuts, had_cuts, wire_cuts
         self.ancilla_base = self.num_qubits + len(wire_cuts) + 1

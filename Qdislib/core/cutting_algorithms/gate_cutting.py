@@ -512,7 +512,8 @@ def _generate_cut(dag, gates_cut):
 
 
 def _validate_gate_cuts_partition(dag, gates_cut):
-    """Raise if a non-empty gate-cut set doesn't actually separate the circuit.
+    """Raise unless every gate cut separates the circuit (see
+    :func:`~Qdislib.core.cutting_algorithms._reconstruction.check_cuts_separate`).
 
     Gate cutting (like wire cutting -- see
     :func:`~Qdislib.core.cutting_algorithms.wire_cutting._validate_wire_cuts_partition`)
@@ -528,24 +529,19 @@ def _validate_gate_cuts_partition(dag, gates_cut):
         any general-gate expansion the caller has already done).
     :param gates_cut: Gate node ids to cut, matching what will be passed to
         :func:`_generate_cut`.
-    :raises ValueError: If ``gates_cut`` is non-empty but doesn't increase the
-        connected-component count.
+    :raises InvalidCutError: If a cut gate's two sides stay in one fragment.
     """
     if not gates_cut:
         return
-    before = nx.number_connected_components(dag.to_undirected())
-    after = nx.number_connected_components(
-        _generate_cut(dag, gates_cut).to_undirected()
+    from Qdislib.core.cutting_algorithms._reconstruction import check_cuts_separate
+
+    check_cuts_separate(
+        _generate_cut(dag, gates_cut),
+        {
+            gate: (f"SUBS1_{k}", f"SUBS2_{k}")
+            for k, gate in enumerate(gates_cut, start=1)
+        },
     )
-    if after <= before:
-        raise ValueError(
-            f"The given gate cut(s) {gates_cut} do not partition the circuit "
-            "into independent fragments: some other, uncut gate still connects "
-            "the two qubits' continuations, so cutting here doesn't separate "
-            "anything. Either cut a gate that's the sole connectivity between "
-            "the pieces you want to separate, or pass an empty cut list to run "
-            "the circuit directly."
-        )
 
 
 def _decompose_gate_to_cz(matrix):

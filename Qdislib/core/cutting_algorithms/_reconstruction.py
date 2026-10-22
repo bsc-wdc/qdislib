@@ -54,3 +54,41 @@ def signed_product(values, index, base, flip_digits):
         number //= base
 
     return -product if flip else product
+
+
+def check_cuts_separate(cut_graph, sides):
+    """Raise unless every cut separates: its two sides must land in different
+    fragments.
+
+    A cut whose two sides end up in the same fragment (another, uncut path still
+    connects them) separates nothing: summing its terms inside that fragment just
+    rebuilds what was cut, so it only multiplies the circuit count and the shots.
+    It is not a valid cut, whatever the other cuts do -- even when they do split
+    the circuit.
+
+    :param cut_graph: The circuit after the cut surgery of every cut, red
+        (ordering) edges removed, so its connected components are the fragments.
+    :param sides: ``{cut: (node, node)}``, the two marker nodes of each cut.
+    :raises InvalidCutError: Naming every cut that does not separate.
+    """
+    import networkx as nx
+
+    from Qdislib.utils.exceptions import InvalidCutError
+
+    fragment = {}
+    for index, nodes in enumerate(nx.connected_components(cut_graph.to_undirected())):
+        for node in nodes:
+            fragment[node] = index
+    invalid = [
+        cut
+        for cut, (a, b) in sides.items()
+        if a in fragment and fragment[a] == fragment.get(b)
+    ]
+    if invalid:
+        raise InvalidCutError(
+            f"Not a valid cut: {invalid}. Each of these leaves its two sides in the "
+            "same fragment -- another, uncut path still connects them -- so it "
+            "separates nothing and only multiplies the cost. Every cut has to "
+            "separate its two sides; drop these (or also cut the path that "
+            "connects them)."
+        )

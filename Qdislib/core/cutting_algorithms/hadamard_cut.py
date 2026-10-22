@@ -522,39 +522,23 @@ def _z_observable(num_qubits, z_qubits):
     return "".join(obs)
 
 
-def _validate_hadamard_cuts_partition(dag, gates_cut, num_components_after):
-    """Raise if a non-empty Hadamard gate-cut set doesn't actually separate the circuit.
+def _validate_hadamard_cuts_partition(gates_cut, cut_graph):
+    """Raise unless every Hadamard gate cut separates the circuit (see
+    :func:`~Qdislib.core.cutting_algorithms._reconstruction.check_cuts_separate`).
 
-    Same reasoning as
-    :func:`~Qdislib.core.cutting_algorithms.gate_cutting._validate_gate_cuts_partition`
-    and
-    :func:`~Qdislib.core.cutting_algorithms.wire_cutting._validate_wire_cuts_partition`,
-    for the Hadamard-test cut path (any two-qubit gate, not just CZ/CX): a cut
-    only pays off if it increases the number of independently executable
-    pieces beyond what the circuit already had.
-
-    :param dag: The (uncut) circuit DAG.
     :param gates_cut: Gate node ids to cut.
-    :param num_components_after: Connected-component count of the cut DAG (the
-        caller already has this -- see :func:`_hadamard_setup` -- so this takes
-        it directly rather than recomputing the cut).
-    :raises ValueError: If ``gates_cut`` is non-empty but ``num_components_after``
-        doesn't exceed the pre-cut connected-component count.
+    :param cut_graph: The cut DAG without its red edges.
+    :raises InvalidCutError: If a cut gate's two sides stay in one fragment.
     """
-    if not gates_cut:
-        return
-    import networkx as nx
+    from Qdislib.core.cutting_algorithms._reconstruction import check_cuts_separate
 
-    before = nx.number_connected_components(dag.to_undirected())
-    if num_components_after <= before:
-        raise ValueError(
-            f"The given gate cut(s) {gates_cut} do not partition the circuit "
-            "into independent fragments: some other, uncut gate still connects "
-            "the two qubits' continuations, so cutting here doesn't separate "
-            "anything. Either cut a gate that's the sole connectivity between "
-            "the pieces you want to separate, or pass an empty cut list to run "
-            "the circuit directly."
-        )
+    check_cuts_separate(
+        cut_graph,
+        {
+            gate: (f"SUBS1_{k}", f"SUBS2_{k}")
+            for k, gate in enumerate(gates_cut, start=1)
+        },
+    )
 
 
 def _observable_terms(observable):
@@ -614,10 +598,9 @@ def _hadamard_setup(circuit, gates_cut, observable=None):
     cut_dag = _generate_cut_hadamard(dag, gates_cut)  # SUBS1_k / SUBS2_k (+ CX H-conj)
     # The fragment partition (connected components) is fixed by the cut graph; only the
     # per-node gadget assignment changes per configuration, so compute it once.
-    components = list(
-        nx.connected_components(_remove_red_free(cut_dag).to_undirected())
-    )
-    _validate_hadamard_cuts_partition(dag, gates_cut, len(components))
+    cut_graph = _remove_red_free(cut_dag)
+    components = list(nx.connected_components(cut_graph.to_undirected()))
+    _validate_hadamard_cuts_partition(gates_cut, cut_graph)
     return cut_dag, components, decomps
 
 

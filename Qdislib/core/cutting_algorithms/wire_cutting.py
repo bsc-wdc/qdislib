@@ -896,7 +896,8 @@ def _expand_wire_cuts(dag, edges_to_replace):
 
 
 def _validate_wire_cuts_partition(dag, wire_cuts, num_qubits):
-    """Raise if a non-empty wire-cut set doesn't actually separate the circuit.
+    """Raise unless every wire cut separates the circuit (see
+    :func:`~Qdislib.core.cutting_algorithms._reconstruction.check_cuts_separate`).
 
     Wire cutting trades circuit count for reduced per-circuit qubit width; that
     trade only pays off if the cut(s) actually split the circuit into more
@@ -918,26 +919,19 @@ def _validate_wire_cuts_partition(dag, wire_cuts, num_qubits):
     :param wire_cuts: Single-wire cuts as ``(source, target, qubit)`` tuples, as
         returned by :func:`_expand_wire_cuts`.
     :param num_qubits: Highest qubit index; fresh lines are numbered above it.
-    :raises ValueError: If ``wire_cuts`` is non-empty but doesn't increase the
-        connected-component count.
+    :raises InvalidCutError: If a cut's measured and prepared sides stay in one
+        fragment.
     """
     if not wire_cuts:
         return
-    before = networkx.number_connected_components(dag.to_undirected())
+    from Qdislib.core.cutting_algorithms._reconstruction import check_cuts_separate
+
     marked = dag.copy()
     _insert_wire_cut_markers(marked, wire_cuts, num_qubits)
-    after = networkx.number_connected_components(
-        _remove_red_edges(marked).to_undirected()
+    check_cuts_separate(
+        _remove_red_edges(marked),
+        {cut: (f"O_{i}", f"PS_{i}") for i, cut in enumerate(wire_cuts, start=1)},
     )
-    if after <= before:
-        raise ValueError(
-            f"The given wire cut(s) {wire_cuts} do not partition the circuit "
-            "into independent fragments: some other, uncut path still connects "
-            "the two sides, so cutting here doesn't separate anything. Either "
-            "cut a wire that's the sole connectivity between the pieces you "
-            "want to separate, or pass an empty cut list to run the circuit "
-            "directly."
-        )
 
 
 @task(returns=1)

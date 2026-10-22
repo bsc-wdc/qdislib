@@ -148,9 +148,16 @@ Qdislib includes several circuit cutting strategies:
   - ``optimized=True`` runs each fragment once per setting of *the cuts that touch
     it* and reuses it in every term. A product only builds up inside a fragment; across
     fragments the counts add. Per cut and side: 5 circuits for a measure-and-prepare
-    gate (two of its 6 terms share each side's circuit; 6 if both sides land in the
-    same fragment; a general gate counts as the CZs it is decomposed into), 3 per wire
-    sent (``2**k + 1`` for ``k`` sent jointly), 4 per wire received.
+    gate (two of its 6 terms share each side's circuit; a general gate counts as the
+    CZs it is decomposed into), 3 per wire sent (``2**k + 1`` for ``k`` sent
+    jointly), 4 per wire received.
+
+  **Every cut has to separate.** In every algorithm, a cut is valid only if its two
+  sides end up in different fragments, judged with all the other cuts applied: two
+  gates across the same boundary, or a gate cut that only comes loose together with
+  a wire cut, are valid. A cut that another, uncut path bypasses separates nothing
+  (summing its terms in one fragment just rebuilds what was cut) and raises
+  ``InvalidCutError`` naming it, even when the other cuts do split the circuit.
 
   ``k`` cuts between two fragments:
 

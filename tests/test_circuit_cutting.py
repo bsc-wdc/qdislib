@@ -246,31 +246,6 @@ class CircuitCuttingOverheadTest(BaseTimedTestCase):
                 self.assertEqual(wire["subcircuits"], (2**k + 1 if k > 1 else 3) + 4**k)
                 self.assertAlmostEqual(wire["gamma"], 4**k)
 
-    def test_gate_sides_in_the_same_fragment(self):
-        """An uncut CZ keeps both sides of k cut gates together (a wire cut does
-        the separating): their 6**k terms are all different circuits there."""
-        import Qdislib as qd
-
-        for k in (1, 2):
-            b = _Builder(3, seed=8)
-            b.layer(0, 1, 2)
-            b.gate("cz", 0, 1)
-            gates = []
-            for _ in range(k):
-                b.layer(0, 1)
-                gates.append(b.gate("cz", 0, 1))
-            b.layer(0, 1)
-            wire = b.wire(1, 2)
-            b.layer(1, 2)
-            cuts = {"gate": gates, "wire": [wire]}
-            with self.subTest(k=k):
-                count = qd.circuit_cutting_overhead(b.qc, cuts, optimized=True)
-                self.assertEqual(count["subcircuits"], 6**k * 3 + 4)
-                value = qd.circuit_cutting(
-                    b.qc, cuts, "ZZZ", shots=None, optimized=True
-                )
-                self.assertAlmostEqual(value, _exact(b.qc, "ZZZ"), places=10)
-
     def test_general_gate_counts_its_czs(self):
         """A SWAP is cut as its 3 CZs: 2 * 5**3 circuits, gamma 27."""
         import Qdislib as qd
@@ -295,6 +270,58 @@ class CircuitCuttingOverheadTest(BaseTimedTestCase):
         self.assertEqual(standard["gamma"], 3 * 4 * 4)
         optimized = qd.circuit_cutting_overhead(circuit, cuts, optimized=True)
         self.assertEqual(optimized["subcircuits"], 3 + 5 * 4 * 3 + 5 * 4)
+
+
+@unittest.skipUnless(QISKIT, "qiskit not installed")
+class CutValidityTest(BaseTimedTestCase):
+    """A cut is valid only if its two sides land in different fragments, judged
+    with every other cut applied."""
+
+    def test_only_the_whole_combination_separates(self):
+        import itertools
+
+        import Qdislib as qd
+
+        # q0 and q1 linked three times: each link is cut a different way, and the
+        # old q1 line only comes loose when all three are cut.
+        b = _Builder(2, seed=2)
+        b.layer(0, 1)
+        mp = b.gate("cz", 0, 1)
+        b.layer(0, 1)
+        had = b.gate("cz", 0, 1)
+        b.layer(0, 1)
+        wire = b.wire(1, 0)
+        b.layer(0, 1)
+        cuts = {"gate": [mp], "hadamard": [had], "wire": [wire]}
+        value = qd.circuit_cutting(b.qc, cuts, "ZZ", shots=None, optimized=True)
+        self.assertAlmostEqual(value, _exact(b.qc, "ZZ"), places=10)
+        for size in (1, 2):
+            for kinds in itertools.combinations(cuts, size):
+                with self.subTest(kinds=kinds):
+                    with self.assertRaises(qd.InvalidCutError):
+                        qd.circuit_cutting(
+                            b.qc, {k: cuts[k] for k in kinds}, "ZZ", shots=None
+                        )
+
+    def test_a_cut_that_another_path_bypasses(self):
+        """An uncut CZ keeps both sides of the cut gate together; the wire cut does
+        split the circuit, but the gate cut is still not valid."""
+        import Qdislib as qd
+
+        b = _Builder(3, seed=8)
+        b.layer(0, 1, 2)
+        b.gate("cz", 0, 1)
+        gate = b.gate("cz", 0, 1)
+        b.layer(0, 1)
+        wire = b.wire(1, 2)
+        b.layer(1, 2)
+        with self.assertRaisesRegex(qd.InvalidCutError, gate):
+            qd.circuit_cutting(b.qc, {"gate": [gate], "wire": [wire]}, "ZZZ")
+        with self.assertRaises(qd.InvalidCutError):
+            qd.gate_wire_cutting(b.qc, [gate], [wire], "ZZZ", software="qiskit")
+        with self.assertRaises(qd.InvalidCutError):
+            qd.gate_cutting(b.qc, [gate], observables="ZZZ")
+        qd.wire_cutting(b.qc, [wire], observables="ZZZ", software="qiskit")
 
 
 class CutArgumentsTest(BaseTimedTestCase):

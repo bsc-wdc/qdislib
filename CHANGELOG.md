@@ -144,6 +144,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **Every cut has to separate its two sides.** All cutting algorithms (gate,
+  Hadamard, wire, `gate_wire_cutting`, `circuit_cutting`, with their three-step and
+  sampling forms) now check each cut on the circuit with all cuts applied: its two
+  sides must land in different fragments. A cut that another, uncut path bypasses
+  raises `InvalidCutError` naming it. Before, only the cut set as a whole had to add
+  a fragment, so such a cut ran and silently multiplied the circuits and shots for
+  nothing. Cuts that separate only in combination (several gates across one
+  boundary, a gate cut plus a wire cut) stay valid.
 - **Breaking: `_sampling` means the output distribution for every cut type.**
   `gate_cutting_hadamard_sampling` and `gate_cutting_hadamard_sampling_subcircuits`
   used to estimate an expectation value by drawing configurations at random; they now
