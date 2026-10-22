@@ -246,6 +246,44 @@ class CircuitCuttingOverheadTest(BaseTimedTestCase):
                 self.assertEqual(wire["subcircuits"], (2**k + 1 if k > 1 else 3) + 4**k)
                 self.assertAlmostEqual(wire["gamma"], 4**k)
 
+    def test_gate_sides_in_the_same_fragment(self):
+        """An uncut CZ keeps both sides of k cut gates together (a wire cut does
+        the separating): their 6**k terms are all different circuits there."""
+        import Qdislib as qd
+
+        for k in (1, 2):
+            b = _Builder(3, seed=8)
+            b.layer(0, 1, 2)
+            b.gate("cz", 0, 1)
+            gates = []
+            for _ in range(k):
+                b.layer(0, 1)
+                gates.append(b.gate("cz", 0, 1))
+            b.layer(0, 1)
+            wire = b.wire(1, 2)
+            b.layer(1, 2)
+            cuts = {"gate": gates, "wire": [wire]}
+            with self.subTest(k=k):
+                count = qd.circuit_cutting_overhead(b.qc, cuts, optimized=True)
+                self.assertEqual(count["subcircuits"], 6**k * 3 + 4)
+                value = qd.circuit_cutting(
+                    b.qc, cuts, "ZZZ", shots=None, optimized=True
+                )
+                self.assertAlmostEqual(value, _exact(b.qc, "ZZZ"), places=10)
+
+    def test_general_gate_counts_its_czs(self):
+        """A SWAP is cut as its 3 CZs: 2 * 5**3 circuits, gamma 27."""
+        import Qdislib as qd
+
+        b = _Builder(4, seed=9)
+        b.layer(0, 1, 2, 3)
+        b.gate("cz", 0, 1), b.gate("cz", 2, 3)
+        swap = b.gate("swap", 1, 2)
+        b.layer(0, 1, 2, 3)
+        b.gate("cz", 0, 1), b.gate("cz", 2, 3)
+        count = qd.circuit_cutting_overhead(b.qc, {"gate": [swap]}, optimized=True)
+        self.assertEqual((count["subcircuits"], count["gamma"]), (2 * 5**3, 27))
+
     def test_mixed_sums_over_fragments(self):
         import Qdislib as qd
 
