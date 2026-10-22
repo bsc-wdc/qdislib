@@ -72,6 +72,7 @@ __all__ = [
     "analytical_solution",
     "exact_statevector",
     # Finding and inspecting cuts.
+    "hadamard_cut_overhead",
     "find_cut",
     "draw_cut",
     "cut_cost",

@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Joint Hadamard gate cut (`joint=True`).** `gate_cutting_hadamard` and its
+  `_subcircuits` / `_sampling` variants can cut all the gates crossing one boundary
+  together, with one shared ancilla per fragment: `gamma = 2**(k+1) - 1` instead of
+  `3**k` for k CZ/CX, `2**k (2**(k+1) - 1)` settings instead of `6**k`, and one
+  ancilla per side instead of k. Works for gates at different times and for general
+  (KAK) gates, needs no communication. `hadamard_cut_overhead` reports the overhead
+  per boundary. Off by default, so existing results are unchanged.
 - **`CombinedCutSubcircuits`**: the subcircuit container `*_subcircuits` return
   when a circuit has several independent pieces or the observable is a weighted
   Pauli sum. It is still one flat list to evaluate; `reconstruct` multiplies the

@@ -72,6 +72,28 @@ Qdislib includes several circuit cutting strategies:
 
 - **Hadamard-test Gate Cutting** (``gate_cutting_hadamard``): An alternative gate cut (Harrow & Lowe, `arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) that replaces the mid-circuit measurement with **one local ancilla** per fragment running a Hadamard test. It cuts **any** two-qubit gate as a *single* cut at the **optimal** overhead (``gamma(CZ) = 3``, tending to ``1`` for weak interactions), which makes it a good fit for superconducting hardware where mid-circuit measurement is costly. Available as an all-in-one call, a three-step ``_subcircuits`` workflow, and a Monte-Carlo ``_sampling`` variant.
 
+  With ``joint=True``, the gates that cross the **same boundary** are cut together:
+  one shared ancilla per fragment runs a single Hadamard test over all of them
+  (Schmitt, Piveteau & Sutter, Quantum 9, 1634, 2025). For ``k`` CZ/CX gates that is
+  ``gamma = 2**(k+1) - 1`` instead of ``3**k`` (7 instead of 9 at ``k = 2``, 15
+  instead of 27 at ``k = 3``), ``2**k (2**(k+1) - 1)`` settings instead of ``6**k``,
+  and one ancilla per side instead of ``k``. The gates may sit at different times and
+  be any two-qubit gate; no mid-circuit measurement or classical communication is
+  needed. ``qd.hadamard_cut_overhead(circuit, cut, joint=True)`` returns the overhead
+  per boundary.
+
+  .. code-block:: python
+
+      value = qd.gate_cutting_hadamard(circuit, ["CZ_5", "CZ_9"], "ZZZZ", joint=True)
+
+  The shared ancilla must stay coherent from the boundary's first cut gate to its
+  last, and needs a controlled gate with each of them, so on hardware with short T2
+  or sparse connectivity, cutting gates far apart in time separately can be better.
+  ``gamma`` bounds the shots per sample: the bound is reached when every sampled
+  configuration gets a single shot, where the joint cut needs ``(3**k / (2**(k+1)-1))**2``
+  times fewer samples (3.2x at ``k = 3``). With exact or many-shot fragment values the
+  actual variance of either method is well below its bound and depends on the circuit.
+
 - **Wire Cutting** (``wire_cutting``): Cuts "wires" (qubit connections) between gates to disconnect logical qubits, via a measure-and-prepare decomposition (``8`` terms per cut, or ``3**n + 4**n`` with ``optimized=True``).
 
 - **Mixed Gate + Wire Cutting** (``gate_wire_cutting``): Cuts some gates *and* some wires on the **same circuit** in one integrated workflow. The two quasiprobability decompositions tensor, and every fragment across the combined configuration space runs in parallel.

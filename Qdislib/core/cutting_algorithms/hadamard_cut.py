@@ -49,6 +49,7 @@ __all__ = [
     "local_unitary_decomposition",
     "gamma_factor",
     "phi_factor",
+    "hadamard_cut_overhead",
     "gate_cutting_hadamard",
     "gate_cutting_hadamard_subcircuits",
     "gate_cutting_hadamard_subcircuit_reconstruction",
@@ -378,6 +379,37 @@ def _cut_settings(num_terms):
     return settings
 
 
+def _open_ancilla(circuit, gates, ancilla, g):
+    """Start a Hadamard test on ``ancilla``: ``H``, then ``S`` for the imaginary part."""
+    circuit.add(gates.H(ancilla))
+    if g == 1:
+        circuit.add(gates.S(ancilla))
+
+
+def _select(circuit, gates, qubit, ancilla, u_i, u_j):
+    """The select gate ``|0><0| (x) U_i + |1><1| (x) U_j`` on ``qubit``, ``ancilla``
+    the control: ``U3(U_i)`` then the controlled ``U_j U_i^dag`` (see
+    :func:`_subs_gadget`)."""
+    theta_i, phi_i, lam_i, _ = _u3_angles(u_i)  # drop U_i's fragment-global phase
+    # U_i is applied unconditionally first, so the controlled correction that turns the
+    # anc==1 branch into U_j must act *after* U_i: M @ U_i = U_j => M = U_j U_i^dag.
+    # (For diagonal U_i, U_j this equals U_i^dag U_j since they commute -- but not in
+    # general, so the order matters for non-diagonal KAK terms.)
+    m = np.asarray(u_j) @ np.asarray(u_i).conj().T
+    theta_m, phi_m, lam_m, gphase_m = _u3_angles(m)
+    circuit.add(gates.U3(qubit, theta_i, phi_i, lam_i))  # U_i on the data qubit
+    circuit.add(
+        gates.CU3(ancilla, qubit, theta_m, phi_m, lam_m)
+    )  # controlled U_j U_i^dag
+    if abs(gphase_m) > 1e-12:  # that operator's global phase, on the anc==1 branch
+        circuit.add(gates.U1(ancilla, gphase_m))
+
+
+def _close_ancilla(circuit, gates, ancilla):
+    """End a Hadamard test on ``ancilla`` (read out later as a ``Z``)."""
+    circuit.add(gates.H(ancilla))
+
+
 def _subs_gadget(circuit, gates, qubit, ancilla, u_i, u_j, g):
     """Append the double-Hadamard-test gadget for one cut side to ``circuit``.
 
@@ -391,34 +423,26 @@ def _subs_gadget(circuit, gates, qubit, ancilla, u_i, u_j, g):
     phase (irrelevant to the Z read-out) and is dropped. Emitting only standard named
     gates (H/S/U3/CU3/U1/CNOT) keeps the fragment expressible in the neutral DAG and
     runnable on any backend. The ancilla is read out as a Z expectation by the caller.
+
+    It is :func:`_open_ancilla`, :func:`_select` and :func:`_close_ancilla` in a row;
+    the joint cut spreads those over several cut gates sharing one ancilla.
     """
-    theta_i, phi_i, lam_i, _ = _u3_angles(u_i)  # drop U_i's fragment-global phase
-    # U_i is applied unconditionally first, so the controlled correction that turns the
-    # anc==1 branch into U_j must act *after* U_i: M @ U_i = U_j => M = U_j U_i^dag.
-    # (For diagonal U_i, U_j this equals U_i^dag U_j since they commute -- but not in
-    # general, so the order matters for non-diagonal KAK terms.)
-    m = np.asarray(u_j) @ np.asarray(u_i).conj().T
-    theta_m, phi_m, lam_m, gphase_m = _u3_angles(m)
-    circuit.add(gates.H(ancilla))
-    if g == 1:
-        circuit.add(gates.S(ancilla))
-    circuit.add(gates.U3(qubit, theta_i, phi_i, lam_i))  # U_i on the data qubit
-    circuit.add(
-        gates.CU3(ancilla, qubit, theta_m, phi_m, lam_m)
-    )  # controlled U_j U_i^dag
-    if abs(gphase_m) > 1e-12:  # that operator's global phase, on the anc==1 branch
-        circuit.add(gates.U1(ancilla, gphase_m))
-    circuit.add(gates.H(ancilla))
+    _open_ancilla(circuit, gates, ancilla, g)
+    _select(circuit, gates, qubit, ancilla, u_i, u_j)
+    _close_ancilla(circuit, gates, ancilla)
 
 
 def _component_hadamard_circuit(component, assignments):
     """Build one fragment's Hadamard-test circuit from its DAG component.
 
-    Walks the component in topological order, renumbering its qubits to ``0..k-1``;
-    each ``SUBS`` node is replaced by :func:`_subs_gadget` on a fresh ancilla
-    (indices ``k, k+1, ...``). ``assignments`` maps a SUBS node id to its
-    ``(u_i, u_j, g)`` (already the V- or W-side unitaries). Returns ``(circuit,
-    qubit_map, ancilla_indices)`` where ``qubit_map`` is original-qubit -> new-index.
+    Walks the component in topological order, renumbering its qubits to ``0..k-1``.
+    ``assignments`` maps a SUBS node id to ``(u_i, u_j, g, ancilla_key)`` (the V- or
+    W-side unitaries). SUBS nodes with the same ``ancilla_key`` share one ancilla
+    (indices ``k, k+1, ...``): it is opened just before the first of them, gets a
+    select at each, and is closed just after the last -- for a single node, exactly
+    :func:`_subs_gadget`. A 3-tuple (no key) gets its own ancilla, as before.
+    Returns ``(circuit, qubit_map, ancilla_indices)`` where ``qubit_map`` is
+    original-qubit -> new-index.
     """
     import networkx as nx
     from qibo import gates, models
@@ -430,19 +454,32 @@ def _component_hadamard_circuit(component, assignments):
     )
     qubit_map = {q: i for i, q in enumerate(orig_qubits)}
     n = len(orig_qubits)
-    num_subs = sum(1 for nid in component.nodes if str(nid).startswith("SUBS"))
-    circuit = models.Circuit(n + num_subs)
-    ancillas = []
-    next_anc = n
-    for node in nx.topological_sort(component):
+    order = list(nx.topological_sort(component))
+
+    def ancilla_key(node):
+        assignment = assignments[node]
+        return assignment[3] if len(assignment) > 3 else ("node", node)
+
+    subs = [node for node in order if str(node).startswith("SUBS")]
+    keys = list(dict.fromkeys(ancilla_key(node) for node in subs))  # first-use order
+    anc_of = {key: n + index for index, key in enumerate(keys)}
+    last_of = {ancilla_key(node): node for node in subs}  # last SUBS node per ancilla
+    circuit = models.Circuit(n + len(keys))
+    opened = set()
+    for node in order:
         data = component.nodes[node]
         name = (data.get("gate") or "").upper()
         qubits = tuple(qubit_map[q] for q in (data.get("qubits") or ()))
         if str(node).startswith("SUBS"):
-            u_i, u_j, g = assignments[node]
-            _subs_gadget(circuit, gates, qubits[0], next_anc, u_i, u_j, g)
-            ancillas.append(next_anc)
-            next_anc += 1
+            u_i, u_j, g = assignments[node][:3]
+            key = ancilla_key(node)
+            ancilla = anc_of[key]
+            if key not in opened:
+                _open_ancilla(circuit, gates, ancilla, g)
+                opened.add(key)
+            _select(circuit, gates, qubits[0], ancilla, u_i, u_j)
+            if last_of[key] == node:
+                _close_ancilla(circuit, gates, ancilla)
         elif name in ("OBSERVABLE I", "MEASURE"):
             continue
         else:
@@ -452,7 +489,7 @@ def _component_hadamard_circuit(component, assignments):
                 circuit.add(gate_cls(*qubits, *params))
             else:
                 circuit.add(gate_cls(*qubits))
-    return circuit, qubit_map, ancillas
+    return circuit, qubit_map, [anc_of[key] for key in keys]
 
 
 def _expectation_z(circuit, z_qubits):
@@ -543,16 +580,81 @@ def _hadamard_setup(circuit, gates_cut):
     return cut_dag, components, decomps
 
 
-def _config_assignments(decomps, config):
-    """SUBS-node -> ``(V_i, V_j, g)`` / ``(W_i, W_j, g)`` gadget assignments for one
-    ``config`` (a list of ``(i, j, g)`` per cut)."""
+def _cut_groups(cut_dag, components, decomps, joint=False):
+    """Group the cuts that are decomposed (and Hadamard-tested) together.
+
+    Returns ``[(cut_indices, terms), ...]``: ``cut_indices`` are 1-based positions in
+    ``gates_cut``; ``terms`` the group's decomposition ``[(c_s, [(V, W) per gate in
+    cut_indices order]), ...]``.
+
+    ``joint=False``: one group per cut, today's independent cut (``6**k`` settings,
+    ``gamma = 3**k`` for k CZ/CX). ``joint=True``: the cuts crossing the same pair of
+    fragments form one group, whose terms are the products of the gates' own terms,
+    ``c_s = prod_m c_{s_m}`` (Schmitt, Piveteau & Sutter, Quantum 9, 1634 (2025)). The
+    product is a decomposition of the whole boundary even when its gates sit at
+    different times, since everything between them is local to one side. Sampled
+    with one ancilla per fragment it costs ``2**k (2**(k+1) - 1)`` settings and
+    ``gamma = 2**(k+1) - 1`` for k CZ/CX (see ``docs/design/joint_hadamard_cut.md``).
+    A cut whose two sides land in the same fragment stays a group of its own.
+    """
+    component_of = {}
+    for index, nodes in enumerate(components):
+        for node in nodes:
+            component_of[node] = index
+    keys = {}
+    for k in range(1, len(decomps) + 1):
+        a, b = component_of[f"SUBS1_{k}"], component_of[f"SUBS2_{k}"]
+        key = frozenset((a, b)) if joint and a != b else ("cut", k)
+        keys.setdefault(key, []).append(k)
+    groups = []
+    for cut_indices in keys.values():  # in order of each group's first cut
+        terms = [(1.0, [])]
+        for k in cut_indices:
+            terms = [
+                (c * c_m, factors + [(v, w)])
+                for c, factors in terms
+                for c_m, v, w in decomps[k - 1]
+            ]
+        groups.append((cut_indices, terms))
+    return groups
+
+
+def _config_assignments(groups, config):
+    """SUBS-node -> ``(V_s, V_t, g, ancilla_key)`` / ``(W_s, W_t, g, ancilla_key)``
+    gadget assignments for one ``config`` (an ``(s, t, g)`` per group). Every gate of
+    a group gets its own factor of the group's terms ``s`` and ``t`` and the group's
+    ``g``. A group of one cut keeps an ancilla per side (keyed by node); a joint
+    group shares one per fragment (keyed by group)."""
     assignments = {}
-    for k, (i, j, g) in enumerate(config, start=1):
-        _, v_i, w_i = decomps[k - 1][i]
-        _, v_j, w_j = decomps[k - 1][j]
-        assignments[f"SUBS1_{k}"] = (v_i, v_j, g)  # control side -> V
-        assignments[f"SUBS2_{k}"] = (w_i, w_j, g)  # target side -> W
+    for index, ((cut_indices, terms), (s, t, g)) in enumerate(zip(groups, config)):
+        _, factors_s = terms[s]
+        _, factors_t = terms[t]
+        joint = len(cut_indices) > 1
+        for position, k in enumerate(cut_indices):
+            v_s, w_s = factors_s[position]
+            v_t, w_t = factors_t[position]
+            for node, u_s, u_t in ((f"SUBS1_{k}", v_s, v_t), (f"SUBS2_{k}", w_s, w_t)):
+                key = ("group", index) if joint else ("node", node)
+                assignments[node] = (u_s, u_t, g, key)  # SUBS1 -> V, SUBS2 -> W
     return assignments
+
+
+def hadamard_cut_overhead(circuit, gates_cut, joint=False):
+    """Sampling overhead of a Hadamard cut: ``(phi_total, [(gates, phi), ...])``.
+
+    ``phi`` is the 1-norm of each group's decomposition (:func:`phi_factor`), the
+    shots grow as ``phi_total**2``. For k CZ/CX across one boundary: ``3**k`` cut
+    separately, ``2**(k+1) - 1`` with ``joint=True``.
+    """
+    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
+    per_group = [
+        ([gates_cut[k - 1] for k in cut_indices], phi_factor(terms))
+        for cut_indices, terms in _cut_groups(cut_dag, components, decomps, joint)
+    ]
+    total = 1.0
+    for _, phi in per_group:
+        total *= phi
+    return total, per_group
 
 
 def _config_fragments(cut_dag, components, assignments, observable):
@@ -590,7 +692,7 @@ def _cut_pmf(terms):
     return settings, probs, phi
 
 
-def _hadamard_fragment_specs(circuit, gates_cut, observable):
+def _hadamard_fragment_specs(circuit, gates_cut, observable, joint=False):
     """Enumerate the double-Hadamard-test fragments for a set of cuts.
 
     Returns a list with one record per non-zero enumeration setting:
@@ -601,16 +703,17 @@ def _hadamard_fragment_specs(circuit, gates_cut, observable):
     all-in-one and three-step *enumeration* drivers.
     """
     cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
-    settings_per_cut = [_cut_settings(len(terms)) for terms in decomps]
+    groups = _cut_groups(cut_dag, components, decomps, joint)
+    settings_per_group = [_cut_settings(len(terms)) for _, terms in groups]
 
     specs = []
-    for config in itertools.product(*settings_per_cut):  # one (i, j, g) per cut
+    for config in itertools.product(*settings_per_group):  # one (s, t, g) per group
         weight = 1.0
-        for k, (i, j, g) in enumerate(config, start=1):
-            weight *= decomps[k - 1][i][0] * decomps[k - 1][j][0] * (-1) ** g
+        for (_, terms), (i, j, g) in zip(groups, config):
+            weight *= terms[i][0] * terms[j][0] * (-1) ** g
         if weight == 0.0:
             continue
-        assignments = _config_assignments(decomps, config)
+        assignments = _config_assignments(groups, config)
         fragments = _config_fragments(cut_dag, components, assignments, observable)
         specs.append((weight, fragments))
     return specs
@@ -716,6 +819,7 @@ def gate_cutting_hadamard(
     qpu_dict=None,
     sync=True,
     reduce_chunk=None,
+    joint=False,
 ):
     """Estimate ``<observable>`` via the ancilla / double-Hadamard-test gate cut.
 
@@ -749,10 +853,15 @@ def gate_cutting_hadamard(
         this many configurations per partial reduction (and combines partials with the
         same arity) instead of a single fan-in task -- keeps the reduction parallel
         when the fragment count is large. ``None`` (default) uses one reduction task.
+    :param joint: Cut the gates crossing the same boundary together, with one shared
+        ancilla per fragment: ``gamma = 2**(k+1) - 1`` instead of ``3**k`` for k
+        CZ/CX, and fewer settings (``2**k (2**(k+1) - 1)`` instead of ``6**k``). The
+        shared ancilla must stay coherent from the boundary's first cut gate to its
+        last. ``False`` (default) cuts each gate on its own.
     :return: The reconstructed expectation value, or its future when ``sync=False``.
     """
     exact = software == "qibo" and shots is None
-    specs = _hadamard_fragment_specs(circuit, gates_cut, observable)
+    specs = _hadamard_fragment_specs(circuit, gates_cut, observable, joint)
 
     # Flat fan-out: one value (exact) or future (@task) per fragment, with parallel
     # weights / config_of bookkeeping so a single reduction folds them back.
@@ -842,7 +951,9 @@ def _materialize_subcircuit(frag, z_qubits, software):
     raise NotImplementedError(f"unknown software backend {software!r}")
 
 
-def gate_cutting_hadamard_subcircuits(circuit, gates_cut, observable, software="qibo"):
+def gate_cutting_hadamard_subcircuits(
+    circuit, gates_cut, observable, software="qibo", joint=False
+):
     """Build the Hadamard-cut fragments as standalone subcircuits (step one of three).
 
     Returns a :class:`HadamardCutSubcircuits` -- a list of ``[fragment, observable]``
@@ -855,9 +966,11 @@ def gate_cutting_hadamard_subcircuits(circuit, gates_cut, observable, software="
     :param gates_cut: List of cut gate names.
     :param observable: A Z/I Pauli string over the circuit's qubits.
     :param software: Backend the subcircuits are materialised for.
+    :param joint: Cut the gates crossing each boundary together (see
+        :func:`gate_cutting_hadamard`).
     :return: A :class:`HadamardCutSubcircuits`.
     """
-    specs = _hadamard_fragment_specs(circuit, gates_cut, observable)
+    specs = _hadamard_fragment_specs(circuit, gates_cut, observable, joint)
     subcircuits, weights, config_of = [], [], []
     for cfg_idx, (weight, fragments) in enumerate(specs):
         weights.append(weight)
@@ -900,6 +1013,8 @@ def _sample_configs(decomps, num_samples, seed=None):
     Returns ``(configs, phi_total)`` where each config is ``([(i, j, g), ...], sign)``
     with ``sign = prod_k (-1)^{g_k}`` and ``phi_total = prod_k phi_k`` the total 1-norm.
     Each cut ``k`` draws ``(i, j, g)`` from ``p = c_i c_j / phi_k`` independently.
+    ``decomps`` may be a group's terms (:func:`_cut_groups`) as well as a cut's: only
+    each term's leading coefficient is read.
     """
     pmfs = [_cut_pmf(terms) for terms in decomps]  # (settings, probs, phi) per cut
     phi_total = 1.0
@@ -937,6 +1052,7 @@ def gate_cutting_hadamard_sampling(
     qpu_dict=None,
     sync=True,
     reduce_chunk=None,
+    joint=False,
 ):
     """Estimate ``<observable>`` by **Monte-Carlo sampling** the Hadamard-test cut.
 
@@ -969,16 +1085,20 @@ def gate_cutting_hadamard_sampling(
     :param reduce_chunk: If set, reduce through a balanced tree folding this many
         configurations per partial reduction (recommended for large ``num_samples`` so
         the reduction stays parallel); ``None`` (default) uses one reduction task.
+    :param joint: Cut the gates crossing each boundary together (see
+        :func:`gate_cutting_hadamard`). Here the variance, ``phi_total**2 /
+        num_samples``, is what shrinks: ``(2**(k+1) - 1)**2`` instead of ``9**k``.
     :return: The estimated expectation value, or its future when ``sync=False``.
     """
     exact = software == "qibo" and shots is None
     cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
-    configs, phi_total = _sample_configs(decomps, num_samples, seed)
+    groups = _cut_groups(cut_dag, components, decomps, joint)
+    configs, phi_total = _sample_configs([t for _, t in groups], num_samples, seed)
 
     values, config_of, weights = [], [], []
     for s, (config, sign) in enumerate(configs):
         weights.append(_sampling_weight(phi_total, sign, num_samples))
-        assignments = _config_assignments(decomps, config)
+        assignments = _config_assignments(groups, config)
         for frag, z_qubits in _config_fragments(
             cut_dag, components, assignments, observable
         ):
@@ -1002,7 +1122,13 @@ def gate_cutting_hadamard_sampling(
 
 
 def gate_cutting_hadamard_sampling_subcircuits(
-    circuit, gates_cut, observable, software="qibo", num_samples=1000, seed=None
+    circuit,
+    gates_cut,
+    observable,
+    software="qibo",
+    num_samples=1000,
+    seed=None,
+    joint=False,
 ):
     """Monte-Carlo-sampled Hadamard-cut fragments as standalone subcircuits.
 
@@ -1018,15 +1144,18 @@ def gate_cutting_hadamard_sampling_subcircuits(
 
     :param num_samples: Number of configurations drawn from the PMF.
     :param seed: Seed for the configuration draws.
+    :param joint: Cut the gates crossing each boundary together (see
+        :func:`gate_cutting_hadamard`).
     :return: A :class:`HadamardCutSubcircuits`.
     """
     cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
-    configs, phi_total = _sample_configs(decomps, num_samples, seed)
+    groups = _cut_groups(cut_dag, components, decomps, joint)
+    configs, phi_total = _sample_configs([t for _, t in groups], num_samples, seed)
 
     subcircuits, weights, config_of = [], [], []
     for s, (config, sign) in enumerate(configs):
         weights.append(_sampling_weight(phi_total, sign, num_samples))
-        assignments = _config_assignments(decomps, config)
+        assignments = _config_assignments(groups, config)
         for frag, z_qubits in _config_fragments(
             cut_dag, components, assignments, observable
         ):
