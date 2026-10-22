@@ -326,13 +326,14 @@ def _story():
     s.append(
         code(
             "cut = qd.find_cut(circ, gate_cut=True)\n"
-            "val = qd.gate_cutting(circ, cut,\n"
-            "          observable='ZZZZ', shots=8192)\n"
+            "val = qd.gate_cutting(circ, cut, 'ZZZZ',\n"
+            "          shots=8192)      # None = exact\n"
             "\n"
             "subs = qd.gate_cutting_subcircuits(\n"
-            "         circ, cut, observable='ZZZZ')\n"
-            "vals = [qd.expectation_value(s)\n"
-            "        for s in subs]     # run anywhere\n"
+            "    circ, cut, 'ZZZZ', software='qiskit')\n"
+            "vals = [qd.expectation_value(s,\n"
+            "    backend=None)  # or a QPU, per s\n"
+            "        for s in subs]\n"
             "val = subs.reconstruct(vals)"
         )
     )
@@ -405,7 +406,7 @@ def _story():
     s.append(
         code(
             "val = qd.gate_cutting_hadamard(\n"
-            "        circ, ['ISWAP_3'], 'ZZ', backend='qibo')\n"
+            "        circ, ['ISWAP_3'], 'ZZ', shots=None)\n"
             "# Monte-Carlo (bounded cost for many cuts):\n"
             "val = qd.gate_cutting_hadamard(\n"
             "        circ, cut, 'ZZ', num_samples=5000)\n"
@@ -419,28 +420,34 @@ def _story():
     s.append(gap(2))
     s.append(
         body(
-            "Fragments are independent (own ancilla, no feed-forward) → they fan out "
-            "as PyCOMPSs tasks like every other cut.",
+            "Gates crossing one boundary share one ancilla per side by default "
+            "(<font face='Courier'>joint=True</font>: &#947; = 2<super>k+1</super>&#8722;1 "
+            "instead of 3<super>k</super>). Fragments are independent → they fan out as "
+            "PyCOMPSs tasks like every other cut.",
             BODY_MUTED,
         )
     )
     s.append(gap(4.5))
 
-    s.append(section("Mixed wire + gate cutting", ACCENT2))
+    s.append(section("Any mix of cuts", ACCENT2))
     s.append(gap(3))
     s.append(
         body(
-            "Cut some <b>gates</b> and some <b>wires</b> on the <b>same circuit</b> in "
-            "one workflow. The two quasiprobability decompositions tensor, and every "
-            "fragment across the combined space runs in parallel."
+            "Cut <b>gates</b> (measure-and-prepare or Hadamard) and <b>wires</b> on the "
+            "<b>same circuit</b>, in any number. With "
+            "<font face='Courier'>optimized=True</font> each fragment runs once per "
+            "setting of its own cuts, so the cost <b>adds</b> over fragments instead of "
+            "multiplying over cuts."
         )
     )
     s.append(gap(2))
     s.append(
         code(
-            "cuts = {'gate': ['CZ_2'], 'wire': [('RY_3', 'CZ_4')]}\n"
+            "cuts = {'gate': ['CZ_2'], 'hadamard': [],\n"
+            "        'wire': [('RY_3', 'CZ_4')]}\n"
             "val = qd.circuit_cutting(circ, cuts, 'ZZZ',\n"
-            "        optimized=True)"
+            "        optimized=True)\n"
+            "qd.cutting_overhead(circ, cuts, optimized=True)"
         )
     )
     s.append(gap(4.5))
@@ -532,6 +539,7 @@ def _story():
             [
                 ("backend=", "Where it runs: 'qiskit', 'IBM_BACKEND', an object."),
                 ("software=", "3-step: SDK the subcircuits are written in."),
+                ("shots=None / seed=n", "Exact / reproducible, on every cut."),
                 ("build_backend(name, cfg)", "A configured backend (QPU, GPU Aer)."),
                 ("available_backends()", "List registered backends."),
                 ("QdBackEnd(pool)", "Load-balance across devices."),
@@ -596,7 +604,7 @@ def _story():
                 (
                     "gate_cutting_hadamard",
                     "Any gate at optimal &#947;; no mid-circuit "
-                    "measure (best on superconducting QPUs); expectation only.",
+                    "measure (best on superconducting QPUs).",
                 ),
                 ("wire_cutting", "Cut a qubit's wire between two subcircuits."),
                 ("circuit_cutting", "Any mix of cuts on one circuit at once."),
@@ -612,16 +620,19 @@ def _story():
     s.append(
         api_table(
             [
-                ("gate cut / cut", "6 terms  (&#947; = 3 for CZ/CX)."),
+                (
+                    "gate cut / cut",
+                    "6 terms, &#947; = 3 (optimized: 5 circuits per side).",
+                ),
                 (
                     "wire cut / cut",
-                    "8 terms  (or 3<super>n</super>+4<super>n</super> "
-                    "with optimized=True).",
+                    "8 terms, &#947; = 4 (optimized: 2<super>n</super>+1 + "
+                    "4<super>n</super> circuits).",
                 ),
                 (
                     "hadamard / cut",
-                    "&#947;(CZ)=3, &#947;(SWAP)=7, &#8594;1 for weak "
-                    "gates; sampling caps cost at num_samples.",
+                    "&#947;(CZ)=3, k joint: 2<super>k+1</super>&#8722;1; "
+                    "&#8594;1 for weak gates.",
                 ),
                 (
                     "general gate",
@@ -647,12 +658,12 @@ def _story():
                 ("reduce_chunk=n", "Tree reduction instead of one fan-in task."),
                 (
                     "optimized=True",
-                    "Wire cut: 3<super>n</super>+4<super>n</super> "
-                    "fragments, not 8<super>n</super>.",
+                    "Gate / wire / mix: a sum over fragments, "
+                    "not a product over cuts.",
                 ),
                 (
                     "num_samples=n",
-                    "Hadamard sampling: bound the cost, not 6<super>k</super>.",
+                    "Hadamard: draw n configurations, not all 6<super>k</super>.",
                 ),
             ],
             key_frac=0.36,

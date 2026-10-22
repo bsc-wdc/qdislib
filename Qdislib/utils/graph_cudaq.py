@@ -89,7 +89,8 @@ def _eval_cudaq_param(node):
 def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
     """Convert a CUDA-Q kernel into a Qdislib DAG.
 
-    The kernel's Python source (``kernel.to_json()["funcSrc"]``) is parsed with
+    The kernel's Python source (``kernel.funcSrc``, or ``kernel.to_json()["funcSrc"]``
+    before CUDA-Q 0.16) is parsed with
     the :mod:`ast` module rather than scanned with regular expressions, so it is
     robust to formatting/comments, the qubit-register variable name, expression
     parameters (e.g. ``np.pi / 2``) and the ``gate.ctrl(...)`` controlled syntax.
@@ -103,10 +104,13 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
     """
     dag = nx.DiGraph()
 
-    payload = kernel.to_json()
-    if isinstance(payload, str):
-        payload = json.loads(payload)
-    tree = ast.parse(payload["funcSrc"])
+    source = getattr(kernel, "funcSrc", None)  # CUDA-Q >= 0.16 has no to_json()
+    if source is None:
+        payload = kernel.to_json()
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        source = payload["funcSrc"]
+    tree = ast.parse(source)
     func = next(
         (node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None
     )

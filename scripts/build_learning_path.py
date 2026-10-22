@@ -367,7 +367,7 @@ NOTEBOOKS["04_backends"] = [
         "# Qdislib — 04 · Backends and interop\n"
         "\n"
         "Qdislib is **backend-agnostic**: the same workflow drives Qibo, Qiskit and\n"
-        "CUDA-Q — only the `software=` argument changes. Any framework that exports\n"
+        "CUDA-Q — only the `backend=` argument changes. Any framework that exports\n"
         "OpenQASM 2.0 can also feed in via `from_qasm`."
     ),
     code(EXAMPLE),
@@ -380,19 +380,19 @@ NOTEBOOKS["04_backends"] = [
     ),
     md("## Qibo"),
     code(
-        'print("qibo  :", qd.gate_cutting(example_circuit(), cut, software="qibo", shots=8192))'
+        'print("qibo  :", qd.gate_cutting(example_circuit(), cut, backend="qibo", shots=8192))'
     ),
     md(
         "## Qiskit\n\nSame circuit and cut, executed on Qiskit Aer (`pip install Qdislib[qiskit]`)."
     ),
     code(
-        'print("qiskit:", qd.gate_cutting(example_circuit(), cut, software="qiskit", shots=8192))'
+        'print("qiskit:", qd.gate_cutting(example_circuit(), cut, backend="qiskit", shots=8192))'
     ),
     md(
         "## CUDA-Q\n"
         "\n"
         "With `pip install Qdislib[cudaq]` you can build the circuit as a CUDA-Q\n"
-        'kernel and run with `software="cudaq"` (GPU when available, CPU otherwise).\n'
+        'kernel and run with `backend="cudaq"` (GPU when available, CPU otherwise).\n'
         "`find_cut` works directly on a kernel too."
     ),
     illus(
@@ -413,7 +413,7 @@ NOTEBOOKS["04_backends"] = [
         "    rx(0.3, q[4])\n"
         "\n"
         "cut = qd.find_cut(kernel, gate_cut=True, wire_cut=False)\n"
-        'print(qd.gate_cutting(kernel, cut, software="cudaq", shots=8192))'
+        'print(qd.gate_cutting(kernel, cut, backend="cudaq", shots=8192))'
     ),
     md(
         "## Interop: `from_qasm`\n"
@@ -427,7 +427,7 @@ NOTEBOOKS["04_backends"] = [
         'qc = qd.from_qasm(qasm, software="qiskit")\n'
         "cut = qd.find_cut(qc, gate_cut=True, wire_cut=False)\n"
         'print("cut on the imported circuit:", cut)\n'
-        'print("value:", qd.gate_cutting(qd.from_qasm(qasm, software="qiskit"), cut, software="qiskit", shots=8192))'
+        'print("value:", qd.gate_cutting(qd.from_qasm(qasm, software="qiskit"), cut, backend="qiskit", shots=8192))'
     ),
     md("---\n" "Next: **05 · Observables** — beyond `<ZZZZZ>`."),
 ]
@@ -458,7 +458,7 @@ NOTEBOOKS["05_observables"] = [
     ),
     code(
         'for obs in ["ZZZZZ", "ZIZIZ", "XZIZI", "XZZZY"]:\n'
-        "    value = qd.gate_cutting(example_circuit(), cut, observables=obs, shots=20000)\n"
+        "    value = qd.gate_cutting(example_circuit(), cut, observable=obs, shots=20000)\n"
         "    exact = qd.analytical_solution(example_circuit(), obs)\n"
         '    print(f"{obs}:  cut={value:+.3f}   exact={exact:+.3f}")'
     ),
@@ -485,12 +485,12 @@ NOTEBOOKS["05_observables"] = [
     ),
     code(
         'hamiltonian = [(0.5, "ZZIII"), (-1.0, "IIZZI"), (0.25, "ZIZII")]\n'
-        "value = qd.gate_cutting(example_circuit(), cut, observables=hamiltonian, shots=20000)\n"
+        "value = qd.gate_cutting(example_circuit(), cut, observable=hamiltonian, shots=20000)\n"
         "exact = qd.analytical_solution(example_circuit(), hamiltonian)\n"
         'print(f"<H>:  cut={value:+.3f}   exact={exact:+.3f}")'
     ),
     md(
-        "The same `observables=` argument works for `wire_cutting`, `estimate` and\n"
+        "The same `observable` argument works for `wire_cutting`, `estimate` and\n"
         "the three-step `*_subcircuits` workflow.\n"
         "\n"
         "---\n"
@@ -543,10 +543,10 @@ NOTEBOOKS["06_sampling"] = [
         "circuit = example_circuit()\n"
         "cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)\n"
         "\n"
-        "value = qd.gate_cutting(example_circuit(), cut, observables='ZZZZZ', shots=20000)\n"
+        "value = qd.gate_cutting(example_circuit(), cut, observable='ZZZZZ', shots=20000)\n"
         "print('expectation <ZZZZZ>:', round(value, 3))\n"
         "\n"
-        "dist = qd.gate_cutting_sampling(example_circuit(), cut, shots=200_000, software='qibo')\n"
+        "dist = qd.gate_cutting_sampling(example_circuit(), cut, shots=200_000, backend='qibo')\n"
         "top = sorted(dist.items(), key=lambda kv: -kv[1])[:4]\n"
         "print('top bitstrings:   ', [(b, round(p, 3)) for b, p in top])"
     ),
@@ -580,7 +580,7 @@ NOTEBOOKS["06_sampling"] = [
     ),
     code(
         "wcut = qd.find_cut(example_circuit(), gate_cut=False, wire_cut=True)\n"
-        "wdist = qd.wire_cutting_sampling(example_circuit(), wcut, shots=200_000, software='qibo')\n"
+        "wdist = qd.wire_cutting_sampling(example_circuit(), wcut, shots=200_000, backend='qibo')\n"
         "print('wire-cut sampling TVD vs exact:', round(tvd(exact, wdist), 3))"
     ),
     md(
@@ -591,7 +591,7 @@ NOTEBOOKS["06_sampling"] = [
         "an expectation value."
     ),
     code(
-        "noisy = qd.gate_cutting_sampling(example_circuit(), cut, shots=20_000, software='qibo')\n"
+        "noisy = qd.gate_cutting_sampling(example_circuit(), cut, shots=20_000, backend='qibo')\n"
         "print('TVD at 20k shots:', round(tvd(exact, noisy), 3))"
     ),
     md(
@@ -669,7 +669,7 @@ NOTEBOOKS["07_caching"] = [
     code(
         'cache = qd.default_circuit_cache("memory")\n'
         'for obs in ["ZZZZZ", "ZIZIZ"]:\n'
-        "    qd.gate_cutting(example_circuit(), cut, observables=obs,\n"
+        "    qd.gate_cutting(example_circuit(), cut, observable=obs,\n"
         '                    cache=cache, cache_mode="counts", shots=8192)\n'
         'print("counts-mode cache:", cache.stats())'
     ),
@@ -704,8 +704,8 @@ NOTEBOOKS["08_backend_internals"] = [
         "Every execution target — a CPU simulator (Qibo / Qiskit / CUDA-Q), a GPU, or a\n"
         "real QPU — is a `BaseBackend`. The cutting algorithms never branch on the\n"
         "backend: they hand each subcircuit to a backend object that\n"
-        "`build_execution_backend` chose from your `software=` / `gpu=` / `qpu=`\n"
-        "arguments. This notebook opens that box — and shows how to plug in **your own**\n"
+        "`build_execution_backend` builds from your `backend=` argument (an SDK name, a\n"
+        "registered backend name, or a backend object, used as it is). This notebook opens that box — and shows how to plug in **your own**\n"
         "backend."
     ),
     code("import Qdislib as qd"),
@@ -717,20 +717,20 @@ NOTEBOOKS["08_backend_internals"] = [
     ),
     code("print(qd.available_backends())"),
     md(
-        "## How `software=` picks a backend\n"
+        "## How `backend=` picks a backend\n"
         "\n"
-        "`build_execution_backend` turns `(software, gpu, qpu, qpu_dict, num_qubits)` into\n"
-        "one concrete backend — the single place that decides. `software=` maps to a CPU\n"
-        "backend; `qpu=True` + a big-enough QPU in `qpu_dict` routes to that QPU; a\n"
-        "large-enough `gpu=True` routes to GPU Aer."
+        "`build_execution_backend` turns the `backend=` you pass to a cutting call into one\n"
+        "concrete backend — the single place that decides. An SDK name maps to its\n"
+        "simulator, a registered name (`'BSC_QPU_BACKEND'`, `'IBM_BACKEND'`, ...) builds that\n"
+        "backend, and a backend object from `qd.build_backend(...)` is used as it is."
     ),
     code(
         "for sw in ('qiskit', 'qibo', 'cudaq'):\n"
         "    backend = qd.build_execution_backend(sw, num_qubits=4)\n"
         "    print(f'{sw:7s} -> {backend.name}')\n"
         "\n"
-        "# qpu=True + a big-enough QPU in qpu_dict routes to the QPU backend instead:\n"
-        "qpu = qd.build_execution_backend('qibo', num_qubits=4, qpu=True, qpu_dict={'MN_Ona': 8})\n"
+        "# a registered name builds that backend (here the BSC QPU bridge):\n"
+        "qpu = qd.build_execution_backend('BSC_QPU_BACKEND', num_qubits=4)\n"
         "print('qpu     ->', qpu.name)"
     ),
     md(
@@ -747,7 +747,7 @@ NOTEBOOKS["08_backend_internals"] = [
         "## Plug in your own backend\n"
         "\n"
         "Subclass `BaseBackend`, implement the hooks (wrap an in-house simulator or a\n"
-        "cloud QPU's API), register it by name, then select it with `software='...'` —\n"
+        "cloud QPU's API), register it by name, then select it with `backend='...'` —\n"
         "with no change to the cutting code:"
     ),
     illus(
@@ -763,12 +763,12 @@ NOTEBOOKS["08_backend_internals"] = [
         "    def _execute_estimator(self, circuit, transpile, observable, shots, job):\n"
         "        ...   # -> ExpectationJobResult(expectation_value=...)\n"
         "    def evaluate_expectation(self, dag, num_qubits, prep_qubits=(), shots=1024,\n"
-        "                             method='automatic'):\n"
+        "                             method='automatic', seed=None):\n"
         "        ...   # build the native circuit from the DAG, run it, return <O>\n"
         "\n"
         "# Registered by import path + class name (imported lazily on first use):\n"
         "register_backend('MY_BACKEND', 'my_pkg.my_backend', 'MyBackend')\n"
-        "value = qd.gate_cutting(circuit, cut, software='MY_BACKEND', shots=8192)"
+        "value = qd.gate_cutting(circuit, cut, backend='MY_BACKEND', shots=8192)"
     ),
     md(
         "## The unified front-end: `QdBackEnd`\n"
@@ -857,8 +857,8 @@ NOTEBOOKS["09_distributed_and_qpu"] = [
         "\n"
         "With `Qdislib[qiskit]` and an IBM Quantum account (get a token at\n"
         "[quantum.ibm.com](https://quantum.ibm.com/)), set your credentials as\n"
-        "environment variables and run the cut subcircuits on real IBM hardware\n"
-        "with `qpu=True`."
+        "environment variables and run the cut subcircuits on real IBM hardware by\n"
+        "passing an IBM backend as `backend=`."
     ),
     illus(
         "import os\n"
@@ -886,9 +886,10 @@ NOTEBOOKS["09_distributed_and_qpu"] = [
         "# find_cut's IBM path uses Qiskit's hardware-aware cut finder:\n"
         'cut = qd.find_cut(circuit, max_qubits=5, implementation="ibm-ckt")\n'
         "\n"
-        "# qpu_dict maps a QPU to its qubit count (the chip's maximum).\n"
-        'value = qd.gate_cutting(circuit, cut, software="qiskit",\n'
-        '                        qpu=True, qpu_dict={"IBM_Quantum": 127})\n'
+        "# The IBM backend connects once (IBM_QUANTUM_* environment variables, or\n"
+        "# token / channel / instance / backend_name in extra=):\n"
+        'ibm = qd.build_backend("IBM_BACKEND", qd.BackendConfig(num_qubits=127))\n'
+        "value = qd.gate_cutting(circuit, cut, backend=ibm)\n"
         "print(value)"
     ),
     md(
@@ -919,8 +920,7 @@ NOTEBOOKS["09_distributed_and_qpu"] = [
         "circuit.add(gates.RY(3, 0.4)); circuit.add(gates.CZ(3, 4)); circuit.add(gates.RX(4, 0.3))\n"
         "\n"
         "cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)\n"
-        'value = qd.gate_cutting(circuit, cut, software="qibo",\n'
-        '                        qpu=True, qpu_dict={"MN_Ona": 5})\n'
+        'value = qd.gate_cutting(circuit, cut, backend="BSC_QPU_BACKEND")\n'
         "print(value)"
     ),
     md(
@@ -1138,7 +1138,7 @@ APPLICATIONS["03_image_reconstruction"] = [
         "moved = encode_image(entangle=True, profile='ramp', transform=TRANSFORM)\n"
         "cut_moved = qd.find_cut(moved, gate_cut=True, wire_cut=False, max_qubits=N_ROW)\n"
         "dist_moved = qd.gate_cutting_sampling(moved, cut_moved, shots=200_000,\n"
-        "                                      software='qiskit')\n"
+        "                                      backend='qiskit')\n"
         "show([exact_image(moved), to_image(dist_moved)],\n"
         "     ['transformed image (exact)', 'reconstructed from the 2 halves'])"
     ),
@@ -1212,7 +1212,7 @@ APPLICATIONS["03_image_reconstruction"] = [
     ),
     code(
         "distribution = qd.gate_cutting_sampling(entangled, cut, shots=20_000,   # <-- change\n"
-        "                                        software='qiskit')\n"
+        "                                        backend='qiskit')\n"
         "noisy = to_image(distribution)\n"
         "show([reconstructed, noisy], ['200k shots', '20k shots'])\n"
         "print('TVD:', round(0.5 * np.abs(exact_image(entangled) - noisy).sum(), 4))"
@@ -1222,15 +1222,14 @@ APPLICATIONS["03_image_reconstruction"] = [
         "\n"
         "The subcircuits are only **4 qubits** — small enough for today's hardware. To\n"
         "sample them on a **real BSC QPU** instead of the local simulator, pass\n"
-        "`qpu=True` and name the machine with `qpu_dict` (QPU → its qubit count). The\n"
-        "call is otherwise identical: Qdislib ships each subcircuit to the QPU, gathers\n"
+        "`backend='BSC_QPU_BACKEND'`. The call is otherwise identical: Qdislib ships each subcircuit to the QPU, gathers\n"
         "the counts, and rebuilds the image for you. (This needs access to the BSC\n"
         "quantum environment, so it isn't run in this docs build.)"
     ),
     illus(
         "distribution = qd.gate_cutting_sampling(\n"
         "    entangled, cut, shots=4096,\n"
-        "    software='qibo', qpu=True, qpu_dict={'MN_Ona': N_ROW},\n"
+        "    backend='BSC_QPU_BACKEND',\n"
         ")\n"
         "show([exact_image(entangled), to_image(distribution)],\n"
         "     ['exact image', 'reconstructed on a BSC QPU'])"
@@ -1314,7 +1313,7 @@ APPLICATIONS["01_vqe_h2"] = [
         "# H2 / STO-3G, Jordan-Wigner, bond length 0.7414 A. The qubit Hamiltonian is\n"
         "# a weighted sum of Pauli strings (coefficients from a standard\n"
         "# quantum-chemistry calculation). Qdislib takes it directly as\n"
-        "# observables=[(coeff, pauli), ...] (q0 = first character).\n"
+        "# observable=[(coeff, pauli), ...] (q0 = first character).\n"
         "HAMILTONIAN = [\n"
         '    (-0.04207897, "IIII"),\n'
         '    ( 0.17771287, "ZIII"), ( 0.17771287, "IZII"),\n'
@@ -1357,19 +1356,41 @@ APPLICATIONS["01_vqe_h2"] = [
         "gates that **cross the two halves** — the cut points."
     ),
     code(
+        "import os, tempfile, importlib.util\n"
+        "\n"
+        "\n"
         "def ansatz(theta):\n"
-        "    @cudaq.kernel\n"
-        "    def kernel():\n"
-        "        q = cudaq.qvector(4)\n"
-        "        ry(theta, q[0])       # amplitude of the excitation\n"
-        "        x.ctrl(q[0], q[1])    # correlate the {0,1} half\n"
-        "        x(q[2]); x(q[3])      # start the {2,3} half at |11>\n"
-        "        x.ctrl(q[0], q[2])    # <-- crosses the cut\n"
-        "        x.ctrl(q[0], q[3])    # <-- crosses the cut\n"
-        "    return kernel\n"
+        '    """Build the 4-qubit ansatz as a concrete kernel with ``theta`` baked in.\n'
+        "\n"
+        "    CUDA-Q >= 0.12 rejects a closed-over Python float as a rotation angle (it\n"
+        "    must be a literal or a typed kernel argument), and Qdislib introspects the\n"
+        "    kernel's source to build its cut graph -- so we emit the kernel with the\n"
+        "    angle as a literal into a small module, which satisfies both.\n"
+        '    """\n'
+        "    source = (\n"
+        '        "import cudaq\\n"\n'
+        '        "@cudaq.kernel\\n"\n'
+        '        "def kernel():\\n"\n'
+        '        "    q = cudaq.qvector(4)\\n"\n'
+        '        f"    ry({float(theta)!r}, q[0])   # amplitude of the excitation\\n"\n'
+        '        "    x.ctrl(q[0], q[1])            # correlate the {0,1} half\\n"\n'
+        '        "    x(q[2])\\n"\n'
+        '        "    x(q[3])                       # start the {2,3} half at |11>\\n"\n'
+        '        "    x.ctrl(q[0], q[2])            # <-- crosses the cut\\n"\n'
+        '        "    x.ctrl(q[0], q[3])            # <-- crosses the cut\\n"\n'
+        "    )\n"
+        '    handle = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False)\n'
+        "    handle.write(source)\n"
+        "    handle.close()\n"
+        '    name = "vqe_ansatz_" + os.path.basename(handle.name).split(".")[0]\n'
+        "    spec = importlib.util.spec_from_file_location(name, handle.name)\n"
+        "    module = importlib.util.module_from_spec(spec)\n"
+        "    spec.loader.exec_module(module)\n"
+        "    return module.kernel\n"
+        "\n"
         "\n"
         "# The ground-state manifold is exactly the two occupation patterns |0011>/|1100>:\n"
-        "print(cudaq.sample(ansatz(1.0), shots_count=2000))"
+        "print(cudaq.sample(ansatz(1.0), shots_count=2000))\n"
     ),
     md(
         "## 2. The exact energy landscape\n"
@@ -1441,7 +1462,7 @@ APPLICATIONS["01_vqe_h2"] = [
         "    if set(pauli) == {'I'}:            # identity term: <I> = 1, no circuit\n"
         "        plans.append((coeff, None, None))\n"
         "        continue\n"
-        "    subs = qd.gate_cutting_subcircuits(optimal, cut, observables=pauli,\n"
+        "    subs = qd.gate_cutting_subcircuits(optimal, cut, observable=pauli,\n"
         "                                       software='cudaq')\n"
         "    values = [qd.expectation_value(s, shots=100_000) for s in subs]\n"
         "    plans.append((coeff, subs, values))\n"
@@ -1498,7 +1519,7 @@ APPLICATIONS["02_scaling"] = [
         "2. a **25-qubit spin lattice**, cut into **four blocks with 3 cuts**.\n"
         "\n"
         "In both cases the energy `⟨H⟩ = Σ_i c_i ⟨P_i⟩` is reconstructed from small "
-        "subcircuits that **run in parallel under PyCOMPSs**. (We use `software='qiskit'` "
+        "subcircuits that **run in parallel under PyCOMPSs**. (We use `backend='qiskit'` "
         "here for speed at scale; `'cudaq'` / `'qibo'` are one-argument swaps — cutting "
         "is backend-agnostic.)\n"
         "\n"
@@ -1561,9 +1582,12 @@ APPLICATIONS["02_scaling"] = [
         'print(f"N2 CAS(6,6): {N_N2} qubits, {len(HAM_N2)} Pauli terms | "\n'
         "      f\"FCI reference {n2['fci_energy']:.4f} Ha\")"
     ),
-    illus(
-        "# How data/n2_cas66_hamiltonian.json was generated (one-off):\n"
-        "#   pip install pyscf openfermion openfermionpyscf\n"
+    md(
+        "**How `data/n2_cas66_hamiltonian.json` was generated (one-off).**\n"
+        "This is documentation only -- it needs `pyscf`, `openfermion` and `openfermionpyscf`, which are *not* Qdislib dependencies. The notebook loads the pre-generated JSON in the cell above, so you do not need to run this.\n"
+        "\n"
+        "```python\n"
+        "# pip install pyscf openfermion openfermionpyscf\n"
         "from openfermion import MolecularData, jordan_wigner\n"
         "from openfermionpyscf import run_pyscf\n"
         "\n"
@@ -1572,7 +1596,8 @@ APPLICATIONS["02_scaling"] = [
         "# CAS(6,6): freeze the 4 lowest spatial orbitals, keep 6 active -> 12 qubits.\n"
         "hamiltonian = molecule.get_molecular_hamiltonian(occupied_indices=range(4),\n"
         "                                                 active_indices=range(4, 10))\n"
-        "qubit_op = jordan_wigner(hamiltonian)   # -> 383 Pauli terms"
+        "qubit_op = jordan_wigner(hamiltonian)   # -> 383 Pauli terms\n"
+        "```\n"
     ),
     md(
         "Build a 12-qubit ansatz and cut it. With a linear entangler only the middle "
@@ -1585,8 +1610,8 @@ APPLICATIONS["02_scaling"] = [
         "cut_n2 = qd.find_cut(ansatz_n2, gate_cut=True, wire_cut=False, max_qubits=N_N2 // 2)\n"
         "print('N2 cut:', cut_n2, '-> two 6-qubit halves')\n"
         "\n"
-        "energy_n2 = qd.gate_cutting(ansatz_n2, cut_n2, observables=HAM_N2,\n"
-        "                            shots=20_000, software='qiskit')\n"
+        "energy_n2 = qd.gate_cutting(ansatz_n2, cut_n2, observable=HAM_N2,\n"
+        "                            shots=20_000, backend='qiskit')\n"
         "print(f'N2 <H>  cut-reconstructed: {energy_n2:+.3f} Ha')\n"
         "print(f'N2 <H>  exact (this ansatz): {exact_expectation(ansatz_n2, HAM_N2):+.3f} Ha')\n"
         "# The cut value tracks the exact <H> up to ~0.2 Ha: that residual is shot noise\n"
@@ -1626,8 +1651,8 @@ APPLICATIONS["02_scaling"] = [
         "that's too much)."
     ),
     code(
-        "energy_spin = qd.gate_cutting(ansatz_spin, cut_spin, observables=HAM_SPIN,\n"
-        "                              shots=20_000, software='qiskit')\n"
+        "energy_spin = qd.gate_cutting(ansatz_spin, cut_spin, observable=HAM_SPIN,\n"
+        "                              shots=20_000, backend='qiskit')\n"
         "print(f'25-qubit lattice <H>  cut-reconstructed: {energy_spin:+.3f}')\n"
         "print(f'25-qubit lattice <H>  exact:             {exact_expectation(ansatz_spin, HAM_SPIN):+.3f}')"
     ),
