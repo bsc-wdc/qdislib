@@ -494,14 +494,14 @@ def _story():
                 ("gate_cut / wire_cut", "Which cut types to consider."),
                 (
                     "coupling_map=",
-                    "Hardware-aware: cut the longest-routing gates "
+                    "Hardware-aware: a separating cut of the longest-routing gates "
                     "(SparseCut, arXiv:2511.05492).",
                 ),
                 (
                     "mixed=True",
-                    "Combined {gate, wire} cut for circuit_cutting (cost-aware).",
+                    "Gate, Hadamard and wire cuts priced by gamma (angle-aware, "
+                    "joint), within time_limit (10 s).",
                 ),
-                ("implementation=", "'qdislib' (default) or 'ibm-ckt'."),
                 ("seed=n", "Reproducible cut selection."),
             ]
         )

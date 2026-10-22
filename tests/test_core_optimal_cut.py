@@ -117,7 +117,7 @@ class CircuitTest(BaseTimedTestCase):
         # Mixed mode returns an over-budget cut with a warning, but 0 is a hard stop.
         self.assertEqual(
             find_cut(build(), max_qubits=2, max_cuts=0, seed=0, mixed=True),
-            {"gate": [], "wire": []},
+            {"gate": [], "hadamard": [], "wire": []},
         )
         # q1 and q2 are two hops apart here, so CZ(1, 2) is a SparseCut candidate.
         star = [(0, 1), (0, 2)]
@@ -179,3 +179,24 @@ class CircuitTest(BaseTimedTestCase):
         self.assertTrue(cut)
         cut_qubits = {q for _, _, q in _expand_wire_cuts(convert_to_dag(layered), cut)}
         self.assertNotIn(1, cut_qubits)
+
+
+class MetisWeightsTest(BaseTimedTestCase):
+    """METIS sees parallel gates: a pair joined by 4 gates costs 4 to cut, not 1."""
+
+    def test_cuts_the_light_links_of_a_ring(self):
+        import networkx as nx
+
+        from Qdislib.core.find_cut.find_cut import _metis_partition
+
+        graph = nx.MultiGraph()
+        graph.add_nodes_from(range(4))
+        gate = iter(range(1, 100))
+        for a, b, count in ((0, 1, 4), (1, 2, 1), (2, 3, 4), (3, 0, 1)):
+            for _ in range(count):
+                graph.add_edge(a, b, gate=f"CZ_{next(gate)}")
+        clusters, cut = _metis_partition(graph, 2, None, None)
+        self.assertEqual(sorted(map(sorted, clusters)), [[0, 1], [2, 3]])
+        self.assertEqual(len(cut), 2)
+        # the budget counts the gates cut
+        self.assertEqual(_metis_partition(graph, 2, None, 1), ([], []))

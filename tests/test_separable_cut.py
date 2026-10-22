@@ -136,7 +136,8 @@ class FindCutReturnsNoneNeededTest(BaseTimedTestCase):
         from Qdislib.core.find_cut.find_cut import find_cut
 
         self.assertEqual(
-            find_cut(two_blocks(), max_qubits=2, mixed=True), {"gate": [], "wire": []}
+            find_cut(two_blocks(), max_qubits=2, mixed=True),
+            {"gate": [], "hadamard": [], "wire": []},
         )
 
 

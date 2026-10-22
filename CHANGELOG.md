@@ -25,6 +25,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `gamma`. Takes an `ax=` to draw into and returns the `Axes`. It used to draw the
   gate DAG with a spring layout, which placed gates at random and only knew a gate
   list or a wire list.
+- **`find_cut(mixed=True)` searches every kind of cut, priced as it runs.** It
+  minimises the sampling overhead `gamma` (shots grow as `gamma**2`) over gate,
+  Hadamard and wire cuts together:
+  - each gate cut takes the cheaper of measure-and-prepare (3 per CZ of the gate's
+    decomposition) and the Hadamard test, whose `gamma` follows the gate's angle;
+  - the Hadamard cuts between two fragments are priced jointly;
+  - wire cuts split a qubit's timeline where that is cheaper.
+
+  Every fragment fits `max_qubits` with its Hadamard ancillas, every cut separates its
+  two sides, and the search (a local search over qubit timelines, seeded by the
+  classic partitioners and, up to 40 qubits, an exact gate-partition MILP with
+  SciPy/HiGHS) returns the best cut found within `time_limit` (10 s by default; about
+  1-8 s at 100 qubits). It returns `{"gate", "hadamard", "wire"}` for
+  `circuit_cutting`. On QAOA circuits it lowers `gamma` from 729 to about 32 (10
+  qubits) and from 10^13.4 to 10^4.4 (100 qubits, two halves); on circuits where
+  measure-and-prepare is already optimal it returns the same cut. New `find_cut`
+  options: `hadamard`, `joint`, `exact`, `time_limit`. Research notes and benchmarks
+  behind it: Fröhler et al. 2608.05287, Brandhofer et al. 2308.09567.
 - **`cutting_overhead(circuit, cuts, ...)`** reports the circuits to run, the
   configurations, the fragments and `gamma` of any cut or mix, without running it.
 - **Exact results on every cut type**: `shots=None` is a statevector reconstruction
@@ -78,6 +96,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **METIS partitioning in `find_cut` ignored repeated gates.** Two gates on the same
+  qubit pair (or a gate-graph edge severing two wires) counted as one edge, so METIS
+  minimised the wrong cut; on a ring with heavy and light links it cut the heavy ones.
+  Edges now carry their multiplicity, and METIS and spectral clustering check
+  `max_cuts` against the weighted count.
+- **`cutting_overhead` took minutes for about a dozen cuts**: it listed every
+  configuration (6**g * 8**w). Its counts now come from closed forms (0.04 s for 12
+  CZ cuts, against minutes).
 - **Gate cutting on IBM Quantum hardware returned about 0 for any measured cut.**
   The IBM reader looked only at the final measurements, so it dropped every
   cut's decomposition sign, and it ran the sampler with its default shot count
@@ -197,6 +223,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `gate_cutting_sampling_reconstruction`, `wire_cutting_subcircuit_reconstruction`
   and `gate_cutting_hadamard_subcircuit_reconstruction` (use
   `subcircuits.reconstruct(results)`).
+- **`find_cut(mixed=True)` replaced.** The old mixed mode bisected a qubit-timeline
+  graph by node count with 6/8 term weights: it ignored `max_qubits` (a fragment of 6
+  qubits came back for `max_qubits=4`) and returned cuts with up to 65,000x the
+  `gamma` of a gate-only cut. See "Added" for the cost-aware search that replaces it.
+- **SparseCut (`find_cut(coupling_map=...)`) returns a separating cut.** It used to
+  return the longest-routing gates whatever they did to the circuit, which the cutting
+  functions now refuse when they do not separate. It now returns the cheapest
+  separating gate cut made of non-adjacent gates, preferring the longest-routing
+  ones, within `max_qubits` when given (`top_n` gives that one cut, scored by its
+  total routing distance).
+- **Removed `find_cut(implementation="ibm-ckt")`** and the `qiskit-addon-cutting`
+  dependency. The IBM cut finder was slow on larger circuits (11.6 s without a proof
+  of optimality on a 16-qubit grid, where an exact MILP takes 0.06 s) and Qdislib's
+  wrapper dropped the wire cuts it found. Use `mixed=True`.
 - **Every cut has to separate its two sides.** All cutting algorithms (gate,
   Hadamard, wire, `gate_wire_cutting`, `circuit_cutting`, with their three-step and
   sampling forms) now check each cut on the circuit with all cuts applied: its two

@@ -311,22 +311,21 @@ NOTEBOOKS["03_finding_cuts"] = [
         'print("both (too tight):", gc(max_qubits=2, max_cuts=1))  # no cut satisfies both -> []'
     ),
     md(
-        "## Partitioner: `implementation`\n"
+        "## Cost-aware search: `mixed=True`\n"
         "\n"
-        "`implementation='qdislib'` (default) scores several graph-partitioning\n"
-        "strategies — Kernighan–Lin, Girvan–Newman, spectral, METIS — with a loss\n"
-        "function and keeps the best. `implementation='ibm-ckt'` instead uses Qiskit's\n"
-        "hardware-aware cutter (gate cuts only; needs the `qiskit` extra and a Qiskit\n"
-        "circuit):"
+        "By default `find_cut` scores several graph-partitioning strategies —\n"
+        "Kernighan–Lin, Girvan–Newman, spectral, METIS — and keeps the best. With\n"
+        "`mixed=True` it searches gate, Hadamard and wire cuts together and prices them\n"
+        "as `circuit_cutting` runs them (each gate's own gamma, joint Hadamard cuts),\n"
+        "within `time_limit` seconds:"
     ),
     illus(
         "from qiskit import QuantumCircuit\n"
         "qc = QuantumCircuit(10)\n"
         "for i in range(9):\n"
         "    qc.cz(i, i + 1)\n"
-        "cut = qd.find_cut(qc, max_qubits=5, gate_cut=True, wire_cut=False,\n"
-        "                  implementation='ibm-ckt')\n"
-        "print(cut)"
+        "cut = qd.find_cut(qc, max_qubits=5, mixed=True)\n"
+        "print(cut, qd.cutting_overhead(qc, cut))"
     ),
     md(
         "### 🔧 Your turn\n"
@@ -891,8 +890,7 @@ NOTEBOOKS["09_distributed_and_qpu"] = [
         "for i in range(9):\n"
         "    circuit.cz(i, i + 1)\n"
         "\n"
-        "# find_cut's IBM path uses Qiskit's hardware-aware cut finder:\n"
-        'cut = qd.find_cut(circuit, max_qubits=5, implementation="ibm-ckt")\n'
+        "cut = qd.find_cut(circuit, max_qubits=5)\n"
         "\n"
         "# The IBM backend connects once (IBM_QUANTUM_* environment variables, or\n"
         "# token / channel / instance / backend_name in extra=):\n"

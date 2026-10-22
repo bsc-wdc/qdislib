@@ -104,7 +104,6 @@ autodoc_mock_imports = [
     "qibo",
     "qiskit",
     "qiskit_aer",
-    "qiskit_addon_cutting",
     "qiskit_ibm_runtime",
     "cudaq",
     "pennylane",

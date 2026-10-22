@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import functools
 import itertools
+import math
 
 import numpy as np
 
@@ -483,7 +484,50 @@ class _CutPlan:
 
     @property
     def num_configurations(self):
-        return len(self.gate_configs) * len(self.wire_configs)
+        """``6**g * (Hadamard settings) * 8**w``, without listing them."""
+        return (
+            6 ** len(self.gate_cuts)
+            * math.prod(self._group_settings())
+            * 8 ** len(self.wire_cuts)
+        )
+
+    def _group_settings(self):
+        """How many settings of each Hadamard group carry a non-zero weight."""
+        from Qdislib.core.cutting_algorithms.hadamard_cut import _cut_settings
+
+        return [
+            sum(
+                1
+                for s, t, _ in _cut_settings(len(terms))
+                if terms[s][0] * terms[t][0] != 0.0
+            )
+            for _, terms in self.groups
+        ]
+
+    def num_units(self):
+        """How many fragment circuits :meth:`units` returns, without listing them.
+
+        Standard: every fragment of every configuration. Optimized: each fragment
+        runs once per setting of its own cuts -- 5 per side of a measure-and-prepare
+        gate (6 when both sides are in it), the settings of each Hadamard group it
+        holds an ancilla of, 4 per wire it receives, and 3 per wire it sends
+        (``2**k + 1`` for ``k`` sent jointly).
+        """
+        if not self.optimized:
+            return self.num_configurations * len(self.fragments)
+        group_settings = self._group_settings()
+        total = 0
+        for fragment in self.fragments:
+            sides = {}
+            for k, _ in fragment["gate_sides"]:
+                sides[k] = sides.get(k, 0) + 1
+            count = math.prod(6 if n == 2 else 5 for n in sides.values())
+            count *= math.prod(group_settings[g] for g in fragment["had_groups"])
+            count *= 4 ** len(fragment["preps"])
+            m = len(fragment["measures"])
+            count *= 2**m + 1 if self.joint_wires and m > 1 else 3**m
+            total += count
+        return total
 
     def gamma(self):
         """The sampling overhead: the product of every cut's 1-norm."""
@@ -1090,12 +1134,8 @@ def cutting_overhead(circuit, cuts, *, hadamard=False, optimized=False, joint=Tr
         precision).
     """
     plan = _CutPlan(circuit, cuts, None, hadamard, optimized, joint)
-    if optimized:
-        subcircuits = len(plan.units())
-    else:  # every fragment of every configuration
-        subcircuits = plan.num_configurations * len(plan.fragments)
     return {
-        "subcircuits": subcircuits,
+        "subcircuits": plan.num_units(),
         "configurations": plan.num_configurations,
         "fragments": len(plan.fragments),
         "gamma": round(plan.gamma(), 9),

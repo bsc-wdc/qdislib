@@ -252,15 +252,14 @@ The returned list contains candidate gate names or gate pairs that are suitable 
     cut = qd.find_cut(circuit, seed=0)                    # reproducible (same seed -> same cut)
     cut = qd.find_cut(circuit, forbidden_gates=["CZ_3"])  # never cut these gates
     cut = qd.find_cut(circuit, forbidden_qubits=[0, 1])   # never cut on these qubits
-    cut = qd.find_cut(circuit, implementation="ibm-ckt")  # IBM's cut finder instead
 
 **Hardware-aware cut selection (SparseCut).** When you pass the target QPU's
-``coupling_map``, ``find_cut`` switches to a hardware-aware mode that ranks the
-two-qubit gates by the physical distance between their qubits and cuts the
-**longest-routing** ones — removing exactly the gates that would otherwise need the
-most SWAPs (and so cause the most crosstalk / error) on a connectivity-limited
-device. This follows the *SparseCut* idea of Guo et al.,
-`arXiv:2511.05492 <https://arxiv.org/abs/2511.05492>`_.
+``coupling_map``, ``find_cut`` switches to a hardware-aware mode: it cuts only gates
+whose two qubits are not adjacent on the device, preferring the **longest-routing**
+ones — the gates that would otherwise need the most SWAPs (and so cause the most
+crosstalk / error) — and returns the cheapest such gate cut that **separates** the
+circuit (``[]`` if those gates cannot split it). This follows the *SparseCut* idea of
+Guo et al., `arXiv:2511.05492 <https://arxiv.org/abs/2511.05492>`_.
 
 .. code-block:: python
 
@@ -271,18 +270,31 @@ device. This follows the *SparseCut* idea of Guo et al.,
 The result is a gate cut you feed to ``gate_cutting`` as usual; pass a ``layout``
 (logical → physical qubit map) if your circuit is not placed identity-first.
 
-**Mixed cut discovery.** With ``mixed=True``, ``find_cut`` partitions the circuit once
-and classifies each severed connection as a gate cut or a wire cut, returning a
-combined ``{"gate": [...], "wire": [...]}`` you feed straight to
-:func:`~Qdislib.circuit_cutting`. The partition is **cost-aware** — it weighs a gate
-cut (``6`` terms) against a wire cut (``8``) and prefers whichever is cheaper per
-severed connection — so a circuit with both a gate bottleneck and a wire bottleneck is
-cut with the cheapest mix rather than forced into one type.
+**Cost-aware cut discovery.** With ``mixed=True``, ``find_cut`` searches every kind of
+cut at once and prices it the way :func:`~Qdislib.circuit_cutting` runs it, minimising
+the sampling overhead ``gamma`` (shots grow as ``gamma**2``):
+
+- each gate cut takes the cheaper of measure-and-prepare (``gamma = 3`` per CZ the gate
+  decomposes into) and the Hadamard test, whose ``gamma`` follows the gate's angle —
+  ``1 + 2|sin θ|``-like for a rotation, so weak gates are nearly free;
+- the Hadamard cuts between two fragments are priced jointly (``2**(k+1) - 1`` for k
+  CZ/CX, one shared ancilla per side);
+- a wire cut (``gamma = 4``) splits a qubit's timeline where that is cheaper.
+
+Every fragment fits ``max_qubits`` *with its Hadamard ancillas* (``None`` asks for
+halves), every cut separates its two sides, and the search returns the best cut it
+found within ``time_limit`` seconds (10 by default). For up to 40 qubits it also seeds
+the search with the exact optimal gate partition (an integer program, ``exact=``).
 
 .. code-block:: python
 
-    cut = qd.find_cut(circuit, mixed=True)            # {"gate": [...], "wire": [...]}
+    cut = qd.find_cut(circuit, max_qubits=12, mixed=True)  # {"gate", "hadamard", "wire"}
+    qd.cutting_overhead(circuit, cut)                       # gamma, circuits
     val = qd.circuit_cutting(circuit, cut, "ZZZZ")
+
+``hadamard=False`` keeps to measure-and-prepare gate cuts, ``wire_cut=False`` /
+``gate_cut=False`` switch a kind off, and ``joint=False`` prices Hadamard cuts one by
+one (as ``circuit_cutting(..., joint=False)`` runs them).
 
 **Seeing a cut.** ``qd.draw_cut(circuit, cuts, filename=None)`` draws the circuit as a
 diagram with each gate's index (the name to cut), every fragment the cut leaves in its
@@ -294,12 +306,6 @@ title with the fragment count and ``gamma``:
 .. code-block:: python
 
     qd.draw_cut(circuit, qd.find_cut(circuit, max_qubits=4, mixed=True), "cut.png")
-
-.. note::
-
-   With the *optimized* wire cut the per-cut cost is closer to ``4`` than ``8``, which
-   can tip the balance toward wire cuts; the cost model used for the default mixed
-   discovery assumes the standard (``8``-term) wire cut, i.e. ``optimized=False``.
 
 .. tip::
 

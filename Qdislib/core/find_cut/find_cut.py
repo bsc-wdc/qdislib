@@ -55,15 +55,6 @@ import pymetis
 from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
 from Qdislib.utils.backends import convert_to_dag, iter_gates, num_qubits
 
-try:
-    from qiskit_addon_cutting.automated_cut_finding import (
-        find_cuts,
-        OptimizationParameters,
-        DeviceConstraints,
-    )
-except ImportError:  # qiskit-addon-cutting optional (only the ibm-ckt path)
-    find_cuts = OptimizationParameters = DeviceConstraints = None
-
 
 def _find_nodes_with_qubit(
     graph: networkx.Graph,
@@ -334,14 +325,13 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts, seed=N
     clusters = list(clusters.values())
 
     # Find the cut edges: edges between nodes in different clusters
-    cut_edges = []
+    cut_edges, cut_size = [], 0
     for u, v, gate in graph.edges(data=True):
         if labels[u] != labels[v]:
-            # data = graph.get_edge_data(u, v)
-            # gates_list = [value["gate"] for value in data.values()]
-            cut_edges = cut_edges + [gate["gate"]]
+            cut_edges.append(gate["gate"])
+            cut_size += gate.get("weight", 1)  # wires a gate-graph edge severs
 
-    if max_cuts is not None and len(cut_edges) > max_cuts:
+    if max_cuts is not None and cut_size > max_cuts:
         return [], []
     elif cut_edges == []:
         return [], []
@@ -349,38 +339,60 @@ def _find_best_spectral_clustering(graph, clusters, max_qubits, max_cuts, seed=N
 
 
 def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
-    # Clamp the partition count to the number of nodes (METIS needs nparts <= n).
+    """METIS k-way partition minimising the *weighted* edge cut.
+
+    The graphs here are multigraphs: two gates on the same qubit pair are two
+    edges, and a gate-graph edge carries the number of wires it severs as its
+    ``weight``. METIS takes a simple graph, so each neighbour pair becomes one edge
+    whose weight is the sum over its parallel edges -- otherwise two gates between
+    the same qubits would cost METIS the same as one.
+    """
     num_clusters = min(num_clusters, graph.number_of_nodes())
     if num_clusters < 2:
         return [], []
 
-    # Convert the NetworkX graph to a format suitable for METIS
-    adjacency_list = []
-    for node in graph.nodes():
-        neighbors = list(graph.neighbors(node))
-        adjacency_list.append(neighbors)
-    _, parts = pymetis.part_graph(adjacency=adjacency_list, nparts=num_clusters)
-    # Group nodes based on the partition labels
+    nodes = list(graph.nodes())
+    index = {node: i for i, node in enumerate(nodes)}
+    weights = {}
+    for u, v, data in graph.edges(data=True):
+        if u == v:
+            continue
+        key = (min(index[u], index[v]), max(index[u], index[v]))
+        weights[key] = weights.get(key, 0) + int(data.get("weight", 1))
+    neighbours = [[] for _ in nodes]
+    for (a, b), w in weights.items():
+        neighbours[a].append((b, w))
+        neighbours[b].append((a, w))
+    xadj, adjncy, eweights = [0], [], []
+    for row in neighbours:
+        for b, w in sorted(row):
+            adjncy.append(b)
+            eweights.append(w)
+        xadj.append(len(adjncy))
+    if not adjncy:
+        return [], []
+    _, parts = pymetis.part_graph(
+        num_clusters, xadj=xadj, adjncy=adjncy, eweights=eweights
+    )
     clusters = {}
-    for node, part in enumerate(parts):
+    for node, part in zip(nodes, parts):
         clusters.setdefault(part, []).append(node)
 
-    # Check for cluster size constraint violations
-    for cluster_id, nodes in clusters.items():
-        if max_nodes_per_cluster and len(nodes) > max_nodes_per_cluster:
+    for cluster_id, members in clusters.items():
+        if max_nodes_per_cluster and len(members) > max_nodes_per_cluster:
             logger.info(f"Cluster {cluster_id} exceeds the max size.")
             return [], []
 
     clusters = list(clusters.values())
-    cut_edges = []
-    for u, v, gate in graph.edges(data=True):
-        if parts[u] != parts[v]:
-            # data = graph.get_edge_data(u, v)
-            # gates_list = [value["gate"] for value in data.values()]
-            cut_edges = cut_edges + [gate["gate"]]
-    if max_cuts is not None and len(cut_edges) > max_cuts:
+    part_of = dict(zip(nodes, parts))
+    cut_edges, cut_size = [], 0
+    for u, v, data in graph.edges(data=True):
+        if part_of[u] != part_of[v]:
+            cut_edges.append(data["gate"])
+            cut_size += data.get("weight", 1)
+    if max_cuts is not None and cut_size > max_cuts:
         return [], []
-    elif cut_edges == []:
+    elif not cut_edges:
         return [], []
     return clusters, cut_edges
 
@@ -720,143 +732,67 @@ def _find_cut_wire(
     return best_cut, best_score
 
 
-def _sparsecut(circuit, coupling_map, layout, max_cuts, forbidden):
-    """Hardware-aware gate-cut selection ("SparseCut", Guo et al., `arXiv:2511.05492
-    <https://arxiv.org/abs/2511.05492>`_).
-
-    Rank the circuit's two-qubit gates by the physical distance between their qubits on
-    the QPU **coupling graph** and cut the longest-routing ones first -- removing
-    exactly the gates that would otherwise need the most SWAPs (and so cause the most
-    crosstalk / error) on a connectivity-limited device. A distance of 1 means the two
-    physical qubits are already adjacent (no SWAP, nothing to gain from cutting), so
-    only gates that actually route (distance > 1, or unreachable) are candidates.
-
-    :param circuit: The circuit to cut.
-    :param coupling_map: QPU connectivity as an iterable of physical-qubit edges
-        ``[(0, 1), (1, 2), ...]`` (undirected).
-    :param layout: Logical-qubit -> physical-qubit mapping (a dict or a list indexed by
-        logical qubit); defaults to the identity mapping.
-    :param max_cuts: Cut at most this many gates (the longest-routing); ``None`` cuts
-        every routing gate.
-    :param forbidden: Gate ids (``"NAME_index"``) that must not be cut.
-    :return: ``[(gate_id, distance), ...]`` sorted by distance, longest first.
-    """
+def _routing_distances(circuit, coupling_map, layout):
+    """``{gate_id: physical distance}`` of every two-qubit gate on the coupling map
+    (``inf`` when its qubits are not connected at all)."""
     graph = networkx.Graph()
     graph.add_edges_from((int(a), int(b)) for a, b in coupling_map)
     distances = dict(networkx.all_pairs_shortest_path_length(graph))
-
     if layout is None:
         layout = {q: q for q in range(num_qubits(circuit))}
     elif not isinstance(layout, dict):
         layout = {q: p for q, p in enumerate(layout)}
-
-    forbidden = set(forbidden or ())
-    ranked = []
+    routing = {}
     for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
         if len(qubits) != 2:
-            continue
-        gate_id = f"{name}_{index}"
-        if gate_id in forbidden:
             continue
         try:
             distance = distances[layout[qubits[0]]][layout[qubits[1]]]
         except KeyError:
-            distance = float("inf")  # unreachable on this coupling map -> cut first
-        if distance > 1:
-            ranked.append((gate_id, distance))
-    ranked.sort(key=lambda item: item[1], reverse=True)
-    if max_cuts is not None:
-        ranked = ranked[:max_cuts]
-    return ranked
+            distance = float("inf")
+        routing[f"{name}_{index}"] = distance
+    return routing
 
 
-def _circuit_to_mixed_graph(circuit, gate_cost=6, wire_cost=8):
-    """Unified graph for finding a **mixed** (gate + wire) cut.
-
-    Nodes are ``(qubit, position)`` along each qubit's timeline. A **wire** edge links
-    consecutive positions of a qubit (a wire-cut candidate); a **gate** edge links the
-    two positions a two-qubit gate couples (a gate-cut candidate). So a crossing gate
-    edge in a partition is a gate cut, a crossing wire edge is a wire cut -- one
-    partition yields both. Edge weights are ``log(cost)`` (``gate_cost`` for gate edges,
-    ``wire_cost`` for wire edges), so a minimum-weight partition minimises the product
-    ``gate_cost**n_gate * wire_cost**n_wire`` -- the actual number of subcircuit terms.
-    """
-    import math
-
-    graph = networkx.Graph()
-    last_node, last_gate, counter = {}, {}, {}
-    for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
-        gate_id = f"{name}_{index}"
-        here = {}
-        for q in qubits:
-            counter[q] = counter.get(q, 0) + 1
-            node = (q, counter[q])
-            graph.add_node(node)
-            here[q] = node
-            if q in last_node:
-                graph.add_edge(
-                    last_node[q],
-                    node,
-                    kind="wire",
-                    label=(last_gate[q], gate_id),
-                    weight=math.log(wire_cost),
-                )
-            last_node[q], last_gate[q] = node, gate_id
-        if len(qubits) == 2:
-            a, b = qubits
-            graph.add_edge(
-                here[a], here[b], kind="gate", label=gate_id, weight=math.log(gate_cost)
-            )
-    return graph
-
-
-def _find_cut_mixed(
-    circuit, max_cuts=None, seed=None, forbidden=None, gate_cost=6, wire_cost=8
+def _sparsecut(
+    circuit, coupling_map, layout, max_qubits, max_cuts, forbidden, seed, time_limit
 ):
-    """Discover a **mixed** gate + wire cut by a cost-weighted bisection of the unified
-    qubit-timeline graph (:func:`_circuit_to_mixed_graph`), classifying each crossing
-    edge as a gate or wire cut. Cost-aware: the ``gate_cost``/``wire_cost`` edge weights
-    make the min-cut prefer whichever cut type is cheaper per severed connection (gate
-    ``6`` vs wire ``8`` by default; lower ``wire_cost`` -- e.g. ~4 for *optimized* wire
-    cutting -- flips the preference toward wire cuts).
+    """Hardware-aware gate cut ("SparseCut", Guo et al., `arXiv:2511.05492
+    <https://arxiv.org/abs/2511.05492>`_): cut the gates that would need the most
+    SWAPs on the device.
 
-    :return: ``{"gate": [gate_id, ...], "wire": [(source, target), ...]}`` ready to feed
-        :func:`~Qdislib.gate_wire_cutting`.
+    Only gates whose two qubits are not adjacent on the coupling map are cut, and a
+    gate's cost is divided by its routing distance, so the cheapest cut uses the
+    longest-routing gates. Unlike a plain ranking, the cut returned separates the
+    circuit (every cut separates its two sides), within ``max_qubits`` when given.
+
+    :return: ``(cut, distances)``: gate ids, longest-routing first, and the routing
+        distance of every two-qubit gate.
     """
-    from networkx.algorithms.community import kernighan_lin_bisection
+    from Qdislib.core.find_cut.cost_search import cost_aware_cut
 
-    empty = {"gate": [], "wire": []}
-    if max_cuts == 0:
-        # No cut allowed: a hard stop, unlike a budget that is merely exceeded.
-        return empty
-    graph = _circuit_to_mixed_graph(circuit, gate_cost, wire_cost)
-    if graph.number_of_nodes() < 2 or graph.number_of_edges() == 0:
-        return empty
-    try:
-        part_a, _ = kernighan_lin_bisection(graph, weight="weight", seed=seed)
-    except Exception:  # pragma: no cover - degenerate graphs
-        return empty
-
-    forbidden = set(forbidden or ())
-    gate_cuts, wire_cuts = [], []
-    for u, v, data in graph.edges(data=True):
-        if (u in part_a) == (v in part_a):
-            continue  # not a crossing edge
-        if data["kind"] == "gate":
-            if data["label"] not in forbidden:
-                gate_cuts.append(data["label"])
-        elif data["label"] not in wire_cuts:
-            wire_cuts.append(data["label"])
-    gate_cuts = sorted(set(gate_cuts))
-    total = len(gate_cuts) + len(wire_cuts)
-    if max_cuts is not None and total > max_cuts:
-        logger.warning(
-            "find_cut(mixed=True) needs %s cuts to bisect the circuit, above "
-            "max_cuts=%s; returning the full mixed cut anyway.",
-            total,
-            max_cuts,
-        )
-    return {"gate": gate_cuts, "wire": wire_cuts}
+    distances = _routing_distances(circuit, coupling_map, layout)
+    adjacent = {gid for gid, d in distances.items() if d <= 1}
+    scale = {
+        gid: (0.0 if d == float("inf") else 1.0 / d)
+        for gid, d in distances.items()
+        if d > 1
+    }
+    cuts, _ = cost_aware_cut(
+        circuit,
+        max_qubits,
+        max_cuts,
+        hadamard=False,
+        wires=False,
+        joint=False,
+        time_limit=time_limit,
+        seed=seed,
+        forbidden_gates=set(forbidden or ()) | adjacent,
+        balanced=False,
+        gate_scale=scale,
+    )
+    cut = sorted(cuts["gate"], key=lambda gid: -distances[gid])
+    return cut, distances
 
 
 def separable_components(circuit, max_qubits=None):
@@ -935,6 +871,10 @@ def find_cut(
     coupling_map=None,
     layout=None,
     mixed=False,
+    hadamard=True,
+    joint=True,
+    exact="auto",
+    time_limit=10.0,
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
@@ -973,7 +913,9 @@ def find_cut(
         during partitioning.
 
     implementation : str, default="qdislib"
-        Specifies the backend implementation to use for circuit partitioning. "qdislib": Uses graph-theoretical approaches (Kernighan-Lin, etc.) "ibm-ckt": Uses Qiskit's optimizer and hardware-aware constraints
+        Kept for compatibility; ``"qdislib"`` is the only value. (``"ibm-ckt"``,
+        delegating to qiskit-addon-cutting, was removed in 2.0.0: it was slow on
+        larger circuits and dropped the wire cuts it found.)
 
     weights : dict, optional
         A dictionary specifying weights for the loss function used in Qdislib to evaluate
@@ -1006,25 +948,40 @@ def find_cut(
     coupling_map : list of (int, int), optional
         The target QPU connectivity, as physical-qubit edges ``[(0, 1), (1, 2), ...]``.
         When given, ``find_cut`` switches to **hardware-aware "SparseCut" mode**
-        (Guo et al., `arXiv:2511.05492 <https://arxiv.org/abs/2511.05492>`_): it ranks
-        the two-qubit gates by the physical distance between their qubits on the
-        coupling graph and returns the longest-routing ones as a **gate cut** -- cutting
-        exactly the gates that would otherwise need the most SWAPs (crosstalk / error)
-        on a connectivity-limited device. Combine with ``max_cuts`` to bound how many
-        gates are cut. This mode ignores ``max_qubits`` / ``wire_cut`` (it is a
-        distance-driven gate cut). Only affects the ``implementation="qdislib"`` path.
+        (Guo et al., `arXiv:2511.05492 <https://arxiv.org/abs/2511.05492>`_): it cuts
+        only gates whose qubits are not adjacent on the device, preferring the
+        longest-routing ones (the gates that would need the most SWAPs), and returns
+        the cheapest such gate cut that **separates** the circuit, within
+        ``max_qubits`` when given and ``max_cuts``; ``[]`` if no such cut exists.
 
     layout : dict or list, optional
         Logical-qubit -> physical-qubit mapping used with ``coupling_map`` (a dict, or a
         list indexed by logical qubit). Defaults to the identity mapping.
 
     mixed : bool, default=False
-        Discover a **mixed** gate + wire cut in one shot: partition the unified
-        qubit-timeline graph (cost-weighted, gate ``6`` vs wire ``8`` per cut) and
-        classify each severed connection as a gate cut or a wire cut. Returns a
-        ``{"gate": [...], "wire": [...]}`` dict ready to feed
-        :func:`~Qdislib.gate_wire_cutting`, instead of the single gate-or-wire cut the
-        default mode picks. Only affects the ``implementation="qdislib"`` path.
+        Search every kind of cut at once and price it the way
+        :func:`~Qdislib.circuit_cutting` runs it: each gate cut by the cheaper of
+        measure-and-prepare and the Hadamard test (angle-aware), the gates across one
+        boundary cut jointly, wire cuts where a qubit's timeline is better split. The
+        objective is the sampling overhead gamma; every fragment, its Hadamard ancillas
+        included, fits ``max_qubits`` (``None``: halves), and every cut separates.
+        Returns ``{"gate": [...], "hadamard": [...], "wire": [...]}`` for
+        :func:`~Qdislib.circuit_cutting`. ``gate_cut`` / ``wire_cut`` switch kinds off.
+
+    hadamard : bool, default=True
+        With ``mixed=True``, allow Hadamard-test gate cuts.
+
+    joint : bool, default=True
+        With ``mixed=True``, price the Hadamard cuts across one boundary jointly (as
+        ``circuit_cutting(..., joint=True)`` runs them).
+
+    exact : bool or "auto", default="auto"
+        With ``mixed=True`` (and SparseCut), seed the search with the exact optimal
+        gate partition (a MILP, SciPy/HiGHS); ``"auto"`` does so up to 40 qubits.
+
+    time_limit : float, default=10
+        Seconds the ``mixed=True`` / SparseCut search may take; it returns the best
+        cut found by then.
 
     Diagnostic details about the partitioning process are logged at DEBUG level;
     enable them with ``qd.set_log_level("DEBUG")``.
@@ -1051,10 +1008,6 @@ def find_cut(
         * Circuits are transformed into graphs and evaluated through multiple graph partitioning
           strategies. The best partition is chosen based on a custom loss function.
         * The function supports concurrent evaluation of both gate and wire cuts.
-    - In the IBM implementation:
-        * The circuit is compiled for compatibility with Qiskit.
-        * Gate cuts are identified using an optimizer, subject to QPU constraints.
-        * The returned result focuses on gate-level decomposition only.
 
     Example
     -------
@@ -1068,214 +1021,193 @@ def find_cut(
     if max_cuts is not None and max_cuts < 0:
         raise ValueError(f"max_cuts must be 0 or more, got {max_cuts}")
 
-    if implementation == "qdislib":
-        # Before searching for a cut, check whether one is needed. A circuit
-        # whose interaction graph is already disconnected splits for free, and
-        # every strategy below would instead return a cut costing gamma = 3.
-        separable = separable_components(circuit, max_qubits)
-        if separable is not None:
-            logger.info(
-                "find_cut: the circuit already separates into %d fragments of "
-                "%s qubits with no cut at all; returning none.",
-                len(separable),
-                [len(g) for g in separable],
-            )
-            if mixed:
-                return {"gate": [], "wire": []}
-            if top_n is not None:
-                return [{"cut": [], "kind": "none", "score": 0.0}]
-            return []
+    if implementation == "ibm-ckt":
+        raise ValueError(
+            "implementation='ibm-ckt' was removed in 2.0.0 (it was slow on larger "
+            "circuits and dropped its wire cuts); use find_cut(..., mixed=True), which "
+            "searches gate, Hadamard and wire cuts together."
+        )
+    if implementation != "qdislib":
+        raise ValueError(f"Unknown implementation={implementation!r}; use 'qdislib'.")
 
-        # Target number of subcircuits for the clustering-based strategies
-        # (spectral, METIS). Derived from max_qubits when given (enough pieces so
-        # each fits the qubit budget), otherwise a simple bisection. The
-        # clustering helpers clamp this to the graph size, so it is only an upper
-        # bound and can never request more clusters than there are nodes.
-        if max_qubits:
-            max_components = max(2, -(-num_qubits(circuit) // max_qubits))
-        else:
-            max_components = 2
-
-        # Fold forbidden_qubits into the forbidden-gate set: any multi-qubit gate
-        # touching a forbidden qubit becomes a forbidden cut. The gate id is built
-        # exactly as the qubit/gate graphs label their cut edges (``NAME_index``
-        # over iter_gates), so the names line up with the candidate cut-sets.
-        forbidden = set(forbidden_gates or ())
-        if forbidden_qubits:
-            protected = set(forbidden_qubits)
-            for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
-                if len(qubits) > 1 and protected.intersection(qubits):
-                    forbidden.add(f"{name}_{index}")
-
-        # Mixed mode: one cost-weighted partition of the unified qubit-timeline graph,
-        # classifying each severed connection as a gate cut or a wire cut -> a combined
-        # {"gate": [...], "wire": [...]} for gate_wire_cutting.
+    # Before searching for a cut, check whether one is needed. A circuit
+    # whose interaction graph is already disconnected splits for free, and
+    # every strategy below would instead return a cut costing gamma = 3.
+    separable = separable_components(circuit, max_qubits)
+    if separable is not None:
+        logger.info(
+            "find_cut: the circuit already separates into %d fragments of "
+            "%s qubits with no cut at all; returning none.",
+            len(separable),
+            [len(g) for g in separable],
+        )
         if mixed:
-            return _find_cut_mixed(
-                circuit, max_cuts=max_cuts, seed=seed, forbidden=forbidden
-            )
-
-        # Hardware-aware "SparseCut" mode (arXiv:2511.05492): given the QPU coupling
-        # map, cut the longest-routing two-qubit gates (a gate cut ranked by physical
-        # qubit distance) so the fragments route with the fewest SWAPs / least crosstalk.
-        if coupling_map is not None:
-            ranked = _sparsecut(circuit, coupling_map, layout, max_cuts, forbidden)
-            if top_n is not None:
-                # Longest distance first -> best; score = -distance to keep the
-                # "lowest score first" convention shared with the other modes.
-                return [
-                    {"cut": [gate_id], "kind": "gate", "score": -distance}
-                    for gate_id, distance in ranked[:top_n]
-                ]
-            best = [gate_id for gate_id, _ in ranked]
-            if not best and max_cuts != 0:
-                logger.warning(
-                    "find_cut (SparseCut) found no routing two-qubit gate to cut: "
-                    "every two-qubit gate is already adjacent on the coupling map, or "
-                    "the routing ones are forbidden."
-                )
-            return best
-
-        # Ranked mode: return the top_n candidate cuts (best score first) across
-        # the enabled strategies, each as {"cut", "kind", "score"}, instead of the
-        # single winner. Lets the caller compare options (and cost them with
-        # cut_cost) rather than trust one pick.
+            return {"gate": [], "hadamard": [], "wire": []}
         if top_n is not None:
-            ranked = []
-            if gate_cut:
-                gate_cands, _ = _find_cut_gate(
-                    circuit,
-                    max_qubits=max_qubits,
-                    max_cuts=max_cuts,
-                    max_components=max_components,
-                    weights=weights,
-                    seed=seed,
-                    forbidden_gates=forbidden,
-                    all_candidates=True,
-                )
-                for cut, score in compss_wait_on(gate_cands):
-                    ranked.append({"cut": cut, "kind": "gate", "score": score})
-            if wire_cut:
-                wire_cands, _ = _find_cut_wire(
-                    circuit,
-                    max_qubits=max_qubits,
-                    max_cuts=max_cuts,
-                    max_components=max_components,
-                    weights=weights,
-                    seed=seed,
-                    forbidden_gates=forbidden,
-                    all_candidates=True,
-                    forbidden_qubits=forbidden_qubits,
-                )
-                for cut, score in compss_wait_on(wire_cands):
-                    ranked.append({"cut": cut, "kind": "wire", "score": score})
-            ranked.sort(key=lambda candidate: candidate["score"])
-            return ranked[:top_n]
+            return [{"cut": [], "kind": "none", "score": 0.0}]
+        return []
 
-        if gate_cut:
-            cut_gate, score_gate = _find_cut_gate(
-                circuit,
-                max_qubits=max_qubits,
-                max_cuts=max_cuts,
-                max_components=max_components,
-                weights=weights,
-                seed=seed,
-                forbidden_gates=forbidden,
-            )
+    # Target number of subcircuits for the clustering-based strategies
+    # (spectral, METIS). Derived from max_qubits when given (enough pieces so
+    # each fits the qubit budget), otherwise a simple bisection. The
+    # clustering helpers clamp this to the graph size, so it is only an upper
+    # bound and can never request more clusters than there are nodes.
+    if max_qubits:
+        max_components = max(2, -(-num_qubits(circuit) // max_qubits))
+    else:
+        max_components = 2
 
-        if wire_cut:
-            cut_wire, score_wire = _find_cut_wire(
-                circuit,
-                max_qubits=max_qubits,
-                max_cuts=max_cuts,
-                max_components=max_components,
-                weights=weights,
-                seed=seed,
-                forbidden_gates=forbidden,
-                forbidden_qubits=forbidden_qubits,
-            )
+    # Fold forbidden_qubits into the forbidden-gate set: any multi-qubit gate
+    # touching a forbidden qubit becomes a forbidden cut. The gate id is built
+    # exactly as the qubit/gate graphs label their cut edges (``NAME_index``
+    # over iter_gates), so the names line up with the candidate cut-sets.
+    forbidden = set(forbidden_gates or ())
+    if forbidden_qubits:
+        protected = set(forbidden_qubits)
+        for index, (name, qubits) in enumerate(iter_gates(circuit), start=1):
+            if len(qubits) > 1 and protected.intersection(qubits):
+                forbidden.add(f"{name}_{index}")
 
-        if gate_cut and wire_cut:
-            cut_gate = compss_wait_on(cut_gate)
-            score_gate = compss_wait_on(score_gate)
-            cut_wire = compss_wait_on(cut_wire)
-            score_wire = compss_wait_on(score_wire)
-        elif gate_cut:
-            cut_gate = compss_wait_on(cut_gate)
-            score_gate = compss_wait_on(score_gate)
-        elif wire_cut:
-            cut_wire = compss_wait_on(cut_wire)
-            score_wire = compss_wait_on(score_wire)
-        else:
-            raise ValueError("Enable at least one of wire_cut or gate_cut.")
+    # Mixed mode: one cost-weighted partition of the unified qubit-timeline graph,
+    # classifying each severed connection as a gate cut or a wire cut -> a combined
+    # {"gate": [...], "wire": [...]} for gate_wire_cutting.
+    if mixed:
+        from Qdislib.core.find_cut.cost_search import cost_aware_cut
 
-        if wire_cut and gate_cut:
-            best = cut_gate if score_gate <= score_wire else cut_wire
-        elif gate_cut:
-            best = cut_gate
-        elif wire_cut:
-            best = cut_wire
-        else:
-            raise ValueError("Enable at least one of wire_cut or gate_cut.")
+        cuts, _ = cost_aware_cut(
+            circuit,
+            max_qubits,
+            max_cuts,
+            gates=gate_cut,
+            hadamard=hadamard and gate_cut,
+            joint=joint,
+            wires=wire_cut,
+            exact=exact,
+            time_limit=time_limit,
+            seed=seed,
+            forbidden_gates=forbidden,
+            forbidden_qubits=forbidden_qubits,
+        )
+        return cuts
 
-        if not best:
+    # Hardware-aware "SparseCut" mode (arXiv:2511.05492): given the QPU coupling
+    # map, cut the longest-routing two-qubit gates (a gate cut ranked by physical
+    # qubit distance) so the fragments route with the fewest SWAPs / least crosstalk.
+    if coupling_map is not None:
+        best, distances = _sparsecut(
+            circuit,
+            coupling_map,
+            layout,
+            max_qubits,
+            max_cuts,
+            forbidden,
+            seed,
+            time_limit,
+        )
+        if not best and max_cuts != 0:
             logger.warning(
-                "find_cut found no valid cut under the given constraints "
-                "(max_qubits=%s, max_cuts=%s): the circuit may already fit on the "
-                "target as-is, or the constraints may be too tight to satisfy. Try "
-                "relaxing max_qubits / max_cuts.",
-                max_qubits,
-                max_cuts,
+                "find_cut (SparseCut) found no separating cut made of routing "
+                "gates: the non-adjacent two-qubit gates (not forbidden) do not "
+                "split the circuit within the limits."
             )
+        if top_n is not None:
+            # One separating cut; score = -total routing distance, so the
+            # "lowest score first" convention of the other modes holds.
+            if not best:
+                return []
+            score = -sum(distances[g] for g in best)
+            return [{"cut": best, "kind": "gate", "score": score}][:top_n]
         return best
 
-    elif implementation == "ibm-ckt":
-        if find_cuts is None:
-            raise ImportError(
-                "implementation='ibm-ckt' needs the qiskit-addon-cutting package, "
-                "which is not installed. Install it with "
-                "`pip install qiskit-addon-cutting`, or use the default "
-                "implementation='qdislib'."
+    # Ranked mode: return the top_n candidate cuts (best score first) across
+    # the enabled strategies, each as {"cut", "kind", "score"}, instead of the
+    # single winner. Lets the caller compare options (and cost them with
+    # cut_cost) rather than trust one pick.
+    if top_n is not None:
+        ranked = []
+        if gate_cut:
+            gate_cands, _ = _find_cut_gate(
+                circuit,
+                max_qubits=max_qubits,
+                max_cuts=max_cuts,
+                max_components=max_components,
+                weights=weights,
+                seed=seed,
+                forbidden_gates=forbidden,
+                all_candidates=True,
             )
-        if qibo_available and isinstance(circuit, qibo.models.Circuit):
-            qasm_str = circuit.to_qasm()
-            circuit = qiskit.qasm2.loads(qasm_str)
-        elif isinstance(circuit, networkx.DiGraph):
-            circuit = dag_to_circuit_qiskit(circuit)
+            for cut, score in compss_wait_on(gate_cands):
+                ranked.append({"cut": cut, "kind": "gate", "score": score})
+        if wire_cut:
+            wire_cands, _ = _find_cut_wire(
+                circuit,
+                max_qubits=max_qubits,
+                max_cuts=max_cuts,
+                max_components=max_components,
+                weights=weights,
+                seed=seed,
+                forbidden_gates=forbidden,
+                all_candidates=True,
+                forbidden_qubits=forbidden_qubits,
+            )
+            for cut, score in compss_wait_on(wire_cands):
+                ranked.append({"cut": cut, "kind": "wire", "score": score})
+        ranked.sort(key=lambda candidate: candidate["score"])
+        return ranked[:top_n]
 
-        # Specify settings for the cut-finding optimizer
-        optimization_settings = OptimizationParameters(seed=50)
-
-        # Specify the size of the QPUs available
-        if max_qubits is None:
-            max_qubits_ckt = circuit.num_qubits // 2 + 1
-        else:
-            max_qubits_ckt = max_qubits
-        device_constraints = DeviceConstraints(qubits_per_subcircuit=max_qubits_ckt)
-
-        cut_circuit, metadata = find_cuts(
-            circuit, optimization_settings, device_constraints
+    if gate_cut:
+        cut_gate, score_gate = _find_cut_gate(
+            circuit,
+            max_qubits=max_qubits,
+            max_cuts=max_cuts,
+            max_components=max_components,
+            weights=weights,
+            seed=seed,
+            forbidden_gates=forbidden,
         )
-        logger.debug(
-            "Found solution using %s cuts with a sampling overhead of %s. "
-            "Lowest cost solution found: %s.",
-            len(metadata["cuts"]),
-            metadata["sampling_overhead"],
-            metadata["minimum_reached"],
+
+    if wire_cut:
+        cut_wire, score_wire = _find_cut_wire(
+            circuit,
+            max_qubits=max_qubits,
+            max_cuts=max_cuts,
+            max_components=max_components,
+            weights=weights,
+            seed=seed,
+            forbidden_gates=forbidden,
+            forbidden_qubits=forbidden_qubits,
         )
-        for cut in metadata["cuts"]:
-            logger.debug("%s at circuit instruction index %s", cut[0], cut[1])
 
-        list_gates_cut = []
-        for cut in metadata["cuts"]:
-            if cut[0] == "Gate Cut":
-                gate_name = circuit.data[cut[1]].operation.name.upper()
-                list_gates_cut.append(f"{gate_name}_{cut[1]+1}")
-        logger.debug("Gate cuts: %s", list_gates_cut)
-        return list_gates_cut
-
+    if gate_cut and wire_cut:
+        cut_gate = compss_wait_on(cut_gate)
+        score_gate = compss_wait_on(score_gate)
+        cut_wire = compss_wait_on(cut_wire)
+        score_wire = compss_wait_on(score_wire)
+    elif gate_cut:
+        cut_gate = compss_wait_on(cut_gate)
+        score_gate = compss_wait_on(score_gate)
+    elif wire_cut:
+        cut_wire = compss_wait_on(cut_wire)
+        score_wire = compss_wait_on(score_wire)
     else:
-        raise ValueError(
-            f"Unknown implementation={implementation!r}; "
-            "use 'qdislib' (default) or 'ibm-ckt'."
+        raise ValueError("Enable at least one of wire_cut or gate_cut.")
+
+    if wire_cut and gate_cut:
+        best = cut_gate if score_gate <= score_wire else cut_wire
+    elif gate_cut:
+        best = cut_gate
+    elif wire_cut:
+        best = cut_wire
+    else:
+        raise ValueError("Enable at least one of wire_cut or gate_cut.")
+
+    if not best:
+        logger.warning(
+            "find_cut found no valid cut under the given constraints "
+            "(max_qubits=%s, max_cuts=%s): the circuit may already fit on the "
+            "target as-is, or the constraints may be too tight to satisfy. Try "
+            "relaxing max_qubits / max_cuts.",
+            max_qubits,
+            max_cuts,
         )
+    return best
