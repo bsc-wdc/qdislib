@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Output distributions with the Hadamard cut (`gate_cutting_hadamard_sampling`,
+  `gate_cutting_hadamard_sampling_subcircuits`).** Every fragment is read in the Z
+  basis, so one run per fragment gives its correlators for every output subset; their
+  weighted products give every `<Z^A>` and the inverse Walsh-Hadamard transform the
+  distribution, at the cost of one expectation value. Exact with `shots=None` on qibo;
+  works with `joint=True` and `num_samples`. Every cut type now has both an
+  expectation value and an output distribution, each in all-in-one and three-step form.
 - **Joint Hadamard gate cut (`joint=True`).** `gate_cutting_hadamard` and its
   `_subcircuits` / `_sampling` variants can cut all the gates crossing one boundary
   together, with one shared ancilla per fragment: `gamma = 2**(k+1) - 1` instead of
@@ -116,6 +123,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **Breaking: `_sampling` means the output distribution for every cut type.**
+  `gate_cutting_hadamard_sampling` and `gate_cutting_hadamard_sampling_subcircuits`
+  used to estimate an expectation value by drawing configurations at random; they now
+  return the output distribution, like `gate_cutting_sampling` and
+  `wire_cutting_sampling`. The random-configuration estimate is now
+  `gate_cutting_hadamard(..., num_samples=N)` (and `gate_cutting_hadamard_subcircuits(...,
+  num_samples=N)`). Calling the old way, with an observable, raises a `TypeError` that
+  says so.
 - **`wire_cutting` runs the subcircuits in the circuit's own SDK by default.**
   `software` defaulted to `"qibo"` whatever the input, so a Qiskit circuit
   containing `cx` failed unless `software="qiskit"` was passed. The default is now

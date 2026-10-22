@@ -407,7 +407,7 @@ def _story():
             "val = qd.gate_cutting_hadamard(\n"
             "        circ, ['ISWAP_3'], 'ZZ', software='qibo')\n"
             "# Monte-Carlo (bounded cost for many cuts):\n"
-            "val = qd.gate_cutting_hadamard_sampling(\n"
+            "val = qd.gate_cutting_hadamard(\n"
             "        circ, cut, 'ZZ', num_samples=5000)\n"
             "# three-step, runs on any backend / QPU:\n"
             "subs = qd.gate_cutting_hadamard_subcircuits(\n"

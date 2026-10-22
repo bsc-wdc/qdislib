@@ -62,10 +62,10 @@ def main():
     enum_future = qd.gate_cutting_hadamard(
         circuit, cut, observable, software=SOFTWARE, shots=SHOTS, sync=False
     )
-    # reduce_chunk turns the sampling driver's single fan-in into a balanced reduction
+    # reduce_chunk turns the Monte-Carlo (num_samples) single fan-in into a balanced reduction
     # tree (partial reduces per chunk of configs -> combine), so the reduction itself
     # parallelises -- visible in the graph as a two-level fan-in on the sampling side.
-    samp_future = qd.gate_cutting_hadamard_sampling(
+    samp_future = qd.gate_cutting_hadamard(
         build_circuit(),
         cut,
         observable,

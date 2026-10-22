@@ -1457,11 +1457,14 @@ def sample_subcircuit(subcircuit, shots=1024, seed=None):
     :meth:`SampledCutSubcircuits.reconstruct`. Under PyCOMPSs each call is a task,
     so the subcircuits sample in parallel.
 
-    :param subcircuit: An item from :func:`gate_cutting_sampling_subcircuits`.
+    :param subcircuit: An item from :func:`gate_cutting_sampling_subcircuits` (or
+        :func:`~Qdislib.gate_cutting_hadamard_sampling_subcircuits`).
     :param shots: Measurement shots for this subcircuit.
     :return: ``(corr, original)`` -- the component's ``<Z^b>`` correlators and its
         global qubit indices; feed the list of these to ``reconstruct``.
     """
+    if hasattr(subcircuit, "sample"):  # e.g. a Hadamard-cut distribution fragment
+        return subcircuit.sample(shots, seed)
     return _sample_gate_subcircuit(
         subcircuit.component,
         subcircuit.software,

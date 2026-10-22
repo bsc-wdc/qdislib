@@ -70,7 +70,7 @@ Qdislib includes several circuit cutting strategies:
 
 - **Gate Cutting** (``gate_cutting``): Cuts selected two-qubit gates — a measure-and-prepare quasiprobability decomposition — to divide a circuit into smaller, independently executable subcircuits, then post-processes them to reconstruct the original expectation value. Cuts **any** two-qubit gate: ``CZ``/``CX`` natively, and other gates by automatically decomposing them into ``CZ`` + single-qubit gates. Cost is ``6`` terms per cut.
 
-- **Hadamard-test Gate Cutting** (``gate_cutting_hadamard``): An alternative gate cut (Harrow & Lowe, `arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) that replaces the mid-circuit measurement with **one local ancilla** per fragment running a Hadamard test. It cuts **any** two-qubit gate as a *single* cut at the **optimal** overhead (``gamma(CZ) = 3``, tending to ``1`` for weak interactions), which makes it a good fit for superconducting hardware where mid-circuit measurement is costly. Available as an all-in-one call, a three-step ``_subcircuits`` workflow, and a Monte-Carlo ``_sampling`` variant.
+- **Hadamard-test Gate Cutting** (``gate_cutting_hadamard``): An alternative gate cut (Harrow & Lowe, `arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) that replaces the mid-circuit measurement with **one local ancilla** per fragment running a Hadamard test. It cuts **any** two-qubit gate as a *single* cut at the **optimal** overhead (``gamma(CZ) = 3``, tending to ``1`` for weak interactions), which makes it a good fit for superconducting hardware where mid-circuit measurement is costly. Like the other cuts, it has an all-in-one call and a three-step ``_subcircuits`` workflow for expectation values, and ``_sampling`` variants for the output distribution. ``num_samples=N`` draws the configurations at random instead of enumerating them all (the native Harrow–Lowe estimator), which bounds the cost for many cuts.
 
   With ``joint=True``, the gates that cross the **same boundary** are cut together:
   one shared ancilla per fragment runs a single Hadamard test over all of them
@@ -228,21 +228,31 @@ mapping:
     result = qd.gate_cutting(circuit, cut, observables={"ZZ": 0.5, "XI": 1.0, "IZ": -0.3})
 
 The same forms work with ``qd.wire_cutting``, ``qd.gate_cutting_hadamard`` (and
-its ``_subcircuits`` / ``_sampling`` variants) and ``qd.analytical_solution``.
+its ``_subcircuits`` variant) and ``qd.analytical_solution``.
 
 
 Sampling the output distribution
 --------------------------------
 
-``gate_cutting`` / ``wire_cutting`` return a single **expectation value**. To
-reconstruct the full **output distribution** ``{bitstring: probability}`` instead
-— e.g. to read out an image or inspect a state — use the sampling variants, which
-have the same all-in-one and three-step forms:
+``gate_cutting`` / ``wire_cutting`` / ``gate_cutting_hadamard`` return a single
+**expectation value**. To reconstruct the full **output distribution**
+``{bitstring: probability}`` instead — e.g. to read out an image or inspect a state —
+use the ``_sampling`` variant of the same cut, which has the same all-in-one and
+three-step forms:
 
 .. code-block:: python
 
     dist = qd.gate_cutting_sampling(circuit, cut, shots=200_000)
     # or  qd.wire_cutting_sampling(circuit, wire_cut, shots=200_000)
+    # or  qd.gate_cutting_hadamard_sampling(circuit, cut, shots=200_000, joint=True)
+
+    # three-step: sample each subcircuit yourself, then reconstruct
+    subs = qd.gate_cutting_hadamard_sampling_subcircuits(circuit, cut)
+    dist = subs.reconstruct([qd.sample_subcircuit(s, shots=8192) for s in subs])
+
+For the Hadamard cut, every fragment is read in the Z basis anyway, so the
+distribution costs the same circuits as one expectation value, and with
+``shots=None`` (``software="qibo"``) it is exact.
 
 Reconstructing a distribution carries a quasiprobability overhead, so it needs
 **more shots** than an expectation value. Pass ``seed=`` for a reproducible

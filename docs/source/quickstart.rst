@@ -75,10 +75,10 @@ cut at the optimal overhead, with no mid-circuit measurement:
 
     val = qd.gate_cutting_hadamard(circuit, ["ISWAP_3"], "ZZ", software="qibo")
 
-    # three-step form, and a Monte-Carlo variant for many cuts:
+    # three-step form, and Monte-Carlo sampling of the configurations for many cuts:
     subs = qd.gate_cutting_hadamard_subcircuits(circuit, ["ISWAP_3"], "ZZ")
     val = subs.reconstruct([qd.expectation_value(s) for s in subs])
-    val = qd.gate_cutting_hadamard_sampling(circuit, ["ISWAP_3"], "ZZ", num_samples=5000)
+    val = qd.gate_cutting_hadamard(circuit, ["ISWAP_3"], "ZZ", num_samples=5000)
 
 Mixing gate and wire cutting
 ----------------------------

@@ -57,6 +57,7 @@ __all__ = [
     "gate_cutting_sampling_reconstruction",
     "gate_cutting_hadamard_sampling",
     "gate_cutting_hadamard_sampling_subcircuits",
+    "gate_cutting_hadamard_sampling_reconstruction",
     "wire_cutting_sampling",
     "wire_cutting_sampling_subcircuits",
     # Subcircuit containers.
@@ -64,6 +65,7 @@ __all__ = [
     "CutSubcircuits",
     "CombinedCutSubcircuits",
     "HadamardCutSubcircuits",
+    "HadamardSampledCutSubcircuits",
     "SampledCutSubcircuits",
     "WireSampledCutSubcircuits",
     # Executing subcircuits / evaluating observables.

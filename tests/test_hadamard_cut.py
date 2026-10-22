@@ -424,12 +424,12 @@ class HadamardSamplingTest(BaseTimedTestCase):
         # large sample count lands within Monte-Carlo noise of the analytical value.
         import Qdislib as qd
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
-            gate_cutting_hadamard_sampling,
+            gate_cutting_hadamard,
         )
 
         c = self._bell_like()
         analytical = qd.analytical_solution(c, "ZZ")
-        got = gate_cutting_hadamard_sampling(
+        got = gate_cutting_hadamard(
             c, ["CZ_2"], "ZZ", num_samples=8000, shots=None, seed=7
         )
         self.assertLess(abs(analytical - got), 0.1)
@@ -439,7 +439,7 @@ class HadamardSamplingTest(BaseTimedTestCase):
         import Qdislib as qd
         from qibo import gates, models
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
-            gate_cutting_hadamard_sampling,
+            gate_cutting_hadamard,
         )
 
         c = models.Circuit(3)
@@ -450,7 +450,7 @@ class HadamardSamplingTest(BaseTimedTestCase):
         c.add(gates.CZ(1, 2))
         c.add(gates.RX(2, 0.3))
         analytical = qd.analytical_solution(c, "ZZZ")
-        got = gate_cutting_hadamard_sampling(
+        got = gate_cutting_hadamard(
             c, ["CZ_4", "CZ_5"], "ZZZ", num_samples=10000, shots=None, seed=3
         )
         self.assertLess(abs(analytical - got), 0.12)
@@ -459,7 +459,7 @@ class HadamardSamplingTest(BaseTimedTestCase):
         import Qdislib as qd
         from qibo import gates, models
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
-            gate_cutting_hadamard_sampling,
+            gate_cutting_hadamard,
         )
 
         c = models.Circuit(2)
@@ -467,7 +467,7 @@ class HadamardSamplingTest(BaseTimedTestCase):
         c.add(gates.RY(1, 0.4))
         c.add(gates.iSWAP(0, 1))
         analytical = qd.analytical_solution(c, "ZZ")
-        got = gate_cutting_hadamard_sampling(
+        got = gate_cutting_hadamard(
             c, ["ISWAP_3"], "ZZ", num_samples=8000, shots=None, seed=5
         )
         self.assertLess(abs(analytical - got), 0.12)
@@ -475,12 +475,12 @@ class HadamardSamplingTest(BaseTimedTestCase):
     def test_sampling_subcircuits_workflow(self):
         import Qdislib as qd
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
-            gate_cutting_hadamard_sampling_subcircuits,
+            gate_cutting_hadamard_subcircuits,
         )
 
         c = self._bell_like()
         analytical = qd.analytical_solution(c, "ZZ")
-        subs = gate_cutting_hadamard_sampling_subcircuits(
+        subs = gate_cutting_hadamard_subcircuits(
             c, ["CZ_2"], "ZZ", software="qibo", num_samples=8000, seed=1
         )
         # exact per-fragment eval isolates the config-sampling noise
@@ -498,7 +498,7 @@ class HadamardSamplingTest(BaseTimedTestCase):
         # the sampling, differs between runs).
         import Qdislib as qd
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
-            gate_cutting_hadamard_sampling,
+            gate_cutting_hadamard,
             _sample_configs,
             _hadamard_setup,
         )
@@ -509,10 +509,10 @@ class HadamardSamplingTest(BaseTimedTestCase):
         cfg_b, _ = _sample_configs(decomps, 2000, 42)
         self.assertEqual(cfg_a, cfg_b)  # the draws themselves are reproducible
 
-        a = gate_cutting_hadamard_sampling(
+        a = gate_cutting_hadamard(
             c, ["CZ_2"], "ZZ", num_samples=2000, shots=None, seed=42
         )
-        b = gate_cutting_hadamard_sampling(
+        b = gate_cutting_hadamard(
             c, ["CZ_2"], "ZZ", num_samples=2000, shots=None, seed=42
         )
         self.assertAlmostEqual(a, b, places=10)
@@ -521,14 +521,14 @@ class HadamardSamplingTest(BaseTimedTestCase):
         # reduce_chunk (hierarchical fan-in) must not change the estimate: same seed +
         # exact fragments -> identical draws and values, only the reduction is regrouped.
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
-            gate_cutting_hadamard_sampling,
+            gate_cutting_hadamard,
         )
 
         c = self._bell_like()
-        single = gate_cutting_hadamard_sampling(
+        single = gate_cutting_hadamard(
             c, ["CZ_2"], "ZZ", num_samples=3000, shots=None, seed=9
         )
-        tree = gate_cutting_hadamard_sampling(
+        tree = gate_cutting_hadamard(
             c, ["CZ_2"], "ZZ", num_samples=3000, shots=None, seed=9, reduce_chunk=16
         )
         self.assertAlmostEqual(single, tree, places=9)

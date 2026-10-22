@@ -216,17 +216,71 @@ class JointHadamardCutTest(BaseTimedTestCase):
 
     def test_sampling_is_unbiased(self):
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
-            gate_cutting_hadamard_sampling,
+            gate_cutting_hadamard,
         )
 
         circuit, cut = _one_boundary(2, seed=11)
         values = [
-            gate_cutting_hadamard_sampling(
+            gate_cutting_hadamard(
                 circuit, cut, "ZZZZ", num_samples=3000, shots=None, seed=s, joint=True
             )
             for s in range(4)
         ]
         self.assertLess(abs(np.mean(values) - self._exact(circuit)), 0.1)
+
+
+def _exact_distribution(circuit):
+    state = np.asarray(circuit().state())
+    n = circuit.nqubits
+    return {
+        "".join(str((i >> (n - 1 - q)) & 1) for q in range(n)): float(abs(a) ** 2)
+        for i, a in enumerate(state)
+    }
+
+
+def _tvd(a, b):
+    return 0.5 * sum(abs(a.get(k, 0) - b.get(k, 0)) for k in set(a) | set(b))
+
+
+@unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")
+class HadamardSamplingTest(BaseTimedTestCase):
+    """gate_cutting_hadamard_sampling: the output distribution, like
+    gate_cutting_sampling / wire_cutting_sampling."""
+
+    def test_exact_distribution(self):
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard_sampling,
+        )
+
+        for k in (1, 2):
+            circuit, cut = _one_boundary(k, gate="CNOT", seed=3)
+            exact = _exact_distribution(circuit)
+            for joint in (False, True):
+                dist = gate_cutting_hadamard_sampling(circuit, cut, joint=joint)
+                self.assertLess(_tvd(dist, exact), 1e-9, (k, joint))
+
+    def test_sampled_and_three_step(self):
+        import Qdislib as qd
+
+        circuit, cut = _one_boundary(2, seed=8)
+        exact = _exact_distribution(circuit)
+        dist = qd.gate_cutting_hadamard_sampling(
+            circuit, cut, software="qiskit", shots=20000, joint=True, seed=1
+        )
+        self.assertLess(_tvd(dist, exact), 0.03)
+        subs = qd.gate_cutting_hadamard_sampling_subcircuits(circuit, cut, joint=True)
+        sampled = [qd.sample_subcircuit(s, shots=None) for s in subs]
+        self.assertLess(_tvd(subs.reconstruct(sampled), exact), 1e-9)
+
+    def test_old_expectation_call_is_refused(self):
+        """Up to 1.0.1 this name estimated an expectation value."""
+        import Qdislib as qd
+
+        circuit, cut = _one_boundary(1)
+        with self.assertRaises(TypeError):
+            qd.gate_cutting_hadamard_sampling(circuit, cut, "ZZ", num_samples=100)
+        with self.assertRaises(TypeError):
+            qd.gate_cutting_hadamard_sampling(circuit, cut, observable="ZZ")
 
 
 if __name__ == "__main__":
