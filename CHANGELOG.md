@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Joint measurement of cut wires (`wire_cutting(joint=True)`).** The wires that
+  leave the same fragment are measured together: `2**k + 1` measurement circuits for
+  k wires instead of `3**k`, each reading a commuting group of Paulis (mutually
+  unbiased bases from GF(2**k)), every Pauli once. Works in the all-in-one and
+  three-step workflows, for mixed (chain) fragments too. Implies `optimized=True`.
 - **`CombinedCutSubcircuits`**: the subcircuit container `*_subcircuits` return
   when a circuit has several independent pieces or the observable is a weighted
   Pauli sum. It is still one flat list to evaluate; `reconstruct` multiplies the
