@@ -88,7 +88,7 @@ class AerBackend(BaseBackend):
         )
 
     def evaluate_expectation(
-        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic", seed=None
     ):
         """Evaluate a gate-cut subcircuit via Qiskit Aer (CPU, or GPU when configured)."""
         from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
@@ -105,7 +105,7 @@ class AerBackend(BaseBackend):
             # the passed prep_qubits aren't needed here.
             return _expec_value_qiskit_gpu(subcirc, shots=shots, method=method)
         return _expec_value_qiskit(
-            subcirc, shots=shots, method=method, prep_qubits=prep_qubits
+            subcirc, shots=shots, method=method, prep_qubits=prep_qubits, seed=seed
         )
 
     def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):

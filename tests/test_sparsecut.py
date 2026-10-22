@@ -96,7 +96,7 @@ class SparseCutTest(BaseTimedTestCase):
         cut = qd.find_cut(circuit, coupling_map=self._LINE, max_cuts=1)
         analytical = qd.analytical_solution(circuit, "ZZZZZ")
         got = qd.gate_cutting(
-            circuit, cut, observables="ZZZZZ", software="qibo", shots=1024
+            circuit, cut, observable="ZZZZZ", backend="qibo", shots=1024
         )
         self.assertLess(abs(analytical - got), 0.2)
 

@@ -40,9 +40,9 @@ Qdislib's documentation:
       fully independent. Exposed as ``gate_cutting_hadamard``.
 
     mixed cutting
-      cutting some gates *and* some wires on the same circuit in one workflow
-      (``gate_wire_cutting``); the two quasiprobability decompositions tensor and all
-      fragments run in parallel.
+      cutting some gates (measure-and-prepare or Hadamard) *and* some wires on the
+      same circuit in one workflow (``circuit_cutting``); the quasiprobability
+      decompositions tensor and all fragments run in parallel.
 
     output distribution
       the probability of each measurement bitstring, ``{bitstring: probability}``.
@@ -50,8 +50,9 @@ Qdislib's documentation:
       alternative to a single :term:`expectation value`.
 
     quantum processing unit
-      (QPU) real quantum hardware. Qdislib can route each :term:`subcircuit` to a
-      QPU with ``qpu=True`` and a ``qpu_dict``.
+      (QPU) real quantum hardware. Qdislib runs the :term:`subcircuit`\ s on a QPU
+      when you pass it as ``backend=`` (a registered name or a backend object), on
+      every cutting call or per subcircuit in the three-step loop.
 
     quasiprobability overhead
       the extra sampling cost of :term:`circuit cutting`: each cut expands into

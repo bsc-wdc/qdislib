@@ -59,7 +59,6 @@ __all__ = [
     "gate_cutting_sampling_reconstruction",
     "gate_cutting_hadamard_sampling",
     "gate_cutting_hadamard_sampling_subcircuits",
-    "gate_cutting_hadamard_sampling_reconstruction",
     "wire_cutting_sampling",
     "wire_cutting_sampling_subcircuits",
     "circuit_cutting_sampling",
@@ -79,8 +78,7 @@ __all__ = [
     "analytical_solution",
     "exact_statevector",
     # Finding and inspecting cuts.
-    "hadamard_cut_overhead",
-    "circuit_cutting_overhead",
+    "cutting_overhead",
     "find_cut",
     "draw_cut",
     "cut_cost",

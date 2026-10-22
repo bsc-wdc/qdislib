@@ -71,22 +71,22 @@ def main():
     print(f"Analytical <{observable}> = {analytical:+.4f}")
 
     gate_cut = qd.find_cut(build_circuit(), gate_cut=True, wire_cut=False)
-    gate_value = qd.gate_cutting(build_circuit(), gate_cut, software=SOFTWARE)
+    gate_value = qd.gate_cutting(build_circuit(), gate_cut, backend=SOFTWARE)
     print(
         f"Gate cutting {gate_cut} -> {gate_value:+.4f} "
         f"(|diff| = {abs(gate_value - analytical):.4f})"
     )
 
     wire_cut = qd.find_cut(build_circuit(), gate_cut=False, wire_cut=True)
-    wire_value = qd.wire_cutting(build_circuit(), wire_cut, software=SOFTWARE)
+    wire_value = qd.wire_cutting(build_circuit(), wire_cut, backend=SOFTWARE)
     print(
         f"Wire cutting {wire_cut} -> {wire_value:+.4f} "
         f"(|diff| = {abs(wire_value - analytical):.4f})"
     )
 
     # Recommended three-step workflow: generate -> evaluate -> reconstruct.
-    # Under PyCOMPSs the subcircuits are serializable Subcircuit wrappers, each
-    # evaluated as its own task; in serial they are native circuits.
+    # Each subcircuit is a Subcircuit (s.circuit is the native circuit), evaluated
+    # as its own task.
     gate_subs = qd.gate_cutting_subcircuits(
         build_circuit(), gate_cut, software=SOFTWARE
     )
@@ -107,7 +107,7 @@ def main():
     # fragment @tasks feeds a reconstruction @task, so this exercises that parallel
     # path under runcompss. Falls back to the standard method if not separable.
     wire_opt = qd.wire_cutting(
-        build_circuit(), wire_cut, software=SOFTWARE, optimized=True
+        build_circuit(), wire_cut, backend=SOFTWARE, optimized=True
     )
     print(
         f"Wire cutting (optimized) {wire_cut} -> {wire_opt:+.4f} "
@@ -130,7 +130,7 @@ def main():
     # ``_reduce_hadamard`` @task -- the fan-out/fan-in this app renders under
     # ``runcompss --graph``. Sampled (shot-based) so it exercises the backend tasks.
     had_value = qd.gate_cutting_hadamard(
-        build_circuit(), gate_cut, observable, software=SOFTWARE, shots=100000
+        build_circuit(), gate_cut, observable, backend=SOFTWARE, shots=100000
     )
     print(
         f"Hadamard gate cutting {gate_cut} -> {had_value:+.4f} "

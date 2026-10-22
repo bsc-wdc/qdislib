@@ -191,14 +191,14 @@ class CircuitCuttingExactTest(BaseTimedTestCase):
             circuit,
             cuts,
             "Z" * n,
-            software="qiskit",
+            backend="qiskit",
             shots=20000,
             optimized=True,
             seed=1,
         )
         self.assertLess(abs(value - _exact(circuit, "Z" * n)), 0.05)
         dist = qd.circuit_cutting_sampling(
-            circuit, cuts, software="qiskit", shots=20000, optimized=True, seed=2
+            circuit, cuts, backend="qiskit", shots=20000, optimized=True, seed=2
         )
         self.assertLess(_tvd(dist, _exact_distribution(circuit)), 0.05)
 
@@ -224,7 +224,7 @@ class CircuitCuttingOverheadTest(BaseTimedTestCase):
     def _count(self, kind, k, **kw):
         import Qdislib as qd
 
-        return qd.circuit_cutting_overhead(*_boundary(k, kind), **kw)
+        return qd.cutting_overhead(*_boundary(k, kind), **kw)
 
     def test_counts(self):
         for k in (1, 2, 3):
@@ -256,7 +256,7 @@ class CircuitCuttingOverheadTest(BaseTimedTestCase):
         swap = b.gate("swap", 1, 2)
         b.layer(0, 1, 2, 3)
         b.gate("cz", 0, 1), b.gate("cz", 2, 3)
-        count = qd.circuit_cutting_overhead(b.qc, {"gate": [swap]}, optimized=True)
+        count = qd.cutting_overhead(b.qc, {"gate": [swap]}, optimized=True)
         self.assertEqual((count["subcircuits"], count["gamma"]), (2 * 5**3, 27))
 
     def test_mixed_sums_over_fragments(self):
@@ -265,10 +265,10 @@ class CircuitCuttingOverheadTest(BaseTimedTestCase):
         circuit, cuts = _chain()
         # Fragments: {0,1} sends wire 1; {1',2,...} receives it, holds one gate side
         # and sends wire 2; the last receives wire 2 and holds the other gate side.
-        standard = qd.circuit_cutting_overhead(circuit, cuts)
+        standard = qd.cutting_overhead(circuit, cuts)
         self.assertEqual(standard["configurations"], 6 * 8 * 8)
         self.assertEqual(standard["gamma"], 3 * 4 * 4)
-        optimized = qd.circuit_cutting_overhead(circuit, cuts, optimized=True)
+        optimized = qd.cutting_overhead(circuit, cuts, optimized=True)
         self.assertEqual(optimized["subcircuits"], 3 + 5 * 4 * 3 + 5 * 4)
 
 
@@ -320,8 +320,8 @@ class CutValidityTest(BaseTimedTestCase):
         with self.assertRaises(qd.InvalidCutError):
             qd.gate_wire_cutting(b.qc, [gate], [wire], "ZZZ", software="qiskit")
         with self.assertRaises(qd.InvalidCutError):
-            qd.gate_cutting(b.qc, [gate], observables="ZZZ")
-        qd.wire_cutting(b.qc, [wire], observables="ZZZ", software="qiskit")
+            qd.gate_cutting(b.qc, [gate], observable="ZZZ")
+        qd.wire_cutting(b.qc, [wire], observable="ZZZ", backend="qiskit")
 
 
 class CutArgumentsTest(BaseTimedTestCase):

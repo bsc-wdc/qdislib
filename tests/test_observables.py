@@ -46,7 +46,7 @@ class CircuitTest(BaseTimedTestCase):
 
         analytical = analytical_solution(circuit, "YY")
         circuit = entire_circuit()
-        reconstruction = gate_cutting(circuit, cut, observables="YY")
+        reconstruction = gate_cutting(circuit, cut, observable="YY")
 
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
@@ -63,7 +63,7 @@ class CircuitTest(BaseTimedTestCase):
 
         analytical = analytical_solution(circuit, "XX")
         circuit = entire_circuit()
-        reconstruction = gate_cutting(circuit, cut, observables="XX")
+        reconstruction = gate_cutting(circuit, cut, observable="XX")
 
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
@@ -80,7 +80,7 @@ class CircuitTest(BaseTimedTestCase):
 
         analytical = analytical_solution(circuit, "YX")
         circuit = entire_circuit()
-        reconstruction = gate_cutting(circuit, cut, observables="YX")
+        reconstruction = gate_cutting(circuit, cut, observable="YX")
 
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
@@ -97,7 +97,7 @@ class CircuitTest(BaseTimedTestCase):
 
         analytical = analytical_solution(circuit, "YY")
         circuit = entire_circuit()
-        reconstruction = wire_cutting(circuit, cut, observables="YY")
+        reconstruction = wire_cutting(circuit, cut, observable="YY")
 
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
@@ -114,7 +114,7 @@ class CircuitTest(BaseTimedTestCase):
 
         analytical = analytical_solution(circuit, "XX")
         circuit = entire_circuit()
-        reconstruction = wire_cutting(circuit, cut, observables="XX")
+        reconstruction = wire_cutting(circuit, cut, observable="XX")
 
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)
@@ -132,7 +132,7 @@ class CircuitTest(BaseTimedTestCase):
         analytical = analytical_solution(circuit, "XY")
 
         circuit = entire_circuit()
-        reconstruction = wire_cutting(circuit, cut, observables="XY")
+        reconstruction = wire_cutting(circuit, cut, observable="XY")
 
         if abs(reconstruction - analytical) < 0.2:
             self.assertTrue(True)

@@ -98,7 +98,7 @@ class JointWireMeasurementTest(BaseTimedTestCase):
             subs = qd.wire_cutting_subcircuits(
                 circuit,
                 cuts,
-                observables=obs,
+                observable=obs,
                 software="qiskit",
                 optimized=True,
                 joint=joint,
@@ -107,8 +107,8 @@ class JointWireMeasurementTest(BaseTimedTestCase):
         value = qd.wire_cutting(
             circuit,
             cuts,
-            observables=obs,
-            software="qiskit",
+            observable=obs,
+            backend="qiskit",
             shots=40000,
             optimized=True,
         )
@@ -164,7 +164,7 @@ class JointWireMeasurementTest(BaseTimedTestCase):
                 b.qc,
                 cuts,
                 shots=30000,
-                software="qiskit",
+                backend="qiskit",
                 optimized=True,
                 joint=joint,
                 seed=3,

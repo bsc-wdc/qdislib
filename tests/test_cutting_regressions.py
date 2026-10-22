@@ -66,7 +66,7 @@ class WireCuttingForwardsShotsTest(BaseTimedTestCase):
 
         wc._build_and_run_subcircuit = spy
         try:
-            wc.wire_cutting(circuit, cut, shots=user_shots, software="qibo")
+            wc.wire_cutting(circuit, cut, shots=user_shots, backend="qibo")
         finally:
             wc._build_and_run_subcircuit = original
         return seen
@@ -128,7 +128,7 @@ class IsolatedQubitAfterCutTest(BaseTimedTestCase):
         for obs in ("ZII", "IZI", "IIZ", "ZIZ", "ZZZ"):
             oracle = _z_oracle(self._circuit(), obs)
             got = qd.gate_cutting(
-                self._circuit(), ["CZ_3"], observables=obs, software="qibo", shots=8192
+                self._circuit(), ["CZ_3"], observable=obs, backend="qibo", shots=8192
             )
             self.assertLess(abs(got - oracle), 0.15, f"qibo {obs}")
 
@@ -141,8 +141,8 @@ class IsolatedQubitAfterCutTest(BaseTimedTestCase):
             got = qd.gate_cutting(
                 self._circuit(),
                 ["CZ_3"],
-                observables=obs,
-                software="qiskit",
+                observable=obs,
+                backend="qiskit",
                 shots=8192,
             )
             self.assertLess(abs(got - oracle), 0.15, f"qiskit {obs}")
@@ -198,7 +198,7 @@ class SubcircuitsGroupingTest(BaseTimedTestCase):
         import Qdislib as qd
 
         subs = qd.gate_cutting_subcircuits(
-            _two_blocks(), ["CZ_3"], observables="ZZZZ", software="qiskit"
+            _two_blocks(), ["CZ_3"], observable="ZZZZ", software="qiskit"
         )
         self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
 
@@ -206,7 +206,7 @@ class SubcircuitsGroupingTest(BaseTimedTestCase):
         import Qdislib as qd
 
         subs = qd.gate_cutting_subcircuits(
-            _two_blocks(), ["CZ_3", "CZ_7"], observables="ZZZZ", software="qiskit"
+            _two_blocks(), ["CZ_3", "CZ_7"], observable="ZZZZ", software="qiskit"
         )
         self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
 
@@ -214,7 +214,7 @@ class SubcircuitsGroupingTest(BaseTimedTestCase):
         import Qdislib as qd
 
         subs = qd.wire_cutting_subcircuits(
-            _two_blocks(), [("RY_1", "CZ_3")], observables="ZZZZ", software="qiskit"
+            _two_blocks(), [("RY_1", "CZ_3")], observable="ZZZZ", software="qiskit"
         )
         self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
 
@@ -224,7 +224,7 @@ class SubcircuitsGroupingTest(BaseTimedTestCase):
         value = qd.gate_cutting(
             _two_blocks(),
             ["CZ_3"],
-            observables="ZZZZ",
+            observable="ZZZZ",
             shots=60000,
             cache=qd.InMemoryCircuitCache(),
         )
@@ -244,7 +244,7 @@ class SubcircuitsPauliSumTest(BaseTimedTestCase):
         import Qdislib as qd
 
         subs = qd.gate_cutting_subcircuits(
-            _two_blocks(), ["CZ_3"], observables=self.H, software="qiskit"
+            _two_blocks(), ["CZ_3"], observable=self.H, software="qiskit"
         )
         self.assertLess(abs(_three_step(subs) - self._exact_h()), 0.05)
 
@@ -252,7 +252,7 @@ class SubcircuitsPauliSumTest(BaseTimedTestCase):
         import Qdislib as qd
 
         subs = qd.wire_cutting_subcircuits(
-            _two_blocks(), [("RY_1", "CZ_3")], observables=self.H, software="qiskit"
+            _two_blocks(), [("RY_1", "CZ_3")], observable=self.H, software="qiskit"
         )
         self.assertLess(abs(_three_step(subs) - self._exact_h()), 0.05)
 
@@ -260,7 +260,7 @@ class SubcircuitsPauliSumTest(BaseTimedTestCase):
         import Qdislib as qd
 
         subs = qd.gate_cutting_subcircuits(
-            _two_blocks(), ["CZ_3"], observables=self.H, software="qiskit"
+            _two_blocks(), ["CZ_3"], observable=self.H, software="qiskit"
         )
         with self.assertRaises(ValueError):
             subs.reconstruct([0.0] * (len(subs) - 1))
@@ -268,10 +268,14 @@ class SubcircuitsPauliSumTest(BaseTimedTestCase):
     def test_hadamard_takes_a_pauli_sum(self):
         import Qdislib as qd
 
-        value = qd.gate_cutting_hadamard(_two_blocks(), ["CZ_3"], observable=self.H)
+        value = qd.gate_cutting_hadamard(
+            _two_blocks(), ["CZ_3"], observable=self.H, shots=None
+        )
         self.assertAlmostEqual(value, self._exact_h(), places=8)
         with self.assertRaises(ValueError):  # not a Pauli letter
-            qd.gate_cutting_hadamard(_two_blocks(), ["CZ_3"], observable="AZZZ")
+            qd.gate_cutting_hadamard(
+                _two_blocks(), ["CZ_3"], observable="AZZZ", shots=None
+            )
 
 
 def _serial_wire():
@@ -302,19 +306,19 @@ class SerialWireCutsTest(BaseTimedTestCase):
             value = qd.wire_cutting(
                 _serial_wire(),
                 self.CUTS,
-                observables="ZZ",
-                software="qiskit",
+                observable="ZZ",
+                backend="qiskit",
                 shots=40000,
                 **kwargs,
             )
             self.assertLess(abs(value - exact), 0.05, kwargs)
         for cuts in (self.CUTS[::-1],):
             value = qd.wire_cutting(
-                _serial_wire(), cuts, observables="ZZ", software="qiskit", shots=40000
+                _serial_wire(), cuts, observable="ZZ", backend="qiskit", shots=40000
             )
             self.assertLess(abs(value - exact), 0.05, cuts)
         subs = qd.wire_cutting_subcircuits(
-            _serial_wire(), self.CUTS, observables="ZZ", software="qiskit"
+            _serial_wire(), self.CUTS, observable="ZZ", software="qiskit"
         )
         self.assertLess(abs(_three_step(subs, shots=40000) - exact), 0.05)
 
@@ -328,7 +332,7 @@ class SerialWireCutsTest(BaseTimedTestCase):
             for key, p in Statevector(_serial_wire()).probabilities_dict().items()
         }
         counts = qd.wire_cutting_sampling(
-            _serial_wire(), self.CUTS, shots=40000, software="qiskit"
+            _serial_wire(), self.CUTS, shots=40000, backend="qiskit"
         )
         total = sum(counts.values())
         for key, p in exact.items():
@@ -359,7 +363,7 @@ class FinalMeasurementTest(BaseTimedTestCase):
         exact = _exact(self._qiskit(False), "ZZ")
         for cut in (["CZ_3"], []):
             value = qd.gate_cutting(
-                self._qiskit(True), cut, observables="ZZ", shots=40000
+                self._qiskit(True), cut, observable="ZZ", shots=40000
             )
             self.assertLess(abs(value - exact), 0.05, cut)
 
@@ -379,7 +383,7 @@ class FinalMeasurementTest(BaseTimedTestCase):
 
         exact = qd.analytical_solution(build(False), "ZZ")
         value = qd.gate_cutting(
-            build(True), ["CZ_3"], observables="ZZ", software="qibo", shots=40000
+            build(True), ["CZ_3"], observable="ZZ", backend="qibo", shots=40000
         )
         self.assertLess(abs(value - exact), 0.05)
         # M(0, 1) must not look like a two-qubit gate to find_cut.
@@ -394,7 +398,7 @@ class FinalMeasurementTest(BaseTimedTestCase):
         circuit.cz(0, 1)
         circuit.cz(1, 2)
         circuit.measure_all()
-        value = qd.estimate(circuit, "ZZZ", max_qubits=2, software="qiskit")
+        value = qd.estimate(circuit, "ZZZ", max_qubits=2, backend="qiskit")
         self.assertLess(abs(value - 0.0), 0.1)
 
     def test_mid_circuit_measurement_is_kept(self):
@@ -438,8 +442,8 @@ class RepeatedGateCutsTest(BaseTimedTestCase):
             value = qd.gate_cutting(
                 self._two_cz(),
                 ["CZ_3", "CZ_6"],
-                observables=observable,
-                software="qiskit",
+                observable=observable,
+                backend="qiskit",
                 shots=40000,
             )
             exact = _exact(self._two_cz(), observable)
@@ -456,7 +460,7 @@ class RepeatedGateCutsTest(BaseTimedTestCase):
         circuit.ry(0.4, 0)
         circuit.rx(0.8, 1)
         value = qd.gate_cutting(
-            circuit, ["RXX_3"], observables="ZZ", software="qiskit", shots=40000
+            circuit, ["RXX_3"], observable="ZZ", backend="qiskit", shots=40000
         )
         self.assertLess(abs(value - _exact(circuit, "ZZ")), 0.08)
 

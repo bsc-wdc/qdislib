@@ -227,6 +227,7 @@ class BaseBackend(ABC):
         prep_qubits: Any = (),
         shots: int = 1024,
         method: str = "automatic",
+        seed: int = None,
     ) -> float:
         """Evaluate the expectation of a Qdislib subcircuit DAG on this backend.
 
@@ -244,6 +245,7 @@ class BaseBackend(ABC):
         :param prep_qubits: Renumbered cut qubits measured for the decomposition.
         :param shots: Number of measurement shots.
         :param method: Backend-specific simulation method hint.
+        :param seed: Seed for a simulator's sampling (ignored by hardware).
         :return: The subcircuit's expectation value.
         """
         raise NotImplementedError(

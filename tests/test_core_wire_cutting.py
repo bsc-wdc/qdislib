@@ -196,10 +196,10 @@ class CircuitTest(BaseTimedTestCase):
         self.assertLess(abs(analytical), 0.05)  # sanity: this IS a degenerate ~0 case
 
         standard = wire_cutting(
-            circuit, cuts, observables=obs, shots=20000, optimized=False
+            circuit, cuts, observable=obs, shots=20000, optimized=False
         )
         optimized = wire_cutting(
-            circuit, cuts, observables=obs, shots=20000, optimized=True
+            circuit, cuts, observable=obs, shots=20000, optimized=True
         )
         self.assertLess(abs(standard - analytical), 0.15)
         self.assertLess(abs(optimized - analytical), 0.15)
@@ -227,10 +227,10 @@ class CircuitTest(BaseTimedTestCase):
         self.assertLess(abs(analytical), 0.05)  # sanity: this IS a degenerate ~0 case
 
         standard = wire_cutting(
-            circuit, cuts, observables=obs, shots=20000, optimized=False
+            circuit, cuts, observable=obs, shots=20000, optimized=False
         )
         optimized = wire_cutting(
-            circuit, cuts, observables=obs, shots=20000, optimized=True
+            circuit, cuts, observable=obs, shots=20000, optimized=True
         )
         self.assertLess(abs(standard - analytical), 0.15)
         self.assertLess(abs(optimized - analytical), 0.15)
@@ -346,7 +346,7 @@ class CircuitTest(BaseTimedTestCase):
         circ.add(gates.RY(1, 0.3))
 
         reconstruction = wire_cutting(
-            qc, [("CX_2", "RY_3")], observables="ZZ", shots=20000
+            qc, [("CX_2", "RY_3")], observable="ZZ", shots=20000
         )
         self.assertLess(abs(reconstruction - analytical_solution(circ, "ZZ")), 0.05)
 

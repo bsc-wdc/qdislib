@@ -14,26 +14,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fragment once per setting of the cuts that touch it, so the circuit count is a sum
   over fragments instead of a product over cuts (e.g. 166 instead of 6,912 for two
   gate cuts and two wire cuts across three fragments); this also brings each side of a
-  measure-and-prepare gate cut from 6 circuits to 5. `joint` turns on the joint wire
-  measurement and the joint Hadamard cut. `shots=None` is exact on qibo and Qiskit,
-  mid-circuit measurements included (deferred to an extra qubit).
-  `circuit_cutting_overhead` reports the circuits, configurations, fragments and
-  `gamma` of a cut without running it. `gate_wire_cutting` keeps its behaviour and
-  forwards to `circuit_cutting` when given `hadamard`, `optimized` or `joint`.
+  measure-and-prepare gate cut from 6 circuits to 5. `joint` covers the joint wire
+  measurement and the joint Hadamard cut. It replaces `gate_wire_cutting` (deprecated).
+- **`cutting_overhead(circuit, cuts, ...)`** reports the circuits to run, the
+  configurations, the fragments and `gamma` of any cut or mix, without running it.
+- **Exact results on every cut type**: `shots=None` is a statevector reconstruction
+  (on qibo or Qiskit) for the expectation value and the distribution, all-in-one and
+  three-step; mid-circuit measurements are deferred to an extra qubit.
 - **Output distributions with the Hadamard cut (`gate_cutting_hadamard_sampling`,
   `gate_cutting_hadamard_sampling_subcircuits`).** Every fragment is read in the Z
   basis, so one run per fragment gives its correlators for every output subset; their
   weighted products give every `<Z^A>` and the inverse Walsh-Hadamard transform the
-  distribution, at the cost of one expectation value. Exact with `shots=None` on qibo;
-  works with `joint=True` and `num_samples`. Every cut type now has both an
+  distribution, at the cost of one expectation value. Exact with `shots=None`;
+  works with `joint` and `num_samples`. Every cut type now has both an
   expectation value and an output distribution, each in all-in-one and three-step form.
 - **Joint Hadamard gate cut (`joint=True`).** `gate_cutting_hadamard` and its
   `_subcircuits` / `_sampling` variants can cut all the gates crossing one boundary
   together, with one shared ancilla per fragment: `gamma = 2**(k+1) - 1` instead of
   `3**k` for k CZ/CX, `2**k (2**(k+1) - 1)` settings instead of `6**k`, and one
   ancilla per side instead of k. Works for gates at different times and for general
-  (KAK) gates, needs no communication. `hadamard_cut_overhead` reports the overhead
-  per boundary. Off by default, so existing results are unchanged.
+  (KAK) gates, needs no communication. On by default (`joint=False` cuts each gate on
+  its own).
 - **The Hadamard cut measures X and Y and takes weighted Pauli sums**, like
   `gate_cutting`: X/Y qubits are rotated into the Z basis before cutting, and a sum
   is cut term by term (`*_subcircuits` return a `CombinedCutSubcircuits`).
@@ -56,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   three-step workflow takes the backend directly::
 
       iqm = build_backend("IQM_BACKEND", BackendConfig(quantum_computer="garnet"))
-      subs = qd.gate_cutting_subcircuits(circuit, ["CZ_3"], observables="ZZZZ")
+      subs = qd.gate_cutting_subcircuits(circuit, ["CZ_3"], "ZZZZ")
       values = [qd.expectation_value(s, shots=2000, backend=iqm) for s in subs]
       result = subs.reconstruct(values)
 
@@ -144,6 +145,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **Breaking: one calling convention for every cut type.** Gate, wire, Hadamard and
+  `circuit_cutting` take the same arguments, with the same names and defaults:
+
+      X(circuit, cuts, observable=None, *, backend=None, shots=1024, seed=None, sync=True, ...)
+      X_sampling(circuit, cuts, *, backend=None, shots=1024, seed=None, sync=True, ...)
+      X_subcircuits(circuit, cuts, observable=None, *, software=None, ...)
+      X_sampling_subcircuits(circuit, cuts, *, software=None, ...)
+
+  - `backend` is where the subcircuits run: an SDK name (its simulator), a registered
+    backend name or a `build_backend(...)` object; `None` is the circuit's own SDK.
+    It replaces `software` on the calls that run circuits, and `qpu`, `qpu_dict`,
+    `qpu_config`, `gpu`, `gpu_min_qubits`, `method` and wire cutting's
+    `backend="numpy"`. Choosing a device per subcircuit by size (what `qpu_dict` /
+    `gpu_min_qubits` did) is done in the three-step loop with `s.num_qubits`.
+  - `software` is, on the three-step generators only, the SDK the subcircuits are
+    written in (`None`: the circuit's own).
+  - `observable` (was `observables`) defaults to all `Z` everywhere (the Hadamard cut
+    required it); `cuts` (was `gates_cut` / `cut`); `circuit` (was `dag` /
+    `rand_qc`). Only `circuit`, `cuts` and `observable` are positional; a call in the
+    old positional order (e.g. `wire_cutting(qc, cut, True, "ZZ")`) raises a
+    `TypeError` that says so.
+  - `shots=1024` everywhere, `shots=None` is exact everywhere. The Hadamard cut used
+    to default to exact.
+  - `seed` on every call that samples; each subcircuit gets its own stream.
+  - `sync` on every all-in-one call (`gate_cutting_hadamard_sampling` lacked it).
+  - `joint=True` everywhere: the Hadamard cut now cuts the gates crossing one
+    boundary together by default (`joint=False` for one ancilla per gate).
+  - `optimized` on gate cutting too (each side of a cut gate: 5 circuits instead of
+    6), and on `wire_cutting_sampling_subcircuits`.
+  - Every three-step item is a `Subcircuit`, whatever the cut type: `s.circuit` (the
+    native circuit in `software`), `s.software`, `s.num_qubits`, `s.observable`
+    (`None` for distribution lists). `expectation_value` and `sample_subcircuit`
+    take `shots`, `backend` and `seed`; `s[0]` / `s[1]` still give the circuit and
+    the observable, as the 1.x pairs did.
+  - `estimate` follows the same convention.
+
+  The 1.x keywords keep working in this release with a `DeprecationWarning` naming
+  the replacement, and are removed in the next one. Deprecated the same way:
+  `gate_wire_cutting` (use `circuit_cutting`), `cut_cost` (use
+  `cutting_overhead`) and the standalone `gate_cutting_subcircuit_reconstruction`,
+  `gate_cutting_sampling_reconstruction`, `wire_cutting_subcircuit_reconstruction`
+  and `gate_cutting_hadamard_subcircuit_reconstruction` (use
+  `subcircuits.reconstruct(results)`).
 - **Every cut has to separate its two sides.** All cutting algorithms (gate,
   Hadamard, wire, `gate_wire_cutting`, `circuit_cutting`, with their three-step and
   sampling forms) now check each cut on the circuit with all cuts applied: its two
@@ -165,7 +209,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`wire_cutting` runs the subcircuits in the circuit's own SDK by default.**
   `software` defaulted to `"qibo"` whatever the input, so a Qiskit circuit
   containing `cx` failed unless `software="qiskit"` was passed. The default is now
-  taken from the circuit (`"qibo"` for a DAG, as before). Reported by David Ryan
+  taken from the circuit (Qiskit Aer for a DAG). Reported by David Ryan
   (bsc-wdc/qdislib#14).
 - **Backend options are named directly on `BackendConfig`** --
   `BackendConfig(quantum_computer="garnet")` rather than

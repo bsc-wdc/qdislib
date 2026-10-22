@@ -49,19 +49,25 @@ __all__ = [
     "local_unitary_decomposition",
     "gamma_factor",
     "phi_factor",
-    "hadamard_cut_overhead",
     "gate_cutting_hadamard",
     "gate_cutting_hadamard_subcircuits",
     "gate_cutting_hadamard_subcircuit_reconstruction",
     "gate_cutting_hadamard_sampling",
     "gate_cutting_hadamard_sampling_subcircuits",
     "HadamardCutSubcircuits",
-    "gate_cutting_hadamard_sampling_reconstruction",
     "HadamardSampledCutSubcircuits",
 ]
 
 import itertools
 
+from Qdislib.core.cutting_algorithms._reconstruction import next_seed
+from Qdislib.utils.backends import Subcircuit
+from Qdislib.core.cutting_algorithms._api import (
+    standard_arguments,
+    resolve_backend,
+    resolve_software,
+    default_observable,
+)
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
 
@@ -663,7 +669,7 @@ def _config_assignments(groups, config):
     return assignments
 
 
-def hadamard_cut_overhead(circuit, gates_cut, joint=False):
+def _hadamard_cut_overhead(circuit, gates_cut, joint=False):
     """Sampling overhead of a Hadamard cut: ``(phi_total, [(gates, phi), ...])``.
 
     ``phi`` is the 1-norm of each group's decomposition (:func:`phi_factor`), the
@@ -759,7 +765,9 @@ def _hadamard_fragment_specs(circuit, gates_cut, observable, joint=False):
 
 
 @task(returns=1)
-def _evaluate_hadamard_fragment(frag_dag, num_qubits, software, shots, qpu, qpu_dict):
+def _evaluate_hadamard_fragment(
+    frag_dag, num_qubits, software, shots, qpu, qpu_dict, seed=None
+):
     """Evaluate one fragment's ``<Z_{z_qubits}>`` on any backend (a COMPSs task).
 
     The fragment rides as a neutral DAG whose non-read-out qubits are marked
@@ -773,7 +781,7 @@ def _evaluate_hadamard_fragment(frag_dag, num_qubits, software, shots, qpu, qpu_
     backend = build_execution_backend(
         software, num_qubits=num_qubits, qpu=bool(qpu), qpu_dict=qpu_dict
     )
-    return backend.evaluate_expectation(frag_dag, num_qubits, shots=shots)
+    return backend.evaluate_expectation(frag_dag, num_qubits, shots=shots, seed=seed)
 
 
 @task(returns=1, values=COLLECTION_IN)
@@ -785,7 +793,7 @@ def _reduce_hadamard(values, weights, config_of):
     clean fan-out of fragment tasks into this single reduction, and the reduction runs
     off the master.
     """
-    return gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of)
+    return _gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of)
 
 
 @task(returns=1, partials=COLLECTION_IN)
@@ -847,7 +855,7 @@ def _dispatch_reduce(values, weights, config_of, reduce_chunk, sync):
     return compss_wait_on(result) if sync else result
 
 
-def gate_cutting_hadamard(
+def _gate_cutting_hadamard(
     circuit,
     gates_cut,
     observable,
@@ -924,7 +932,7 @@ def gate_cutting_hadamard(
     terms = _observable_terms(observable)
     if not _is_single_term(terms):
         values = [
-            gate_cutting_hadamard(
+            _gate_cutting_hadamard(
                 circuit,
                 gates_cut,
                 pauli,
@@ -944,7 +952,7 @@ def gate_cutting_hadamard(
             return sum(c * v for c, v in zip(coefficients, values))
         return _weighted_sum(values, coefficients)
     observable = terms[0][1]
-    exact = software == "qibo" and shots is None
+    exact = shots is None  # statevector, whatever the backend
     specs = _hadamard_fragment_specs(circuit, gates_cut, observable, joint)
 
     # Flat fan-out: one value (exact) or future (@task) per fragment, with parallel
@@ -960,13 +968,19 @@ def gate_cutting_hadamard(
                 frag_dag = circuit_qibo_to_dag(frag, obs_I=obs)
                 values.append(
                     _evaluate_hadamard_fragment(
-                        frag_dag, frag.nqubits, software, shots or 1024, qpu, qpu_dict
+                        frag_dag,
+                        frag.nqubits,
+                        software,
+                        shots,
+                        qpu,
+                        qpu_dict,
+                        next_seed(seed, len(values)),
                     )
                 )
             config_of.append(cfg_idx)
 
     if exact:  # in-process, no tasks to synchronise
-        return gate_cutting_hadamard_subcircuit_reconstruction(
+        return _gate_cutting_hadamard_subcircuit_reconstruction(
             values, weights, config_of
         )
     # Fan the per-fragment futures into the reduction (single task, or a tree when
@@ -1005,37 +1019,21 @@ class HadamardCutSubcircuits(list):
         :param values: One value per subcircuit, in this object's order.
         :return: The reconstructed expectation value of the uncut circuit.
         """
-        return gate_cutting_hadamard_subcircuit_reconstruction(
+        return _gate_cutting_hadamard_subcircuit_reconstruction(
             values, self.weights, self.config_of
         )
 
 
 def _materialize_subcircuit(frag, z_qubits, software):
-    """Turn a fragment qibo circuit into a ``[circuit, observable]`` subcircuit for the
-    requested backend, so :func:`expectation_value` can evaluate it directly."""
+    """A fragment qibo circuit as a :class:`~Qdislib.utils.backends.Subcircuit`
+    written in ``software``: the qubits it does not read become "Observable I"."""
+    from Qdislib.utils.backends import Subcircuit
+
     obs = _z_observable(frag.nqubits, z_qubits)
-    if software == "qibo":
-        return [frag, obs]
-    # Convert through the neutral DAG (the non-read-out qubits become "Observable I",
-    # which each backend converter turns back into the observable string).
-    frag_dag = circuit_qibo_to_dag(frag, obs_I=obs)
-    n = frag.nqubits
-    if software == "qiskit":
-        from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
-
-        return dag_to_circuit_qiskit(frag_dag, n)
-    if software in ("cudaq", "cuda-q", "cuda_q"):
-        from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq
-
-        return dag_to_circuit_cudaq(frag_dag, n)
-    if software == "pennylane":
-        from Qdislib.utils.graph_pennylane import dag_to_circuit_pennylane
-
-        return dag_to_circuit_pennylane(frag_dag, n)
-    raise NotImplementedError(f"unknown software backend {software!r}")
+    return Subcircuit(circuit_qibo_to_dag(frag, obs_I=obs), frag.nqubits, software)
 
 
-def gate_cutting_hadamard_subcircuits(
+def _gate_cutting_hadamard_subcircuits(
     circuit,
     gates_cut,
     observable,
@@ -1072,7 +1070,7 @@ def gate_cutting_hadamard_subcircuits(
         from Qdislib.utils.backends import CombinedCutSubcircuits
 
         parts = [
-            gate_cutting_hadamard_subcircuits(circuit, gates_cut, p, software, joint)
+            _gate_cutting_hadamard_subcircuits(circuit, gates_cut, p, software, joint)
             for _, p in terms
         ]
         return CombinedCutSubcircuits(parts, [c for c, _ in terms])
@@ -1092,7 +1090,7 @@ def gate_cutting_hadamard_subcircuits(
     )
 
 
-def gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of):
+def _gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of):
     """Recombine per-fragment values into ``<observable>`` (step three of three).
 
     :param values: One expectation value per subcircuit, in the order produced by
@@ -1224,7 +1222,7 @@ def _gate_cutting_hadamard_montecarlo(
             return sum(c * v for c, v in zip(coefficients, values))
         return _weighted_sum(values, coefficients)
     observable = terms[0][1]
-    exact = software == "qibo" and shots is None
+    exact = shots is None  # statevector, whatever the backend
     cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut, observable)
     groups = _cut_groups(cut_dag, components, decomps, joint)
     configs, phi_total = _sample_configs([t for _, t in groups], num_samples, seed)
@@ -1243,13 +1241,19 @@ def _gate_cutting_hadamard_montecarlo(
                 frag_dag = circuit_qibo_to_dag(frag, obs_I=obs)
                 values.append(
                     _evaluate_hadamard_fragment(
-                        frag_dag, frag.nqubits, software, shots or 1024, qpu, qpu_dict
+                        frag_dag,
+                        frag.nqubits,
+                        software,
+                        shots,
+                        qpu,
+                        qpu_dict,
+                        next_seed(seed, "run", len(values)),
                     )
                 )
             config_of.append(s)
 
     if exact:  # in-process, no tasks to synchronise
-        return gate_cutting_hadamard_subcircuit_reconstruction(
+        return _gate_cutting_hadamard_subcircuit_reconstruction(
             values, weights, config_of
         )
     return _dispatch_reduce(values, weights, config_of, reduce_chunk, sync)
@@ -1433,7 +1437,7 @@ def _num_circuit_qubits(circuit):
         return 1 + max(q for _, d in dag.nodes(data=True) for q in d.get("qubits", ()))
 
 
-def gate_cutting_hadamard_sampling_reconstruction(
+def _gate_cutting_hadamard_sampling_reconstruction(
     sampled, weights, config_of, num_qubits
 ):
     """Recombine per-fragment correlators into the output distribution.
@@ -1464,7 +1468,7 @@ def gate_cutting_hadamard_sampling_reconstruction(
     return {key: abs(float(p)) / norm for key, p in zip(keys, probabilities)}
 
 
-def gate_cutting_hadamard_sampling(
+def _gate_cutting_hadamard_sampling(
     circuit,
     gates_cut,
     software="qibo",
@@ -1475,6 +1479,7 @@ def gate_cutting_hadamard_sampling(
     joint=False,
     num_samples=None,
     observable=None,
+    sync=True,
 ):
     """Reconstruct the output **probability distribution** with the Hadamard cut.
 
@@ -1505,11 +1510,7 @@ def gate_cutting_hadamard_sampling(
         ``gate_cutting_hadamard(..., num_samples=N)``.)
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
-    if (
-        observable is not None
-        or not isinstance(software, str)
-        or (software and set(software) <= set("IXYZ"))
-    ):
+    if observable is not None:
         raise TypeError(
             "gate_cutting_hadamard_sampling* now returns the output distribution and "
             "takes no observable (it is the Hadamard counterpart of "
@@ -1517,15 +1518,13 @@ def gate_cutting_hadamard_sampling(
             "value use gate_cutting_hadamard(circuit, gates_cut, observable, "
             "num_samples=N) or gate_cutting_hadamard_subcircuits(..., num_samples=N)."
         )
-    exact = shots is None
-    if exact and software != "qibo":
-        raise ValueError("shots=None (exact) needs software='qibo'")
+    exact = shots is None  # statevector (qibo), whatever the backend
     weights, units = _hadamard_distribution_units(
         circuit, gates_cut, joint, num_samples, seed
     )
     sampled, config_of = [], []
     for n, (cfg, frag_dag, nqubits, num_data, original) in enumerate(units):
-        unit_seed = None if seed is None else seed + n
+        unit_seed = next_seed(seed, n)
         if exact:
             corr = _fragment_correlators(
                 frag_dag, nqubits, num_data, software, None, None, qpu, qpu_dict
@@ -1546,33 +1545,60 @@ def gate_cutting_hadamard_sampling(
                 )
             )
         config_of.append(cfg)
-    return gate_cutting_hadamard_sampling_reconstruction(
+    if sync or exact:
+        return _gate_cutting_hadamard_sampling_reconstruction(
+            sampled, weights, config_of, _num_circuit_qubits(circuit)
+        )
+    return _hadamard_sampling_reconstruction_task(
         sampled, weights, config_of, _num_circuit_qubits(circuit)
     )
 
 
-class _HadamardSampleUnit:
-    """One Hadamard-cut fragment to sample for the distribution (three-step).
+@task(returns=1, sampled=COLLECTION_IN)
+def _hadamard_sampling_reconstruction_task(sampled, weights, config_of, num_qubits):
+    """:func:`gate_cutting_hadamard_sampling_reconstruction` as a task (sync=False)."""
+    return _gate_cutting_hadamard_sampling_reconstruction(
+        sampled, weights, config_of, num_qubits
+    )
 
-    :func:`~Qdislib.sample_subcircuit` calls :meth:`sample`, which returns the
-    fragment's ``(corr, original)`` correlators. Picklable (a DAG plus metadata).
-    """
+
+class _HadamardSampleUnit(Subcircuit):
+    """One Hadamard-cut fragment to sample for the distribution (three-step):
+    :func:`~Qdislib.sample_subcircuit` returns its ``(corr, original)`` correlators,
+    the ancillas' parity folded in. A renumbered DAG plus metadata (picklable)."""
+
+    kind = "distribution"
 
     def __init__(self, frag_dag, nqubits, num_data, original, software, qpu, qpu_dict):
-        self.frag_dag = frag_dag
-        self.nqubits = nqubits
+        super().__init__(frag_dag, nqubits, software)
         self.num_data = num_data
         self.original = original
-        self.software = software
         self.qpu = qpu
         self.qpu_dict = qpu_dict
 
-    def sample(self, shots=1024, seed=None):
-        """``(corr, original)`` from ``shots`` samples (exact on qibo if ``None``)."""
+    @property
+    def frag_dag(self):
+        return self.dag
+
+    @property
+    def nqubits(self):
+        return self.num_qubits
+
+    @property
+    def observable(self):
+        return None
+
+    def _expectation(self, shots, backend, seed, cache, cache_mode):
+        raise TypeError(
+            "This fragment comes from a *_sampling_subcircuits list (distribution): "
+            "run it with sample_subcircuit()."
+        )
+
+    def _sample(self, shots, backend, seed):
         if shots is None:
             corr = _fragment_correlators(
-                self.frag_dag,
-                self.nqubits,
+                self.dag,
+                self.num_qubits,
                 self.num_data,
                 "qibo",
                 None,
@@ -1582,19 +1608,20 @@ class _HadamardSampleUnit:
             )
             return corr, self.original
         return _fragment_correlators_task(
-            self.frag_dag,
-            self.nqubits,
+            self.dag,
+            self.num_qubits,
             self.num_data,
             self.original,
-            self.software,
+            self.software if backend is None else backend,
             shots,
             seed,
             self.qpu,
             self.qpu_dict,
         )
 
-    def __repr__(self):
-        return f"_HadamardSampleUnit(qubits={self.original}, width={self.nqubits})"
+    def sample(self, shots=1024, seed=None):
+        """``(corr, original)`` (the 1.x method; see :func:`~Qdislib.sample_subcircuit`)."""
+        return self._sample(shots, None, seed)
 
 
 class HadamardSampledCutSubcircuits(list):
@@ -1614,12 +1641,12 @@ class HadamardSampledCutSubcircuits(list):
 
     def reconstruct(self, sampled_results):
         """``{bitstring: probability}`` from one sample result per subcircuit."""
-        return gate_cutting_hadamard_sampling_reconstruction(
+        return _gate_cutting_hadamard_sampling_reconstruction(
             sampled_results, self.weights, self.config_of, self.num_qubits
         )
 
 
-def gate_cutting_hadamard_sampling_subcircuits(
+def _gate_cutting_hadamard_sampling_subcircuits(
     circuit,
     gates_cut,
     software="qibo",
@@ -1638,11 +1665,7 @@ def gate_cutting_hadamard_sampling_subcircuits(
 
     :return: A :class:`HadamardSampledCutSubcircuits`.
     """
-    if (
-        observable is not None
-        or not isinstance(software, str)
-        or (software and set(software) <= set("IXYZ"))
-    ):
+    if observable is not None:
         raise TypeError(
             "gate_cutting_hadamard_sampling* now returns the output distribution and "
             "takes no observable (it is the Hadamard counterpart of "
@@ -1663,3 +1686,156 @@ def gate_cutting_hadamard_sampling_subcircuits(
         num_qubits=_num_circuit_qubits(circuit),
         number_cuts=len(gates_cut),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Public API (the calling convention shared by every cut type, see _api.py)
+# --------------------------------------------------------------------------- #
+
+
+@standard_arguments
+def gate_cutting_hadamard(
+    circuit,
+    cuts,
+    observable=None,
+    *,
+    backend=None,
+    shots=1024,
+    seed=None,
+    sync=True,
+    joint=True,
+    num_samples=None,
+    reduce_chunk=None,
+    _legacy=None,
+):
+    """Reconstruct ``<observable>`` with the ancilla / double-Hadamard-test gate cut
+    (Harrow & Lowe, arXiv:2403.01018): any two-qubit gate, ``gamma = 3`` per CZ/CX,
+    no mid-circuit measurement.
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Two-qubit gate names to cut.
+    :param observable: A Pauli string or a weighted Pauli sum; ``None`` is all ``Z``.
+    :param backend: Where the fragments run (see :func:`gate_cutting`).
+    :param shots: Shots per fragment; ``None`` is exact (statevector).
+    :param seed: Seed for the simulators' sampling and for the ``num_samples`` draws.
+    :param sync: ``False`` returns the value as a future (PyCOMPSs).
+    :param joint: Cut the gates crossing the same boundary together, with one shared
+        ancilla per fragment: ``gamma = 2**(k+1) - 1`` instead of ``3**k`` for k
+        CZ/CX. The shared ancilla must stay coherent from the boundary's first cut
+        gate to its last; ``False`` cuts each gate on its own.
+    :param num_samples: Draw this many configurations from the quasiprobability
+        distribution instead of running them all.
+    :param reduce_chunk: Fold the results through a balanced tree of this arity.
+    :return: The reconstructed expectation value.
+    """
+    legacy = _legacy or {}
+    return _gate_cutting_hadamard(
+        circuit,
+        cuts,
+        default_observable(observable, circuit),
+        software=resolve_backend(backend, circuit),
+        shots=shots,
+        seed=seed,
+        qpu=legacy.get("qpu", False),
+        qpu_dict=legacy.get("qpu_dict"),
+        sync=sync,
+        reduce_chunk=reduce_chunk,
+        joint=joint,
+        num_samples=num_samples,
+    )
+
+
+@standard_arguments
+def gate_cutting_hadamard_sampling(
+    circuit,
+    cuts,
+    *,
+    backend=None,
+    shots=1024,
+    seed=None,
+    sync=True,
+    joint=True,
+    num_samples=None,
+    _legacy=None,
+):
+    """Reconstruct the output **probability distribution** with the Hadamard cut.
+    Arguments as in :func:`gate_cutting_hadamard`.
+
+    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+    """
+    legacy = _legacy or {}
+    return _gate_cutting_hadamard_sampling(
+        circuit,
+        cuts,
+        software=resolve_backend(backend, circuit),
+        shots=shots,
+        seed=seed,
+        qpu=legacy.get("qpu", False),
+        qpu_dict=legacy.get("qpu_dict"),
+        joint=joint,
+        num_samples=num_samples,
+        sync=sync,
+    )
+
+
+@standard_arguments
+def gate_cutting_hadamard_subcircuits(
+    circuit,
+    cuts,
+    observable=None,
+    *,
+    software=None,
+    joint=True,
+    num_samples=None,
+    seed=None,
+):
+    """The fragments of :func:`gate_cutting_hadamard`, to run yourself (three-step).
+
+    :param software: The SDK the fragments are written in (``None``: the
+        circuit's own); where they run is chosen when you run them.
+    :param seed: Seed for the ``num_samples`` draws.
+    :return: A list of subcircuits with ``reconstruct(values)``.
+    """
+    return _gate_cutting_hadamard_subcircuits(
+        circuit,
+        cuts,
+        default_observable(observable, circuit),
+        software=resolve_software(software, circuit),
+        joint=joint,
+        num_samples=num_samples,
+        seed=seed,
+    )
+
+
+@standard_arguments
+def gate_cutting_hadamard_sampling_subcircuits(
+    circuit, cuts, *, software=None, joint=True, num_samples=None, seed=None
+):
+    """The fragments of :func:`gate_cutting_hadamard_sampling`, to sample yourself.
+
+    :return: A list of subcircuits with ``reconstruct(results)``.
+    """
+    return _gate_cutting_hadamard_sampling_subcircuits(
+        circuit,
+        cuts,
+        software=resolve_software(software, circuit),
+        joint=joint,
+        num_samples=num_samples,
+        seed=seed,
+    )
+
+
+# Deprecated in 2.0.0: ``subcircuits.reconstruct(results)`` is the one way.
+
+
+def gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of):
+    """Deprecated: use ``subcircuits.reconstruct(results)``."""
+    import warnings
+
+    warnings.warn(
+        "gate_cutting_hadamard_subcircuit_reconstruction() is deprecated: use subcircuits.reconstruct(results); it is "
+        "removed in the next release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of)

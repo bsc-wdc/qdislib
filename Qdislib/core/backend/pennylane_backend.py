@@ -107,7 +107,7 @@ class PennylaneBackend(BaseBackend):
     # ------------------------------------------------------------------
 
     def evaluate_expectation(
-        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic", seed=None
     ):
         """Evaluate a cut subcircuit via a PennyLane QNode."""
         from Qdislib.utils.graph_pennylane import dag_to_circuit_pennylane
@@ -115,7 +115,11 @@ class PennylaneBackend(BaseBackend):
 
         subcirc = dag_to_circuit_pennylane(dag, num_qubits)
         return _expec_value_pennylane(
-            subcirc, shots, prep_qubits=list(prep_qubits), device=self._device
+            subcirc,
+            shots,
+            prep_qubits=list(prep_qubits),
+            device=self._device,
+            seed=seed,
         )
 
     def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):

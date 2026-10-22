@@ -163,10 +163,10 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         self.assertGreater(abs(analytical), 0.05)  # sanity: not a degenerate ~0 case
 
         standard = wire_cutting(
-            circuit, _CHAIN_CUTS, observables=obs, shots=20000, optimized=False
+            circuit, _CHAIN_CUTS, observable=obs, shots=20000, optimized=False
         )
         optimized = wire_cutting(
-            circuit, _CHAIN_CUTS, observables=obs, shots=20000, optimized=True
+            circuit, _CHAIN_CUTS, observable=obs, shots=20000, optimized=True
         )
 
         self.assertLess(abs(standard - analytical), 0.1)
@@ -215,7 +215,7 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
             value = wc.wire_cutting(
                 circuit,
                 _TWO_CUTS,
-                observables=hamiltonian,
+                observable=hamiltonian,
                 shots=10000,
                 optimized=True,
             )
@@ -308,7 +308,7 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
             for x in range(2**n)
         }
         distribution = qd.wire_cutting_sampling(
-            circuit, _TWO_CUTS, shots=60000, software="qibo", seed=1, optimized=True
+            circuit, _TWO_CUTS, shots=60000, backend="qibo", seed=1, optimized=True
         )
         tvd = 0.5 * sum(
             abs(distribution.get(key, 0.0) - exact.get(key, 0.0))
@@ -329,7 +329,7 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
             for x in range(2**n)
         }
         distribution = qd.wire_cutting_sampling(
-            circuit, _CHAIN_CUTS, shots=60000, software="qibo", seed=1, optimized=True
+            circuit, _CHAIN_CUTS, shots=60000, backend="qibo", seed=1, optimized=True
         )
         tvd = 0.5 * sum(
             abs(distribution.get(key, 0.0) - exact.get(key, 0.0))
@@ -355,7 +355,7 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
                 _chain_circuit(),
                 _CHAIN_CUTS,
                 shots=2000,
-                software="qibo",
+                backend="qibo",
                 seed=1,
                 optimized=True,
             )

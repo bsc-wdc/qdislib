@@ -87,13 +87,17 @@ class CudaqBackend(BaseBackend):
         return self._to_kernel(circuit)
 
     def evaluate_expectation(
-        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic", seed=None
     ):
         """Evaluate a gate-cut subcircuit via CUDA-Q."""
         from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq
         from Qdislib.core.cutting_algorithms.wire_cutting import _expec_value_cudaq
 
         subcirc = dag_to_circuit_cudaq(dag, num_qubits)
+        if seed is not None:
+            import cudaq
+
+            cudaq.set_random_seed(seed)
         return _expec_value_cudaq(subcirc, shots, prep_qubits=prep_qubits)
 
     def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):

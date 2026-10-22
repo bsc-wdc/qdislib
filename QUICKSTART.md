@@ -47,7 +47,7 @@ installation steps below). GPU acceleration may additionally require
     circuit = models.Circuit(2)
     circuit.add(gates.H(0)); circuit.add(gates.CZ(0, 1)); circuit.add(gates.RY(0, 0.8))
 
-    subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"], software="qibo")
+    subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"])
     values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
     print(subcircuits.reconstruct(values))  # ≈ -0.717
     ```

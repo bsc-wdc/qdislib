@@ -63,6 +63,52 @@ Alternatively, inside Jupyter notebooks, you can use the `ipycompss` interface:
 
 Refer to the :doc:`quickstart guide <quickstart>` and :doc:`examples <examples>` for details on PyCOMPSs setup and configuration.
 
+Calling convention
+------------------
+
+Every cut type -- gate, wire, Hadamard, and any mix of them (``circuit_cutting``) --
+has the same four functions with the same arguments:
+
+.. code-block:: python
+
+    X(circuit, cuts, observable=None, *, backend=None, shots=1024, seed=None, sync=True, ...)
+    X_sampling(circuit, cuts, *, backend=None, shots=1024, seed=None, sync=True, ...)
+    X_subcircuits(circuit, cuts, observable=None, *, software=None, ...)
+    X_sampling_subcircuits(circuit, cuts, *, software=None, ...)
+
+where ``X`` is ``gate_cutting``, ``wire_cutting``, ``gate_cutting_hadamard`` or
+``circuit_cutting``.
+
+- ``X`` returns the expectation value of ``observable`` (a Pauli string or a
+  weighted Pauli sum; ``None`` is ``Z`` on every qubit); ``X_sampling`` returns the
+  output **distribution** ``{bitstring: probability}``.
+- ``backend`` is **where** the subcircuits run: an SDK name (``"qibo"``,
+  ``"qiskit"``, ``"cudaq"``, ``"pennylane"`` -- its local simulator), a registered
+  backend name (``"IBM_BACKEND"``, ``"IQM_BACKEND"``, ``"BSC_QPU_BACKEND"``, ...) or a
+  backend object from ``qd.build_backend(...)``. ``None`` uses the circuit's own SDK.
+- ``shots=None`` gives the **exact** result (statevector) on every cut type.
+- ``seed`` makes simulator runs reproducible (each subcircuit gets its own stream);
+  nothing is random with ``shots=None``.
+- ``sync=False`` returns a future (PyCOMPSs), to overlap several cuts.
+- Every option has the same name and default everywhere: ``optimized=False``
+  (gate, wire, ``circuit_cutting``), ``joint=True`` (wire, Hadamard,
+  ``circuit_cutting``), ``num_samples=None`` (Hadamard), ``hadamard=False``
+  (``circuit_cutting``).
+- Only ``circuit``, ``cuts`` and ``observable`` go by position; the rest by keyword.
+
+The three-step forms take ``software`` -- the **language** the subcircuits are
+written in (``None``: the circuit's own) -- and return a list of
+:class:`~Qdislib.Subcircuit` objects, the same for every cut type, plus
+``reconstruct``. See :ref:`three-step <three-step-label>`.
+
+``qd.cutting_overhead(circuit, cuts, ...)`` reports the cost of any cut without
+running it: ``{"subcircuits", "configurations", "fragments", "gamma"}``.
+
+The 1.x names (``observables=``, ``software=`` on the all-in-one calls, ``qpu=``,
+``qpu_dict=``, ``gpu=``, ``method=``, ``gates_cut=``, ``gate_wire_cutting``,
+``cut_cost`` and the standalone ``*_reconstruction`` functions) still work in this
+release, with a ``DeprecationWarning`` naming the replacement.
+
 Algorithms
 ----------
 
@@ -79,12 +125,13 @@ Qdislib includes several circuit cutting strategies:
   instead of 27 at ``k = 3``), ``2**k (2**(k+1) - 1)`` settings instead of ``6**k``,
   and one ancilla per side instead of ``k``. The gates may sit at different times and
   be any two-qubit gate; no mid-circuit measurement or classical communication is
-  needed. ``qd.hadamard_cut_overhead(circuit, cut, joint=True)`` returns the overhead
-  per boundary.
+  needed. It is the default (``joint=False`` cuts each gate on its own);
+  ``qd.cutting_overhead(circuit, {"hadamard": cut})`` returns ``gamma``.
 
   .. code-block:: python
 
-      value = qd.gate_cutting_hadamard(circuit, ["CZ_5", "CZ_9"], "ZZZZ", joint=True)
+      value = qd.gate_cutting_hadamard(circuit, ["CZ_5", "CZ_9"], "ZZZZ")
+      separate = qd.gate_cutting_hadamard(circuit, ["CZ_5", "CZ_9"], "ZZZZ", joint=False)
 
   The shared ancilla must stay coherent from the boundary's first cut gate to its
   last, and needs a controlled gate with each of them, so on hardware with short T2
@@ -112,8 +159,8 @@ Qdislib includes several circuit cutting strategies:
 
   .. code-block:: python
 
-      value = qd.wire_cutting(circuit, cut, observables="ZZZZ", optimized=True)
-      per_wire = qd.wire_cutting(circuit, cut, observables="ZZZZ", optimized=True, joint=False)
+      value = qd.wire_cutting(circuit, cut, "ZZZZ", optimized=True)
+      per_wire = qd.wire_cutting(circuit, cut, "ZZZZ", optimized=True, joint=False)
 
 - **Any combination of cuts** (``circuit_cutting``): measure-and-prepare gate cuts,
   Hadamard gate cuts and wire cuts on the **same circuit**, in any number. Their
@@ -127,16 +174,15 @@ Qdislib includes several circuit cutting strategies:
       cuts = {"gate": ["CX_7"], "hadamard": ["CZ_3"], "wire": [("U_5", "CZ_9")]}
       value = qd.circuit_cutting(circuit, cuts, "ZZZZZ", optimized=True)
       dist = qd.circuit_cutting_sampling(circuit, cuts, optimized=True)
-      qd.circuit_cutting_overhead(circuit, cuts, optimized=True)
+      qd.cutting_overhead(circuit, cuts, optimized=True)
       # e.g. {'subcircuits': 81, 'configurations': 2304, 'fragments': 4, 'gamma': 144.0}
 
   ``cuts`` is a dict (any subset of ``"gate"``, ``"hadamard"``, ``"wire"``, as
   ``find_cut(..., mixed=True)`` returns) or a list of gate names and wire edges, with
-  ``hadamard=True`` to cut its gates with the Hadamard test. ``joint`` turns on the
-  joint wire measurement and the joint Hadamard cut (``None``, the default, keeps each
-  cut's own default). ``shots=None`` gives the exact result (statevector, qibo or
-  Qiskit), mid-circuit measurements included. ``gate_wire_cutting`` is still there and
-  forwards to it when given ``hadamard``, ``optimized`` or ``joint``.
+  ``hadamard=True`` to cut its gates with the Hadamard test. ``joint`` (default
+  ``True``) covers both the joint wire measurement and the joint Hadamard cut.
+  ``shots=None`` gives the exact result, mid-circuit measurements included.
+  ``gate_wire_cutting`` (1.x) still works, with a deprecation warning.
 
   **How the cost grows.** The sampling overhead ``gamma`` is the product of the cuts'
   (3 per measure-and-prepare gate, 3 per Hadamard gate or ``2**(k+1) - 1`` for a joint
@@ -247,12 +293,16 @@ cut with the cheapest mix rather than forced into one type.
 .. tip::
 
    Each cut multiplies the number of subcircuit evaluations — a **gate cut by 6**,
-   a **wire cut by 8** — so the cost grows *exponentially* in the number of cuts.
-   Preview it before running with ``qd.cut_cost``:
+   a **wire cut by 8** — so the cost grows *exponentially* in the number of cuts
+   (``optimized=True`` turns much of that product into a sum, see above). Preview it
+   before running with ``qd.cutting_overhead``:
 
    .. code-block:: python
 
-       qd.cut_cost(cut)   # {'num_cuts': 2, 'kind': 'gate', 'base': 6, 'terms': 36}
+       qd.cutting_overhead(circuit, {"gate": cut})
+       # {'subcircuits': 72, 'configurations': 36, 'fragments': 2, 'gamma': 9.0}
+
+.. _three-step-label:
 
 **Recommended workflow: generate → evaluate → reconstruct**
 
@@ -268,21 +318,41 @@ cutting and the reconstruction. This enables:
 
 .. code-block:: python
 
-    # 1. Cut the circuit into independently executable subcircuits.
-    #    software is one of "qibo", "qiskit" or "cudaq".
-    subcircuits = qd.gate_cutting_subcircuits(circuit, gate_cut, software="qibo")
-    # (or qd.wire_cutting_subcircuits(circuit, wire_cut, software="qibo"))
+    # 1. Cut the circuit into subcircuits, written in the SDK you choose
+    #    ("qibo", "qiskit", "cudaq", "pennylane"; None = the circuit's own).
+    subcircuits = qd.gate_cutting_subcircuits(circuit, gate_cut, "ZZZZ", software="qiskit")
+    # (the same for wire_cutting_, gate_cutting_hadamard_ and circuit_cutting_subcircuits)
 
-    # 2. Evaluate each subcircuit — this loop is yours to control.
+    # 2. Run each subcircuit — this loop is yours to control.
     values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
 
     # 3. Recombine into the original circuit's expectation value.
     result = subcircuits.reconstruct(values)
 
-The returned ``subcircuits`` object behaves like a list of subcomponents (so it
-can be iterated, indexed and executed independently using Qibo, Qiskit, CUDA-Q,
-PennyLane, or submitted to QPUs) and additionally carries the cut metadata needed by
-:meth:`~Qdislib.utils.backends.CutSubcircuits.reconstruct`.
+Every item is a :class:`~Qdislib.Subcircuit`, whatever the cut type:
+
+- ``s.circuit`` -- the native circuit in ``software`` (a Qiskit ``QuantumCircuit``
+  above), to inspect, draw, transpile or submit yourself;
+- ``s.software``, ``s.num_qubits``;
+- ``s.observable`` -- the Z/I string read at its end, or ``None`` when every qubit is
+  read in Z (the ``_sampling_subcircuits`` lists).
+
+Run the items of a ``*_subcircuits`` list with ``qd.expectation_value(s, shots=...,
+backend=..., seed=...)`` and those of a ``*_sampling_subcircuits`` list with
+``qd.sample_subcircuit(s, shots=..., backend=..., seed=...)``; ``backend`` takes the
+same values as in the all-in-one calls, and ``None`` runs the subcircuit on its own
+SDK's simulator. Choosing it per subcircuit is how you route by size:
+
+.. code-block:: python
+
+    ibm = qd.build_backend("IBM_BACKEND", qd.BackendConfig(...))
+    values = [
+        qd.expectation_value(s, shots=4000, backend=ibm if s.num_qubits <= 127 else None)
+        for s in subcircuits
+    ]
+
+``subcircuits.reconstruct(results)`` is the one way to recombine (the 1.x
+``*_reconstruction`` functions are deprecated).
 
 If you prefer a single call, ``qd.gate_cutting(...)`` / ``qd.wire_cutting(...)``
 run the cut, execution and reconstruction together. This modular structure gives
@@ -292,7 +362,7 @@ users fine-grained control over hybrid quantum-classical workflows.
 Observables
 -----------
 
-The ``observables`` argument accepts a per-qubit Pauli string over
+The ``observable`` argument accepts a per-qubit Pauli string over
 ``X``, ``Y``, ``Z`` and ``I`` (identity), e.g. ``"ZIZ"``. ``X`` and ``Y`` terms
 are measured by rotating into the Z basis automatically, on any backend.
 
@@ -305,13 +375,13 @@ mapping:
 
     # <0.5 ZZ> + <1.0 XI> - <0.3 IZ>
     hamiltonian = [(0.5, "ZZ"), (1.0, "XI"), (-0.3, "IZ")]
-    result = qd.gate_cutting(circuit, cut, observables=hamiltonian)
+    result = qd.gate_cutting(circuit, cut, hamiltonian)
 
     # equivalently, as a mapping
-    result = qd.gate_cutting(circuit, cut, observables={"ZZ": 0.5, "XI": 1.0, "IZ": -0.3})
+    result = qd.gate_cutting(circuit, cut, {"ZZ": 0.5, "XI": 1.0, "IZ": -0.3})
 
-The same forms work with ``qd.wire_cutting``, ``qd.gate_cutting_hadamard`` (and
-its ``_subcircuits`` variant) and ``qd.analytical_solution``.
+The same forms work with every cut type (and its ``_subcircuits`` variant) and
+``qd.analytical_solution``.
 
 
 Sampling the output distribution
@@ -327,15 +397,16 @@ three-step forms:
 
     dist = qd.gate_cutting_sampling(circuit, cut, shots=200_000)
     # or  qd.wire_cutting_sampling(circuit, wire_cut, shots=200_000)
-    # or  qd.gate_cutting_hadamard_sampling(circuit, cut, shots=200_000, joint=True)
+    # or  qd.gate_cutting_hadamard_sampling(circuit, cut, shots=200_000)
+    # or  qd.circuit_cutting_sampling(circuit, cuts, shots=200_000, optimized=True)
 
     # three-step: sample each subcircuit yourself, then reconstruct
     subs = qd.gate_cutting_hadamard_sampling_subcircuits(circuit, cut)
     dist = subs.reconstruct([qd.sample_subcircuit(s, shots=8192) for s in subs])
 
 For the Hadamard cut, every fragment is read in the Z basis anyway, so the
-distribution costs the same circuits as one expectation value, and with
-``shots=None`` (``software="qibo"``) it is exact.
+distribution costs the same circuits as one expectation value. With ``shots=None``
+every cut type gives the exact distribution.
 
 Reconstructing a distribution carries a quasiprobability overhead, so it needs
 **more shots** than an expectation value. Pass ``seed=`` for a reproducible
@@ -375,10 +446,11 @@ Under PyCOMPSs, use the ``"redis"`` store so the cache is shared across workers.
 Choosing a backend
 -------------------
 
-The ``software`` argument selects the simulator the subcircuits run on —
-``"qibo"``, ``"qiskit"`` or ``"cudaq"`` — and is accepted by every cutting call.
-Under the hood a pluggable **backend layer** turns your ``software`` / ``gpu`` /
-``qpu`` arguments into a concrete backend:
+The ``backend`` argument selects where the subcircuits run -- an SDK's simulator
+(``"qibo"``, ``"qiskit"``, ``"cudaq"``, ``"pennylane"``), a registered backend by name,
+or a configured backend object -- and is accepted by every cutting call and by
+``expectation_value`` / ``sample_subcircuit``. Under the hood a pluggable **backend
+layer** turns it into a concrete backend:
 
 .. code-block:: python
 
@@ -389,7 +461,7 @@ Under the hood a pluggable **backend layer** turns your ``software`` / ``gpu`` /
 You can register your own backend (an in-house simulator or a cloud QPU) by
 subclassing :class:`~Qdislib.core.backend.base_backend.BaseBackend` and calling
 ``qd.register_backend(...)``; the cutting code then selects it via
-``software="MY_BACKEND"`` with no other change. See notebook *08 · Backends under
+``backend="MY_BACKEND"`` with no other change. See notebook *08 · Backends under
 the hood*.
 
 
@@ -403,14 +475,20 @@ Qdislib is designed to run efficiently across CPUs, GPUs, and quantum devices de
 Using GPUs
 ----------
 
-Qdislib offloads eligible subcircuit simulations to Qiskit Aer's GPU simulator
-(``device="GPU"``, cuStateVec-enabled), for both ``gate_cutting`` and
-``wire_cutting``. Pass ``gpu=True`` and a ``gpu_min_qubits`` threshold — only
-subcircuits at least that large go to the GPU, the rest stay on CPU:
+Qdislib runs subcircuits on Qiskit Aer's GPU simulator (``device="GPU"``,
+cuStateVec-enabled) through a GPU-configured Aer backend; send only the large
+subcircuits there from the three-step loop:
 
 .. code-block:: python
 
-    reconstruction = qd.gate_cutting(circuit, cut, gpu=True, gpu_min_qubits=18)
+    gpu = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"use_gpu": True}))
+    value = qd.gate_cutting(circuit, cut, backend=gpu)
+
+    subs = qd.gate_cutting_subcircuits(circuit, cut, software="qiskit")
+    values = [
+        qd.expectation_value(s, backend=gpu if s.num_qubits >= 18 else None)
+        for s in subs
+    ]
 
 GPU usage is transparent: backend selection and memory transfers are handled
 internally. The GPU path supports the same cases as the CPU path, including an
@@ -419,18 +497,24 @@ identity observable on a cut qubit.
 Running on real QPUs
 --------------------
 
-Set ``qpu=True`` and a ``qpu_dict`` mapping a device name to its qubit count to
-route each subcircuit to real hardware instead of a simulator:
+Pass the device as ``backend`` -- by its registered name, or as a configured
+backend object:
 
 .. code-block:: python
 
     # BSC (MareNostrum Ona) via the shared-filesystem bridge:
-    value = qd.gate_cutting(circuit, cut, qpu=True, qpu_dict={"MN_Ona": 5})
+    value = qd.gate_cutting(circuit, cut, backend="BSC_QPU_BACKEND")
 
-    # IBM Quantum via qiskit-ibm-runtime:
-    value = qd.gate_cutting(circuit, cut, qpu=True, qpu_dict={"IBM_Quantum": 127})
+    # IBM Quantum via qiskit-ibm-runtime; it connects once, here (token, channel,
+    # instance in extra= or the IBM_QUANTUM_* environment variables):
+    ibm = qd.build_backend(
+        "IBM_BACKEND",
+        qd.BackendConfig(num_qubits=156, extra={"backend_name": "ibm_marrakesh"}),
+    )
+    value = qd.gate_cutting(circuit, cut, backend=ibm)
 
-Qdislib routes each subcircuit to a large-enough configured QPU. A real device
-returns only aggregated counts, so an identity observable on a cut qubit that
-keeps evolving *after* the cut is not supported on QPU (it is on CPU/GPU). The
-three-step workflow lets you submit each subcircuit to hardware yourself.
+Every subcircuit then runs on that device. To send only the subcircuits that fit
+(and simulate the rest), choose the backend per subcircuit in the three-step loop
+(see above). A real device returns only aggregated counts, so an identity
+observable on a cut qubit that keeps evolving *after* the cut is not supported on a
+QPU (it is on a simulator).

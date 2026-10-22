@@ -55,7 +55,7 @@ class BSCQpuBackend(_QpuBackendBase):
         super().__init__("BSC_QPU_BACKEND", config)
 
     def evaluate_expectation(
-        self, dag, num_qubits, prep_qubits=(), shots=1024, method="numpy"
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="numpy", seed=None
     ):
         from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
         from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qibo_qpu
@@ -192,7 +192,7 @@ class IBMBackend(_QpuBackendBase):
         return self._ibm_backend
 
     def evaluate_expectation(
-        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic", seed=None
     ):
         from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
         from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit_qpu

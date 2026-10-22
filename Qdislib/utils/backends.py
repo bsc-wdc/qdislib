@@ -324,41 +324,191 @@ def _materialize(dag, num_qubits, software):
     return builders[software](dag, num_qubits)
 
 
+def _first(built):
+    """The circuit of a converter's result (some return ``[circuit, ...]``)."""
+    return built[0] if isinstance(built, (list, tuple)) else built
+
+
 class Subcircuit:
-    """A serializable cut subcircuit: a DAG plus the metadata to rebuild it.
+    """One subcircuit of a cut -- the same object from every ``*_subcircuits`` call.
 
-    A native Qibo or CUDA-Q subcircuit cannot be serialized (the Qibo collapse
-    measurement carries a symbol bound to its own circuit, and a CUDA-Q kernel is
-    JIT-compiled from source), so it cannot be shipped to a remote PyCOMPSs task.
-    This wrapper instead carries the backend-neutral ``dag`` (plain nodes/edges,
-    fully picklable) and builds the native circuit **on demand, in the process
-    that evaluates it** -- so nothing fragile ever crosses a task boundary.
+    - ``circuit``: the native circuit in ``software`` (a qibo ``Circuit``, Qiskit
+      ``QuantumCircuit``, CUDA-Q kernel or PennyLane circuit), built on access;
+    - ``software``: the SDK it is written in;
+    - ``num_qubits``: its width -- e.g. to pick a device per subcircuit;
+    - ``observable``: the Z/I string read at its end, or ``None`` when every qubit
+      is read in Z (distribution lists, and fragments read for several Paulis).
 
-    :func:`gate_cutting_subcircuits` / :func:`wire_cutting_subcircuits` return
-    these under PyCOMPSs; in serial they return the native circuits directly.
-    Both forms are accepted by :func:`expectation_value`.
+    Run it with :func:`expectation_value` (``*_subcircuits`` lists) or
+    :func:`~Qdislib.sample_subcircuit` (``*_sampling_subcircuits`` lists), choosing
+    ``backend`` there, and hand the results to the list's ``reconstruct``. It holds
+    the backend-neutral DAG, so it pickles across PyCOMPSs tasks; the native circuit
+    is only built in the process that needs it.
+
+    ``s[0]`` / ``s[1]`` are the circuit and the observable, as the 1.x
+    ``[circuit, observable]`` pairs were.
     """
+
+    #: What the run step returns for it: "expectation" or "distribution".
+    kind = "expectation"
 
     def __init__(self, dag, num_qubits, software):
         self.dag = dag
         self.num_qubits = num_qubits
         self.software = software
 
+    def _renumbered(self):
+        """``(dag, width)`` on qubits ``0..width-1`` (a copy)."""
+        from Qdislib.utils.graph_qibo import _update_qubits
+
+        return _update_qubits(self.dag.copy())
+
     def to_circuit(self):
-        """Materialize the native backend circuit ``[circuit, observables]``."""
-        return _materialize(self.dag, self.num_qubits, self.software)
+        """``[circuit, observable]`` in ``software``. Built from a copy: the
+        converters consume the DAG's ``Observable I`` markers."""
+        return _materialize(self.dag.copy(), self.num_qubits, self.software)
+
+    @property
+    def circuit(self):
+        """The native circuit (a new one on every access: a qibo circuit with
+        mid-circuit measurements can only be run once)."""
+        return _first(self.to_circuit())
+
+    @property
+    def observable(self):
+        built = self.to_circuit()
+        if isinstance(built, (list, tuple)) and len(built) > 1:
+            if isinstance(built[1], str):
+                return built[1]
+        return "Z" * self.num_qubits
+
+    def __getitem__(self, index):
+        return [self.circuit, self.observable][index]
+
+    def __iter__(self):
+        return iter([self.circuit, self.observable])
+
+    def __len__(self):
+        return 2
+
+    def _expectation(self, shots, backend, seed, cache, cache_mode):
+        if self.dag is None:  # an empty component: contributes nothing
+            return None
+        if shots is None:
+            return self._exact_expectation(backend)
+        if cache is not None:
+            if backend is not None:
+                raise ValueError("cache= runs on the local simulator: drop backend=")
+            return _evaluate_subcircuit(self, shots, cache, cache_mode)
+        return _run_subcircuit(
+            self.dag,
+            self.num_qubits,
+            self.software if backend is None else backend,
+            shots,
+            seed,
+        )
+
+    def _exact_expectation(self, backend):
+        """``<observable>`` from the statevector (mid-circuit measurements deferred)."""
+        from Qdislib.core.cutting_algorithms.mixed_cutting import _exact_fragment
+
+        runner = self.software if backend is None else backend
+        if runner not in ("qibo", "qiskit", "cudaq", "pennylane"):
+            raise ValueError("shots=None (exact) needs a simulator backend")
+        corr, original = _exact_fragment(
+            self.dag, "qibo" if runner == "qibo" else "qiskit"
+        )
+        observable = self.observable
+        mask = sum(1 << i for i, q in enumerate(original) if observable[q] != "I")
+        return float(corr[mask])
+
+    def _sample(self, shots, backend, seed):
+        raise TypeError(
+            "This subcircuit comes from a *_subcircuits list (expectation value): run "
+            "it with expectation_value(). sample_subcircuit() is for the lists that "
+            "*_sampling_subcircuits return."
+        )
 
     def __repr__(self):
-        return f"Subcircuit(software={self.software!r}, num_qubits={self.num_qubits})"
+        return (
+            f"{type(self).__name__}(software={self.software!r}, "
+            f"num_qubits={self.num_qubits})"
+        )
+
+
+class SampledSubcircuit(Subcircuit):
+    """A subcircuit of a ``*_sampling_subcircuits`` list: run it with
+    :func:`~Qdislib.sample_subcircuit`, which returns its Z correlators.
+
+    ``dag`` keeps the circuit's own qubit numbering (the reconstruction needs it);
+    ``circuit`` is renumbered to ``0..num_qubits-1``.
+    """
+
+    kind = "distribution"
+
+    def __init__(self, dag, software):
+        qubits = {q for _, d in dag.nodes(data=True) for q in d.get("qubits") or ()}
+        super().__init__(dag, len(qubits), software)
+
+    @property
+    def component(self):  # the 1.x name
+        return self.dag
+
+    def to_circuit(self):
+        dag, width = self._renumbered()
+        return _materialize(dag, width, self.software)
+
+    @property
+    def observable(self):
+        return None
+
+    def _expectation(self, shots, backend, seed, cache, cache_mode):
+        raise TypeError(
+            "This subcircuit comes from a *_sampling_subcircuits list (distribution): "
+            "run it with sample_subcircuit()."
+        )
+
+    def _sample(self, shots, backend, seed):
+        if shots is None:  # statevector, mid-circuit measurements deferred
+            from Qdislib.core.cutting_algorithms.mixed_cutting import _exact_fragment
+
+            runner = self.software if backend is None else backend
+            if runner not in ("qibo", "qiskit", "cudaq", "pennylane"):
+                raise ValueError("shots=None (exact) needs a simulator backend")
+            corr, original = _exact_fragment(
+                self.dag, "qibo" if runner == "qibo" else "qiskit"
+            )
+            return dict(enumerate(corr)), original
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _sample_gate_subcircuit,
+        )
+
+        return _sample_gate_subcircuit(
+            self.dag,
+            self.software if backend is None else backend,
+            shots,
+            False,
+            None,
+            seed,
+        )
+
+
+@task(returns=1)
+def _run_subcircuit(dag, num_qubits, backend, shots, seed):
+    """Run one subcircuit's DAG on ``backend`` (an SDK, a registered backend name or
+    a backend object) and return its expectation value."""
+    from Qdislib.core.backend.registry import build_execution_backend
+    from Qdislib.core.cutting_algorithms.gate_cutting import _cut_measurements
+
+    executor = build_execution_backend(backend, num_qubits=num_qubits)
+    dag = dag.copy()  # the converters consume its Observable I markers
+    return executor.evaluate_expectation(
+        dag, num_qubits, _cut_measurements(dag), shots, seed=seed
+    )
 
 
 def make_subcircuit(dag, num_qubits, software):
-    """Return the per-subcircuit object handed back by the ``*_subcircuits`` API.
-
-    In serial this is the **native backend circuit** (convenient to inspect or
-    draw). Under PyCOMPSs it is a serializable :class:`Subcircuit` wrapper, so it
-    can be shipped to remote tasks and evaluated there.
-    """
+    """The :class:`Subcircuit` handed back by the ``*_subcircuits`` API."""
     from Qdislib.utils.exceptions import UnsupportedBackendError
 
     if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
@@ -369,33 +519,22 @@ def make_subcircuit(dag, num_qubits, software):
     if pycompss_available:
         # The DAG/qubit count come from @task helpers (e.g. _update_qubits), so
         # under COMPSs they are futures; resolve them to concrete values before
-        # wrapping. These dag-prep tasks are cheap -- the expensive circuit build
-        # and execution still happen later, in the per-subcircuit eval task.
+        # wrapping.
         dag = compss_wait_on(dag)
         num_qubits = compss_wait_on(num_qubits)
-        return Subcircuit(dag, num_qubits, software)
-    return _materialize(dag, num_qubits, software)
+    return Subcircuit(dag, num_qubits, software)
 
 
 @task(returns=1)
 def _make_subcircuit_task(component, software):
     """Prepare one subcircuit as a COMPSs task -- the three-step *creation* step,
-    a separate task from the per-subcircuit evaluation so creation and execution
-    are distinct, independently schedulable tasks (create -> evaluate, task -> task).
-
-    Renumbers the raw component to a standalone ``0..n`` subcircuit and returns the
-    object handed to :func:`expectation_value`: a serializable :class:`Subcircuit`
-    under PyCOMPSs (so ``*_subcircuits`` returns futures -- ``compss_wait_on`` one to
-    inspect it), a native circuit in serial. It runs on a worker with concrete
-    values, so it wraps directly, without the master-side ``compss_wait_on`` that
-    :func:`make_subcircuit` uses when its inputs are futures.
-    """
+    a separate task from the per-subcircuit evaluation (create -> evaluate, task ->
+    task). Renumbers the raw component and returns its :class:`Subcircuit` (a future
+    under PyCOMPSs: ``compss_wait_on`` one to inspect it)."""
     from Qdislib.utils.graph_qibo import _update_qubits
 
     s_new, highest_qubit = _update_qubits(component)
-    if pycompss_available:
-        return Subcircuit(s_new, highest_qubit, software)
-    return _materialize(s_new, highest_qubit, software)
+    return Subcircuit(s_new, highest_qubit, software)
 
 
 def _run_native(circuit, software, shots):
@@ -692,89 +831,71 @@ def _evaluate_subcircuit(subcircuit, shots, cache=None, cache_mode="expectation"
 
 
 def expectation_value(
-    subcircuit, shots=1024, cache=None, cache_mode="expectation", backend=None
+    subcircuit,
+    shots=1024,
+    *,
+    backend=None,
+    seed=None,
+    cache=None,
+    cache_mode="expectation",
 ):
-    """Evaluate one cut subcircuit's expectation value, dispatching on its type.
+    """Run one subcircuit of a ``*_subcircuits`` list (step two of three)::
 
-    Convenience wrapper for the recommended workflow::
+        subs = qd.gate_cutting_subcircuits(circuit, cuts, "ZZZZ")
+        values = [qd.expectation_value(s, shots=4096) for s in subs]
+        result = subs.reconstruct(values)
 
-        subcircuits = qd.gate_cutting_subcircuits(circuit, cut, software="qibo")
-        values = [qd.expectation_value(s) for s in subcircuits]
-        result = subcircuits.reconstruct(values)
+    :param subcircuit: A :class:`Subcircuit` (or, as in 1.x, a native circuit or a
+        ``[circuit, observable]`` pair).
+    :param shots: Shots; ``None`` is exact for the subcircuits that support it.
+    :param backend: Where to run it: an SDK (its local simulator), a registered
+        backend name (``"IBM_BACKEND"``, ``"IQM_BACKEND"``, ...) or a
+        :func:`~Qdislib.build_backend` object; ``None`` is the subcircuit's own SDK.
+        Choosing per subcircuit routes them by size::
 
-    Accepts both forms produced by the ``*_subcircuits`` functions: a serializable
-    :class:`Subcircuit` (returned under PyCOMPSs), which is built and run in a
-    single task, or a native backend circuit (returned in serial).
-
-    Pass ``cache`` to skip re-simulating semantically-equivalent subcircuits via
-    the ZX/Weisfeiler-Lehman cache (see :mod:`Qdislib.utils.circuit_cache`)::
-
-        cache = qd.default_circuit_cache()      # PSCO/Redis under PyCOMPSs
-        values = [qd.expectation_value(s, cache=cache) for s in subcircuits]
-
-    :param subcircuit: A :class:`Subcircuit`, a native circuit, or
-        ``[circuit, observables]``.
-    :param shots: Number of measurement shots.
-    :param cache: A :class:`~Qdislib.utils.circuit_cache.CircuitCache` to enable
-        semantic caching, or ``True`` to use
-        :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`. ``None`` (the
-        default) disables caching. Caching never changes the result.
-    :param cache_mode: ``"expectation"`` (default) caches per-subcircuit
-        expectations keyed by semantic hash + observable; ``"counts"`` caches raw
-        measurement counts keyed by the semantic hash and re-derives the
-        expectation (maximal reuse, matching the paper).
-    :param backend: A :class:`~Qdislib.core.backend.base_backend.BaseBackend` to
-        evaluate this subcircuit on -- how the three-step workflow submits to real
-        hardware instead of a local simulator::
-
-            iqm = build_backend("IQM_BACKEND", BackendConfig(quantum_computer="garnet"))
-            values = [qd.expectation_value(s, backend=iqm) for s in subcircuits]
-
-        ``None`` (the default) keeps the simulator dispatch below.
-    :return: The subcircuit's expectation value (a PyCOMPSs future under COMPSs).
+            dev = qd.build_backend("IQM_BACKEND", qd.BackendConfig(quantum_computer="garnet"))
+            values = [
+                qd.expectation_value(s, shots=4000, backend=dev if s.num_qubits <= 20 else None)
+                for s in subs
+            ]
+    :param seed: Seed for a simulator's sampling.
+    :param cache: A :class:`~Qdislib.utils.circuit_cache.CircuitCache` (or
+        ``True`` for :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`) to
+        skip re-simulating semantically equivalent subcircuits (local simulator).
+    :param cache_mode: ``"expectation"`` or ``"counts"``.
+    :return: What the list's ``reconstruct`` takes for this subcircuit (its
+        expectation value; Z correlators for ``circuit_cutting`` fragments).
     """
     if subcircuit is None:  # empty component produced by a cut; contributes nothing
         return None
-
-    # Optimized wire-cut measure probe: one circuit yields ALL its P/I observables
-    # (a dict), so a Z-basis measurement gives both <Z> and <I>. Detected by a
-    # duck-typed marker to avoid importing the wire-cutting module here.
-    if getattr(subcircuit, "_is_optimized_wire_measure", False):
-        if backend is not None:
-            from Qdislib.utils.exceptions import UnsupportedBackendError
-
-            raise UnsupportedBackendError(
-                "The optimized wire-cut measure probe evaluates itself on a "
-                "simulator; it cannot be routed to backend "
-                f"'{getattr(backend, 'name', backend)}'."
-            )
-        return subcircuit.evaluate(shots)
-
-    # A backend was named: it owns the whole evaluation (build -> submit ->
-    # reconstruct), so neither the cache nor the simulator dispatch applies.
-    if backend is not None:
-        return backend.evaluate_subcircuit(subcircuit, shots=shots)
-
     if cache is True:
         cache = default_circuit_cache()
 
     if isinstance(subcircuit, Subcircuit):
-        return _evaluate_subcircuit(subcircuit, shots, cache, cache_mode)
+        return subcircuit._expectation(shots, backend, seed, cache, cache_mode)
 
     # Under PyCOMPSs the ``*_subcircuits`` items are *futures* of Subcircuits
     # (creation is a task) -- a future can't be isinstance-checked on the master.
     # Native circuits only occur in serial, so under COMPSs anything that is not a
-    # concrete native circuit is such a future: hand it to the eval task, which
-    # resolves it (create -> evaluate, task -> task).
+    # concrete native circuit is such a future: hand it to a task that resolves it.
     if pycompss_available and not isinstance(
         subcircuit, (QiboCircuit, QuantumCircuit, list, tuple)
     ):
-        return _evaluate_subcircuit(subcircuit, shots, cache, cache_mode)
+        if backend is None and seed is None:
+            return _evaluate_subcircuit(subcircuit, shots, cache, cache_mode)
+        return _evaluate_subcircuit_on(subcircuit, shots, backend, seed)
 
+    # A native circuit (the 1.x serial form).
+    if backend is not None:
+        if hasattr(backend, "evaluate_subcircuit"):
+            return backend.evaluate_subcircuit(subcircuit, shots=shots)
+        raise TypeError(
+            "backend= on a native circuit needs a backend object with "
+            "evaluate_subcircuit; pass the Subcircuit from *_subcircuits instead."
+        )
     if cache is not None:
         return _cached_expectation(subcircuit, shots, cache, cache_mode)
 
-    # Native circuit (serial path): detect the backend from the payload type.
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _expec_value_qibo,
         _expec_value_cudaq,
@@ -793,11 +914,27 @@ def expectation_value(
     if isinstance(payload, QiboCircuit):
         return _expec_value_qibo(subcircuit, shots)
     if isinstance(payload, QuantumCircuit):
-        return _expec_value_qiskit(subcircuit, shots)
+        return _expec_value_qiskit(subcircuit, shots, seed=seed)
     if isinstance(payload, PennylaneCircuit):
-        return _expec_value_pennylane(subcircuit, shots)
+        return _expec_value_pennylane(subcircuit, shots, seed=seed)
     # CUDA-Q: a built kernel or a legacy ``(dag, num_qubits)`` payload.
     return _expec_value_cudaq(subcircuit, shots)
+
+
+@task(returns=1)
+def _evaluate_subcircuit_on(subcircuit, shots, backend, seed):
+    """Run a (future of a) :class:`Subcircuit` on ``backend`` inside one task."""
+    from Qdislib.core.backend.registry import build_execution_backend
+    from Qdislib.core.cutting_algorithms.gate_cutting import _cut_measurements
+
+    executor = build_execution_backend(
+        subcircuit.software if backend is None else backend,
+        num_qubits=subcircuit.num_qubits,
+    )
+    dag = subcircuit.dag.copy()  # the converters consume its Observable I markers
+    return executor.evaluate_expectation(
+        dag, subcircuit.num_qubits, _cut_measurements(dag), shots, seed=seed
+    )
 
 
 class CutSubcircuits(list):

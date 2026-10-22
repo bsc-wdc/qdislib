@@ -27,6 +27,7 @@ PyCOMPSs ``@task`` wrapper around it.
 """
 
 import math
+import zlib
 
 
 def signed_product(values, index, base, flip_digits):
@@ -54,6 +55,19 @@ def signed_product(values, index, base, flip_digits):
         number //= base
 
     return -product if flip else product
+
+
+def next_seed(seed, *key):
+    """A seed for one subcircuit run, derived from the user's ``seed`` and the run's
+    ``key`` (its position in the cut): ``None`` stays ``None``.
+
+    Every run gets its own stream -- reusing one seed would correlate the shot noise
+    of fragments whose values are multiplied -- and the same ``(seed, key)`` always
+    gives the same number, in any process (no salted ``hash``).
+    """
+    if seed is None:
+        return None
+    return (int(seed) * 1_000_003 + zlib.crc32(repr(key).encode())) % (2**31 - 1)
 
 
 def check_cuts_separate(cut_graph, sides):

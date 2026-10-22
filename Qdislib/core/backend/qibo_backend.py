@@ -52,13 +52,17 @@ class QiboBackend(BaseBackend):
         return CircuitConverter.to_qibo(circuit)
 
     def evaluate_expectation(
-        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic", seed=None
     ):
         """Evaluate a gate-cut subcircuit via the Qibo simulator."""
         from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
         from Qdislib.core.cutting_algorithms.wire_cutting import _expec_value_qibo
 
         subcirc = dag_to_circuit_qibo(dag, num_qubits)
+        if seed is not None:  # qibo's numpy backend samples from numpy's global RNG
+            import numpy as np
+
+            np.random.seed(seed)
         return _expec_value_qibo(
             subcirc, shots, self._platform, prep_qubits=prep_qubits
         )

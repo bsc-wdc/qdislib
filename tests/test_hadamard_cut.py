@@ -119,7 +119,7 @@ class HadamardCutTest(BaseTimedTestCase):
 
         qibo.set_backend("numpy")
         analytical = qd.analytical_solution(circuit, observable)
-        got = gate_cutting_hadamard(circuit, cuts, observable)
+        got = gate_cutting_hadamard(circuit, cuts, observable, shots=None)
         self.assertLess(
             abs(analytical - got), _TOL, f"{observable}: {analytical} vs {got}"
         )
@@ -276,7 +276,7 @@ class HadamardCutTest(BaseTimedTestCase):
         for sw in ("qibo", "qiskit", "pennylane", "cudaq"):
             if importlib.util.find_spec(sw.replace("-", "")) is None:
                 continue
-            got = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", software=sw, shots=8000)
+            got = gate_cutting_hadamard(c, ["CZ_2"], "ZZ", backend=sw, shots=8000)
             self.assertLess(abs(analytical - got), 0.12, sw)
 
     def test_non_partitioning_cut_raises(self):
@@ -304,7 +304,7 @@ class HadamardCutTest(BaseTimedTestCase):
         qibo.set_backend("numpy")
         c = self._bell_like()
         analytical = qd.analytical_solution(c, "ZZ")
-        got = gate_cutting_hadamard(c, [], "ZZ")
+        got = gate_cutting_hadamard(c, [], "ZZ", shots=None)
         self.assertLess(abs(analytical - got), _TOL)
 
 

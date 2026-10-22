@@ -128,7 +128,7 @@ def main():
         # (a) All-in-one gate_cutting_sampling.
         try:
             recon = qd.gate_cutting_sampling(
-                qc, gates_cut, shots=SHOTS, software=software
+                qc, gates_cut, shots=SHOTS, backend=software
             )
         except ImportError as exc:
             print(f"  {software:7s}  SKIP (backend not importable: {exc})")
@@ -155,7 +155,7 @@ def main():
         # (c) Wire-cut sampling: all-in-one + three-step (one-pass fragment tomography).
         try:
             recon_w = qd.wire_cutting_sampling(
-                qc, wire_cut, shots=SHOTS, software=software
+                qc, wire_cut, shots=SHOTS, backend=software
             )
             tvd_wire = total_variation(exact, recon_w)
             wsubs = qd.wire_cutting_sampling_subcircuits(
@@ -166,7 +166,7 @@ def main():
             # Optimized (fragment-separated) wire sampling: fans out the deduped
             # fragment samplings and feeds them to a reconstruction @task.
             recon_wopt = qd.wire_cutting_sampling(
-                qc, wire_cut, shots=SHOTS, software=software, optimized=True
+                qc, wire_cut, shots=SHOTS, backend=software, optimized=True
             )
             tvd_wopt = total_variation(exact, recon_wopt)
         except Exception as exc:  # noqa: BLE001

@@ -178,7 +178,7 @@ class CircuitTest(BaseTimedTestCase):
         circuit.add(gates.H(0))
         circuit.add(gates.CZ(0, 1))
 
-        result = gate_cutting(circuit, [], shots=1024, software="qibo")
+        result = gate_cutting(circuit, [], shots=1024, backend="qibo")
         analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
         self.assertLess(abs(result - analytical), 0.2)
 

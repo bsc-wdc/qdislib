@@ -349,7 +349,7 @@ class CachedExpectationTest(BaseTimedTestCase):
         analytical = qd.analytical_solution(_nonzero_circuit(), "ZZ")
         cache = qd.InMemoryCircuitCache()
         result = qd.gate_cutting(
-            _nonzero_circuit(), ["CZ_2"], shots=20000, software="qibo", cache=cache
+            _nonzero_circuit(), ["CZ_2"], shots=20000, backend="qibo", cache=cache
         )
         self.assertLess(abs(result - analytical), 0.2)
         self.assertGreater(len(cache), 0)  # the all-in-one path populated the cache
@@ -365,7 +365,7 @@ class CachedExpectationTest(BaseTimedTestCase):
             _nonzero_circuit(),
             [("H_1", "CZ_2")],
             shots=20000,
-            software="qibo",
+            backend="qibo",
             cache=cache,
         )
         self.assertLess(abs(result - analytical), 0.2)

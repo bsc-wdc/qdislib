@@ -23,7 +23,7 @@ Qdislib.core.cutting_algorithms: Circuit Cutting
 
 :class:`cutting_algorithms.mixed_cutting <Qdislib.core.cutting_algorithms.mixed_cutting>`
     Any combination of gate, Hadamard and wire cuts on one circuit
-    (``circuit_cutting`` + sampling / three-step / ``circuit_cutting_overhead``).
+    (``circuit_cutting`` + sampling / three-step / ``cutting_overhead``).
 
 
 Qdislib.core.graph_algorithms: Graph Algorithms
@@ -44,7 +44,7 @@ Qdislib.core.estimate: One-call estimation
 ------------------------------------------
 
 :class:`estimate <Qdislib.core.estimate>`
-    ``estimate`` (cut, run and reconstruct in one call) and ``cut_cost`` (preview a cut's subcircuit count / sampling overhead before running).
+    ``estimate`` (cut, run and reconstruct in one call); ``cut_cost`` is deprecated in favour of ``cutting_overhead``.
 
 
 Qdislib.core.backend: Execution backends

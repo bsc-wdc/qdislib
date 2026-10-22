@@ -88,11 +88,19 @@ from Qdislib.utils.backends import (
     _make_subcircuit_task,
     CutSubcircuits,
     CombinedCutSubcircuits,
+    Subcircuit,
 )
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
+from Qdislib.core.cutting_algorithms._reconstruction import next_seed
+from Qdislib.core.cutting_algorithms._api import (
+    standard_arguments,
+    resolve_backend,
+    resolve_software,
+    default_observable,
+)
 
 
-def wire_cutting(
+def _wire_cutting(
     rand_qc: typing.Any,
     cut: typing.List[typing.Any],
     sync: bool = True,
@@ -105,6 +113,7 @@ def wire_cutting(
     cache_mode="expectation",
     optimized: bool = False,
     joint: bool = True,
+    seed=None,
 ):
     """Apply wire cutting to a quantum circuit to simplify its structure for distributed or hardware-constrained execution of subcircuits.
 
@@ -204,9 +213,9 @@ def wire_cutting(
     # Pauli-string path below. A plain string (or None) skips this and runs once.
     if observables is not None and not isinstance(observables, str):
         total = 0.0
-        for coeff, pauli in normalize_observables(observables):
+        for k, (coeff, pauli) in enumerate(normalize_observables(observables)):
             base = rand_qc.copy() if isinstance(rand_qc, networkx.Graph) else rand_qc
-            total += coeff * wire_cutting(
+            total += coeff * _wire_cutting(
                 base,
                 cut,
                 sync=sync,
@@ -219,6 +228,7 @@ def wire_cutting(
                 cache_mode=cache_mode,
                 optimized=optimized,
                 joint=joint,
+                seed=next_seed(seed, "term", k),
             )
         return total
 
@@ -228,12 +238,18 @@ def wire_cutting(
     if cache is not None:
         from Qdislib.utils.backends import expectation_value
 
-        subcircuits = wire_cutting_subcircuits(
+        subcircuits = _wire_cutting_subcircuits(
             rand_qc, cut, observables=observables, software=software
         )
         values = [
-            expectation_value(s, shots=shots, cache=cache, cache_mode=cache_mode)
-            for s in subcircuits
+            expectation_value(
+                s,
+                shots=shots,
+                cache=cache,
+                cache_mode=cache_mode,
+                seed=next_seed(seed, "cached", i),
+            )
+            for i, s in enumerate(subcircuits)
         ]
         return subcircuits.reconstruct(values)
 
@@ -258,6 +274,7 @@ def wire_cutting(
                 backend,
                 software,
                 joint=joint,
+                seed=seed,
             )
             # The optimized path returns a single reconstruction future (task ->
             # task, no master barrier); wait on it once here.
@@ -275,7 +292,7 @@ def wire_cutting(
         ]
         results = []
         total_wire_cuts = 0
-        for s in S:
+        for piece, s in enumerate(S):
             num_qubits = _max_qubit(s)
             tmp_cuts = []
             for c in cut:
@@ -292,12 +309,20 @@ def wire_cutting(
                     backend=backend,
                     qpu=qpu,
                     software=software,
+                    seed=next_seed(seed, "piece", piece),
                 )
                 graphs = _sum_results(graphs)
                 results.append(graphs)
             else:
                 results.append(
-                    _build_and_run_subcircuit(s, software, shots, backend, qpu)
+                    _build_and_run_subcircuit(
+                        s,
+                        software,
+                        shots,
+                        backend,
+                        qpu,
+                        next_seed(seed, "piece", piece),
+                    )
                 )
         if sync:
             results = compss_wait_on(results)
@@ -315,13 +340,16 @@ def wire_cutting(
                 backend=backend,
                 qpu=qpu,
                 software=software,
+                seed=seed,
             )
 
             if sync:
                 results = compss_wait_on(results)
             final_recons = 1 / (2 ** len(cut_wires)) * sum(results)
         else:
-            final_recons = _build_and_run_subcircuit(dag, software, shots, backend, qpu)
+            final_recons = _build_and_run_subcircuit(
+                dag, software, shots, backend, qpu, seed
+            )
         return final_recons
 
 
@@ -605,7 +633,7 @@ def _wire_sampling_optimized(
     counter = itertools.count()
 
     def _sample(component):
-        derived = None if seed is None else seed + next(counter)
+        derived = next_seed(seed, next(counter))
         return _sample_gate_subcircuit(
             component, software, shots, qpu, qpu_dict, seed=derived
         )
@@ -655,7 +683,7 @@ def _wire_sampling_optimized(
     )
 
 
-def wire_cutting_sampling(
+def _wire_cutting_sampling(
     circuit,
     cut,
     shots=1024,
@@ -759,7 +787,7 @@ def wire_cutting_sampling(
             shots,
             qpu,
             qpu_dict,
-            seed=None if seed is None else seed + i,
+            seed=next_seed(seed, i),
         )
         for i, comp in enumerate(components)
     ]
@@ -824,7 +852,7 @@ class WireSampledCutSubcircuits(list):
         return compss_wait_on(distribution)
 
 
-def wire_cutting_sampling_subcircuits(
+def _wire_cutting_sampling_subcircuits(
     circuit, cut, software="qiskit", qpu=False, qpu_dict=None
 ):
     """Partition a circuit into **wire-cut sampling** fragments (three-step workflow).
@@ -846,10 +874,8 @@ def wire_cutting_sampling_subcircuits(
     :return: A :class:`WireSampledCutSubcircuits` (a ``list`` of fragments plus the
         cut metadata and a ``reconstruct`` method).
     """
-    from Qdislib.core.cutting_algorithms.gate_cutting import (
-        _dag_num_qubits,
-        _SampleUnit,
-    )
+    from Qdislib.core.cutting_algorithms.gate_cutting import _dag_num_qubits
+    from Qdislib.utils.backends import SampledSubcircuit
 
     dag = convert_to_dag(circuit)
     num_qubits = _dag_num_qubits(dag)
@@ -858,9 +884,7 @@ def wire_cutting_sampling_subcircuits(
     components, per_config_counts, cut_source_index, prepared_to_orig = (
         _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
     )
-    units = [
-        _SampleUnit(component, software, qpu, qpu_dict) for component in components
-    ]
+    units = [SampledSubcircuit(component, software) for component in components]
     return WireSampledCutSubcircuits(
         units,
         number_cuts=len(wire_cuts),
@@ -949,7 +973,7 @@ def _create_subcircuit(component):
 
 
 @task(returns=1)
-def _execute_subcircuit(prepared, software, shots, backend, qpu):
+def _execute_subcircuit(prepared, software, shots, backend, qpu, seed=None):
     """Build + run a prepared wire-cut subcircuit; return its expectation value.
 
     The *execution* half (COMPSs task) -- this is where the native circuit is built
@@ -975,10 +999,10 @@ def _execute_subcircuit(prepared, software, shots, backend, qpu):
 
     extra = {"platform": backend} if backend else {}
     exec_backend = build_execution_backend(software, num_qubits=highest_qubit, **extra)
-    return exec_backend.evaluate_expectation(s_new, highest_qubit, (), shots)
+    return exec_backend.evaluate_expectation(s_new, highest_qubit, (), shots, seed=seed)
 
 
-def _build_and_run_subcircuit(component, software, shots, backend, qpu):
+def _build_and_run_subcircuit(component, software, shots, backend, qpu, seed=None):
     """Prepare then execute one wire-cut subcircuit as two COMPSs tasks.
 
     Orchestrates :func:`_create_subcircuit` (prepare) then :func:`_execute_subcircuit`
@@ -988,7 +1012,7 @@ def _build_and_run_subcircuit(component, software, shots, backend, qpu):
     Returns the execution future (the subcircuit's expectation value).
     """
     prepared = _create_subcircuit(component)
-    return _execute_subcircuit(prepared, software, shots, backend, qpu)
+    return _execute_subcircuit(prepared, software, shots, backend, qpu, seed)
 
 
 def _relabel_qubit_downstream(dag, target, qubit, fresh_qubit):
@@ -1109,6 +1133,7 @@ def _generate_wire_cutting(
     backend: str = "numpy",
     qpu=None,
     software: str = "qibo",
+    seed=None,
 ) -> typing.List[float]:
     """Apply wire cuts to the DAG and evaluate the reconstruction terms.
 
@@ -1146,8 +1171,10 @@ def _generate_wire_cutting(
         )
 
         exp_value = [
-            _build_and_run_subcircuit(s, software, shots, backend, qpu)
-            for s in graph_components
+            _build_and_run_subcircuit(
+                s, software, shots, backend, qpu, next_seed(seed, index, i)
+            )
+            for i, s in enumerate(graph_components)
         ]
         exp_value = _change_sign(exp_value, index)
         reconstruction.append(exp_value)
@@ -1660,7 +1687,7 @@ def _apply_wire_measure_option(graph, cut_index, option):
         graph.remove_node(node)
 
 
-def _sample_wire_fragment(graph, shots, backend, software):
+def _sample_wire_fragment(graph, shots, backend, software, seed=None):
     """Sample a renumbered fragment DAG on the chosen backend; return qubit-0-first counts.
 
     :param graph: A renumbered ``0..k-1`` subcircuit DAG.
@@ -1678,12 +1705,12 @@ def _sample_wire_fragment(graph, shots, backend, software):
     _, highest = _update_qubits(graph)
     extra = {"platform": backend} if backend else {}
     exec_backend = build_execution_backend(software, num_qubits=highest, **extra)
-    return exec_backend.evaluate_samples(graph, highest, shots)
+    return exec_backend.evaluate_samples(graph, highest, shots, seed=seed)
 
 
 @task(returns=1)
 def _run_wire_measure_fragment(
-    sub, cuts, cut_qubits, basis_combo, shots, backend, software
+    sub, cuts, cut_qubits, basis_combo, shots, backend, software, seed=None
 ):
     """Evaluate one measure ("top") fragment for a measurement-basis configuration.
 
@@ -1711,49 +1738,99 @@ def _run_wire_measure_fragment(
     cut_positions = [new_position[cut_qubits[cut]] for cut in cuts]
 
     readout = _apply_measurement_setting(graph, cuts, cut_qubits, basis_combo)
-    counts = _sample_wire_fragment(graph, shots, backend, software)
+    counts = _sample_wire_fragment(graph, shots, backend, software, seed)
     return _measure_table(counts, cut_positions, readout)
 
 
-class _OptimizedWireMeasure:
-    """A measure ("top") fragment subcircuit for the optimized three-step workflow.
+class _OptimizedWireFragment(Subcircuit):
+    """A fragment circuit of the optimized three-step wire cut: its markers set to
+    one measurement setting (the wires it sends) and one prepared state per wire it
+    receives. Running it returns the ``{pauli: value}`` table of every Pauli that
+    setting reads, so ``reconstruct`` needs fewer circuits than ``8**n``."""
 
-    Unlike a plain subcircuit (one circuit -> one expectation value), evaluating
-    this returns the whole ``{extraction_combo: value}`` table for its measurement
-    basis -- i.e. one circuit yields every P/I observable, so a Z-basis measurement
-    gives both ``<Z>`` and ``<I>``. That is what keeps the measure side at ``3**n``
-    (not ``4**n``): :func:`expectation_value` detects the ``_is_optimized_wire_measure``
-    marker and calls :meth:`evaluate` instead of the single-value path. Picklable
-    (holds only the fragment DAG + metadata), so it survives a PyCOMPSs task boundary.
-    """
-
-    _is_optimized_wire_measure = True
-
-    def __init__(self, sub, cuts, cut_qubits, basis_combo, software):
-        self.sub = sub
-        self.cuts = cuts
+    def __init__(
+        self, sub, measure_cuts, cut_qubits, setting, prepare_cuts, prep, software
+    ):
+        qubits = {q for _, d in sub.nodes(data=True) for q in d.get("qubits") or ()}
+        super().__init__(sub, len(qubits), software)
+        self.measure_cuts = measure_cuts
         self.cut_qubits = cut_qubits
-        self.basis_combo = basis_combo
-        self.software = software
+        self.basis_combo = setting
+        self.prepare_cuts = prepare_cuts
+        self.prep_combo = prep
 
-    def evaluate(self, shots):
-        """Return the ``{extraction_combo: value}`` table (a future under PyCOMPSs)."""
-        return _run_wire_measure_fragment(
-            self.sub,
-            self.cuts,
+    @property
+    def sub(self):
+        return self.dag
+
+    @property
+    def cuts(self):
+        return self.measure_cuts
+
+    def to_circuit(self):
+        from Qdislib.utils.backends import _materialize
+
+        graph = self.dag.copy()
+        for cut, state in zip(self.prepare_cuts, self.prep_combo):
+            _apply_wire_prep_state(graph, cut, state)
+        _apply_measurement_setting(
+            graph, self.measure_cuts, self.cut_qubits, self.basis_combo
+        )
+        graph, width = _update_qubits(graph)
+        return _materialize(graph, width, self.software)
+
+    @property
+    def observable(self):
+        return None
+
+    def _expectation(self, shots, backend, seed, cache, cache_mode):
+        software = self.software if backend is None else backend
+        if not self.prepare_cuts:
+            return _run_wire_measure_fragment(
+                self.dag,
+                self.measure_cuts,
+                self.cut_qubits,
+                self.basis_combo,
+                shots,
+                None,
+                software,
+                seed,
+            )
+        return _run_wire_mixed_fragment(
+            self.dag,
+            self.measure_cuts,
             self.cut_qubits,
             self.basis_combo,
+            self.prepare_cuts,
+            self.prep_combo,
             shots,
             None,
-            self.software,
+            software,
+            seed,
         )
 
-    def __repr__(self):
-        return f"_OptimizedWireMeasure(cuts={self.cuts}, basis={self.basis_combo})"
+    def evaluate(self, shots):  # the 1.x method
+        return self._expectation(shots, None, None, None, None)
+
+
+def _OptimizedWireMeasure(sub, cuts, cut_qubits, basis_combo, software):
+    """A measure fragment (sends wires only) of the optimized three-step cut."""
+    return _OptimizedWireFragment(sub, cuts, cut_qubits, basis_combo, [], (), software)
+
+
+def _OptimizedWireMixed(
+    sub, measure_cuts, cut_qubits, basis_combo, prepare_cuts, prep_combo, software
+):
+    """A fragment that sends and receives wires, for one prepared-state combo."""
+    return _OptimizedWireFragment(
+        sub, measure_cuts, cut_qubits, basis_combo, prepare_cuts, prep_combo, software
+    )
 
 
 @task(returns=1)
-def _run_wire_prepare_fragment(sub, cuts, prep_combo, shots, backend, software):
+def _run_wire_prepare_fragment(
+    sub, cuts, prep_combo, shots, backend, software, seed=None
+):
     """Evaluate one prepare ("bottom") fragment for a preparation configuration.
 
     Sets each cut qubit's ``PS_i`` marker to prepare the requested state
@@ -1773,7 +1850,7 @@ def _run_wire_prepare_fragment(sub, cuts, prep_combo, shots, backend, software):
     for cut, prep in zip(cuts, prep_combo):
         _apply_wire_prep_state(graph, cut, prep)
 
-    counts = _sample_wire_fragment(graph, shots, backend, software)
+    counts = _sample_wire_fragment(graph, shots, backend, software, seed)
     total = sum(counts.values()) or 1
     value = 0.0
     for bitstring, count in counts.items():
@@ -1793,6 +1870,7 @@ def _run_wire_mixed_fragment(
     shots,
     backend,
     software,
+    seed=None,
 ):
     """Evaluate one *mixed* fragment -- owns both ``O_i`` and ``PS_i`` markers.
 
@@ -1844,64 +1922,8 @@ def _run_wire_mixed_fragment(
     cut_positions = [new_position[cut_qubits[cut]] for cut in measure_cuts]
 
     readout = _apply_measurement_setting(graph, measure_cuts, cut_qubits, basis_combo)
-    counts = _sample_wire_fragment(graph, shots, backend, software)
+    counts = _sample_wire_fragment(graph, shots, backend, software, seed)
     return _measure_table(counts, cut_positions, readout)
-
-
-class _OptimizedWireMixed:
-    """A mixed (measure AND prepare) fragment subcircuit for the three-step workflow.
-
-    Same protocol as :class:`_OptimizedWireMeasure` (duck-typed via
-    ``_is_optimized_wire_measure`` -- :func:`~Qdislib.utils.backends.expectation_value`
-    doesn't care which class sets it), but for a fragment that owns both kinds of
-    marker: evaluating it applies the ``prepare_cuts`` substitutions and then
-    returns the ``{extraction_combo: value}`` table for ``basis_combo``, exactly
-    like :func:`_run_wire_mixed_fragment`. One circuit still yields every P/I
-    observable for its measure-type cuts; the prepare-type cuts are fixed inputs
-    for that circuit, so a mixed fragment needs one of these per
-    ``(basis_combo, prep_combo)`` pair, not just per ``basis_combo``.
-    """
-
-    _is_optimized_wire_measure = True
-
-    def __init__(
-        self,
-        sub,
-        measure_cuts,
-        cut_qubits,
-        basis_combo,
-        prepare_cuts,
-        prep_combo,
-        software,
-    ):
-        self.sub = sub
-        self.measure_cuts = measure_cuts
-        self.cut_qubits = cut_qubits
-        self.basis_combo = basis_combo
-        self.prepare_cuts = prepare_cuts
-        self.prep_combo = prep_combo
-        self.software = software
-
-    def evaluate(self, shots):
-        """Return the ``{extraction_combo: value}`` table (a future under PyCOMPSs)."""
-        return _run_wire_mixed_fragment(
-            self.sub,
-            self.measure_cuts,
-            self.cut_qubits,
-            self.basis_combo,
-            self.prepare_cuts,
-            self.prep_combo,
-            shots,
-            None,
-            self.software,
-        )
-
-    def __repr__(self):
-        return (
-            f"_OptimizedWireMixed(measure_cuts={self.measure_cuts}, "
-            f"basis={self.basis_combo}, prepare_cuts={self.prepare_cuts}, "
-            f"prep={self.prep_combo})"
-        )
 
 
 def _optimized_wire_fragments(dag, wire_cuts, num_qubits):
@@ -2079,7 +2101,7 @@ def _reconstruct_optimized_wire_cut(
 
 
 def _wire_cutting_optimized(
-    dag, wire_cuts, num_qubits, shots, backend, software, joint=False
+    dag, wire_cuts, num_qubits, shots, backend, software, joint=False, seed=None
 ):
     """Fragment-separated wire-cut reconstruction.
 
@@ -2119,7 +2141,14 @@ def _wire_cutting_optimized(
         for combo in _measurement_settings(len(cuts), joint):
             measure_flat.append(
                 _run_wire_measure_fragment(
-                    sub, cuts, cut_qubits, combo, shots, backend, software
+                    sub,
+                    cuts,
+                    cut_qubits,
+                    combo,
+                    shots,
+                    backend,
+                    software,
+                    next_seed(seed, "m", len(measure_flat)),
                 )
             )
             measure_keys.append((frag_idx, combo))
@@ -2127,7 +2156,15 @@ def _wire_cutting_optimized(
     for frag_idx, (sub, cuts) in enumerate(prepare_frags):
         for combo in itertools.product(_PREP_STATES, repeat=len(cuts)):
             prepare_flat.append(
-                _run_wire_prepare_fragment(sub, cuts, combo, shots, backend, software)
+                _run_wire_prepare_fragment(
+                    sub,
+                    cuts,
+                    combo,
+                    shots,
+                    backend,
+                    software,
+                    next_seed(seed, "p", len(prepare_flat)),
+                )
             )
             prepare_keys.append((frag_idx, combo))
     mixed_flat, mixed_keys = [], []
@@ -2145,12 +2182,15 @@ def _wire_cutting_optimized(
                         shots,
                         backend,
                         software,
+                        next_seed(seed, "x", len(mixed_flat)),
                     )
                 )
                 mixed_keys.append((frag_idx, basis_combo, prep_combo))
     plain_flat = [
-        _run_wire_prepare_fragment(sub, [], (), shots, backend, software)
-        for sub in plain_frags
+        _run_wire_prepare_fragment(
+            sub, [], (), shots, backend, software, next_seed(seed, "plain", n)
+        )
+        for n, sub in enumerate(plain_frags)
     ]
 
     # Feed the fragment futures straight into the reconstruction task (task -> task,
@@ -2627,7 +2667,7 @@ def _expectation_from_samples_pennylane(
 
 
 def _expec_value_pennylane(
-    subcirc, shots=1024, prep_qubits=None, device="default.qubit"
+    subcirc, shots=1024, prep_qubits=None, device="default.qubit", seed=None
 ):
     """Execute a PennyLane subcircuit and return its expectation value.
 
@@ -2640,6 +2680,7 @@ def _expec_value_pennylane(
         Auto-detected from the subcircuit's ``MEASURE`` nodes when ``None`` (the
         three-step workflow), matching the Qibo/CUDA-Q evaluators.
     :param device: PennyLane device short name.
+    :param seed: Seed for the device's sampling.
     :return: The circuit expectation value.
     """
     if subcirc is None:
@@ -2666,10 +2707,10 @@ def _expec_value_pennylane(
 
     if prep_qubits:
         return _expectation_from_samples_pennylane(
-            circuit, observables, shots, set(prep_qubits), device
+            circuit, observables, shots, set(prep_qubits), device, seed=seed
         )
 
-    freq = _counts_pennylane(circuit, shots, device)
+    freq = _counts_pennylane(circuit, shots, device, seed=seed)
     return _expectation_from_counts_pennylane(freq, observables, shots)
 
 
@@ -2891,7 +2932,7 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software, joint=Fa
     )
 
 
-def wire_cutting_subcircuits(
+def _wire_cutting_subcircuits(
     rand_qc: typing.Any,
     cut: typing.List[typing.Any],
     observables=None,
@@ -3011,7 +3052,7 @@ def wire_cutting_subcircuits(
     if observables is not None and not isinstance(observables, str):
         terms = list(normalize_observables(observables))
         parts = [
-            wire_cutting_subcircuits(
+            _wire_cutting_subcircuits(
                 rand_qc.copy() if isinstance(rand_qc, networkx.Graph) else rand_qc,
                 cut,
                 observables=pauli,
@@ -3088,7 +3129,7 @@ def wire_cutting_subcircuits(
                     piece,
                     number_cuts=piece_cuts,
                     number_components=max(1, len(piece) // (8**piece_cuts)),
-                    reconstructor=wire_cutting_subcircuit_reconstruction,
+                    reconstructor=_wire_cutting_subcircuit_reconstruction,
                 )
             )
         return CombinedCutSubcircuits(parts)
@@ -3115,7 +3156,7 @@ def wire_cutting_subcircuits(
         subcircuits,
         number_cuts=number_cuts,
         number_components=number_components,
-        reconstructor=wire_cutting_subcircuit_reconstruction,
+        reconstructor=_wire_cutting_subcircuit_reconstruction,
     )
 
 
@@ -3173,7 +3214,7 @@ def _generate_wire_cutting_subcircuits(
     return subcircuits
 
 
-def wire_cutting_subcircuit_reconstruction(
+def _wire_cutting_subcircuit_reconstruction(
     expected_values, number_cuts, number_components=2
 ):
     """
@@ -3203,7 +3244,7 @@ def wire_cutting_subcircuit_reconstruction(
 
     Example:
         >>> values = [0.8, -0.6, 0.7, -0.5] * 4
-        >>> wire_cutting_subcircuit_reconstruction(values, number_cuts=1, number_components=2)
+        >>> _wire_cutting_subcircuit_reconstruction(values, number_cuts=1, number_components=2)
     """
     # Resolve any deferred (cache placeholder-hit) results once all subcircuit
     # tasks have finished: synchronise to the master, then refresh each
@@ -3229,3 +3270,192 @@ def wire_cutting_subcircuit_reconstruction(
     results = [_change_sign(group, index) for index, group in enumerate(groups)]
     results = compss_wait_on(results)
     return 1 / (2**number_cuts) * sum(results)
+
+
+# --------------------------------------------------------------------------- #
+# Public API (the calling convention shared by every cut type, see _api.py)
+# --------------------------------------------------------------------------- #
+
+
+def _exact_or_legacy(legacy, cache=None):
+    if (legacy and set(legacy) - {"platform"}) or cache is not None:
+        raise ValueError(
+            "shots=None (exact) runs through circuit_cutting, which takes backend= "
+            "only (no qpu options, no cache)."
+        )
+
+
+@standard_arguments
+def wire_cutting(
+    circuit,
+    cuts,
+    observable=None,
+    *,
+    backend=None,
+    shots=1024,
+    seed=None,
+    sync=True,
+    optimized=False,
+    joint=True,
+    cache=None,
+    cache_mode="expectation",
+    _legacy=None,
+):
+    """Reconstruct ``<observable>`` from a circuit cut at wires (8 terms per wire,
+    ``gamma = 4`` per wire).
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Wires to cut, as ``(source, target)`` gate pairs; each is cut on
+        every qubit the two gates share.
+    :param observable: A Pauli string or a weighted Pauli sum; ``None`` is all ``Z``.
+    :param backend: Where the subcircuits run (see :func:`gate_cutting`).
+    :param shots: Shots per subcircuit; ``None`` is exact (statevector).
+    :param seed: Seed for the simulators' sampling.
+    :param sync: ``False`` returns the value as a future (PyCOMPSs).
+    :param optimized: Run each fragment once per measurement basis / prepared state
+        of its own wires (``3**i * 4**j`` per fragment instead of ``8**n`` overall).
+    :param joint: With ``optimized``, measure the wires a fragment sends together
+        (``2**k + 1`` circuits instead of ``3**k``).
+    :param cache: A semantic circuit cache (see :func:`expectation_value`).
+    :param cache_mode: ``"expectation"`` or ``"counts"``.
+    :return: The reconstructed expectation value.
+    """
+    if shots is None:
+        from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
+
+        _exact_or_legacy(_legacy, cache)
+        return circuit_cutting(
+            circuit,
+            {"wire": cuts},
+            observable,
+            backend=backend,
+            shots=None,
+            sync=sync,
+            optimized=optimized,
+            joint=joint,
+        )
+    legacy = _legacy or {}
+    return _wire_cutting(
+        circuit,
+        cuts,
+        sync=sync,
+        observables=default_observable(observable, circuit),
+        shots=shots,
+        backend=legacy.get("platform", "numpy"),
+        qpu=legacy.get("qpu"),
+        software=resolve_backend(backend, circuit),
+        cache=cache,
+        cache_mode=cache_mode,
+        optimized=optimized,
+        joint=joint,
+        seed=seed,
+    )
+
+
+@standard_arguments
+def wire_cutting_sampling(
+    circuit,
+    cuts,
+    *,
+    backend=None,
+    shots=1024,
+    seed=None,
+    sync=True,
+    optimized=False,
+    joint=True,
+    _legacy=None,
+):
+    """Reconstruct the output **probability distribution** of a circuit cut at
+    wires. Arguments as in :func:`wire_cutting`.
+
+    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+    """
+    if shots is None:
+        from Qdislib.core.cutting_algorithms.mixed_cutting import (
+            circuit_cutting_sampling,
+        )
+
+        _exact_or_legacy(_legacy)
+        return circuit_cutting_sampling(
+            circuit,
+            {"wire": cuts},
+            backend=backend,
+            shots=None,
+            sync=sync,
+            optimized=optimized,
+            joint=joint,
+        )
+    legacy = _legacy or {}
+    return _wire_cutting_sampling(
+        circuit,
+        cuts,
+        shots=shots,
+        software=resolve_backend(backend, circuit),
+        sync=sync,
+        qpu=legacy.get("qpu", False),
+        qpu_dict=legacy.get("qpu_dict"),
+        seed=seed,
+        optimized=optimized,
+        joint=joint,
+    )
+
+
+@standard_arguments
+def wire_cutting_subcircuits(
+    circuit, cuts, observable=None, *, software=None, optimized=False, joint=True
+):
+    """The subcircuits of :func:`wire_cutting`, to run yourself (three-step).
+
+    :param software: The SDK the subcircuits are written in (``None``: the
+        circuit's own); where they run is chosen when you run them.
+    :return: A list of subcircuits with ``reconstruct(values)``.
+    """
+    return _wire_cutting_subcircuits(
+        circuit,
+        cuts,
+        observables=default_observable(observable, circuit),
+        software=resolve_software(software, circuit),
+        optimized=optimized,
+        joint=joint,
+    )
+
+
+@standard_arguments
+def wire_cutting_sampling_subcircuits(
+    circuit, cuts, *, software=None, optimized=False, joint=True
+):
+    """The subcircuits of :func:`wire_cutting_sampling`, to sample yourself.
+
+    :return: A list of subcircuits with ``reconstruct(results)``.
+    """
+    if optimized:
+        from Qdislib.core.cutting_algorithms.mixed_cutting import (
+            circuit_cutting_sampling_subcircuits,
+        )
+
+        return circuit_cutting_sampling_subcircuits(
+            circuit, {"wire": cuts}, software=software, optimized=True, joint=joint
+        )
+    return _wire_cutting_sampling_subcircuits(
+        circuit, cuts, software=resolve_software(software, circuit)
+    )
+
+
+# Deprecated in 2.0.0: ``subcircuits.reconstruct(results)`` is the one way.
+
+
+def wire_cutting_subcircuit_reconstruction(
+    expected_values, number_cuts, number_components=2
+):
+    """Deprecated: use ``subcircuits.reconstruct(results)``."""
+    import warnings
+
+    warnings.warn(
+        "wire_cutting_subcircuit_reconstruction() is deprecated: use subcircuits.reconstruct(results); it is "
+        "removed in the next release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _wire_cutting_subcircuit_reconstruction(
+        expected_values, number_cuts, number_components
+    )

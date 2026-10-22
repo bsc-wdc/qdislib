@@ -96,7 +96,7 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
     def _check(self, software, cut, shots=1024):
         import Qdislib as qd
 
-        dist = qd.gate_cutting_sampling(_circuit(), cut, shots=shots, software=software)
+        dist = qd.gate_cutting_sampling(_circuit(), cut, shots=shots, backend=software)
         self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)  # valid distribution
         self.assertLess(_tvd(_exact_distribution(), dist), _TOL, f"{software} {cut}")
 
@@ -106,7 +106,7 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
     def test_seed_reproducible(self):
         import Qdislib as qd
 
-        kw = dict(shots=2000, software="qibo", seed=123)
+        kw = dict(shots=2000, backend="qibo", seed=123)
         d1 = qd.gate_cutting_sampling(_circuit(), ["CZ_2"], **kw)
         d2 = qd.gate_cutting_sampling(_circuit(), ["CZ_2"], **kw)
         self.assertEqual(d1, d2)  # same seed -> identical distribution
@@ -151,7 +151,7 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
         import Qdislib as qd
 
         dist = qd.gate_cutting_sampling(
-            _entangled_circuit(), ["CZ_7", "CZ_8"], shots=shots, software=software
+            _entangled_circuit(), ["CZ_7", "CZ_8"], shots=shots, backend=software
         )
         self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
         self.assertLess(
@@ -180,7 +180,7 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
         import Qdislib as qd
 
         cut = qd.find_cut(_circuit(), gate_cut=False, wire_cut=True)
-        dist = qd.wire_cutting_sampling(_circuit(), cut, shots=shots, software=software)
+        dist = qd.wire_cutting_sampling(_circuit(), cut, shots=shots, backend=software)
         self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
         self.assertLess(
             _tvd(_exact_distribution(), dist), _TOL, f"wire {software} {cut}"

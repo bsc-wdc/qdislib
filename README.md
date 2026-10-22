@@ -41,7 +41,7 @@ Qdislib is built on top of the [PyCOMPSs](<https://www.bsc.es/research-and-devel
 
 With Qdislib, researchers and developers can:
 
-- Perform **gate** and **wire cutting** to decompose complex quantum circuits — including an ancilla-based **Hadamard-test gate cut** (`gate_cutting_hadamard`) that cuts *any* two-qubit gate at optimal overhead with no mid-circuit measurement, and **mixed** wire + gate cutting on one circuit (`gate_wire_cutting`).
+- Perform **gate** and **wire cutting** to decompose complex quantum circuits — including an ancilla-based **Hadamard-test gate cut** (`gate_cutting_hadamard`) that cuts *any* two-qubit gate at optimal overhead with no mid-circuit measurement, and any **mix** of gate, Hadamard and wire cuts on one circuit (`circuit_cutting`).
 - Cut **any two-qubit gate** (CZ/CX natively; others auto-decomposed to CZ, or use the Hadamard cut).
 - Leverage **GPU acceleration** using cuQuantum or Qibojit.
 - Submit subcircuits to **remote QPUs** like IBM Quantum.
@@ -106,7 +106,7 @@ circuit.add(gates.RY(0, 0.8))
 
 # 1. Cut the circuit into independently executable subcircuits.
 #    Use find_cut to discover good cut points automatically.
-subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"], software="qibo")
+subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"])
 
 # 2. Evaluate each subcircuit — this loop is yours to control.
 values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
@@ -116,10 +116,12 @@ result = subcircuits.reconstruct(values)
 print(result)  # ≈ -0.717
 ```
 
-`qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")], software="qibo")` works
-the same way for **wire cutting**. The `software` argument (`"qibo"`, `"qiskit"`
-or `"cudaq"`) selects the backend the subcircuits are emitted for; it must match
-the backend you evaluate them on.
+`qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")])` works
+the same way for **wire cutting** (and for `gate_cutting_hadamard_subcircuits` and
+`circuit_cutting_subcircuits`). The subcircuits are written in the circuit's own SDK
+unless you pass `software=` (`"qibo"`, `"qiskit"`, `"cudaq"`, `"pennylane"`), and
+`qd.expectation_value(s, shots=..., backend=...)` runs each one anywhere: that SDK's
+simulator by default, or a QPU backend.
 
 If you'd rather not manage the loop, the all-in-one `qd.gate_cutting(...)` and
 `qd.wire_cutting(...)` run the cut, execution and reconstruction in a single call

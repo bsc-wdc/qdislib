@@ -22,17 +22,22 @@
 import logging
 import time
 
+from Qdislib.core.cutting_algorithms._api import standard_arguments
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["estimate", "cut_cost"]
 
 
+@standard_arguments
 def estimate(
     circuit,
-    observables=None,
+    observable=None,
+    *,
     max_qubits=None,
+    backend=None,
     shots=1024,
-    software="qibo",
+    seed=None,
     cache=None,
     cache_mode="expectation",
     gate_cut=True,
@@ -48,11 +53,12 @@ def estimate(
     instead.
 
     :param circuit: Circuit to estimate (Qibo/Qiskit/CUDA-Q, or a DAG).
-    :param observables: Observable spec -- a Pauli string, a ``{pauli: coeff}``
+    :param observable: Observable spec -- a Pauli string, a ``{pauli: coeff}``
         mapping, or ``[(coeff, pauli)]`` weighted sum. Defaults to all-``Z``.
     :param max_qubits: Maximum qubits per subcircuit (guides the cut search).
-    :param shots: Measurement shots per subcircuit.
-    :param software: Backend used to execute the subcircuits.
+    :param shots: Measurement shots per subcircuit; ``None`` is exact.
+    :param backend: Where the subcircuits run (see :func:`~Qdislib.gate_cutting`).
+    :param seed: Seed for the simulators' sampling.
     :param cache: Optional :class:`~Qdislib.utils.circuit_cache.CircuitCache` to
         reuse equivalent subcircuits (see
         :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`).
@@ -90,9 +96,10 @@ def estimate(
         value = wire_cutting(
             circuit,
             cut,
-            observables=observables,
+            observable,
+            backend=backend,
             shots=shots,
-            software=software,
+            seed=seed,
             cache=cache,
             cache_mode=cache_mode,
         )
@@ -100,9 +107,10 @@ def estimate(
         value = gate_cutting(
             circuit,
             cut,
-            observables=observables,
+            observable,
+            backend=backend,
             shots=shots,
-            software=software,
+            seed=seed,
             cache=cache,
             cache_mode=cache_mode,
         )
@@ -123,7 +131,10 @@ def estimate(
 
 
 def cut_cost(cut, wire=None):
-    """Estimate the reconstruction cost of a cut *before* running it.
+    """Deprecated: use :func:`~Qdislib.cutting_overhead`, which works for every cut
+    type and mix and also reports the circuits to run and ``gamma``.
+
+    Estimate the reconstruction cost of a cut *before* running it.
 
     Circuit cutting trades one circuit for many subcircuit evaluations: gate
     cutting expands each cut into 6 quasiprobability terms and wire cutting into
@@ -150,6 +161,14 @@ def cut_cost(cut, wire=None):
             cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)
             qd.cut_cost(cut)   # {'num_cuts': 2, 'kind': 'gate', 'base': 6, 'terms': 36}
     """
+    import warnings
+
+    warnings.warn(
+        "cut_cost() is deprecated: use cutting_overhead(circuit, cuts); it is "
+        "removed in the next release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     cut = list(cut or [])
     if wire is None:
         # Same shape test as estimate(): wire cuts are (source, target) pairs,

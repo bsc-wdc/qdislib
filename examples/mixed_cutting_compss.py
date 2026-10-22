@@ -48,12 +48,11 @@ def main():
     print(f"Backend: {SOFTWARE}  shots={SHOTS}")
     print(f"Analytical <{observable}> = {analytical:+.4f}")
 
-    got = qd.gate_wire_cutting(
+    got = qd.circuit_cutting(
         build_circuit(),
-        gates_cut=["CZ_2"],
-        wire_cut=[("RY_3", "CZ_4")],
-        observable=observable,
-        software=SOFTWARE,
+        {"gate": ["CZ_2"], "wire": [("RY_3", "CZ_4")]},
+        observable,
+        backend=SOFTWARE,
         shots=SHOTS,
     )
     print(

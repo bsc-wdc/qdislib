@@ -43,9 +43,8 @@ The public API is identical in both modes — the difference is internal:
 
 - **Serial** (PyCOMPSs not installed): the `@task` / `compss_wait_on` decorators
   in [`Qdislib/utils/runtime.py`](../Qdislib/utils/runtime.py) degrade to
-  no-ops, and `gate_cutting_subcircuits` / `wire_cutting_subcircuits` hand back
-  **native circuits** (Qibo/Qiskit objects, or a CUDA-Q `[kernel, observables]`
-  pair).
+  no-ops; the `*_subcircuits` functions hand back `Subcircuit` objects
+  (`s.circuit` is the native Qibo/Qiskit/CUDA-Q/PennyLane circuit).
 - **Distributed** (under `runcompss`): each subcircuit evaluation runs as its
   own COMPSs `@task`. Because native Qibo subcircuits and CUDA-Q kernels cannot
   be pickled to remote workers, `*_subcircuits` instead returns picklable
@@ -91,7 +90,7 @@ import Qdislib as qd
 cache = qd.default_circuit_cache("lmdb", path="/scratch/qcache")   # or "redis" / "memory"
 
 # one-call API:
-value = qd.gate_cutting(circuit, cut, software="qibo", cache=cache)
+value = qd.gate_cutting(circuit, cut, backend="qibo", cache=cache)
 
 # or the three-step workflow, switching granularity / a custom payload:
 subs   = qd.wire_cutting_subcircuits(circuit, cut, software="qibo")
@@ -138,7 +137,7 @@ directory:
 export QDISLIB_SUBCIRCUITS_DIR=/gpfs/projects/.../subcircuits
 ```
 ```python
-qd.gate_cutting(circuit, cut, software="qibo", qpu=True, qpu_dict={"MN_Ona": 5})
+qd.gate_cutting(circuit, cut, backend="BSC_QPU_BACKEND")
 ```
 
 The listener runs until a `STOP` file appears in the directory, `Ctrl-C`, or

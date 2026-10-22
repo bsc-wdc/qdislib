@@ -91,7 +91,13 @@ def build_execution_backend(
     ``IBM_BACKEND``), then GPU-eligible Aer, then the ``software`` backend
     (``qibo``/``qiskit``/``cudaq`` or the name of any registered backend). Extra
     keyword arguments (e.g. ``platform`` for Qibo) flow into the ``BackendConfig``.
+    ``software`` may also be a backend object (from :func:`build_backend`), which is
+    returned as it is.
     """
+    from Qdislib.core.backend.base_backend import BaseBackend
+
+    if isinstance(software, BaseBackend):  # a configured backend object: use it
+        return software
     size = max(int(num_qubits or 1), 1)
     qpu_dict = qpu_dict or {}
     fit = max_qubit if max_qubit is not None else size

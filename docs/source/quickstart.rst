@@ -36,7 +36,7 @@ reconstruction.
 
     # 1. Cut the circuit into independently executable subcircuits.
     #    Use find_cut to discover good cut points automatically.
-    subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"], software="qibo")
+    subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"])
 
     # 2. Evaluate each subcircuit — this loop is yours to control.
     values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
@@ -45,18 +45,22 @@ reconstruction.
     result = subcircuits.reconstruct(values)
     print(result)  # ≈ -0.717
 
-``qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")], software="qibo")`` works
-the same way for **wire cutting**. The ``software`` argument (``"qibo"``,
-``"qiskit"`` or ``"cudaq"``) selects the backend the subcircuits are emitted for,
-and must match the backend you evaluate them on.
+``qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")])`` works the same way for
+**wire cutting**, and so do the Hadamard cut and ``circuit_cutting`` below. Each
+subcircuit ``s`` is written in the circuit's own SDK unless you pass ``software=``
+(``"qibo"``, ``"qiskit"``, ``"cudaq"``, ``"pennylane"``); ``s.circuit`` is the native
+circuit. ``qd.expectation_value(s, shots=..., backend=...)`` runs it anywhere: the
+SDK's simulator by default, or a QPU backend.
 
 All-in-one
 ----------
 
-If you'd rather not manage the loop, ``qd.gate_cutting(...)`` and
-``qd.wire_cutting(...)`` run the cut, execution and reconstruction in a single
-call — convenient for quick experiments. The three-step workflow above is the
-flexible, production-oriented path.
+If you'd rather not manage the loop, ``qd.gate_cutting(circuit, cuts, observable)``
+(and ``wire_cutting``, ``gate_cutting_hadamard``, ``circuit_cutting``) run the cut,
+execution and reconstruction in a single call. They all take the same keywords:
+``backend`` (where to run), ``shots`` (``None`` is exact), ``seed`` and ``sync``.
+Each also has a ``_sampling`` form that returns the output distribution. The
+three-step workflow above is the flexible, production-oriented path.
 
 Cutting any gate (Hadamard test)
 --------------------------------
@@ -73,28 +77,24 @@ cut at the optimal overhead, with no mid-circuit measurement:
     circuit.add(gates.RY(1, 0.4))
     circuit.add(gates.iSWAP(0, 1))
 
-    val = qd.gate_cutting_hadamard(circuit, ["ISWAP_3"], "ZZ", software="qibo")
+    val = qd.gate_cutting_hadamard(circuit, ["ISWAP_3"], "ZZ", shots=None)  # exact
 
     # three-step form, and Monte-Carlo sampling of the configurations for many cuts:
     subs = qd.gate_cutting_hadamard_subcircuits(circuit, ["ISWAP_3"], "ZZ")
-    val = subs.reconstruct([qd.expectation_value(s) for s in subs])
+    val = subs.reconstruct([qd.expectation_value(s, shots=4096) for s in subs])
     val = qd.gate_cutting_hadamard(circuit, ["ISWAP_3"], "ZZ", num_samples=5000)
 
-Mixing gate and wire cutting
-----------------------------
+Mixing any cuts
+---------------
 
-``gate_wire_cutting`` cuts some gates **and** some wires on the same circuit in a
-single, fully parallel workflow:
+``circuit_cutting`` cuts gates (measure-and-prepare or Hadamard) **and** wires on the
+same circuit, in any number, in a single fully parallel workflow:
 
 .. code-block:: python
 
-    val = qd.gate_wire_cutting(
-        circuit,
-        gates_cut=["CZ_2"],
-        wire_cut=[("RY_3", "CZ_4")],
-        observable="ZZZ",
-        software="qibo",
-    )
+    cuts = {"gate": ["CZ_2"], "wire": [("RY_3", "CZ_4")]}
+    val = qd.circuit_cutting(circuit, cuts, "ZZZ", optimized=True)
+    qd.cutting_overhead(circuit, cuts, optimized=True)  # circuits and gamma, before running
 
 See the :doc:`User guide <user_guide>` for the full API, GPU acceleration, and
 distributed execution on PyCOMPSs.

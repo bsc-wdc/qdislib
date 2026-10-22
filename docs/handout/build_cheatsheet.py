@@ -308,7 +308,7 @@ def _story():
         body(
             "Every cut multiplies the work <b>exponentially</b>, so use as few, and "
             "as well-placed, as possible. Preview the blow-up with "
-            "<font face='Courier'>cut_cost(cut)</font> before you run.",
+            "<font face='Courier'>cutting_overhead(circ, cuts)</font> before you run.",
             BODY_MUTED,
         )
     )
@@ -327,10 +327,10 @@ def _story():
         code(
             "cut = qd.find_cut(circ, gate_cut=True)\n"
             "val = qd.gate_cutting(circ, cut,\n"
-            "          observables='ZZZZ', shots=8192)\n"
+            "          observable='ZZZZ', shots=8192)\n"
             "\n"
             "subs = qd.gate_cutting_subcircuits(\n"
-            "         circ, cut, observables='ZZZZ')\n"
+            "         circ, cut, observable='ZZZZ')\n"
             "vals = [qd.expectation_value(s)\n"
             "        for s in subs]     # run anywhere\n"
             "val = subs.reconstruct(vals)"
@@ -362,7 +362,7 @@ def _story():
             "cut = qd.find_cut(circ, gate_cut=True,\n"
             "        wire_cut=False, seed=0)\n"
             "val = qd.gate_cutting(circ, cut,\n"
-            "        observables='ZZZZ', shots=8192)"
+            "        observable='ZZZZ', shots=8192)"
         )
     )
     s.append(gap(4.5))
@@ -376,12 +376,12 @@ def _story():
                 ("gate_cutting(circ, cut)", "&lt;O&gt; via gate cutting."),
                 ("wire_cutting(circ, cut)", "&lt;O&gt; via wire cutting."),
                 ("gate_cutting_hadamard(...)", "&lt;O&gt; via the ancilla cut."),
-                ("gate_wire_cutting(...)", "Mixed gate + wire cut."),
+                ("circuit_cutting(circ, cuts)", "Any mix of gate/Hadamard/wire cuts."),
                 ("..._sampling(circ, cut)", "Full output distribution."),
                 ("..._subcircuits(...)", "3-step: pieces + .reconstruct()."),
                 ("expectation_value(sub)", "Run one subcircuit."),
                 ("estimate(circ, ...)", "One-call cut + run + reconstruct."),
-                ("cut_cost(cut)", "Preview terms = base**#cuts."),
+                ("cutting_overhead(circ, cuts)", "Preview circuits and gamma."),
                 ("analytical_solution(...)", "Exact &lt;O&gt; (to check)."),
                 ("draw_cut(circ, cut, path)", "Visualise the cut."),
                 ("from_qasm(qasm, ...)", "Import any OpenQASM 2."),
@@ -405,7 +405,7 @@ def _story():
     s.append(
         code(
             "val = qd.gate_cutting_hadamard(\n"
-            "        circ, ['ISWAP_3'], 'ZZ', software='qibo')\n"
+            "        circ, ['ISWAP_3'], 'ZZ', backend='qibo')\n"
             "# Monte-Carlo (bounded cost for many cuts):\n"
             "val = qd.gate_cutting_hadamard(\n"
             "        circ, cut, 'ZZ', num_samples=5000)\n"
@@ -438,10 +438,9 @@ def _story():
     s.append(gap(2))
     s.append(
         code(
-            "val = qd.gate_wire_cutting(circ,\n"
-            "        gates_cut=['CZ_2'],\n"
-            "        wire_cut=[('RY_3', 'CZ_4')],\n"
-            "        observable='ZZZ', software='qibo')"
+            "cuts = {'gate': ['CZ_2'], 'wire': [('RY_3', 'CZ_4')]}\n"
+            "val = qd.circuit_cutting(circ, cuts, 'ZZZ',\n"
+            "        optimized=True)"
         )
     )
     s.append(gap(4.5))
@@ -493,7 +492,7 @@ def _story():
                 ),
                 (
                     "mixed=True",
-                    "Combined {gate, wire} cut for gate_wire_cutting (cost-aware).",
+                    "Combined {gate, wire} cut for circuit_cutting (cost-aware).",
                 ),
                 ("implementation=", "'qdislib' (default) or 'ibm-ckt'."),
                 ("seed=n", "Reproducible cut selection."),
@@ -531,11 +530,10 @@ def _story():
     s.append(
         api_table(
             [
-                ("software=", "'qibo' | 'qiskit' | 'cudaq'."),
-                ("gpu=True", "Aer GPU (needs CUDA)."),
-                ("qpu=True, qpu_dict=", "{'MN_Ona': n} / {'IBM_Quantum': 127}."),
+                ("backend=", "Where it runs: 'qiskit', 'IBM_BACKEND', an object."),
+                ("software=", "3-step: SDK the subcircuits are written in."),
+                ("build_backend(name, cfg)", "A configured backend (QPU, GPU Aer)."),
                 ("available_backends()", "List registered backends."),
-                ("build_execution_backend", "How software/gpu/qpu pick one."),
                 ("QdBackEnd(pool)", "Load-balance across devices."),
                 ("register_backend(...)", "Plug in your own (BaseBackend)."),
             ]
@@ -601,7 +599,7 @@ def _story():
                     "measure (best on superconducting QPUs); expectation only.",
                 ),
                 ("wire_cutting", "Cut a qubit's wire between two subcircuits."),
-                ("gate_wire_cutting", "Both cut types on one circuit at once."),
+                ("circuit_cutting", "Any mix of cuts on one circuit at once."),
                 ("*_sampling", "Reconstruct the full output distribution."),
             ],
             key_frac=0.44,
@@ -668,15 +666,16 @@ def _story():
         bullets(
             [
                 "Cost is exponential in #cuts (6<super>k</super> / 8<super>k</super>) — "
-                "fewer, well-placed cuts win; preview with <font face='Courier'>cut_cost</font>.",
+                "fewer, well-placed cuts win; <font face='Courier'>optimized=True</font> "
+                "turns much of it into a sum; preview with "
+                "<font face='Courier'>cutting_overhead</font>.",
                 "Any two-qubit gate is cuttable now; a non-CZ/CX gate becomes "
                 "<b>3 CZ cuts</b>, so prefer <font face='Courier'>gate_cutting_hadamard</font> "
                 "(1 cut, optimal) for exotic gates.",
                 "Sampling needs <b>more shots</b> than an expectation value "
                 "(quasiprobability overhead).",
                 "Identity on a cut qubit: <b>CPU &amp; GPU yes</b>, <b>QPU no</b>; for a "
-                "general gate use <font face='Courier'>software='qibo'</font> or the "
-                "Hadamard cut.",
+                "general gate use a simulator backend or the Hadamard cut.",
                 "Use <font face='Courier'>seed=</font> for a reproducible "
                 "<font face='Courier'>find_cut</font>.",
             ]
@@ -692,11 +691,10 @@ def _story():
     s.append(gap(2))
     s.append(
         code(
-            "qd.gate_cutting(circ, cut, gpu=True)      # Aer GPU\n"
-            "qd.gate_cutting(circ, cut, qpu=True,\n"
-            "        qpu_dict={'MN_Ona': 4})           # BSC QPU\n"
-            "qd.gate_cutting(circ, cut, qpu=True,\n"
-            "        qpu_dict={'IBM_Quantum': 127})    # IBM"
+            "ibm = qd.build_backend('IBM_BACKEND', cfg)\n"
+            "qd.gate_cutting(circ, cut, backend=ibm)   # IBM\n"
+            "qd.gate_cutting(circ, cut,\n"
+            "        backend='BSC_QPU_BACKEND')        # BSC QPU"
         )
     )
     s.append(gap(2))
@@ -722,7 +720,7 @@ def _story():
     s.append(
         code(
             "circ = qd.from_qasm(open('c.qasm').read())\n"
-            "qd.gate_cutting(circ, cut, software='qiskit')"
+            "qd.gate_cutting(circ, cut, backend='qiskit')"
         )
     )
     s.append(gap(4.5))

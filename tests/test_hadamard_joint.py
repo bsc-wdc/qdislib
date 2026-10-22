@@ -75,13 +75,13 @@ class JointHadamardCutTest(BaseTimedTestCase):
         from Qdislib.core.cutting_algorithms.hadamard_cut import gate_cutting_hadamard
 
         return gate_cutting_hadamard(
-            circuit, cut, observable or "Z" * circuit.nqubits, joint=True
+            circuit, cut, observable or "Z" * circuit.nqubits, joint=True, shots=None
         )
 
     def test_k_gates_across_one_boundary(self):
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
             gate_cutting_hadamard_subcircuits,
-            hadamard_cut_overhead,
+            _hadamard_cut_overhead,
         )
 
         for gate in ("CZ", "CNOT"):
@@ -99,10 +99,12 @@ class JointHadamardCutTest(BaseTimedTestCase):
                     )
                     # one ancilla per side, however many gates cross
                     self.assertEqual({s[0].nqubits for s in subs}, {k + 1})
-                    phi, groups = hadamard_cut_overhead(circuit, cut, joint=True)
+                    phi, groups = _hadamard_cut_overhead(circuit, cut, joint=True)
                     self.assertAlmostEqual(phi, 2 ** (k + 1) - 1)
                     self.assertEqual(len(groups), 1)
-                    self.assertAlmostEqual(hadamard_cut_overhead(circuit, cut)[0], 3**k)
+                    self.assertAlmostEqual(
+                        _hadamard_cut_overhead(circuit, cut)[0], 3**k
+                    )
 
     def test_one_gate_is_todays_cut(self):
         """A group of one gate builds exactly today's fragments, setting by setting."""
@@ -163,7 +165,7 @@ class JointHadamardCutTest(BaseTimedTestCase):
 
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
             gate_cutting_hadamard_subcircuits,
-            hadamard_cut_overhead,
+            _hadamard_cut_overhead,
         )
 
         rng = np.random.default_rng(9)
@@ -186,7 +188,7 @@ class JointHadamardCutTest(BaseTimedTestCase):
                     self._exact(circuit, observable),
                     places=10,
                 )
-        phi, groups = hadamard_cut_overhead(circuit, cut, joint=True)
+        phi, groups = _hadamard_cut_overhead(circuit, cut, joint=True)
         self.assertEqual([len(gates_) for gates_, _ in groups], [2, 2])
         self.assertAlmostEqual(phi, 7 * 7)
         # the middle fragment holds one ancilla per boundary it touches
@@ -206,7 +208,9 @@ class JointHadamardCutTest(BaseTimedTestCase):
             exact = self._exact(circuit, observable)
             for joint in (False, True):
                 with self.subTest(observable=observable, joint=joint):
-                    value = gate_cutting_hadamard(circuit, cut, observable, joint=joint)
+                    value = gate_cutting_hadamard(
+                        circuit, cut, observable, joint=joint, shots=None
+                    )
                     self.assertAlmostEqual(value, exact, places=10)
                     subs = gate_cutting_hadamard_subcircuits(
                         circuit, cut, observable, joint=joint
@@ -256,7 +260,9 @@ class HadamardSamplingTest(BaseTimedTestCase):
             circuit, cut = _one_boundary(k, gate="CNOT", seed=3)
             exact = _exact_distribution(circuit)
             for joint in (False, True):
-                dist = gate_cutting_hadamard_sampling(circuit, cut, joint=joint)
+                dist = gate_cutting_hadamard_sampling(
+                    circuit, cut, joint=joint, shots=None
+                )
                 self.assertLess(_tvd(dist, exact), 1e-9, (k, joint))
 
     def test_sampled_and_three_step(self):
@@ -265,7 +271,7 @@ class HadamardSamplingTest(BaseTimedTestCase):
         circuit, cut = _one_boundary(2, seed=8)
         exact = _exact_distribution(circuit)
         dist = qd.gate_cutting_hadamard_sampling(
-            circuit, cut, software="qiskit", shots=20000, joint=True, seed=1
+            circuit, cut, backend="qiskit", shots=20000, joint=True, seed=1
         )
         self.assertLess(_tvd(dist, exact), 0.03)
         subs = qd.gate_cutting_hadamard_sampling_subcircuits(circuit, cut, joint=True)
@@ -278,9 +284,11 @@ class HadamardSamplingTest(BaseTimedTestCase):
 
         circuit, cut = _one_boundary(1)
         with self.assertRaises(TypeError):
-            qd.gate_cutting_hadamard_sampling(circuit, cut, "ZZ", num_samples=100)
+            qd.gate_cutting_hadamard_sampling(
+                circuit, cut, "ZZ", num_samples=100, shots=None
+            )
         with self.assertRaises(TypeError):
-            qd.gate_cutting_hadamard_sampling(circuit, cut, observable="ZZ")
+            qd.gate_cutting_hadamard_sampling(circuit, cut, observable="ZZ", shots=None)
 
 
 if __name__ == "__main__":

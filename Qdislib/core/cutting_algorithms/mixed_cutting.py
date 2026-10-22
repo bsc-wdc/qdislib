@@ -37,6 +37,16 @@ import itertools
 import numpy as np
 
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
+from Qdislib.utils.backends import Subcircuit
+from Qdislib.core.cutting_algorithms._reconstruction import next_seed
+from Qdislib.core.cutting_algorithms._api import (
+    SDKS,
+    standard_arguments,
+    resolve_backend,
+    resolve_software,
+    default_observable,
+    is_simulator,
+)
 
 __all__ = [
     "gate_wire_cutting",
@@ -44,7 +54,7 @@ __all__ = [
     "circuit_cutting_subcircuits",
     "circuit_cutting_sampling",
     "circuit_cutting_sampling_subcircuits",
-    "circuit_cutting_overhead",
+    "cutting_overhead",
     "CutCircuits",
 ]
 
@@ -89,45 +99,34 @@ def gate_wire_cutting(
     optimized=False,
     joint=None,
 ):
-    """Reconstruct ``<observable>`` from a circuit cut by BOTH gate and wire cuts.
+    """Deprecated: use :func:`circuit_cutting` with
+    ``cuts={"gate": gates_cut, "wire": wire_cut}``.
 
-    :func:`circuit_cutting` generalises this to any combination of cuts, with the
-    output distribution and three-step forms; with ``hadamard``, ``optimized`` or
-    ``joint`` set, this call is forwarded to it.
-
-    :param circuit: A qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
-    :param gates_cut: Two-qubit gate node names to cut (CZ/CX), as in
-        :func:`gate_cutting`.
-    :param wire_cut: Wire cuts as gate-pair edges ``[(source, target), ...]``, as in
-        :func:`wire_cutting` (each is expanded to one cut per shared qubit).
-    :param observable: A Z/I (or general Pauli) string over the circuit's qubits.
-    :param software: Fragment-execution backend (``"qibo"``/``"qiskit"``/``"cudaq"``/
-        ``"pennylane"``).
-    :param shots: Samples per fragment expectation.
-    :param method: Backend evaluation method (forwarded to the gate-cut executor).
-    :param sync: If ``True`` block and return the value; if ``False`` return the list
-        of per-configuration futures (advanced overlap of several cuts).
-    :param qpu: Route fragment execution to a QPU.
-    :param qpu_dict: QPU connection settings.
-    :param hadamard: Cut the gates with the Hadamard test (see :func:`circuit_cutting`).
-    :param optimized: Run each fragment once per setting of its own cuts.
-    :param joint: Joint wire measurement / joint Hadamard cut (see
-        :func:`circuit_cutting`).
-    :return: The reconstructed expectation value.
+    Runs as it did in 1.0 (measure-and-prepare gate cuts with the standard wire
+    cut); with ``hadamard``, ``optimized`` or ``joint`` it is forwarded to
+    :func:`circuit_cutting`.
     """
+    import warnings
+
+    warnings.warn(
+        'gate_wire_cutting() is deprecated: use circuit_cutting(circuit, {"gate": '
+        '[...], "wire": [...]}, observable, ...); it is removed in the next release.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if hadamard or optimized or joint is not None:
+        if qpu or qpu_dict:
+            raise ValueError("circuit_cutting takes backend=, not qpu/qpu_dict")
         return circuit_cutting(
             circuit,
             {"gate": gates_cut or [], "wire": wire_cut or []},
             observable,
-            software=software,
+            backend=software,
             shots=shots,
             hadamard=hadamard,
             optimized=optimized,
-            joint=joint,
+            joint=True if joint is None else joint,
             sync=sync,
-            qpu=qpu,
-            qpu_dict=qpu_dict,
         )
     import networkx as nx
 
@@ -308,10 +307,7 @@ class _CutPlan:
         if overlap:
             raise ValueError(f"Gate(s) {sorted(overlap)} cut twice.")
         self.optimized = bool(optimized)
-        # joint=None: each cut's own default -- joint wire measurement (optimized
-        # only), Hadamard gates cut one by one.
-        self.joint_wires = True if joint is None else bool(joint)
-        joint_gates = False if joint is None else bool(joint)
+        self.joint_wires = joint_gates = bool(joint)
 
         dag = convert_to_dag(circuit)
         if observable and set(observable) & {"X", "Y"}:
@@ -655,42 +651,53 @@ def _exact_fragment(dag, software="qibo"):
     return (-1) ** deferred * folded, original
 
 
-class _FragmentCircuit:
+class _FragmentCircuit(Subcircuit):
     """One fragment circuit of a :func:`circuit_cutting` cut (three-step workflow).
 
-    Run it with :func:`~Qdislib.sample_subcircuit` or
-    :func:`~Qdislib.expectation_value` (either works, both return the fragment's
-    ``(corr, original)`` Z correlators); ``shots=None`` is exact (statevector, qibo or Qiskit).
-    Picklable: a DAG plus metadata.
+    Running it -- with :func:`~Qdislib.expectation_value` or
+    :func:`~Qdislib.sample_subcircuit`, either works -- returns the fragment's
+    ``(corr, original)`` Z correlators, which serve both the expectation value and
+    the distribution. ``shots=None`` is exact (statevector, on qibo or Qiskit).
+    ``dag`` keeps the circuit's qubit numbering; ``circuit`` is renumbered.
     """
 
-    _is_optimized_wire_measure = True  # expectation_value calls evaluate()
-
     def __init__(self, dag, software, qpu=False, qpu_dict=None):
-        self.dag = dag
-        self.software = software
+        qubits = {q for _, d in dag.nodes(data=True) for q in d.get("qubits") or ()}
+        super().__init__(dag, len(qubits), software)
         self.qpu = qpu
         self.qpu_dict = qpu_dict
 
-    def sample(self, shots=1024, seed=None):
+    def to_circuit(self):
+        from Qdislib.utils.backends import _materialize
+
+        dag, width = self._renumbered()
+        return _materialize(dag, width, self.software)
+
+    @property
+    def observable(self):
+        return None
+
+    def _sample(self, shots, backend, seed):
+        runner = self.software if backend is None else backend
         if shots is None:
-            return _exact_fragment(self.dag, self.software)
+            if not is_simulator(runner):
+                raise ValueError("shots=None (exact) needs a simulator backend")
+            return _exact_fragment(self.dag, "qibo" if runner == "qibo" else "qiskit")
         from Qdislib.core.cutting_algorithms.gate_cutting import (
             _sample_gate_subcircuit,
         )
 
         return _sample_gate_subcircuit(
-            self.dag, self.software, shots, self.qpu, self.qpu_dict, seed
+            self.dag, runner, shots, self.qpu, self.qpu_dict, seed
         )
 
-    def evaluate(self, shots):
-        return self.sample(shots)
+    def _expectation(self, shots, backend, seed, cache, cache_mode):
+        if cache is not None:
+            raise ValueError("cache= is not supported for circuit_cutting fragments")
+        return self._sample(shots, backend, seed)
 
-    def __repr__(self):
-        qubits = sorted(
-            {q for _, d in self.dag.nodes(data=True) for q in d.get("qubits") or ()}
-        )
-        return f"_FragmentCircuit(qubits={qubits}, gates={self.dag.number_of_nodes()})"
+    def sample(self, shots=1024, seed=None):
+        return self._sample(shots, None, seed)
 
 
 def _cut_z_correlators(plan, keys, readouts, results, masks):
@@ -802,11 +809,8 @@ def _reconstruct_cut_task(plan, keys, readouts, results, mode, observable):
 def _prepare_cut(
     circuit, cuts, observable, hadamard, optimized, joint, software, qpu, qpu_dict
 ):
-    """The plan plus one :class:`_FragmentCircuit` per fragment circuit to run."""
-    if software is None:
-        from Qdislib.utils.circuit_cache import _detect_software
-
-        software = _detect_software(circuit) or "qibo"
+    """The plan plus one :class:`_FragmentCircuit` per fragment circuit to run;
+    ``software`` is what runs them (an SDK, registered backend or backend object)."""
     plan = _CutPlan(circuit, cuts, observable, hadamard, optimized, joint)
     keys, readouts, circuits = [], [], []
     for key, f, gate_config, states, setting in plan.units():
@@ -819,29 +823,31 @@ def _prepare_cut(
 
 def _run(circuits, shots, seed):
     return [
-        circuit.sample(shots, None if seed is None else seed + n)
-        for n, circuit in enumerate(circuits)
+        circuit.sample(shots, next_seed(seed, n)) for n, circuit in enumerate(circuits)
     ]
 
 
-def _check_exact(shots, software):
-    if shots is None and software not in (None, "qibo", "qiskit"):
-        raise ValueError("shots=None (exact) needs software='qibo' or 'qiskit'")
+def _check_exact(shots, backend):
+    if shots is None and backend is not None and not is_simulator(backend):
+        raise ValueError(
+            "shots=None (exact) is a statevector simulation: use a simulator backend "
+            f"(one of {list(SDKS)}), not {backend!r}."
+        )
 
 
+@standard_arguments
 def circuit_cutting(
     circuit,
     cuts,
     observable=None,
-    software=None,
+    *,
+    backend=None,
     shots=1024,
+    seed=None,
+    sync=True,
     hadamard=False,
     optimized=False,
-    joint=None,
-    sync=True,
-    qpu=False,
-    qpu_dict=None,
-    seed=None,
+    joint=True,
 ):
     """Reconstruct ``<observable>`` from a circuit cut by any combination of cuts.
 
@@ -849,7 +855,7 @@ def circuit_cutting(
     freely, in any number; their quasiprobability decompositions tensor. With
     ``optimized=True`` each fragment runs once per distinct setting of the cuts that
     touch it, so the number of circuits grows as a *sum* over fragments, not as a
-    product over cuts (see :func:`circuit_cutting_overhead`).
+    product over cuts (see :func:`cutting_overhead`).
 
     :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
     :param cuts: ``{"gate": [...], "hadamard": [...], "wire": [...]}`` (any subset;
@@ -857,31 +863,28 @@ def circuit_cutting(
         ``(source, target)`` wire edges.
     :param observable: A Pauli string (``X``/``Y`` are rotated into ``Z``), or a
         weighted Pauli sum ``[(coefficient, string), ...]``; ``None`` is all ``Z``.
-    :param software: Fragment backend; ``None`` uses the circuit's own SDK.
-    :param shots: Shots per fragment circuit; ``None`` is exact (statevector, on
-        qibo or Qiskit).
+    :param backend: Where the fragments run (see :func:`gate_cutting`).
+    :param shots: Shots per fragment circuit; ``None`` is exact (statevector).
+    :param seed: Seed for the simulators' sampling (each circuit its own stream).
+    :param sync: ``False`` returns the value as a future (PyCOMPSs).
     :param hadamard: Cut the ``"gate"`` cuts (or the gate names of a list) with the
         Hadamard test (:func:`gate_cutting_hadamard`) instead of measure-and-prepare.
     :param optimized: Run each fragment once per distinct setting of its own cuts.
-    :param joint: ``None`` keeps each cut's default (wires measured jointly when
-        ``optimized``, Hadamard gates cut one by one); ``True`` / ``False`` turns
-        both on / off (:func:`wire_cutting` and :func:`gate_cutting_hadamard`).
-    :param sync: ``False`` returns the value as a future.
-    :param qpu: Route fragment execution to a QPU.
-    :param qpu_dict: QPU connection settings.
-    :param seed: Seed for the fragment sampling (``seed + i`` per circuit).
+    :param joint: Measure the wires a fragment sends together (with ``optimized``)
+        and cut the Hadamard gates crossing one boundary together.
     :return: The reconstructed expectation value.
     """
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms
 
-    _check_exact(shots, software)
-    terms = _observable_terms(observable) if observable is not None else [(1.0, None)]
+    _check_exact(shots, backend)
+    software = resolve_backend(backend, circuit)
+    terms = _observable_terms(default_observable(observable, circuit))
     values = []
-    for coefficient, term in terms:
+    for k, (coefficient, term) in enumerate(terms):
         plan, keys, readouts, circuits = _prepare_cut(
-            circuit, cuts, term, hadamard, optimized, joint, software, qpu, qpu_dict
+            circuit, cuts, term, hadamard, optimized, joint, software, False, None
         )
-        results = _run(circuits, shots, seed)
+        results = _run(circuits, shots, None if seed is None else next_seed(seed, k))
         values.append(
             (
                 coefficient,
@@ -895,29 +898,37 @@ def circuit_cutting(
     return sum(c * compss_wait_on(v) for c, v in values)
 
 
+@standard_arguments
 def circuit_cutting_sampling(
     circuit,
     cuts,
-    software=None,
+    *,
+    backend=None,
     shots=1024,
+    seed=None,
+    sync=True,
     hadamard=False,
     optimized=False,
-    joint=None,
-    sync=True,
-    qpu=False,
-    qpu_dict=None,
-    seed=None,
+    joint=True,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut by any
-    combination of cuts -- the distribution counterpart of :func:`circuit_cutting`,
-    from the same fragment circuits. Arguments as there.
+    combination of cuts, from the same fragment circuits as :func:`circuit_cutting`.
+    Arguments as there.
 
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings), the signed
         estimate abs-normalised like :func:`gate_cutting_sampling`.
     """
-    _check_exact(shots, software)
+    _check_exact(shots, backend)
     plan, keys, readouts, circuits = _prepare_cut(
-        circuit, cuts, None, hadamard, optimized, joint, software, qpu, qpu_dict
+        circuit,
+        cuts,
+        None,
+        hadamard,
+        optimized,
+        joint,
+        resolve_backend(backend, circuit),
+        False,
+        None,
     )
     future = _reconstruct_cut_task(
         plan, keys, readouts, _run(circuits, shots, seed), "distribution", None
@@ -950,7 +961,7 @@ class CutCircuits(list):
         )
 
     def reconstruct(self, results):
-        """Recombine one ``(corr, original)`` result per circuit, in this order."""
+        """Recombine one result per subcircuit, in this order."""
         results = compss_wait_on(list(results))
         if len(results) != len(self):
             raise ValueError(
@@ -963,32 +974,35 @@ class CutCircuits(list):
         )
 
 
+@standard_arguments
 def circuit_cutting_subcircuits(
     circuit,
     cuts,
     observable=None,
+    *,
     software=None,
     hadamard=False,
     optimized=False,
-    joint=None,
-    qpu=False,
-    qpu_dict=None,
+    joint=True,
 ):
-    """The fragment circuits of :func:`circuit_cutting` (three-step workflow).
+    """The fragment circuits of :func:`circuit_cutting`, to run yourself.
 
-    Run each with :func:`~Qdislib.expectation_value` (or
-    :func:`~Qdislib.sample_subcircuit`) and pass the results to ``reconstruct``. A
-    weighted Pauli sum gives a :class:`~Qdislib.CombinedCutSubcircuits` of one
-    :class:`CutCircuits` per term. Arguments as in :func:`circuit_cutting`.
+    Run each with :func:`~Qdislib.expectation_value` and pass the results to
+    ``reconstruct``. A weighted Pauli sum gives a
+    :class:`~Qdislib.CombinedCutSubcircuits` of one list per term.
+
+    :param software: The SDK the subcircuits are written in (``None``: the
+        circuit's own); where they run is chosen when you run them.
     """
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms
     from Qdislib.utils.backends import CombinedCutSubcircuits
 
-    terms = _observable_terms(observable) if observable is not None else [(1.0, None)]
+    software = resolve_software(software, circuit)
+    terms = _observable_terms(default_observable(observable, circuit))
     parts = []
     for _, term in terms:
         plan, keys, readouts, circuits = _prepare_cut(
-            circuit, cuts, term, hadamard, optimized, joint, software, qpu, qpu_dict
+            circuit, cuts, term, hadamard, optimized, joint, software, False, None
         )
         parts.append(
             CutCircuits(
@@ -1005,36 +1019,38 @@ def circuit_cutting_subcircuits(
     return CombinedCutSubcircuits(parts, [c for c, _ in terms])
 
 
+@standard_arguments
 def circuit_cutting_sampling_subcircuits(
-    circuit,
-    cuts,
-    software=None,
-    hadamard=False,
-    optimized=False,
-    joint=None,
-    qpu=False,
-    qpu_dict=None,
+    circuit, cuts, *, software=None, hadamard=False, optimized=False, joint=True
 ):
-    """The fragment circuits of :func:`circuit_cutting_sampling` (three-step):
-    sample each with :func:`~Qdislib.sample_subcircuit`, then ``reconstruct`` gives
-    the output distribution. Arguments as in :func:`circuit_cutting`."""
+    """The fragment circuits of :func:`circuit_cutting_sampling`, to sample
+    yourself with :func:`~Qdislib.sample_subcircuit`; ``reconstruct`` gives the
+    output distribution. Arguments as in :func:`circuit_cutting_subcircuits`."""
     plan, keys, readouts, circuits = _prepare_cut(
-        circuit, cuts, None, hadamard, optimized, joint, software, qpu, qpu_dict
+        circuit,
+        cuts,
+        None,
+        hadamard,
+        optimized,
+        joint,
+        resolve_software(software, circuit),
+        False,
+        None,
     )
     return CutCircuits(
         circuits, plan=plan, keys=keys, readouts=readouts, mode="distribution"
     )
 
 
-def circuit_cutting_overhead(
-    circuit, cuts, hadamard=False, optimized=False, joint=None
-):
-    """What a cut costs, without running anything.
+def cutting_overhead(circuit, cuts, *, hadamard=False, optimized=False, joint=True):
+    """What a cut costs, for any cut type or mix, without running anything.
 
+    :param cuts: As in :func:`circuit_cutting`: ``{"gate": ..., "hadamard": ...,
+        "wire": ...}`` or a list.
     :return: ``{"subcircuits", "configurations", "fragments", "gamma"}``: the
-        fragment circuits to run, the terms of the combined decomposition, the
-        independent fragments, and the sampling overhead (shots grow as
-        ``gamma**2`` for a given precision).
+        circuits to run, the terms of the combined decomposition, the independent
+        fragments, and the sampling overhead (shots grow as ``gamma**2`` for a given
+        precision).
     """
     plan = _CutPlan(circuit, cuts, None, hadamard, optimized, joint)
     if optimized:

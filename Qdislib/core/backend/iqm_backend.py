@@ -126,7 +126,7 @@ class IQMBackend(BaseBackend):
     # ------------------------------------------------------------------
 
     def evaluate_expectation(
-        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic"
+        self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic", seed=None
     ):
         """Evaluate a gate-cut subcircuit DAG on the IQM device (all-in-one path)."""
         from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit

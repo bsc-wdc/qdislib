@@ -87,7 +87,7 @@ class CircuitTest(BaseTimedTestCase):
 
         cut = find_cut(circuit, 2, wire_cut=False)
 
-        reconstrucion = gate_cutting(dag=circuit, gates_cut=cut)
+        reconstrucion = gate_cutting(circuit=circuit, cuts=cut)
         analytical = analytical_solution(circuit, "ZZZZ")
 
         if cut == ["CZ_5"] and abs(reconstrucion - analytical) < 0.2:
@@ -150,7 +150,7 @@ class CircuitTest(BaseTimedTestCase):
         self.assertTrue(wire)
         self.assertNotIn("BARRIER", repr((wire, gate, mixed)))
         # The cut must be usable: the barrier's index is kept, so names line up.
-        wire_cutting(build(), wire, observables="ZZZ", software="qiskit", shots=1000)
+        wire_cutting(build(), wire, observable="ZZZ", backend="qiskit", shots=1000)
 
     def test_wire_mode_respects_max_qubits_and_forbidden_qubits(self):
         """bsc-wdc/qdislib#10: wire cuts keep pieces within max_qubits and off

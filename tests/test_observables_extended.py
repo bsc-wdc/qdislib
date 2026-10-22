@@ -57,16 +57,16 @@ class ObservableTest(BaseTimedTestCase):
         gate = qd.gate_cutting(
             _circuit(),
             ["CZ_2"],
-            observables=observables,
+            observable=observables,
             shots=6000,
-            software=software,
+            backend=software,
         )
         wire = qd.wire_cutting(
             _circuit(),
             [("CZ_2", "RY_3")],
-            observables=observables,
+            observable=observables,
             shots=6000,
-            software=software,
+            backend=software,
         )
         self.assertLess(abs(gate - analytical), tol, f"gate {observables}/{software}")
         self.assertLess(abs(wire - analytical), tol, f"wire {observables}/{software}")
@@ -97,7 +97,7 @@ class ObservableTest(BaseTimedTestCase):
         for obs in ["ZIZ", "IZZ"]:
             analytical = qd.analytical_solution(_circuit(), obs)
             gate = qd.gate_cutting(
-                _circuit(), ["CZ_2"], observables=obs, shots=8000, software="cudaq"
+                _circuit(), ["CZ_2"], observable=obs, shots=8000, backend="cudaq"
             )
             self.assertLess(abs(gate - analytical), _TOL, f"cudaq gate {obs}")
 

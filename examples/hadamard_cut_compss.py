@@ -60,7 +60,7 @@ def main():
     # blocking (sync=False), so both clusters' fragment tasks are in flight at once --
     # no barrier between them. The master only synchronises once, at the end.
     enum_future = qd.gate_cutting_hadamard(
-        circuit, cut, observable, software=SOFTWARE, shots=SHOTS, sync=False
+        circuit, cut, observable, backend=SOFTWARE, shots=SHOTS, sync=False
     )
     # reduce_chunk turns the Monte-Carlo (num_samples) single fan-in into a balanced reduction
     # tree (partial reduces per chunk of configs -> combine), so the reduction itself
@@ -69,7 +69,7 @@ def main():
         build_circuit(),
         cut,
         observable,
-        software=SOFTWARE,
+        backend=SOFTWARE,
         shots=SHOTS,
         num_samples=NUM_SAMPLES,
         seed=1,

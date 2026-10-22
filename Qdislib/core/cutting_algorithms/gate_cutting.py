@@ -108,11 +108,19 @@ from Qdislib.utils.backends import (
     change_basis_dag,
     normalize_observables,
     make_subcircuit,
+    SampledSubcircuit,
     _make_subcircuit_task,
     CutSubcircuits,
     CombinedCutSubcircuits,
 )
 from Qdislib.utils.exceptions import UnsupportedBackendError, InvalidCutError
+from Qdislib.core.cutting_algorithms._reconstruction import next_seed
+from Qdislib.core.cutting_algorithms._api import (
+    standard_arguments,
+    resolve_backend,
+    resolve_software,
+    default_observable,
+)
 
 
 @task(returns=1, values=COLLECTION_IN)
@@ -127,7 +135,7 @@ def _weighted_sum(coeffs, values):
     return float(sum(c * v for c, v in zip(coeffs, values)))
 
 
-def gate_cutting(
+def _gate_cutting(
     dag: typing.Any,
     gates_cut: typing.List[typing.Any],
     observables: typing.Optional[typing.Any] = None,
@@ -142,6 +150,7 @@ def gate_cutting(
     software: str = "qiskit",
     cache=None,
     cache_mode="expectation",
+    seed=None,
 ):
     """
     Apply gate cutting to a quantum circuit to enable distributed smaller executions of subcircuits.
@@ -263,7 +272,7 @@ def gate_cutting(
         terms = list(normalize_observables(observables))
         coeffs = [coeff for coeff, _ in terms]
         values = [
-            gate_cutting(
+            _gate_cutting(
                 dag.copy() if isinstance(dag, nx.Graph) else dag,
                 gates_cut,
                 observables=pauli,
@@ -277,8 +286,9 @@ def gate_cutting(
                 software=software,
                 cache=cache,
                 cache_mode=cache_mode,
+                seed=next_seed(seed, "term", k),
             )
-            for _, pauli in terms
+            for k, (_, pauli) in enumerate(terms)
         ]
         total = _weighted_sum(coeffs, values)
         return compss_wait_on(total) if sync else total
@@ -289,12 +299,18 @@ def gate_cutting(
     if cache is not None:
         from Qdislib.utils.backends import expectation_value
 
-        subcircuits = gate_cutting_subcircuits(
+        subcircuits = _gate_cutting_subcircuits(
             dag, gates_cut, observables=observables, software=software
         )
         values = [
-            expectation_value(s, shots=shots, cache=cache, cache_mode=cache_mode)
-            for s in subcircuits
+            expectation_value(
+                s,
+                shots=shots,
+                cache=cache,
+                cache_mode=cache_mode,
+                seed=next_seed(seed, "cached", i),
+            )
+            for i, s in enumerate(subcircuits)
         ]
         return subcircuits.reconstruct(values)
 
@@ -323,7 +339,7 @@ def gate_cutting(
             dag.subgraph(c).copy() for c in nx.connected_components(dag.to_undirected())
         ]
         results = []
-        for s in S:
+        for piece, s in enumerate(S):
             # num_qubits = _max_qubit(s)
             tmp_cuts = []
             for c in gates_cut:
@@ -342,6 +358,7 @@ def gate_cutting(
                     batch=batch,
                     backend=backend,
                     software=software,
+                    seed=next_seed(seed, "piece", piece),
                 )
                 graphs = _sum_results(graphs)
                 results.append(graphs)
@@ -359,6 +376,7 @@ def gate_cutting(
                         qpu_dict,
                         batch,
                         backend,
+                        next_seed(seed, "piece", piece),
                     )
                 )
         if sync:
@@ -384,6 +402,7 @@ def gate_cutting(
                 batch=batch,
                 backend=backend,
                 software=software,
+                seed=seed,
             )
             if sync:
                 results = compss_wait_on(results)
@@ -406,6 +425,7 @@ def gate_cutting(
                 qpu_dict,
                 batch,
                 backend,
+                seed,
             )
             if sync:
                 final_recons = compss_wait_on(final_recons)
@@ -1275,7 +1295,7 @@ def _reconstruct_gate_cut_distribution_task(
     return _reconstruct_gate_cut_distribution(configs, num_cuts, num_qubits)
 
 
-def gate_cutting_sampling(
+def _gate_cutting_sampling(
     circuit,
     gates_cut,
     shots=1024,
@@ -1331,7 +1351,7 @@ def gate_cutting_sampling(
             shots,
             qpu,
             qpu_dict,
-            seed=None if seed is None else seed + i,
+            seed=next_seed(seed, i),
         )
         for i, comp in enumerate(components)
     ]
@@ -1350,26 +1370,30 @@ _SampleUnit = namedtuple(
 )
 
 
-def sample_subcircuit(subcircuit, shots=1024, seed=None):
-    """Sample one gate-cut sampling subcircuit into its Z-correlators.
+def sample_subcircuit(subcircuit, shots=1024, *, backend=None, seed=None):
+    """Run one subcircuit of a ``*_sampling_subcircuits`` list (step two of three)::
 
-    The sampling counterpart of :func:`~Qdislib.expectation_value`: apply it to
-    each item of a :class:`SampledCutSubcircuits` (in your own loop -- dispatch to
-    QPUs, batch, cache, ...), then pass the results to
-    :meth:`SampledCutSubcircuits.reconstruct`. Under PyCOMPSs each call is a task,
-    so the subcircuits sample in parallel.
+        subs = qd.gate_cutting_sampling_subcircuits(circuit, cuts)
+        sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
+        distribution = subs.reconstruct(sampled)
 
-    :param subcircuit: An item from :func:`gate_cutting_sampling_subcircuits` (or
-        :func:`~Qdislib.gate_cutting_hadamard_sampling_subcircuits`).
-    :param shots: Measurement shots for this subcircuit.
-    :return: ``(corr, original)`` -- the component's ``<Z^b>`` correlators and its
-        global qubit indices; feed the list of these to ``reconstruct``.
+    :param subcircuit: A subcircuit from any ``*_sampling_subcircuits`` list (or a
+        ``circuit_cutting`` fragment).
+    :param shots: Shots; ``None`` is exact (statevector) where supported.
+    :param backend: Where to run it, as in :func:`~Qdislib.expectation_value`.
+    :param seed: Seed for a simulator's sampling.
+    :return: ``(corr, original)`` -- its ``<Z^b>`` correlators and its qubits in the
+        uncut circuit; ``reconstruct`` takes the list of these.
     """
-    if hasattr(subcircuit, "sample"):  # e.g. a Hadamard-cut distribution fragment
+    from Qdislib.utils.backends import Subcircuit
+
+    if isinstance(subcircuit, Subcircuit):
+        return subcircuit._sample(shots, backend, seed)
+    if hasattr(subcircuit, "sample"):
         return subcircuit.sample(shots, seed)
-    return _sample_gate_subcircuit(
+    return _sample_gate_subcircuit(  # a 1.x _SampleUnit
         subcircuit.component,
-        subcircuit.software,
+        subcircuit.software if backend is None else backend,
         shots,
         subcircuit.qpu,
         subcircuit.qpu_dict,
@@ -1377,7 +1401,7 @@ def sample_subcircuit(subcircuit, shots=1024, seed=None):
     )
 
 
-def gate_cutting_sampling_reconstruction(
+def _gate_cutting_sampling_reconstruction(
     sampled_results, number_cuts, number_components, num_qubits
 ):
     """Recombine per-subcircuit samples into the output probability distribution.
@@ -1431,7 +1455,7 @@ class SampledCutSubcircuits(list):
         )
 
 
-def gate_cutting_sampling_subcircuits(
+def _gate_cutting_sampling_subcircuits(
     circuit, gates_cut, software="qiskit", qpu=False, qpu_dict=None
 ):
     """Partition a circuit into **sampling** subcircuits (three-step workflow).
@@ -1466,15 +1490,13 @@ def gate_cutting_sampling_subcircuits(
     num_qubits = _dag_num_qubits(dag)
     _validate_gate_cuts_partition(dag, gates_cut)
     components, number_components = _gate_cut_sampling_components(dag, gates_cut)
-    units = [
-        _SampleUnit(component, software, qpu, qpu_dict) for component in components
-    ]
+    units = [SampledSubcircuit(component, software) for component in components]
     return SampledCutSubcircuits(
         units,
         number_cuts=len(gates_cut),
         number_components=number_components,
         num_qubits=num_qubits,
-        reconstructor=gate_cutting_sampling_reconstruction,
+        reconstructor=_gate_cutting_sampling_reconstruction,
     )
 
 
@@ -1507,6 +1529,7 @@ def _execute_gate_subcircuit(
     qpu_dict,
     batch,
     backend,
+    seed=None,
 ):
     """Build + run a prepared gate-cut subcircuit; return its expectation value.
 
@@ -1534,7 +1557,7 @@ def _execute_gate_subcircuit(
         ibm_backend=backend,
     )
     return exec_backend.evaluate_expectation(
-        s_new, highest_qubit, prep_qubits, shots, method
+        s_new, highest_qubit, prep_qubits, shots, method, seed=seed
     )
 
 
@@ -1550,6 +1573,7 @@ def _build_and_run_gate_subcircuit(
     qpu_dict,
     batch,
     backend,
+    seed=None,
 ):
     """Prepare then execute one gate-cut subcircuit as two COMPSs tasks.
 
@@ -1573,6 +1597,7 @@ def _build_and_run_gate_subcircuit(
         qpu_dict,
         batch,
         backend,
+        seed,
     )
 
 
@@ -1588,6 +1613,7 @@ def _execute_gate_cutting(
     batch=None,
     backend=None,
     software="qiskit",
+    seed=None,
 ):
     new_dag = _generate_cut(dag, gates_cut)
     _assert_identity_observable_supported(
@@ -1634,6 +1660,7 @@ def _execute_gate_cutting(
                     qpu_dict,
                     batch,
                     backend,
+                    next_seed(seed, index, i),
                 )
             )
 
@@ -1806,7 +1833,9 @@ def _expectation_from_counts_qiskit(counts, observables, shots=1024, prep_qubits
     return expectation_value
 
 
-def _expec_value_qiskit(qc, shots=1024, method="automatic", prep_qubits=None):
+def _expec_value_qiskit(
+    qc, shots=1024, method="automatic", prep_qubits=None, seed=None
+):
 
     if qc is None:
         return None
@@ -1827,7 +1856,7 @@ def _expec_value_qiskit(qc, shots=1024, method="automatic", prep_qubits=None):
             if instr.operation.name == "measure"
         ]
 
-    counts = _counts_qiskit(qc, shots=shots, method=method)
+    counts = _counts_qiskit(qc, shots=shots, method=method, seed=seed)
     expectation_value = _expectation_from_counts_qiskit(
         counts, observables, shots, prep_qubits=prep_qubits
     )
@@ -1964,7 +1993,7 @@ def _check_ibm_qc(qpu_config=None):
     return ibm.session, ibm.ibm_backend
 
 
-def gate_cutting_subcircuits(
+def _gate_cutting_subcircuits(
     dag: typing.Any,
     gates_cut: typing.List[typing.Any],
     observables=None,
@@ -2070,7 +2099,7 @@ def gate_cutting_subcircuits(
     if observables is not None and not isinstance(observables, str):
         terms = list(normalize_observables(observables))
         parts = [
-            gate_cutting_subcircuits(
+            _gate_cutting_subcircuits(
                 dag.copy() if isinstance(dag, nx.Graph) else dag,
                 gates_cut,
                 observables=pauli,
@@ -2125,7 +2154,7 @@ def gate_cutting_subcircuits(
                     piece,
                     number_cuts=len(tmp_cuts),
                     number_components=max(1, len(piece) // (6 ** len(tmp_cuts))),
-                    reconstructor=gate_cutting_subcircuit_reconstruction,
+                    reconstructor=_gate_cutting_subcircuit_reconstruction,
                 )
             )
         return CombinedCutSubcircuits(parts)
@@ -2148,7 +2177,7 @@ def gate_cutting_subcircuits(
         subcircuits,
         number_cuts=number_cuts,
         number_components=number_components,
-        reconstructor=gate_cutting_subcircuit_reconstruction,
+        reconstructor=_gate_cutting_subcircuit_reconstruction,
     )
 
 
@@ -2183,7 +2212,7 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     return subcircuits
 
 
-def gate_cutting_subcircuit_reconstruction(
+def _gate_cutting_subcircuit_reconstruction(
     expected_values, number_cuts, number_components=2
 ):
     """
@@ -2235,7 +2264,7 @@ def gate_cutting_subcircuit_reconstruction(
     --------
     >>> raw_values = [0.5, -0.5, 0.3, -0.3, 0.5, -0.5, 0.3, -0.3, 0.5, -0.5, 0.3, -0.3]
     >>> number_of_cuts = 1
-    >>> reconstructed_value = gate_cutting_subcircuit_reconstruction(raw_values, number_of_cuts, number_components=2)
+    >>> reconstructed_value = _gate_cutting_subcircuit_reconstruction(raw_values, number_of_cuts, number_components=2)
     >>> print(reconstructed_value)
     0.0
     """
@@ -2265,3 +2294,214 @@ def gate_cutting_subcircuit_reconstruction(
     ]
     results = compss_wait_on(results)
     return 1 / (2**number_cuts) * sum(results)
+
+
+# --------------------------------------------------------------------------- #
+# Public API (the calling convention shared by every cut type, see _api.py)
+# --------------------------------------------------------------------------- #
+
+
+def _route_to_circuit_cutting(legacy, cache=None):
+    if legacy or cache is not None:
+        raise ValueError(
+            "shots=None (exact) and optimized=True run through circuit_cutting, which "
+            "takes backend= only (no qpu/gpu options, no cache)."
+        )
+
+
+@standard_arguments
+def gate_cutting(
+    circuit,
+    cuts,
+    observable=None,
+    *,
+    backend=None,
+    shots=1024,
+    seed=None,
+    sync=True,
+    optimized=False,
+    cache=None,
+    cache_mode="expectation",
+    _legacy=None,
+):
+    """Reconstruct ``<observable>`` from a circuit cut at two-qubit gates
+    (measure-and-prepare gate cut, 6 terms per gate, ``gamma = 3`` per gate).
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Gate names to cut (``["CZ_3", ...]``); a gate other than CZ/CX is
+        cut as the CZs it decomposes into.
+    :param observable: A Pauli string (``X``/``Y`` are rotated into ``Z``) or a
+        weighted Pauli sum ``[(coefficient, string), ...]``; ``None`` is all ``Z``.
+    :param backend: Where the subcircuits run: an SDK (``"qibo"``, ``"qiskit"``,
+        ``"cudaq"``, ``"pennylane"``, its local simulator), a registered backend
+        name (``"IBM_BACKEND"``, ``"IQM_BACKEND"``, ...) or a
+        :func:`~Qdislib.build_backend` object; ``None`` is the circuit's own SDK.
+    :param shots: Shots per subcircuit; ``None`` is exact (statevector).
+    :param seed: Seed for the simulators' sampling (each subcircuit gets its own
+        stream); nothing is random with ``shots=None``.
+    :param sync: ``False`` returns the value as a future (PyCOMPSs).
+    :param optimized: Run each fragment once per distinct setting of its cuts (5
+        circuits per side of a cut gate instead of 6), see :func:`circuit_cutting`.
+    :param cache: A semantic circuit cache (see :func:`expectation_value`).
+    :param cache_mode: ``"expectation"`` or ``"counts"``.
+    :return: The reconstructed expectation value.
+    """
+    if shots is None or optimized:
+        from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
+
+        _route_to_circuit_cutting(_legacy, cache)
+        return circuit_cutting(
+            circuit,
+            {"gate": cuts},
+            observable,
+            backend=backend,
+            shots=shots,
+            seed=seed,
+            sync=sync,
+            optimized=optimized,
+        )
+    legacy = _legacy or {}
+    return _gate_cutting(
+        circuit,
+        cuts,
+        observables=default_observable(observable, circuit),
+        shots=shots,
+        method=legacy.get("method", "automatic"),
+        sync=sync,
+        gpu=legacy.get("gpu", False),
+        gpu_min_qubits=legacy.get("gpu_min_qubits"),
+        qpu=legacy.get("qpu", False),
+        qpu_dict=legacy.get("qpu_dict"),
+        qpu_config=legacy.get("qpu_config"),
+        software=resolve_backend(backend, circuit),
+        cache=cache,
+        cache_mode=cache_mode,
+        seed=seed,
+    )
+
+
+@standard_arguments
+def gate_cutting_sampling(
+    circuit,
+    cuts,
+    *,
+    backend=None,
+    shots=1024,
+    seed=None,
+    sync=True,
+    optimized=False,
+    _legacy=None,
+):
+    """Reconstruct the output **probability distribution** of a circuit cut at
+    two-qubit gates. Arguments as in :func:`gate_cutting`.
+
+    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+    """
+    if shots is None or optimized:
+        from Qdislib.core.cutting_algorithms.mixed_cutting import (
+            circuit_cutting_sampling,
+        )
+
+        _route_to_circuit_cutting(_legacy)
+        return circuit_cutting_sampling(
+            circuit,
+            {"gate": cuts},
+            backend=backend,
+            shots=shots,
+            seed=seed,
+            sync=sync,
+            optimized=optimized,
+        )
+    legacy = _legacy or {}
+    return _gate_cutting_sampling(
+        circuit,
+        cuts,
+        shots=shots,
+        software=resolve_backend(backend, circuit),
+        sync=sync,
+        qpu=legacy.get("qpu", False),
+        qpu_dict=legacy.get("qpu_dict"),
+        seed=seed,
+    )
+
+
+@standard_arguments
+def gate_cutting_subcircuits(
+    circuit, cuts, observable=None, *, software=None, optimized=False
+):
+    """The subcircuits of :func:`gate_cutting`, to run yourself (three-step).
+
+    :param software: The SDK the subcircuits are written in (``None``: the
+        circuit's own); where they run is chosen when you run them.
+    :return: A list of subcircuits with ``reconstruct(values)``.
+    """
+    if optimized:
+        from Qdislib.core.cutting_algorithms.mixed_cutting import (
+            circuit_cutting_subcircuits,
+        )
+
+        return circuit_cutting_subcircuits(
+            circuit, {"gate": cuts}, observable, software=software, optimized=True
+        )
+    return _gate_cutting_subcircuits(
+        circuit,
+        cuts,
+        observables=default_observable(observable, circuit),
+        software=resolve_software(software, circuit),
+    )
+
+
+@standard_arguments
+def gate_cutting_sampling_subcircuits(circuit, cuts, *, software=None, optimized=False):
+    """The subcircuits of :func:`gate_cutting_sampling`, to sample yourself.
+
+    :return: A list of subcircuits with ``reconstruct(results)``.
+    """
+    if optimized:
+        from Qdislib.core.cutting_algorithms.mixed_cutting import (
+            circuit_cutting_sampling_subcircuits,
+        )
+
+        return circuit_cutting_sampling_subcircuits(
+            circuit, {"gate": cuts}, software=software, optimized=True
+        )
+    return _gate_cutting_sampling_subcircuits(
+        circuit, cuts, software=resolve_software(software, circuit)
+    )
+
+
+# Deprecated in 2.0.0: ``subcircuits.reconstruct(results)`` is the one way.
+
+
+def gate_cutting_subcircuit_reconstruction(
+    expected_values, number_cuts, number_components=2
+):
+    """Deprecated: use ``subcircuits.reconstruct(results)``."""
+    import warnings
+
+    warnings.warn(
+        "gate_cutting_subcircuit_reconstruction() is deprecated: use subcircuits.reconstruct(results); it is "
+        "removed in the next release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _gate_cutting_subcircuit_reconstruction(
+        expected_values, number_cuts, number_components
+    )
+
+
+def gate_cutting_sampling_reconstruction(
+    sampled_results, number_cuts, number_components, num_qubits
+):
+    """Deprecated: use ``subcircuits.reconstruct(results)``."""
+    import warnings
+
+    warnings.warn(
+        "gate_cutting_sampling_reconstruction() is deprecated: use subcircuits.reconstruct(results); it is "
+        "removed in the next release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _gate_cutting_sampling_reconstruction(
+        sampled_results, number_cuts, number_components, num_qubits
+    )

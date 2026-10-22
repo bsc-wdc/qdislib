@@ -17,7 +17,7 @@
 
 # -*- coding: utf-8 -*-
 
-"""The IBM Quantum path (gate_cutting(qpu=True)) reconstructs like the simulators.
+"""The IBM Quantum path (gate_cutting(backend=<IBM backend>)) reconstructs like the simulators.
 
 Runs qiskit-ibm-runtime's SamplerV2 in local testing mode on a noiseless Aer
 simulator, so it needs no account or network and checks the logic exactly.
@@ -51,15 +51,14 @@ class IBMQPUPathTest(BaseTimedTestCase):
 
         device = AerSimulator()
         with Batch(backend=device) as batch:
-            return qd.gate_cutting(
-                circuit,
-                cut,
-                observables=observable,
-                shots=8000,
-                qpu=True,
-                qpu_dict={"IBM_Quantum": device.num_qubits},
-                qpu_config={"batch": batch, "backend": device},
+            ibm = qd.build_backend(
+                "IBM_BACKEND",
+                qd.BackendConfig(
+                    num_qubits=device.num_qubits,
+                    extra={"batch": batch, "backend": device},
+                ),
             )
+            return qd.gate_cutting(circuit, cut, observable, backend=ibm, shots=8000)
 
     def test_one_cut_with_identity_on_the_cut_qubit(self):
         from qiskit import QuantumCircuit

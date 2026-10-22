@@ -106,8 +106,8 @@ class GeneralGateCuttingTest(BaseTimedTestCase):
             got = gate_cutting(
                 self._iswap_circuit(),
                 ["ISWAP_3"],
-                observables=obs,
-                software="qibo",
+                observable=obs,
+                backend="qibo",
                 shots=512,
             )
             self.assertLess(abs(analytical - got), 0.2, f"iSWAP {obs}")
@@ -126,8 +126,8 @@ class GeneralGateCuttingTest(BaseTimedTestCase):
         got = gate_cutting(
             self._fsim_circuit(),
             ["FSIM_3"],
-            observables="IZ",
-            software="qibo",
+            observable="IZ",
+            backend="qibo",
             shots=512,
         )
         self.assertLess(abs(analytical - got), 0.2, "fSim IZ")
