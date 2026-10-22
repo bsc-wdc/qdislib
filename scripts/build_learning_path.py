@@ -228,7 +228,8 @@ NOTEBOOKS["02_cutting_workflow"] = [
         'print("analytical   :", qd.analytical_solution(example_circuit(), "ZZZZZ"))'
     ),
     md(
-        "## Visualise the cut\n\n`draw_cut` shows the circuit DAG with the cut highlighted."
+        "## Visualise the cut\n\n`draw_cut` draws the circuit with every fragment in its "
+        "own colour and the cut marked."
     ),
     illus("qd.draw_cut(example_circuit(), cut)  # needs matplotlib; opens a figure"),
     md(
@@ -344,13 +345,20 @@ NOTEBOOKS["03_finding_cuts"] = [
     md(
         "## Visualise the cut: `draw_cut`\n"
         "\n"
-        "`draw_cut(circuit, cut, filename)` renders the circuit's DAG with the cut gates\n"
-        "highlighted, so you can see exactly where the pieces split."
+        "`draw_cut(circuit, cuts)` draws the circuit as a diagram: each gate carries its\n"
+        'index (the `CZ` numbered 7 is `"CZ_7"`), every fragment the cut leaves has its\n'
+        "own colour, and each cut is marked — a measure-and-prepare gate cut in red, a\n"
+        "Hadamard cut in purple, a wire cut as a ✂ on the wire. It takes any cut\n"
+        '`circuit_cutting` takes (a list, or a `{"gate", "hadamard", "wire"}` dict), and a\n'
+        "cut that does not separate is drawn with ✗ instead of raising. Pass a\n"
+        "`filename` to save it."
     ),
     code(
         "cut = qd.find_cut(example_circuit(), gate_cut=True, wire_cut=False)\n"
-        'qd.draw_cut(example_circuit(), cut, "cut.png")   # writes cut.png\n'
-        'print("wrote cut.png with the cut highlighted")'
+        "qd.draw_cut(example_circuit(), cut)\n"
+        "\n"
+        "# any mix of cuts, e.g. what find_cut proposes with mixed=True:\n"
+        "qd.draw_cut(example_circuit(), qd.find_cut(example_circuit(), max_qubits=3, mixed=True))"
     ),
     md(
         "---\n"

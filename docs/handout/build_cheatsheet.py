@@ -384,7 +384,7 @@ def _story():
                 ("estimate(circ, ...)", "One-call cut + run + reconstruct."),
                 ("cutting_overhead(circ, cuts)", "Preview circuits and gamma."),
                 ("analytical_solution(...)", "Exact &lt;O&gt; (to check)."),
-                ("draw_cut(circ, cut, path)", "Visualise the cut."),
+                ("draw_cut(circ, cuts, path)", "Fragments in colour, cuts marked."),
                 ("from_qasm(qasm, ...)", "Import any OpenQASM 2."),
             ],
             key_frac=0.55,

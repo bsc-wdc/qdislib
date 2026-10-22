@@ -32,6 +32,7 @@ collapse-and-continue measures a mixed fragment can carry).
 
 from __future__ import annotations
 
+import functools
 import itertools
 
 import numpy as np
@@ -280,7 +281,9 @@ class _CutPlan:
     Picklable (a DAG and plain data), so the reconstruction can run as a task.
     """
 
-    def __init__(self, circuit, cuts, observable, hadamard, optimized, joint):
+    def __init__(
+        self, circuit, cuts, observable, hadamard, optimized, joint, validate=True
+    ):
         import networkx as nx
 
         from Qdislib.utils.backends import convert_to_dag, change_basis_dag
@@ -303,6 +306,9 @@ class _CutPlan:
         )
 
         gate_cuts, had_cuts, wire_edges = _normalise_cuts(cuts, hadamard)
+        #: The measure-and-prepare gate cuts as given (before a general gate is
+        #: replaced by the CZs it decomposes into).
+        self.requested_gate_cuts = list(gate_cuts)
         overlap = set(gate_cuts) & set(had_cuts)
         if overlap:
             raise ValueError(f"Gate(s) {sorted(overlap)} cut twice.")
@@ -360,7 +366,10 @@ class _CutPlan:
             {g: (f"SUBS1_{k}", f"SUBS2_{k}") for k, g in enumerate(had_cuts, 1)}
         )
         sides.update({w: (f"O_{i}", f"PS_{i}") for i, w in enumerate(wire_cuts, 1)})
-        check_cuts_separate(graph, sides)
+        #: Each cut -> its two marker nodes in ``graph``.
+        self.sides = sides
+        if validate:
+            check_cuts_separate(graph, sides)
         self.graph = graph
         self.gate_cuts, self.had_cuts, self.wire_cuts = gate_cuts, had_cuts, wire_cuts
         self.ancilla_base = self.num_qubits + len(wire_cuts) + 1
@@ -414,13 +423,21 @@ class _CutPlan:
                 }
             )
 
-        # The gate configurations: measure-and-prepare terms x Hadamard settings.
+    # The configurations are built on first use: a plan made only to inspect or
+    # draw a cut never enumerates them (there are 6**g * 8**w of them).
+
+    @functools.cached_property
+    def gate_configs(self):
+        """``[(mp digits, Hadamard config, weight), ...]``: measure-and-prepare
+        terms x Hadamard settings."""
+        from Qdislib.core.cutting_algorithms.hadamard_cut import _cut_settings
+
         mp = [
             (
                 digits,
-                (-1) ** sum(d in (3, 5) for d in digits) / 2 ** len(gate_cuts),
+                (-1) ** sum(d in (3, 5) for d in digits) / 2 ** len(self.gate_cuts),
             )
-            for digits in itertools.product(range(6), repeat=len(gate_cuts))
+            for digits in itertools.product(range(6), repeat=len(self.gate_cuts))
         ]
         had = []
         for config in itertools.product(
@@ -431,17 +448,37 @@ class _CutPlan:
                 weight *= terms[s][0] * terms[t][0] * (-1) ** g
             if weight != 0.0:
                 had.append((config, weight))
-        self.gate_configs = [
+        return [
             (digits, config, w_mp * w_had)
             for digits, w_mp in mp
             for config, w_had in had
         ]
-        self.wire_configs = [
+
+    @functools.cached_property
+    def wire_configs(self):
+        """``[(base-8 digits, weight), ...]`` over the wire cuts."""
+        return [
             (
                 digits,
-                (-1) ** sum(d in (3, 5, 7) for d in digits) / 2 ** len(wire_cuts),
+                (-1) ** sum(d in (3, 5, 7) for d in digits) / 2 ** len(self.wire_cuts),
             )
-            for digits in itertools.product(range(8), repeat=len(wire_cuts))
+            for digits in itertools.product(range(8), repeat=len(self.wire_cuts))
+        ]
+
+    def invalid_cuts(self):
+        """The cuts whose two sides share a fragment (see ``check_cuts_separate``)."""
+        import networkx as nx
+
+        fragment = {}
+        for index, nodes in enumerate(
+            nx.connected_components(self.graph.to_undirected())
+        ):
+            for node in nodes:
+                fragment[node] = index
+        return [
+            cut
+            for cut, (a, b) in self.sides.items()
+            if a in fragment and fragment[a] == fragment.get(b)
         ]
 
     @property

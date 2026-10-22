@@ -119,10 +119,13 @@ class EstimateTest(BaseTimedTestCase):
 
 @unittest.skipUnless(QIBO_AVAILABLE and MPL_AVAILABLE, "qibo and matplotlib required")
 class DrawCutTest(BaseTimedTestCase):
-    def test_draw_to_file(self):
+    def setUp(self):
+        super().setUp()
         import matplotlib
 
         matplotlib.use("Agg")  # headless: render to file, no display needed
+
+    def test_draw_to_file(self):
         import Qdislib as qd
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -130,6 +133,57 @@ class DrawCutTest(BaseTimedTestCase):
             qd.draw_cut(_ref_circuit(), ["CZ_2"], filename=path)
             self.assertTrue(os.path.exists(path))
             self.assertGreater(os.path.getsize(path), 0)
+
+    def test_every_kind_of_cut(self):
+        """Gate, Hadamard and wire cuts, as a list or a dict, into a given Axes."""
+        import matplotlib.pyplot as plt
+
+        import Qdislib as qd
+        from tests.test_circuit_cutting import _Builder
+
+        b = _Builder(5, seed=1)
+        b.layer(0, 1, 2, 3, 4)
+        b.gate("cz", 0, 1)
+        had = b.gate("cz", 1, 2)
+        b.layer(0, 1, 2)
+        mp = b.gate("cx", 2, 4)
+        b.layer(0, 1, 2, 4)
+        wires = [b.wire(0, 3), b.wire(1, 3)]
+        b.layer(0, 1, 3)
+        for cuts in (
+            {"gate": [mp], "hadamard": [had], "wire": wires},
+            [mp, *wires],
+            [had],
+        ):
+            with self.subTest(cuts=cuts):
+                fig, ax = plt.subplots()
+                out = qd.draw_cut(b.qc, cuts, ax=ax, hadamard=cuts == [had])
+                self.assertIs(out, ax)
+                self.assertIn("fragment", ax.get_title(loc="left"))
+                plt.close(fig)
+        fig, ax = plt.subplots()
+        qd.draw_cut(b.qc, {"gate": [mp], "hadamard": [had], "wire": wires}, ax=ax)
+        self.assertTrue(ax.get_title(loc="left").startswith("4 fragments"))
+        plt.close(fig)
+
+    def test_an_invalid_cut_is_drawn_not_raised(self):
+        import matplotlib.pyplot as plt
+
+        import Qdislib as qd
+        from tests.test_circuit_cutting import _Builder
+
+        b = _Builder(3, seed=8)
+        b.layer(0, 1, 2)
+        b.gate("cz", 0, 1)
+        gate = b.gate("cz", 0, 1)
+        b.layer(0, 1)
+        wire = b.wire(1, 2)
+        b.layer(1, 2)
+        fig, ax = plt.subplots()
+        qd.draw_cut(b.qc, {"gate": [gate], "wire": [wire]}, ax=ax)
+        self.assertIn("Not a valid cut", ax.get_title(loc="left"))
+        self.assertIn(gate, ax.get_title(loc="left"))
+        plt.close(fig)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gate cuts and two wire cuts across three fragments); this also brings each side of a
   measure-and-prepare gate cut from 6 circuits to 5. `joint` covers the joint wire
   measurement and the joint Hadamard cut. It replaces `gate_wire_cutting` (deprecated).
+- **`draw_cut` draws the circuit and what the cut does to it.** A circuit diagram
+  (qubit lines, gates in time order, each with its index -- the name to cut) with
+  every fragment the cut leaves in its own colour and every cut marked: measure-and-
+  prepare gate cuts, Hadamard gate cuts and wire cuts, in any mix, as a list or a
+  `{"gate", "hadamard", "wire"}` dict. A cut that does not separate its two sides is
+  drawn and named instead of raising; the title gives the fragments, the cuts and
+  `gamma`. Takes an `ax=` to draw into and returns the `Axes`. It used to draw the
+  gate DAG with a spring layout, which placed gates at random and only knew a gate
+  list or a wire list.
 - **`cutting_overhead(circuit, cuts, ...)`** reports the circuits to run, the
   configurations, the fragments and `gamma` of any cut or mix, without running it.
 - **Exact results on every cut type**: `shots=None` is a statevector reconstruction

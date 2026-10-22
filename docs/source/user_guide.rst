@@ -284,6 +284,17 @@ cut with the cheapest mix rather than forced into one type.
     cut = qd.find_cut(circuit, mixed=True)            # {"gate": [...], "wire": [...]}
     val = qd.circuit_cutting(circuit, cut, "ZZZZ")
 
+**Seeing a cut.** ``qd.draw_cut(circuit, cuts, filename=None)`` draws the circuit as a
+diagram with each gate's index (the name to cut), every fragment the cut leaves in its
+own colour, and every cut marked: a measure-and-prepare gate cut in red, a Hadamard cut
+in purple, a wire cut as a ✂ on the wire. It takes any cut ``circuit_cutting`` takes,
+and draws a cut that does not separate with ✗ rather than raising, naming it in the
+title with the fragment count and ``gamma``:
+
+.. code-block:: python
+
+    qd.draw_cut(circuit, qd.find_cut(circuit, max_qubits=4, mixed=True), "cut.png")
+
 .. note::
 
    With the *optimized* wire cut the per-cut cost is closer to ``4`` than ``8``, which
