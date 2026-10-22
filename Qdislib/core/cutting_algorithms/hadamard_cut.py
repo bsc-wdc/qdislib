@@ -555,15 +555,54 @@ def _validate_hadamard_cuts_partition(dag, gates_cut, num_components_after):
         )
 
 
-def _hadamard_setup(circuit, gates_cut):
+def _observable_terms(observable):
+    """``[(coefficient, pauli)]`` for a Pauli string or a weighted sum of them
+    (anything :func:`~Qdislib.utils.backends.normalize_observables` accepts)."""
+    from Qdislib.utils.backends import normalize_observables
+
+    terms = (
+        [(1.0, observable)]
+        if isinstance(observable, str)
+        else list(normalize_observables(observable))
+    )
+    for _, pauli in terms:
+        if not isinstance(pauli, str) or set(pauli) - set("IXYZ"):
+            raise ValueError(
+                f"Observable terms must be strings over I, X, Y, Z, got {pauli!r}."
+            )
+    return terms
+
+
+def _is_single_term(terms):
+    return len(terms) == 1 and terms[0][0] == 1.0
+
+
+def _z_basis(observable):
+    """The observable after :func:`_hadamard_setup` rotated X/Y into Z."""
+    return observable.replace("X", "Z").replace("Y", "Z")
+
+
+@task(returns=1, values=COLLECTION_IN)
+def _weighted_sum(values, coefficients):
+    """``sum_k c_k * value_k`` -- folds a Pauli sum's per-term results."""
+    return sum(c * v for c, v in zip(coefficients, values))
+
+
+def _hadamard_setup(circuit, gates_cut, observable=None):
     """Shared preamble for every Hadamard-cut driver: the per-cut local-unitary
     decompositions, the cut DAG (SUBS1/SUBS2 placeholders), and its fixed fragment
-    partition. Returns ``(cut_dag, components, decomps)``."""
+    partition. Returns ``(cut_dag, components, decomps)``.
+
+    An X or Y in ``observable`` is measured by rotating that qubit into the Z basis
+    at its end (``H``, or ``SDG`` then ``H``), as ``gate_cutting`` does; read the
+    fragments with :func:`_z_basis` of it."""
     import networkx as nx
 
-    from Qdislib.utils.backends import convert_to_dag
+    from Qdislib.utils.backends import change_basis_dag, convert_to_dag
 
     dag = convert_to_dag(circuit)
+    if observable and set(observable) & {"X", "Y"}:
+        dag = change_basis_dag(dag, observable)
     decomps = []
     for name in gates_cut:
         gate = (dag.nodes[name].get("gate") or "").upper()
@@ -660,12 +699,13 @@ def hadamard_cut_overhead(circuit, gates_cut, joint=False):
 def _config_fragments(cut_dag, components, assignments, observable):
     """Build the ``[(fragment_circuit, z_qubits), ...]`` for one configuration's gadget
     assignments; ``z_qubits`` = ancillas + observed (``Z``) qubits, renumbered."""
-    # Only Z and I can be read off the ancilla-joint Z measurement. Anything else
-    # (an X/Y, or a weighted Pauli sum list) would be silently treated as I.
+    # Only Z and I can be read off the ancilla-joint Z measurement: X/Y must have
+    # been rotated into Z (_hadamard_setup) and a Pauli sum split into terms by the
+    # caller. Anything else would be silently read as I.
     if not isinstance(observable, str) or set(observable) - {"Z", "I"}:
         raise ValueError(
-            "Hadamard gate cutting takes a Z/I Pauli string (e.g. 'ZIZ'), got "
-            f"{observable!r}; use gate_cutting for X/Y terms or a weighted sum."
+            "Fragments are read in the Z basis: expected a Z/I string after the "
+            f"basis rotation, got {observable!r}."
         )
     fragments = []
     for comp_nodes in components:
@@ -702,7 +742,7 @@ def _hadamard_fragment_specs(circuit, gates_cut, observable, joint=False):
     is ``sum_record weight * prod_fragment <Z_{z_qubits}>`` -- the shared core of the
     all-in-one and three-step *enumeration* drivers.
     """
-    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
+    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut, observable)
     groups = _cut_groups(cut_dag, components, decomps, joint)
     settings_per_group = [_cut_settings(len(terms)) for _, terms in groups]
 
@@ -714,7 +754,9 @@ def _hadamard_fragment_specs(circuit, gates_cut, observable, joint=False):
         if weight == 0.0:
             continue
         assignments = _config_assignments(groups, config)
-        fragments = _config_fragments(cut_dag, components, assignments, observable)
+        fragments = _config_fragments(
+            cut_dag, components, assignments, _z_basis(observable)
+        )
         specs.append((weight, fragments))
     return specs
 
@@ -837,7 +879,8 @@ def gate_cutting_hadamard(
     :param circuit: A qibo circuit.
     :param gates_cut: List of cut gate names (each a two-qubit gate; the ZZ-diagonal
         gates use the optimal fast path, others the general KAK decomposition).
-    :param observable: A Z/I Pauli string over the circuit's qubits.
+    :param observable: A Pauli string over the circuit's qubits (I/X/Y/Z; X and Y
+        are rotated into Z), or a weighted sum ``[(coef, "PAULI"), ...]``.
     :param software: Execution backend for the sampled path (``"qibo"``, ``"qiskit"``,
         ``"cudaq"``, ``"pennylane"``).
     :param shots: Samples per fragment; ``None`` selects the exact statevector path
@@ -860,6 +903,29 @@ def gate_cutting_hadamard(
         last. ``False`` (default) cuts each gate on its own.
     :return: The reconstructed expectation value, or its future when ``sync=False``.
     """
+    terms = _observable_terms(observable)
+    if not _is_single_term(terms):
+        values = [
+            gate_cutting_hadamard(
+                circuit,
+                gates_cut,
+                pauli,
+                software,
+                shots,
+                seed,
+                qpu,
+                qpu_dict,
+                sync,
+                reduce_chunk,
+                joint,
+            )
+            for _, pauli in terms
+        ]
+        coefficients = [c for c, _ in terms]
+        if sync:
+            return sum(c * v for c, v in zip(coefficients, values))
+        return _weighted_sum(values, coefficients)
+    observable = terms[0][1]
     exact = software == "qibo" and shots is None
     specs = _hadamard_fragment_specs(circuit, gates_cut, observable, joint)
 
@@ -964,12 +1030,23 @@ def gate_cutting_hadamard_subcircuits(
 
     :param circuit: A qibo circuit.
     :param gates_cut: List of cut gate names.
-    :param observable: A Z/I Pauli string over the circuit's qubits.
+    :param observable: A Pauli string over the circuit's qubits (I/X/Y/Z; X and Y
+        are rotated into Z), or a weighted sum ``[(coef, "PAULI"), ...]``.
     :param software: Backend the subcircuits are materialised for.
     :param joint: Cut the gates crossing each boundary together (see
         :func:`gate_cutting_hadamard`).
     :return: A :class:`HadamardCutSubcircuits`.
     """
+    terms = _observable_terms(observable)
+    if not _is_single_term(terms):
+        from Qdislib.utils.backends import CombinedCutSubcircuits
+
+        parts = [
+            gate_cutting_hadamard_subcircuits(circuit, gates_cut, p, software, joint)
+            for _, p in terms
+        ]
+        return CombinedCutSubcircuits(parts, [c for c, _ in terms])
+    observable = terms[0][1]
     specs = _hadamard_fragment_specs(circuit, gates_cut, observable, joint)
     subcircuits, weights, config_of = [], [], []
     for cfg_idx, (weight, fragments) in enumerate(specs):
@@ -1069,7 +1146,8 @@ def gate_cutting_hadamard_sampling(
 
     :param circuit: A qibo circuit.
     :param gates_cut: List of cut gate names.
-    :param observable: A Z/I Pauli string over the circuit's qubits.
+    :param observable: A Pauli string over the circuit's qubits (I/X/Y/Z; X and Y
+        are rotated into Z), or a weighted sum ``[(coef, "PAULI"), ...]``.
     :param software: Fragment-execution backend (``"qibo"``/``"qiskit"``/``"cudaq"``/
         ``"pennylane"``).
     :param num_samples: Number of configurations drawn from the PMF.
@@ -1090,8 +1168,32 @@ def gate_cutting_hadamard_sampling(
         num_samples``, is what shrinks: ``(2**(k+1) - 1)**2`` instead of ``9**k``.
     :return: The estimated expectation value, or its future when ``sync=False``.
     """
+    terms = _observable_terms(observable)
+    if not _is_single_term(terms):
+        values = [
+            gate_cutting_hadamard_sampling(
+                circuit,
+                gates_cut,
+                pauli,
+                software,
+                num_samples,
+                shots,
+                seed,
+                qpu,
+                qpu_dict,
+                sync,
+                reduce_chunk,
+                joint,
+            )
+            for _, pauli in terms
+        ]
+        coefficients = [c for c, _ in terms]
+        if sync:
+            return sum(c * v for c, v in zip(coefficients, values))
+        return _weighted_sum(values, coefficients)
+    observable = terms[0][1]
     exact = software == "qibo" and shots is None
-    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
+    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut, observable)
     groups = _cut_groups(cut_dag, components, decomps, joint)
     configs, phi_total = _sample_configs([t for _, t in groups], num_samples, seed)
 
@@ -1100,7 +1202,7 @@ def gate_cutting_hadamard_sampling(
         weights.append(_sampling_weight(phi_total, sign, num_samples))
         assignments = _config_assignments(groups, config)
         for frag, z_qubits in _config_fragments(
-            cut_dag, components, assignments, observable
+            cut_dag, components, assignments, _z_basis(observable)
         ):
             if exact:
                 values.append(_expectation_z(frag, z_qubits))
@@ -1148,7 +1250,19 @@ def gate_cutting_hadamard_sampling_subcircuits(
         :func:`gate_cutting_hadamard`).
     :return: A :class:`HadamardCutSubcircuits`.
     """
-    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut)
+    terms = _observable_terms(observable)
+    if not _is_single_term(terms):
+        from Qdislib.utils.backends import CombinedCutSubcircuits
+
+        parts = [
+            gate_cutting_hadamard_sampling_subcircuits(
+                circuit, gates_cut, p, software, num_samples, seed, joint
+            )
+            for _, p in terms
+        ]
+        return CombinedCutSubcircuits(parts, [c for c, _ in terms])
+    observable = terms[0][1]
+    cut_dag, components, decomps = _hadamard_setup(circuit, gates_cut, observable)
     groups = _cut_groups(cut_dag, components, decomps, joint)
     configs, phi_total = _sample_configs([t for _, t in groups], num_samples, seed)
 
@@ -1157,7 +1271,7 @@ def gate_cutting_hadamard_sampling_subcircuits(
         weights.append(_sampling_weight(phi_total, sign, num_samples))
         assignments = _config_assignments(groups, config)
         for frag, z_qubits in _config_fragments(
-            cut_dag, components, assignments, observable
+            cut_dag, components, assignments, _z_basis(observable)
         ):
             subcircuits.append(_materialize_subcircuit(frag, z_qubits, software))
             config_of.append(s)

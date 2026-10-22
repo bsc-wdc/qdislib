@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ancilla per side instead of k. Works for gates at different times and for general
   (KAK) gates, needs no communication. `hadamard_cut_overhead` reports the overhead
   per boundary. Off by default, so existing results are unchanged.
+- **The Hadamard cut measures X and Y and takes weighted Pauli sums**, like
+  `gate_cutting`: X/Y qubits are rotated into the Z basis before cutting, and a sum
+  is cut term by term (`*_subcircuits` return a `CombinedCutSubcircuits`).
 - **`CombinedCutSubcircuits`**: the subcircuit container `*_subcircuits` return
   when a circuit has several independent pieces or the observable is a weighted
   Pauli sum. It is still one flat list to evaluate; `reconstruct` multiplies the
@@ -53,8 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected. Final measurements are now left out of the DAG; measurements followed
   by more gates are kept. Reported by David Ryan (bsc-wdc/qdislib#4).
 - **The three-step workflow ignored a weighted Pauli sum** and gave the all-Z
-  value; `gate_cutting_hadamard` silently read a list, or an X/Y, as identity and
-  now raises `ValueError`. Reported by David Ryan (bsc-wdc/qdislib#6).
+  value; `gate_cutting_hadamard` silently read a list, or an X/Y, as identity. It
+  now measures X/Y (rotating them into Z) and splits a Pauli sum into terms.
+  Reported by David Ryan (bsc-wdc/qdislib#6).
 - **Two wire cuts in series on one wire gave a wrong value** (0.000 instead of
   -0.226): the second cut used the qubit index from before the first one moved
   the wire. Reported by David Ryan (bsc-wdc/qdislib#7).

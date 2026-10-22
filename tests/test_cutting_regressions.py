@@ -265,14 +265,13 @@ class SubcircuitsPauliSumTest(BaseTimedTestCase):
         with self.assertRaises(ValueError):
             subs.reconstruct([0.0] * (len(subs) - 1))
 
-    def test_hadamard_rejects_what_it_cannot_measure(self):
+    def test_hadamard_takes_a_pauli_sum(self):
         import Qdislib as qd
 
-        for observable in (self.H, "XZZZ"):
-            with self.assertRaises(ValueError):
-                qd.gate_cutting_hadamard(
-                    _two_blocks(), ["CZ_3"], observable=observable, shots=100
-                )
+        value = qd.gate_cutting_hadamard(_two_blocks(), ["CZ_3"], observable=self.H)
+        self.assertAlmostEqual(value, self._exact_h(), places=8)
+        with self.assertRaises(ValueError):  # not a Pauli letter
+            qd.gate_cutting_hadamard(_two_blocks(), ["CZ_3"], observable="AZZZ")
 
 
 def _serial_wire():

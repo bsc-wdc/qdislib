@@ -227,7 +227,8 @@ mapping:
     # equivalently, as a mapping
     result = qd.gate_cutting(circuit, cut, observables={"ZZ": 0.5, "XI": 1.0, "IZ": -0.3})
 
-The same forms work with ``qd.wire_cutting`` and ``qd.analytical_solution``.
+The same forms work with ``qd.wire_cutting``, ``qd.gate_cutting_hadamard`` (and
+its ``_subcircuits`` / ``_sampling`` variants) and ``qd.analytical_solution``.
 
 
 Sampling the output distribution

@@ -193,6 +193,27 @@ class JointHadamardCutTest(BaseTimedTestCase):
         subs = gate_cutting_hadamard_subcircuits(circuit, cut, "Z" * 6, joint=True)
         self.assertEqual(sorted({s[0].nqubits for s in subs}), [3, 4])
 
+    def test_x_and_y_observables(self):
+        """X/Y are rotated into Z before cutting, on every Hadamard path."""
+        from Qdislib.core.cutting_algorithms.hadamard_cut import (
+            gate_cutting_hadamard,
+            gate_cutting_hadamard_subcircuits,
+        )
+
+        circuit, cut = _one_boundary(2, seed=5)
+        observables = ("XZYI", "YYXX", [(0.5, "XXZZ"), (-1.2, "ZIYI"), (0.3, "IIII")])
+        for observable in observables:
+            exact = self._exact(circuit, observable)
+            for joint in (False, True):
+                with self.subTest(observable=observable, joint=joint):
+                    value = gate_cutting_hadamard(circuit, cut, observable, joint=joint)
+                    self.assertAlmostEqual(value, exact, places=10)
+                    subs = gate_cutting_hadamard_subcircuits(
+                        circuit, cut, observable, joint=joint
+                    )
+                    values = [self._exact(s[0], s[1]) for s in subs]
+                    self.assertAlmostEqual(subs.reconstruct(values), exact, places=10)
+
     def test_sampling_is_unbiased(self):
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
             gate_cutting_hadamard_sampling,
