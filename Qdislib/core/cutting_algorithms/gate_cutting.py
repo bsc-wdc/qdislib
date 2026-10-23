@@ -379,15 +379,10 @@ def _gate_cutting(
                         next_seed(seed, "piece", piece),
                     )
                 )
-        if sync:
-            results = compss_wait_on(results)
-        final_recons = 1 / (2 ** len(gates_cut)) * math.prod(results)
-        logger.debug(
-            "Reconstructed expected value %s from %s subcircuit values",
-            final_recons,
-            len(results),
-        )
-        return final_recons
+        from Qdislib.core.cutting_algorithms._reconstruction import scaled_product
+
+        final_recons = scaled_product(results, 1 / (2 ** len(gates_cut)))
+        return compss_wait_on(final_recons) if sync else final_recons
     else:
         if gates_cut:
             results = _execute_gate_cutting(
@@ -404,14 +399,10 @@ def _gate_cutting(
                 software=software,
                 seed=seed,
             )
-            if sync:
-                results = compss_wait_on(results)
-            final_recons = 1 / (2 ** len(gates_cut)) * sum(results)
-            logger.debug(
-                "Reconstructed expected value %s from %s subcircuit values",
-                final_recons,
-                len(results),
-            )
+            from Qdislib.core.cutting_algorithms._reconstruction import scaled_sum
+
+            final_recons = scaled_sum(results, 1 / (2 ** len(gates_cut)))
+            return compss_wait_on(final_recons) if sync else final_recons
         else:
             final_recons = _build_and_run_gate_subcircuit(
                 dag,
@@ -1124,24 +1115,49 @@ def _z_correlators(joint, prep_sorted, k):
     return corr
 
 
-@task(returns=1)
-def _create_sample_subcircuit(component):
-    """Prepare one gate-cut sampling subcircuit for execution (COMPSs task).
-
-    The *creation* half of sampling a subcircuit, split from execution so the two
-    are independently schedulable/routable. Renumbers the component to a standalone
-    ``0..n`` subcircuit DAG and resolves its measure-and-prepare (cut-point) qubits.
-    Returns a serializable spec ``(dag, num_qubits, prep_sorted, original)`` (``dag``
-    is ``None`` for an empty component); the native circuit is built and sampled
-    later, in :func:`_execute_sample_subcircuit` -- a Qibo collapse circuit / CUDA-Q
-    kernel cannot cross a task boundary, so it never leaves the execution task.
-    """
+def _prepare_sampled_component(component):
+    """Renumber a fragment DAG to a standalone ``0..n`` subcircuit and resolve its
+    measure-and-prepare (cut-point) qubits: ``(dag, num_qubits, prep_sorted,
+    original)``, ``dag`` ``None`` for an empty component."""
     original = _component_original_qubits(component)
     s_new, highest_qubit = _update_qubits(component)
     if s_new is None:  # empty component (a qubit touched only by a removed cut node)
         return (None, 0, [], original)
     prep_sorted = sorted(_measured_cut_qubits(s_new))
     return (s_new, highest_qubit, prep_sorted, original)
+
+
+def _sample_prepared_component(
+    prepared, software, shots, qpu=False, qpu_dict=None, seed=None
+):
+    """Build and sample a prepared subcircuit: ``(corr, original)``, ``corr`` its
+    ``<Z^b>`` correlators with the cut-point sign baked in."""
+    s_new, highest_qubit, prep_sorted, original = prepared
+    if s_new is None:  # empty component
+        return ({0: 1.0}, [])
+    from Qdislib.core.backend.registry import build_execution_backend
+
+    backend = build_execution_backend(
+        software, num_qubits=highest_qubit, qpu=bool(qpu), qpu_dict=qpu_dict
+    )
+    joint = backend.evaluate_joint_counts(
+        s_new, highest_qubit, prep_sorted, shots, seed=seed
+    )
+    corr = _z_correlators(joint, prep_sorted, highest_qubit)
+    return (corr, original)
+
+
+@task(returns=1)
+def _create_sample_subcircuit(component):
+    """Prepare one gate-cut sampling subcircuit for execution (COMPSs task).
+
+    The *creation* half of sampling a subcircuit, split from execution so the two
+    are independently schedulable/routable (see :func:`_prepare_sampled_component`).
+    The native circuit is built and sampled later, in
+    :func:`_execute_sample_subcircuit` -- a Qibo collapse circuit / CUDA-Q kernel
+    cannot cross a task boundary, so it never leaves the execution task.
+    """
+    return _prepare_sampled_component(component)
 
 
 @task(returns=1)
@@ -1161,19 +1177,7 @@ def _execute_sample_subcircuit(
     counts) is what keeps the reconstruction correct for cut qubits that keep
     evolving after the cut (the cut-point sign is baked in here).
     """
-    s_new, highest_qubit, prep_sorted, original = prepared
-    if s_new is None:  # empty component
-        return ({0: 1.0}, [])
-    from Qdislib.core.backend.registry import build_execution_backend
-
-    backend = build_execution_backend(
-        software, num_qubits=highest_qubit, qpu=bool(qpu), qpu_dict=qpu_dict
-    )
-    joint = backend.evaluate_joint_counts(
-        s_new, highest_qubit, prep_sorted, shots, seed=seed
-    )
-    corr = _z_correlators(joint, prep_sorted, highest_qubit)
-    return (corr, original)
+    return _sample_prepared_component(prepared, software, shots, qpu, qpu_dict, seed)
 
 
 def _sample_gate_subcircuit(

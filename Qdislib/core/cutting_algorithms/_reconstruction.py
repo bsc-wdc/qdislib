@@ -29,6 +29,8 @@ PyCOMPSs ``@task`` wrapper around it.
 import math
 import zlib
 
+from Qdislib.utils.runtime import task, COLLECTION_IN
+
 
 def signed_product(values, index, base, flip_digits):
     """Signed product of subcircuit values for one quasiprobability term.
@@ -106,3 +108,16 @@ def check_cuts_separate(cut_graph, sides):
             "separate its two sides; drop these (or also cut the path that "
             "connects them)."
         )
+
+
+@task(returns=1, values=COLLECTION_IN)
+def scaled_sum(values, scale):
+    """``scale * sum(values)`` as a task: a reconstruction fed by futures, so
+    ``sync=False`` can return it unresolved."""
+    return scale * sum(values)
+
+
+@task(returns=1, values=COLLECTION_IN)
+def scaled_product(values, scale):
+    """``scale * prod(values)`` as a task (independent pieces of a circuit)."""
+    return scale * math.prod(values)

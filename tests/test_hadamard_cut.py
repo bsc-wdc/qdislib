@@ -518,18 +518,18 @@ class HadamardSamplingTest(BaseTimedTestCase):
         self.assertAlmostEqual(a, b, places=10)
 
     def test_tree_reduction_end_to_end(self):
-        # reduce_chunk (hierarchical fan-in) must not change the estimate: same seed +
-        # exact fragments -> identical draws and values, only the reduction is regrouped.
+        # reduce_chunk (hierarchical fan-in) must not change the estimate: same seed
+        # -> identical fragment values, only the reduction is regrouped.
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
             gate_cutting_hadamard,
         )
 
         c = self._bell_like()
         single = gate_cutting_hadamard(
-            c, ["CZ_2"], "ZZ", num_samples=3000, shots=None, seed=9
+            c, ["CZ_2"], "ZZ", backend="qiskit", shots=500, seed=9
         )
         tree = gate_cutting_hadamard(
-            c, ["CZ_2"], "ZZ", num_samples=3000, shots=None, seed=9, reduce_chunk=16
+            c, ["CZ_2"], "ZZ", backend="qiskit", shots=500, seed=9, reduce_chunk=3
         )
         self.assertAlmostEqual(single, tree, places=9)
 

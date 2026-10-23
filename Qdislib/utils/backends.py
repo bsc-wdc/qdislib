@@ -395,7 +395,7 @@ class Subcircuit:
         if self.dag is None:  # an empty component: contributes nothing
             return None
         if shots is None:
-            return self._exact_expectation(backend)
+            return _exact_expectation_task(self, backend)
         if cache is not None:
             if backend is not None:
                 raise ValueError("cache= runs on the local simulator: drop backend=")
@@ -470,15 +470,10 @@ class SampledSubcircuit(Subcircuit):
 
     def _sample(self, shots, backend, seed):
         if shots is None:  # statevector, mid-circuit measurements deferred
-            from Qdislib.core.cutting_algorithms.mixed_cutting import _exact_fragment
-
             runner = self.software if backend is None else backend
             if runner not in ("qibo", "qiskit", "cudaq", "pennylane"):
                 raise ValueError("shots=None (exact) needs a simulator backend")
-            corr, original = _exact_fragment(
-                self.dag, "qibo" if runner == "qibo" else "qiskit"
-            )
-            return dict(enumerate(corr)), original
+            return _exact_correlators_task(self.dag, runner)
         from Qdislib.core.cutting_algorithms.gate_cutting import (
             _sample_gate_subcircuit,
         )
@@ -824,6 +819,8 @@ def _evaluate_subcircuit(subcircuit, shots, cache=None, cache_mode="expectation"
     crossed the task boundary to get here. When a ``cache`` is supplied the
     lookup happens here too, on the worker, so a hit skips the build+simulate.
     """
+    if shots is None and cache is None:  # exact: its statevector path, inline here
+        return subcircuit._expectation(None, None, None, None, cache_mode)
     native = subcircuit.to_circuit()
     if cache is None:
         return _run_native(native, subcircuit.software, shots)
@@ -922,10 +919,28 @@ def expectation_value(
 
 
 @task(returns=1)
+def _exact_expectation_task(subcircuit, backend):
+    """A subcircuit's exact ``<observable>`` (statevector), as a task."""
+    return subcircuit._exact_expectation(backend)
+
+
+@task(returns=1)
+def _exact_correlators_task(dag, runner):
+    """A sampling subcircuit's exact Z correlators (statevector), as a task."""
+    from Qdislib.core.cutting_algorithms.mixed_cutting import _exact_fragment
+
+    corr, original = _exact_fragment(dag, "qibo" if runner == "qibo" else "qiskit")
+    return dict(enumerate(corr)), original
+
+
+@task(returns=1)
 def _evaluate_subcircuit_on(subcircuit, shots, backend, seed):
     """Run a (future of a) :class:`Subcircuit` on ``backend`` inside one task."""
     from Qdislib.core.backend.registry import build_execution_backend
     from Qdislib.core.cutting_algorithms.gate_cutting import _cut_measurements
+
+    if shots is None:  # exact: the subcircuit's own statevector path, inline here
+        return subcircuit._expectation(None, backend, seed, None, "expectation")
 
     executor = build_execution_backend(
         subcircuit.software if backend is None else backend,

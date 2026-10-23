@@ -212,25 +212,33 @@ def _wire_cutting(
     # term: <sum_i c_i P_i> = sum_i c_i <P_i>. Each term reuses the single
     # Pauli-string path below. A plain string (or None) skips this and runs once.
     if observables is not None and not isinstance(observables, str):
-        total = 0.0
+        # Every term's cut is submitted without waiting, so all of them run
+        # together, and one task folds the term futures.
+        from Qdislib.core.cutting_algorithms.gate_cutting import _weighted_sum
+
+        coeffs, values = [], []
         for k, (coeff, pauli) in enumerate(normalize_observables(observables)):
             base = rand_qc.copy() if isinstance(rand_qc, networkx.Graph) else rand_qc
-            total += coeff * _wire_cutting(
-                base,
-                cut,
-                sync=sync,
-                observables=pauli,
-                shots=shots,
-                backend=backend,
-                qpu=qpu,
-                software=software,
-                cache=cache,
-                cache_mode=cache_mode,
-                optimized=optimized,
-                joint=joint,
-                seed=next_seed(seed, "term", k),
+            coeffs.append(coeff)
+            values.append(
+                _wire_cutting(
+                    base,
+                    cut,
+                    sync=False,
+                    observables=pauli,
+                    shots=shots,
+                    backend=backend,
+                    qpu=qpu,
+                    software=software,
+                    cache=cache,
+                    cache_mode=cache_mode,
+                    optimized=optimized,
+                    joint=joint,
+                    seed=next_seed(seed, "term", k),
+                )
             )
-        return total
+        total = _weighted_sum(coeffs, values)
+        return compss_wait_on(total) if sync else total
 
     # Semantic cache: reuse the recommended subcircuit workflow, which routes
     # each subcircuit through expectation_value(cache=...). This runs the CPU
@@ -279,7 +287,7 @@ def _wire_cutting(
             # The optimized path returns a single reconstruction future (task ->
             # task, no master barrier); wait on it once here.
             if optimized_value is not None:
-                return compss_wait_on(optimized_value)
+                return compss_wait_on(optimized_value) if sync else optimized_value
             reason = "not applicable to this cut topology"
         except Exception as exc:  # never let the optimization break the computation
             reason = f"failed ({exc})"
@@ -324,10 +332,10 @@ def _wire_cutting(
                         next_seed(seed, "piece", piece),
                     )
                 )
-        if sync:
-            results = compss_wait_on(results)
-        final_recons = 1 / (2**total_wire_cuts) * math.prod(results)
-        return final_recons
+        from Qdislib.core.cutting_algorithms._reconstruction import scaled_product
+
+        final_recons = scaled_product(results, 1 / (2**total_wire_cuts))
+        return compss_wait_on(final_recons) if sync else final_recons
     else:
         num_qubits = _max_qubit(dag)
         if cut:
@@ -343,9 +351,10 @@ def _wire_cutting(
                 seed=seed,
             )
 
-            if sync:
-                results = compss_wait_on(results)
-            final_recons = 1 / (2 ** len(cut_wires)) * sum(results)
+            from Qdislib.core.cutting_algorithms._reconstruction import scaled_sum
+
+            final_recons = scaled_sum(results, 1 / (2 ** len(cut_wires)))
+            return compss_wait_on(final_recons) if sync else final_recons
         else:
             final_recons = _build_and_run_subcircuit(
                 dag, software, shots, backend, qpu, seed

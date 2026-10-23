@@ -353,5 +353,76 @@ class CutArgumentsTest(BaseTimedTestCase):
         self.assertAlmostEqual(value, _exact(circuit, "ZZZZ"), places=10)
 
 
+def _line(blocks, kinds, seed=5):
+    """Two-qubit blocks in a line; ``kinds[j]`` ("gate", "hadamard" or "wire")
+    joins block ``j`` to ``j + 1``."""
+    b = _Builder(2 * blocks, seed)
+    b.layer(*range(2 * blocks))
+    for j in range(blocks):
+        b.gate("cz", 2 * j, 2 * j + 1)
+    b.layer(*range(2 * blocks))
+    cuts = {"gate": [], "hadamard": [], "wire": []}
+    for j, kind in enumerate(kinds):
+        a, c = 2 * j + 1, 2 * j + 2
+        if kind == "wire":
+            b.layer(a)
+            cuts["wire"].append(b.wire(a, c))
+        else:
+            cuts[kind].append(b.gate("cz", a, c))
+    b.layer(*range(2 * blocks))
+    return b.qc, cuts
+
+
+@unittest.skipUnless(QISKIT, "qiskit not installed")
+class ContractionTest(BaseTimedTestCase):
+    """The reconstruction contracts the fragment tensors over the cuts, so many
+    cuts cost about a sum over fragments (listing the configurations would be 6**8,
+    8**10 and 6**3 * 9**3 * 8**3 here)."""
+
+    def _local(self, circuit, qubits):
+        return "".join("Z" if q in qubits else "I" for q in range(circuit.num_qubits))
+
+    def test_many_cuts_exact(self):
+        import time
+
+        import Qdislib as qd
+
+        for kinds in (["gate"] * 8, ["wire"] * 10, ["gate", "hadamard", "wire"] * 3):
+            circuit, cuts = _line(len(kinds) + 1, kinds)
+            for qubits in ((1, 2), tuple(range(circuit.num_qubits))):
+                observable = self._local(circuit, qubits)
+                start = time.time()
+                value = qd.circuit_cutting(
+                    circuit, cuts, observable, shots=None, optimized=True
+                )
+                self.assertLess(time.time() - start, 60, kinds)
+                self.assertAlmostEqual(
+                    value, _exact(circuit, observable), places=10, msg=kinds
+                )
+
+    def test_distribution_per_fragment(self):
+        import Qdislib as qd
+
+        circuit, cuts = _line(5, ["gate", "wire", "hadamard", "wire"])
+        exact = _exact_distribution(circuit)
+        for optimized in (False, True):
+            dist = qd.circuit_cutting_sampling(
+                circuit, cuts, shots=None, optimized=optimized
+            )
+            self.assertLess(_tvd(dist, exact), 1e-9, optimized)
+
+    def test_fragment_width_without_building(self):
+        import Qdislib as qd
+
+        circuit, cuts = _all_kinds()
+        for kw in ({}, {"optimized": True}, {"hadamard": True}):
+            for s in qd.circuit_cutting_subcircuits(circuit, cuts, **kw):
+                built = {
+                    q for _, d in s.dag.nodes(data=True) for q in d.get("qubits") or ()
+                }
+                self.assertEqual(s.num_qubits, len(built))
+                self.assertEqual(s.circuit.num_qubits, len(built))
+
+
 if __name__ == "__main__":
     unittest.main()

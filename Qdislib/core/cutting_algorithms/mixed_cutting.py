@@ -532,6 +532,47 @@ class _CutPlan:
             total *= phi_factor(terms)
         return total
 
+    # The reconstruction is a tensor network: each measure-and-prepare cut, Hadamard
+    # group and wire is a bond (an index over its terms, with its weights), each
+    # fragment a tensor with one axis per bond it touches. Contracting it costs about
+    # a sum over fragments, where listing every configuration costs the product.
+
+    @functools.cached_property
+    def _hadamard_settings(self):
+        """Per Hadamard group: its settings ``(s, t, g)`` with a non-zero weight, and
+        those weights."""
+        from Qdislib.core.cutting_algorithms.hadamard_cut import _cut_settings
+
+        out = []
+        for _, terms in self.groups:
+            settings, weights = [], []
+            for s, t, g in _cut_settings(len(terms)):
+                weight = terms[s][0] * terms[t][0] * (-1) ** g
+                if weight != 0.0:
+                    settings.append((s, t, g))
+                    weights.append(weight)
+            out.append((settings, np.array(weights)))
+        return out
+
+    def fragment_bonds(self, f):
+        """The bonds fragment ``f`` touches: ``("gate", k)``, ``("hadamard", group)``
+        and ``("wire", i)``."""
+        fragment = self.fragments[f]
+        bonds = [("gate", k) for k, _ in fragment["gate_sides"]]
+        bonds += [("hadamard", g) for g in fragment["had_groups"]]
+        bonds += [("wire", i) for i in fragment["measures"] + fragment["preps"]]
+        return list(dict.fromkeys(bonds))
+
+    def bond_weights(self, bond):
+        """A bond's term weights (measure-and-prepare: 6 terms of +-1/2; wire: 8;
+        Hadamard: ``c_s c_t (-1)**g`` per setting)."""
+        kind, index = bond
+        if kind == "gate":
+            return np.array([(-1) ** (d in (3, 5)) / 2 for d in range(6)])
+        if kind == "wire":
+            return np.array([(-1) ** (d in (3, 5, 7)) / 2 for d in range(8)])
+        return self._hadamard_settings[index][1]
+
     def gate_legs(self, f, digits, config):
         """Fragment ``f``'s part of a gate configuration."""
         from Qdislib.core.cutting_algorithms.gate_cutting import _GATE_SIDE_OPS
@@ -603,8 +644,8 @@ class _CutPlan:
 
     def units(self, draws=None):
         """``[(key, f, gate_config, prep_states, setting, count), ...]``: the fragment
-        circuits to run. ``key`` is how the reconstruction finds them; ``count`` how
-        many draws use the circuit (1 when every configuration is run)."""
+        circuits to run. ``key`` (``f`` first) is how the reconstruction finds them;
+        ``count`` how many draws use the circuit (1 when every configuration is run)."""
         from Qdislib.core.cutting_algorithms.wire_cutting import (
             _PREP_STATES,
             _SETTING_PAULI,
@@ -624,7 +665,14 @@ class _CutPlan:
                             _WIRE_DIGIT_STATE[wire[i - 1]] for i in fragment["preps"]
                         )
                         units.append(
-                            ((c, f), f, (digits, config), states, setting, count)
+                            (
+                                (f, "draw", c),
+                                f,
+                                (digits, config),
+                                states,
+                                setting,
+                                count,
+                            )
                         )
                 return units
             needed = {}  # the circuits the draws read, and how many draws read each
@@ -648,8 +696,10 @@ class _CutPlan:
                 units.append((key, f, gate_config, states, setting, count))
             return units
         if not self.optimized:
-            for c, ((digits, config, _), (wire, _)) in enumerate(
-                itertools.product(self.gate_configs, self.wire_configs)
+            # Every fragment of every configuration; the circuits with the same legs
+            # share a key and are averaged in the reconstruction.
+            for (digits, config, _), (wire, _) in itertools.product(
+                self.gate_configs, self.wire_configs
             ):
                 for f, fragment in enumerate(self.fragments):
                     setting = tuple(
@@ -658,26 +708,70 @@ class _CutPlan:
                     states = tuple(
                         _WIRE_DIGIT_STATE[wire[i - 1]] for i in fragment["preps"]
                     )
-                    units.append(((c, f), f, (digits, config), states, setting, 1))
+                    key = (f, self.gate_legs(f, digits, config), states)
+                    units.append((key, f, (digits, config), states, setting, 1))
             return units
         for f, fragment in enumerate(self.fragments):
-            legs = {}  # distinct gate legs -> a configuration that has them
-            for digits, config, _ in self.gate_configs:
-                legs.setdefault(self.gate_legs(f, digits, config), (digits, config))
-            for leg, gate_config in legs.items():
+            for gate_config in self._local_gate_configs(f):
                 for states in itertools.product(
                     _PREP_STATES, repeat=len(fragment["preps"])
                 ):
                     for setting in _measurement_settings(
                         len(fragment["measures"]), self.joint_wires
                     ):
+                        leg = self.gate_legs(f, *gate_config)
                         units.append(
                             ((f, leg, states), f, gate_config, states, setting, 1)
                         )
         return units
 
+    def _local_gate_configs(self, f):
+        """One gate configuration per distinct set of fragment ``f``'s gate legs,
+        from its own cuts only (the other entries are 0 / ``None``)."""
+        fragment = self.fragments[f]
+        local = list(dict.fromkeys(k for k, _ in fragment["gate_sides"]))
+        settings = self._hadamard_settings
+        seen = {}
+        for local_digits in itertools.product(range(6), repeat=len(local)):
+            digits = [0] * len(self.gate_cuts)
+            for k, d in zip(local, local_digits):
+                digits[k - 1] = d
+            for chosen in itertools.product(
+                *(settings[g][0] for g in fragment["had_groups"])
+            ):
+                config = [None] * len(self.groups)
+                for g, setting in zip(fragment["had_groups"], chosen):
+                    config[g] = setting
+                gate_config = (tuple(digits), tuple(config))
+                seen.setdefault(self.gate_legs(f, *gate_config), gate_config)
+        return list(seen.values())
+
     def build(self, f, gate_config, states, setting):
         """The DAG of fragment ``f`` for one set of legs, and its readout."""
+        return _FragmentTemplate(self, f).build(gate_config, states, setting)
+
+
+class _FragmentTemplate:
+    """Fragment ``f`` of a :class:`_CutPlan`, as its circuits are built from: its
+    part of the cut DAG and its cut markers.
+
+    All the fragment's circuits share one, so PyCOMPSs ships it to a worker once and
+    each circuit is built there from a small spec (:func:`_run_fragment`).
+    """
+
+    def __init__(self, plan, f):
+        self.f = f
+        self.fragment = plan.fragments[f]
+        self.graph = plan.graph.subgraph(self.fragment["nodes"]).copy()
+        self.groups = plan.groups
+        qubits = {
+            q for _, d in self.graph.nodes(data=True) for q in d.get("qubits") or ()
+        }
+        #: The width of its circuits: its qubits and its Hadamard ancillas.
+        self.num_qubits = len(qubits) + len(self.fragment["ancilla_of"])
+
+    def build(self, gate_config, states, setting):
+        """The fragment's DAG for one set of legs, and its readout."""
         from Qdislib.core.cutting_algorithms.gate_cutting import (
             _GATE_SIDE_OPS,
             _apply_gate_side,
@@ -687,9 +781,9 @@ class _CutPlan:
             _apply_measurement_setting,
         )
 
-        fragment = self.fragments[f]
+        fragment = self.fragment
         digits, config = gate_config
-        sub = self.graph.subgraph(fragment["nodes"]).copy()
+        sub = self.graph.copy()
         for k, side in fragment["gate_sides"]:
             node = f"GATE{side}_{k}"
             _apply_gate_side(
@@ -701,13 +795,31 @@ class _CutPlan:
             sub, fragment["measures"], fragment["cut_qubits"], setting
         )
         if fragment["had_groups"]:
-            assignments = _config_assignments(self.groups, config)
+            assignments = {}
+            for g in fragment["had_groups"]:
+                # one group at a time, under its own index (the ancilla key)
+                groups = [((), [(1.0, ())])] * g + [self.groups[g]]
+                configs = [(0, 0, 0)] * g + [config[g]]
+                assignments.update(_config_assignments(groups, configs))
             _insert_hadamard_gadgets(
                 sub,
                 {n: a for n, a in assignments.items() if n in sub},
                 fragment["ancilla_of"],
             )
         return sub, readout
+
+
+def _setting_readout(num_measures, setting):
+    """The readout of a measurement setting (what :func:`_apply_measurement_setting`
+    returns), without building the circuit."""
+    from Qdislib.core.cutting_algorithms.wire_cutting import (
+        _joint_measurement_settings,
+        _per_wire_readout,
+    )
+
+    if setting and setting[0] == "joint":
+        return _joint_measurement_settings(num_measures)[setting[1]][1]
+    return _per_wire_readout(setting)
 
 
 def _prepare_wire_state(graph, cut, state):
@@ -829,18 +941,36 @@ class _FragmentCircuit(Subcircuit):
     :func:`~Qdislib.sample_subcircuit`, either works -- returns the fragment's
     ``(corr, original)`` Z correlators, which serve both the expectation value and
     the distribution. ``shots=None`` is exact (statevector, on qibo or Qiskit).
-    ``dag`` keeps the circuit's qubit numbering; ``circuit`` is renumbered.
+
+    It holds its fragment's :class:`_FragmentTemplate` and its legs, not a built
+    circuit: the circuit is built where it runs (a task), or on first access to
+    ``dag`` / ``circuit``. ``dag`` keeps the circuit's qubit numbering; ``circuit``
+    is renumbered.
     """
 
     #: How many drawn configurations use this circuit (``num_samples``); 1 when
     #: every configuration is run.
     draws = 1
 
-    def __init__(self, dag, software, qpu=False, qpu_dict=None):
-        qubits = {q for _, d in dag.nodes(data=True) for q in d.get("qubits") or ()}
-        super().__init__(dag, len(qubits), software)
+    def __init__(self, template, spec, software, qpu=False, qpu_dict=None):
+        self.template = template
+        self.spec = spec  # (gate_config, prep_states, setting)
+        self.num_qubits = template.num_qubits
+        self.software = software
         self.qpu = qpu
         self.qpu_dict = qpu_dict
+        self._dag = None
+
+    @property
+    def dag(self):
+        if self._dag is None:
+            self._dag = self.template.build(*self.spec)[0]
+        return self._dag
+
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state["_dag"] = None  # rebuilt where needed, not shipped
+        return state
 
     def to_circuit(self):
         from Qdislib.utils.backends import _materialize
@@ -854,16 +984,10 @@ class _FragmentCircuit(Subcircuit):
 
     def _sample(self, shots, backend, seed):
         runner = self.software if backend is None else backend
-        if shots is None:
-            if not is_simulator(runner):
-                raise ValueError("shots=None (exact) needs a simulator backend")
-            return _exact_fragment(self.dag, "qibo" if runner == "qibo" else "qiskit")
-        from Qdislib.core.cutting_algorithms.gate_cutting import (
-            _sample_gate_subcircuit,
-        )
-
-        return _sample_gate_subcircuit(
-            self.dag, runner, shots, self.qpu, self.qpu_dict, seed
+        if shots is None and not is_simulator(runner):
+            raise ValueError("shots=None (exact) needs a simulator backend")
+        return _run_fragment(
+            self.template, self.spec, runner, shots, self.qpu, self.qpu_dict, seed
         )
 
     def _expectation(self, shots, backend, seed, cache, cache_mode):
@@ -875,94 +999,254 @@ class _FragmentCircuit(Subcircuit):
         return self._sample(shots, None, seed)
 
 
-def _cut_z_correlators(plan, keys, readouts, results, masks, draws=None):
-    """``<Z^A>`` of the uncut circuit for each global mask ``A`` in ``masks``.
+@task(returns=1)
+def _run_fragment(template, spec, runner, shots, qpu, qpu_dict, seed):
+    """Build one fragment circuit from its template and run it: ``(corr, original)``.
 
-    ``results`` holds one ``(corr, original)`` per fragment circuit (``keys`` and
-    ``readouts`` parallel to it). Sums ``weight * prod_fragment value`` over every
-    configuration; a fragment's value reads the circuit with its legs at the mask
-    whose output bits come from ``A``, whose cut-wire bits are the needed Pauli's
-    readout bits, and whose ancilla bits are always set. With ``draws`` (see
-    :meth:`_CutPlan.draw`) the sum runs over the drawn configurations instead,
-    each weighted ``gamma * sign / num_samples`` per draw -- an unbiased estimate.
+    The circuit is built here, in the task, so the master only sends the small
+    ``spec``; the template is the same object for every circuit of the fragment.
     """
+    dag, _ = template.build(*spec)
+    if shots is None:
+        return _exact_fragment(dag, "qibo" if runner == "qibo" else "qiskit")
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _prepare_sampled_component,
+        _sample_prepared_component,
+    )
+
+    return _sample_prepared_component(
+        _prepare_sampled_component(dag), runner, shots, qpu, qpu_dict, seed
+    )
+
+
+class _FragmentReads:
+    """Fragment ``f``'s circuit results, read for a Pauli on its cut wires.
+
+    The fragment's own output qubits are ``out``; a read returns one value per
+    local mask over them (``local_masks``: all ``2**len(out)``, or the one mask of
+    an expectation value). A value is the circuit's correlator at the mask whose
+    output bits come from the local mask, whose cut-wire bits are the Pauli's
+    readout bits, and whose ancilla bits are always set.
+    """
+
+    def __init__(self, plan, f, keys, readouts, results, mask=None):
+        fragment = plan.fragments[f]
+        entries = []
+        outputs = set()
+        for corr, original in results:
+            if isinstance(corr, dict):
+                corr = np.array([corr[m] for m in range(len(corr))])
+            roles = []
+            for qubit in original:
+                if qubit >= plan.ancilla_base:
+                    roles.append(("ancilla", None))
+                elif plan.cut_source_index.get(qubit) not in fragment["measures"]:
+                    output = plan.prepared_to_orig.get(qubit, qubit)
+                    roles.append(("output", output))
+                    outputs.add(output)
+                else:
+                    roles.append(("cut", None))
+            positions = [
+                original.index(fragment["cut_qubits"][c]) for c in fragment["measures"]
+            ]
+            entries.append((np.asarray(corr), roles, positions))
+        self.out = sorted(outputs)
+        where = {q: j for j, q in enumerate(self.out)}
+        if mask is None:
+            local = np.arange(2 ** len(self.out), dtype=np.int64)
+        else:
+            local = np.array(
+                [sum(((mask >> q) & 1) << j for j, q in enumerate(self.out))],
+                dtype=np.int64,
+            )
+        self.local_masks = local
+        self.prepared = []
+        for corr, roles, positions in entries:
+            index = np.zeros(len(local), dtype=np.int64)
+            for i, (role, output) in enumerate(roles):
+                if role == "ancilla":
+                    index |= 1 << i
+                elif role == "output":
+                    index |= ((local >> where[output]) & 1) << i
+            self.prepared.append((corr, index, positions))
+        self.by_key = {}
+        for n, key in enumerate(keys):
+            self.by_key.setdefault(key, []).append(n)
+        self.readouts = readouts
+        self.cache = {}
+
+    def read(self, key, letters):
+        """The circuits under ``key`` read for the Pauli ``letters`` on the cut
+        wires, averaged when several circuits read it."""
+        if (key, letters) not in self.cache:
+            values = []
+            for n in self.by_key.get(key, ()):
+                corr, index, positions = self.prepared[n]
+                for pauli, sign, bits in self.readouts[n]:
+                    if tuple(pauli) == letters:
+                        bits_index = sum(1 << positions[b] for b in bits)
+                        values.append(sign * corr[index | bits_index])
+            if not values:
+                raise RuntimeError(f"no circuit reads {letters} for {key}")
+            self.cache[(key, letters)] = np.mean(values, axis=0)
+        return self.cache[(key, letters)]
+
+
+def _fragment_value(plan, f, reads, digits, config, wire):
+    """Fragment ``f``'s value for one configuration (its own part of it): one
+    entry per local mask."""
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _SETTING_PAULI,
         _WIRE_PREP,
     )
 
-    masks = np.asarray(masks, dtype=np.int64)
-    by_key = {}
-    for index, key in enumerate(keys):
-        by_key.setdefault(key, []).append(index)
+    fragment = plan.fragments[f]
+    leg = plan.gate_legs(f, digits, config)
+    letters = tuple(_SETTING_PAULI[wire[i]] for i in fragment["measures"])
+    preps = [wire[i] for i in fragment["preps"]]
+    if not plan.optimized:
+        states = tuple(_WIRE_DIGIT_STATE[d] for d in preps)
+        return reads.read((f, leg, states), letters)
+    value = 0.0
+    for choice in itertools.product(*(_WIRE_PREP[d] for d in preps)):
+        coefficient = math.prod(weight for weight, _ in choice)
+        states = tuple(state for _, state in choice)
+        value = value + coefficient * reads.read((f, leg, states), letters)
+    return value
 
-    prepared = []  # per circuit: corr array, output index over masks, cut positions
-    for index, (corr, original) in enumerate(results):
-        f = keys[index][0] if plan.optimized else keys[index][1]
-        fragment = plan.fragments[f]
-        if isinstance(corr, dict):
-            corr = np.array([corr[m] for m in range(len(corr))])
-        local = np.zeros(len(masks), dtype=np.int64)
-        for i, qubit in enumerate(original):
-            if qubit >= plan.ancilla_base:
-                local |= 1 << i
-            elif plan.cut_source_index.get(qubit) not in fragment["measures"]:
-                output = plan.prepared_to_orig.get(qubit, qubit)
-                local |= ((masks >> output) & 1) << i
-        positions = [
-            original.index(fragment["cut_qubits"][c]) for c in fragment["measures"]
-        ]
-        prepared.append((np.asarray(corr), local, positions))
 
-    cache = {}
+def _fragment_tensor(plan, f, reads):
+    """Fragment ``f`` as a tensor: one axis per bond it touches (over the bond's
+    terms), then one over its local masks. ``(tensor, labels, out)``."""
+    fragment = plan.fragments[f]
+    bonds = plan.fragment_bonds(f)
+    dims = [len(plan.bond_weights(bond)) for bond in bonds]
+    tensor = np.zeros(dims + [len(reads.local_masks)])
+    settings = plan._hadamard_settings
+    num_mp = len(plan.gate_cuts)
+    for index in itertools.product(*(range(d) for d in dims)):
+        at = dict(zip(bonds, index))
+        digits = [0] * num_mp
+        for k, _ in fragment["gate_sides"]:
+            digits[k - 1] = at[("gate", k)]
+        config = [None] * len(plan.groups)
+        for g in fragment["had_groups"]:
+            config[g] = settings[g][0][at[("hadamard", g)]]
+        wire = {i: at[("wire", i)] for i in fragment["measures"] + fragment["preps"]}
+        tensor[index] = _fragment_value(plan, f, reads, digits, config, wire)
+    return tensor, bonds + [("out", f)], reads.out
 
-    def read(key, letters):
-        """The fragment circuits under ``key``, read for the Pauli ``letters`` on
-        its cut wires (averaged when several settings read it)."""
-        if (key, letters) not in cache:
-            values = []
-            for index in by_key[key]:
-                corr, local, positions = prepared[index]
-                for pauli, sign, bits in readouts[index]:
-                    if tuple(pauli) == letters:
-                        index_bits = sum(1 << positions[b] for b in bits)
-                        values.append(sign * corr[local | index_bits])
-            if not values:
-                raise RuntimeError(f"no circuit reads {letters} for {key}")
-            cache[(key, letters)] = np.mean(values, axis=0)
-        return cache[(key, letters)]
 
-    if draws is None:
-        configs = (
-            (digits, config, wire, w_gate * w_wire)
-            for (digits, config, w_gate), (wire, w_wire) in itertools.product(
-                plan.gate_configs, plan.wire_configs
-            )
-        )
-    else:
-        configs = (
-            (digits, config, wire, weight * count)
-            for digits, config, wire, weight, count in draws
-        )
-    total = np.zeros(len(masks))
-    for c, (digits, config, wire, weight) in enumerate(configs):
-        contribution = np.full(len(masks), weight)
-        for f, fragment in enumerate(plan.fragments):
-            letters = tuple(_SETTING_PAULI[wire[i - 1]] for i in fragment["measures"])
-            if not plan.optimized:
-                contribution *= read((c, f), letters)
-                continue
-            leg = plan.gate_legs(f, digits, config)
-            value = 0.0
-            for choice in itertools.product(
-                *(_WIRE_PREP[wire[i - 1]] for i in fragment["preps"])
-            ):
-                coefficient = float(np.prod([weight for weight, _ in choice]))
-                states = tuple(state for _, state in choice)
-                value = value + coefficient * read((f, leg, states), letters)
-            contribution *= value
-        total += contribution
+def _contract(plan, parts):
+    """Contract the fragment tensors over their bonds, each bond weighted by its
+    terms' weights: the tensor over every fragment's local masks, fragment order.
+
+    Pairwise, smallest result first (a chain contracts as a matrix product).
+    """
+    items, placed = [], set()
+    for tensor, labels, _ in parts:
+        for axis, label in enumerate(labels[:-1]):
+            if label not in placed:  # each bond's weights go on one tensor
+                shape = [1] * tensor.ndim
+                shape[axis] = -1
+                tensor = tensor * plan.bond_weights(label).reshape(shape)
+                placed.add(label)
+        items.append((tensor, list(labels)))
+    open_labels = [labels[-1] for _, labels, _ in parts]
+
+    def einsum(operands, out):
+        ids = {}
+        args = []
+        for tensor, labels in operands:
+            args += [tensor, [ids.setdefault(label, len(ids)) for label in labels]]
+        return np.einsum(*args, [ids[label] for label in out])
+
+    def kept(labels, others):
+        rest = {label for _, other in others for label in other}
+        return [l for l in dict.fromkeys(labels) if l in open_labels or l in rest]
+
+    while len(items) > 1:
+        best = None
+        for i, j in itertools.combinations(range(len(items)), 2):
+            (a, la), (b, lb) = items[i], items[j]
+            others = [item for n, item in enumerate(items) if n not in (i, j)]
+            out = kept(la + lb, others)
+            size = dict(zip(la, a.shape)) | dict(zip(lb, b.shape))
+            cost = math.prod(size[l] for l in out)
+            if best is None or cost < best[0]:
+                best = (cost, i, j, out)
+        _, i, j, out = best
+        merged = (einsum([items[i], items[j]], out), out)
+        items = [item for n, item in enumerate(items) if n not in (i, j)] + [merged]
+    return einsum(items, open_labels)
+
+
+def _draws_sum(plan, readers, draws):
+    """The sum over drawn configurations (``num_samples``), each weighted
+    ``gamma * sign / num_samples`` per draw: the tensor over every fragment's local
+    masks, as :func:`_contract` returns."""
+    total = 0.0
+    for c, (digits, config, wire, weight, count) in enumerate(draws):
+        wire = {i + 1: d for i, d in enumerate(wire)}
+        contribution = np.array(weight * count)
+        for f, reads in enumerate(readers):
+            if plan.optimized:
+                value = _fragment_value(plan, f, reads, digits, config, wire)
+            else:
+                letters_key = (f, "draw", c)
+                value = _draw_read(plan, f, reads, letters_key, wire)
+            contribution = np.multiply.outer(contribution, value)
+        total = total + contribution
     return total
+
+
+def _draw_read(plan, f, reads, key, wire):
+    from Qdislib.core.cutting_algorithms.wire_cutting import _SETTING_PAULI
+
+    letters = tuple(_SETTING_PAULI[wire[i]] for i in plan.fragments[f]["measures"])
+    return reads.read(key, letters)
+
+
+def _split_by_fragment(plan, keys, readouts, results):
+    """``keys``, ``readouts`` and ``results`` of each fragment (a key starts with
+    its fragment)."""
+    parts = [([], [], []) for _ in plan.fragments]
+    for key, readout, result in zip(keys, readouts, results):
+        part = parts[key[0]]
+        part[0].append(key)
+        part[1].append(readout)
+        part[2].append(result)
+    return parts
+
+
+def _cut_tensor(plan, keys, readouts, results, mask=None, draws=None):
+    """The reconstructed Z correlators as a tensor over each fragment's local masks
+    (``mask``: only that global mask), and each fragment's output qubits."""
+    readers = [
+        _FragmentReads(plan, f, k, r, res, mask)
+        for f, (k, r, res) in enumerate(
+            _split_by_fragment(plan, keys, readouts, results)
+        )
+    ]
+    if draws is not None:
+        return _draws_sum(plan, readers, draws), [reads.out for reads in readers]
+    parts = [_fragment_tensor(plan, f, reads) for f, reads in enumerate(readers)]
+    return _contract(plan, parts), [out for _, _, out in parts]
+
+
+def _global_correlators(tensor, outs, width):
+    """``<Z^A>`` for every global mask ``A`` from the per-fragment tensor (qubits in
+    no fragment's output are idle, so their bits do not change the value)."""
+    masks = np.arange(2**width, dtype=np.int64)
+    index = tuple(
+        (
+            sum(((masks >> q) & 1) << j for j, q in enumerate(out))
+            if out
+            else np.zeros_like(masks)
+        )
+        for out in outs
+    )
+    return np.asarray(tensor)[index]
 
 
 def _observable_mask(observable, width):
@@ -985,16 +1269,49 @@ def _distribution(z_correlators, width):
 @task(returns=1, results=COLLECTION_IN)
 def _reconstruct_cut_task(plan, keys, readouts, results, mode, observable, draws=None):
     """Expectation (``mode="expectation"``) or distribution from the fragment
-    results, as a task fed straight by the fragment futures."""
+    results, as one task fed straight by the fragment futures."""
     if mode == "expectation":
         mask = _observable_mask(observable, plan.width)
-        return float(
-            _cut_z_correlators(plan, keys, readouts, results, [mask], draws)[0]
-        )
-    z = _cut_z_correlators(
-        plan, keys, readouts, results, np.arange(2**plan.width), draws
-    )
-    return _distribution(z, plan.width)
+        tensor, _ = _cut_tensor(plan, keys, readouts, results, mask, draws)
+        return float(np.asarray(tensor).reshape(-1)[0])
+    tensor, outs = _cut_tensor(plan, keys, readouts, results, None, draws)
+    return _distribution(_global_correlators(tensor, outs, plan.width), plan.width)
+
+
+@task(returns=1, results=COLLECTION_IN)
+def _fragment_tensor_task(plan, f, keys, readouts, results):
+    """One fragment's tensor over its bonds and all its local masks, reduced where
+    its results are (a distribution's fragment results are ``2**width`` each)."""
+    return _fragment_tensor(plan, f, _FragmentReads(plan, f, keys, readouts, results))
+
+
+@task(returns=1, parts=COLLECTION_IN)
+def _contract_distribution_task(plan, parts):
+    tensor = _contract(plan, parts)
+    outs = [out for _, _, out in parts]
+    return _distribution(_global_correlators(tensor, outs, plan.width), plan.width)
+
+
+def _reconstruct(plan, keys, readouts, results, mode, observable, draws=None):
+    """The reconstruction as a future. An expectation value is one task (the
+    contraction is cheap); a distribution reduces each fragment's results in its own
+    task first, then contracts the small tensors."""
+    if mode == "distribution" and draws is None:
+        parts = [
+            _fragment_tensor_task(plan, f, k, r, res)
+            for f, (k, r, res) in enumerate(
+                _split_by_fragment(plan, keys, readouts, results)
+            )
+        ]
+        return _contract_distribution_task(plan, parts)
+    return _reconstruct_cut_task(plan, keys, readouts, results, mode, observable, draws)
+
+
+@task(returns=1, values=COLLECTION_IN)
+def _weighted_sum(coefficients, values):
+    """``sum(c * v)`` of a weighted Pauli sum's terms, as a task (so ``sync=False``
+    returns one future)."""
+    return float(sum(c * v for c, v in zip(coefficients, values)))
 
 
 def _prepare_cut(
@@ -1012,27 +1329,30 @@ def _prepare_cut(
 ):
     """The plan, the drawn configurations (``None`` when all are run), and one
     :class:`_FragmentCircuit` per fragment circuit to run; ``software`` is what
-    runs them (an SDK, registered backend or backend object)."""
+    runs them (an SDK, registered backend or backend object). No circuit is built
+    here: each is built where it runs."""
     plan = _CutPlan(circuit, cuts, observable, hadamard, optimized, joint)
     draws = None
     if num_samples is not None:
         if int(num_samples) < 1:
             raise ValueError(f"num_samples must be at least 1, got {num_samples}")
         draws = plan.draw(num_samples, next_seed(seed, "draws"))
+    templates = [_FragmentTemplate(plan, f) for f in range(len(plan.fragments))]
     keys, readouts, circuits = [], [], []
     for key, f, gate_config, states, setting, count in plan.units(draws):
-        dag, readout = plan.build(f, gate_config, states, setting)
         keys.append(key)
-        readouts.append(readout)
-        circuit_ = _FragmentCircuit(dag, software, qpu, qpu_dict)
+        readouts.append(_setting_readout(len(plan.fragments[f]["measures"]), setting))
+        circuit_ = _FragmentCircuit(
+            templates[f], (gate_config, states, setting), software, qpu, qpu_dict
+        )
         circuit_.draws = count
         circuits.append(circuit_)
     return plan, draws, keys, readouts, circuits
 
 
 def _run(circuits, shots, seed):
-    """Run every circuit; with drawn configurations a circuit gets ``shots`` per
-    draw that uses it (the shots follow the weights)."""
+    """Run every circuit, one task each; with drawn configurations a circuit gets
+    ``shots`` per draw that uses it (the shots follow the weights)."""
     return [
         circuit.sample(
             None if shots is None else shots * circuit.draws, next_seed(seed, n)
@@ -1126,14 +1446,14 @@ def circuit_cutting(
         values.append(
             (
                 coefficient,
-                _reconstruct_cut_task(
-                    plan, keys, readouts, results, "expectation", term, draws
-                ),
+                _reconstruct(plan, keys, readouts, results, "expectation", term, draws),
             )
         )
-    if not sync and len(values) == 1 and values[0][0] == 1.0:
-        return values[0][1]
-    return sum(c * compss_wait_on(v) for c, v in values)
+    if len(values) == 1 and values[0][0] == 1.0:
+        total = values[0][1]
+    else:
+        total = _weighted_sum([c for c, _ in values], [v for _, v in values])
+    return total if not sync else compss_wait_on(total)
 
 
 @standard_arguments
@@ -1171,7 +1491,7 @@ def circuit_cutting_sampling(
         num_samples,
         seed,
     )
-    future = _reconstruct_cut_task(
+    future = _reconstruct(
         plan, keys, readouts, _run(circuits, shots, seed), "distribution", None, draws
     )
     return compss_wait_on(future) if sync else future
@@ -1208,14 +1528,14 @@ class CutCircuits(list):
         )
 
     def reconstruct(self, results):
-        """Recombine one result per subcircuit, in this order."""
-        results = compss_wait_on(list(results))
+        """Recombine one result per subcircuit, in this order (values or futures)."""
+        results = list(results)
         if len(results) != len(self):
             raise ValueError(
                 f"expected {len(self)} results, one per subcircuit, got {len(results)}"
             )
         return compss_wait_on(
-            _reconstruct_cut_task(
+            _reconstruct(
                 self.plan,
                 self.keys,
                 self.readouts,

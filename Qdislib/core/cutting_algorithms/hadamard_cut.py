@@ -1070,12 +1070,10 @@ class HadamardCutSubcircuits(list):
     def reconstruct(self, values):
         """Recombine per-subcircuit expectation values into ``<observable>``.
 
-        :param values: One value per subcircuit, in this object's order.
+        :param values: One value (or future) per subcircuit, in this object's order.
         :return: The reconstructed expectation value of the uncut circuit.
         """
-        return _gate_cutting_hadamard_subcircuit_reconstruction(
-            values, self.weights, self.config_of
-        )
+        return _dispatch_reduce(list(values), self.weights, self.config_of, None, True)
 
 
 def _materialize_subcircuit(frag, z_qubits, software):
@@ -1802,9 +1800,31 @@ def gate_cutting_hadamard(
         gate to its last; ``False`` cuts each gate on its own.
     :param num_samples: Draw this many configurations from the quasiprobability
         distribution instead of running them all.
-    :param reduce_chunk: Fold the results through a balanced tree of this arity.
+    :param reduce_chunk: Fold the results through a balanced tree of this arity
+        (with shots and no ``num_samples``; the other runs go through
+        :func:`circuit_cutting`, whose reconstruction is one contraction).
     :return: The reconstructed expectation value.
     """
+    if shots is None or num_samples is not None:
+        # Exact and Monte-Carlo runs go through circuit_cutting, as gate_cutting's
+        # do: every fragment circuit is built and run in its own task.
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _route_to_circuit_cutting,
+        )
+        from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
+
+        _route_to_circuit_cutting(_legacy)
+        return circuit_cutting(
+            circuit,
+            {"hadamard": cuts},
+            observable,
+            backend=backend,
+            shots=shots,
+            seed=seed,
+            sync=sync,
+            joint=joint,
+            num_samples=num_samples,
+        )
     legacy = _legacy or {}
     return _gate_cutting_hadamard(
         circuit,
@@ -1840,6 +1860,25 @@ def gate_cutting_hadamard_sampling(
 
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
+    if shots is None or num_samples is not None:
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _route_to_circuit_cutting,
+        )
+        from Qdislib.core.cutting_algorithms.mixed_cutting import (
+            circuit_cutting_sampling,
+        )
+
+        _route_to_circuit_cutting(_legacy)
+        return circuit_cutting_sampling(
+            circuit,
+            {"hadamard": cuts},
+            backend=backend,
+            shots=shots,
+            seed=seed,
+            sync=sync,
+            joint=joint,
+            num_samples=num_samples,
+        )
     legacy = _legacy or {}
     return _gate_cutting_hadamard_sampling(
         circuit,
