@@ -443,5 +443,70 @@ class ContractionTest(BaseTimedTestCase):
                 self.assertEqual(s.circuit.num_qubits, len(built))
 
 
+class SampledCorrelatorsTest(BaseTimedTestCase):
+    def test_matches_the_definition(self):
+        """``<Z^b>`` from joint (final, cut-point) counts: identity on a measured
+        cut qubit reads ``-(-1)**m``, Z multiplies in the final bit."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import _z_correlators
+
+        rng = np.random.default_rng(3)
+        k, prep = 5, [1, 3]
+        joint = {}
+        for _ in range(200):
+            key = (tuple(rng.integers(0, 2, k)), tuple(rng.integers(0, 2, len(prep))))
+            joint[key] = joint.get(key, 0) + int(rng.integers(1, 4))
+        total = sum(joint.values())
+        corr = _z_correlators(joint, prep, k)
+        for mask in range(2**k):
+            expected = 0.0
+            for (final, cut), count in joint.items():
+                value = 1.0
+                for q in range(k):
+                    sign = -((-1.0) ** cut[prep.index(q)]) if q in prep else 1.0
+                    z = (-1.0) ** final[q] if (mask >> q) & 1 else 1.0
+                    value *= sign * z if q in prep or (mask >> q) & 1 else 1.0
+                expected += count / total * value
+            self.assertAlmostEqual(corr[mask], expected, places=12)
+        some = _z_correlators(joint, prep, k, masks=[0, 5, 31])
+        self.assertEqual(sorted(some), [0, 5, 31])
+        for mask, value in some.items():
+            self.assertAlmostEqual(value, corr[mask], places=12)
+
+    @unittest.skipUnless(QISKIT, "qiskit not installed")
+    def test_deferred_cut_measurement_is_unbiased(self):
+        """On a simulator the measure-and-prepare cut's mid-circuit measurement is
+        deferred (a CNOT onto a fresh qubit); the cut qubit keeps evolving after
+        the cut here, which is where a wrong deferral would show."""
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _defer_cut_measurements,
+        )
+
+        b = _Builder(3, seed=4)
+        b.layer(0, 1, 2)
+        cut = b.gate("cz", 0, 1)
+        b.layer(0, 1)
+        b.gate("cx", 1, 2)
+        b.layer(0, 1, 2)
+        circuit = b.qc
+        values = [
+            qd.circuit_cutting(circuit, {"gate": [cut]}, shots=20000, seed=s)
+            for s in range(6)
+        ]
+        self.assertLess(abs(np.mean(values) - _exact(circuit, "ZZZ")), 0.02)
+        plan = qd.circuit_cutting_subcircuits(circuit, {"gate": [cut]})
+        for s in plan:
+            dag = s.dag
+            measured = sorted(
+                d["qubits"][0]
+                for _, d in dag.nodes(data=True)
+                if (d.get("gate") or "").lower() == "measure"
+            )
+            if measured:
+                deferred = _defer_cut_measurements(dag, 99, measured)
+                gates = {d.get("gate") for _, d in deferred.nodes(data=True)}
+                self.assertNotIn("measure", {str(g).lower() for g in gates})
+
+
 if __name__ == "__main__":
     unittest.main()

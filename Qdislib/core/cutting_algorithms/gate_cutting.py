@@ -1081,8 +1081,9 @@ def _joint_counts_pennylane(
     return joint
 
 
-def _z_correlators(joint, prep_sorted, k):
-    """All ``2**k`` Z-string correlators ``<Z^b>`` for one component's samples.
+def _z_correlators(joint, prep_sorted, k, masks=None):
+    """The Z-string correlators ``<Z^b>`` of one component's samples: all ``2**k``
+    (a dict), or only ``masks``.
 
     ``corr[mask]`` (bit ``i`` of ``mask`` <=> local qubit ``i`` in the Z-string) is
     computed with the gate-cut prep-qubit sign rule: a measured cut qubit observed
@@ -1090,29 +1091,34 @@ def _z_correlators(joint, prep_sorted, k):
     the *cut-point* outcome ``-(-1)**m``. This is what lets a cut qubit that keeps
     evolving after the cut reconstruct correctly (its final bit no longer equals its
     cut-point outcome). Reduces to the plain Z/I correlators when there is no prep.
+
+    That sign, ``prod -(-1)**m``, is the same for every mask, so the correlators are
+    the Walsh-Hadamard transform of the signed histogram of final outcomes: vectorised,
+    and for ``masks`` a sum over the outcomes only (no ``2**k`` vector).
     """
     if joint is None or k == 0:
         return {0: 1.0}
     total = sum(joint.values()) or 1
-    prep_index = {q: i for i, q in enumerate(prep_sorted)}
-    corr = {mask: 0.0 for mask in range(2**k)}
-    for (final, cut), cnt in joint.items():
-        weight = cnt / total
-        z_sign = [(-1.0) ** final[q] for q in range(k)]  # local qubit in the Z-string
-        i_sign = [1.0] * k  # local qubit observed with identity
-        for q in prep_sorted:
-            # Measured cut qubit: the (I +/- Z)/2 projector's decomposition sign
-            # -(-1)**cut applies for *any* observable (Mitarai-Fujii). Identity is
-            # just that sign; Z multiplies it by the final measurement (-1)**final.
-            decomposition = -((-1.0) ** cut[prep_index[q]])
-            i_sign[q] = decomposition
-            z_sign[q] = decomposition * ((-1.0) ** final[q])
-        for mask in range(2**k):
-            value = 1.0
+    prep_index = [i for i, _ in enumerate(prep_sorted)]
+    items = list(joint.items())
+    finals = np.array([[int(b) for b in final[:k]] for (final, _), _ in items])
+    outcome = (finals << np.arange(k)).sum(axis=1)
+    signed = np.array([cnt / total for _, cnt in items])
+    if prep_index:
+        cuts = np.array([[int(cut[i]) for i in prep_index] for (_, cut), _ in items])
+        signed = signed * np.prod(-((-1.0) ** cuts), axis=1)
+    if masks is not None:
+        corr = {}
+        for mask in masks:
+            parity = np.zeros(len(outcome), dtype=np.int64)
             for q in range(k):
-                value *= z_sign[q] if (mask >> q) & 1 else i_sign[q]
-            corr[mask] += weight * value
-    return corr
+                if (mask >> q) & 1:
+                    parity ^= (outcome >> q) & 1
+            corr[int(mask)] = float(np.sum(signed * (1 - 2 * parity)))
+        return corr
+    histogram = np.zeros(2**k)
+    np.add.at(histogram, outcome, signed)
+    return dict(enumerate(_fast_walsh_hadamard(histogram).tolist()))
 
 
 def _prepare_sampled_component(component):
@@ -1128,10 +1134,11 @@ def _prepare_sampled_component(component):
 
 
 def _sample_prepared_component(
-    prepared, software, shots, qpu=False, qpu_dict=None, seed=None
+    prepared, software, shots, qpu=False, qpu_dict=None, seed=None, masks=None
 ):
     """Build and sample a prepared subcircuit: ``(corr, original)``, ``corr`` its
-    ``<Z^b>`` correlators with the cut-point sign baked in."""
+    ``<Z^b>`` correlators with the cut-point sign baked in (only ``masks``, if
+    given)."""
     s_new, highest_qubit, prep_sorted, original = prepared
     if s_new is None:  # empty component
         return ({0: 1.0}, [])
@@ -1140,11 +1147,58 @@ def _sample_prepared_component(
     backend = build_execution_backend(
         software, num_qubits=highest_qubit, qpu=bool(qpu), qpu_dict=qpu_dict
     )
-    joint = backend.evaluate_joint_counts(
-        s_new, highest_qubit, prep_sorted, shots, seed=seed
-    )
-    corr = _z_correlators(joint, prep_sorted, highest_qubit)
+    from Qdislib.core.cutting_algorithms._api import is_simulator
+
+    deferred = None
+    if prep_sorted and not qpu and is_simulator(software):
+        deferred = _defer_cut_measurements(s_new, highest_qubit, prep_sorted)
+    if deferred is not None:
+        joint = _deferred_joint_counts(
+            backend, deferred, highest_qubit, len(prep_sorted), shots, seed
+        )
+    else:
+        joint = backend.evaluate_joint_counts(
+            s_new, highest_qubit, prep_sorted, shots, seed=seed
+        )
+    corr = _z_correlators(joint, prep_sorted, highest_qubit, masks)
     return (corr, original)
+
+
+def _defer_cut_measurements(dag, num_qubits, prep_sorted):
+    """The DAG with each cut-point measurement deferred: a CNOT onto a fresh qubit
+    (``num_qubits + j`` for the ``j``-th measured qubit), read at the end.
+
+    A mid-circuit measurement whose outcome is only recorded is the same as that
+    CNOT (deferred measurement), and without it a simulator samples the final state
+    once instead of simulating every shot. ``None`` if a qubit is measured twice.
+    """
+    measures = [
+        node
+        for node in dag.nodes
+        if (dag.nodes[node].get("gate") or "").lower() == "measure"
+    ]
+    qubits = [dag.nodes[node]["qubits"][0] for node in measures]
+    if sorted(qubits) != list(prep_sorted):
+        return None
+    deferred = dag.copy()
+    for node, qubit in zip(measures, qubits):
+        fresh = num_qubits + prep_sorted.index(qubit)
+        deferred.nodes[node].update(gate="CNOT", qubits=(qubit, fresh), parameters=())
+    return deferred
+
+
+def _deferred_joint_counts(backend, dag, num_qubits, num_cuts, shots, seed):
+    """``{(final_bits, cut_point_bits): count}`` from one end-of-circuit sample of
+    the deferred DAG (the cut-point bits are the fresh qubits)."""
+    counts = backend.evaluate_samples(dag, num_qubits + num_cuts, shots, seed=seed)
+    joint = {}
+    for bits, count in counts.items():
+        key = (
+            tuple(int(b) for b in bits[:num_qubits]),
+            tuple(int(b) for b in bits[num_qubits:]),
+        )
+        joint[key] = joint.get(key, 0) + count
+    return joint
 
 
 @task(returns=1)

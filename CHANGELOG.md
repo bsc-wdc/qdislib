@@ -115,6 +115,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **Shot runs of big fragments were very slow.** Turning a fragment's samples into
+  Z correlators looped in Python over all `2**width` masks (hours at 16 qubits);
+  it is now vectorised, and an expectation value computes only the masks it reads.
+  On simulators the measure-and-prepare cut's mid-circuit measurement is deferred
+  (a CNOT onto a fresh qubit, read at the end), so a simulator samples the final
+  state once instead of running every shot: a 16-qubit fragment with 20,000 shots
+  takes about 2 s instead of about 35 minutes. Real QPUs keep the mid-circuit
+  measurement.
 - **`sync=False` returns a future from every cutting function.** Under PyCOMPSs,
   several paths reconstructed on the master from futures or waited anyway:
   `gate_cutting` / `wire_cutting` with shots (`TypeError` summing futures),

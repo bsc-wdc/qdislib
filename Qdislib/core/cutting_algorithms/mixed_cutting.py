@@ -812,12 +812,11 @@ class _FragmentTemplate:
         return sub, readout
 
 
-def _needed_correlators(template, result, setting, mask):
-    """Only the correlators an expectation value reads from one circuit's result:
-    the observable's output bits, every ancilla bit, and each readout's cut-wire
-    bits -- a few numbers instead of ``2**width``, so a big fragment's task sends
-    back almost nothing."""
-    corr, original = result
+def _needed_masks(template, original, setting, mask):
+    """The correlators an expectation value reads from one circuit: the
+    observable's output bits, every ancilla bit, and each readout's cut-wire bits
+    -- a few masks instead of ``2**width``, so a big fragment's task computes and
+    sends back almost nothing."""
     fragment = template.fragment
     base = 0
     for i, qubit in enumerate(original):
@@ -829,11 +828,12 @@ def _needed_correlators(template, result, setting, mask):
     positions = [
         original.index(fragment["cut_qubits"][c]) for c in fragment["measures"]
     ]
-    needed = {
-        base | sum(1 << positions[b] for b in bits)
-        for _, _, bits in _setting_readout(len(fragment["measures"]), setting)
-    }
-    return {i: float(corr[i]) for i in needed}, original
+    return sorted(
+        {
+            base | sum(1 << positions[b] for b in bits)
+            for _, _, bits in _setting_readout(len(fragment["measures"]), setting)
+        }
+    )
 
 
 def _setting_readout(num_measures, setting):
@@ -1044,21 +1044,25 @@ def _run_fragment(template, spec, runner, shots, qpu, qpu_dict, seed, mask=None)
     ``spec``; the template is the same object for every circuit of the fragment.
     With ``mask`` (an expectation value) ``corr`` keeps only what is read.
     """
-    dag, _ = template.build(*spec)
-    if shots is None:
-        result = _exact_fragment(dag, "qibo" if runner == "qibo" else "qiskit")
-    else:
-        from Qdislib.core.cutting_algorithms.gate_cutting import (
-            _prepare_sampled_component,
-            _sample_prepared_component,
-        )
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _component_original_qubits,
+        _prepare_sampled_component,
+        _sample_prepared_component,
+    )
 
-        result = _sample_prepared_component(
-            _prepare_sampled_component(dag), runner, shots, qpu, qpu_dict, seed
-        )
-    if mask is None:
-        return result
-    return _needed_correlators(template, result, spec[2], mask)
+    dag, _ = template.build(*spec)
+    needed = None
+    if mask is not None:
+        original = _component_original_qubits(dag)
+        needed = _needed_masks(template, original, spec[2], mask)
+    if shots is None:
+        corr, original = _exact_fragment(dag, "qibo" if runner == "qibo" else "qiskit")
+        if needed is None:
+            return corr, original
+        return {i: float(corr[i]) for i in needed}, original
+    return _sample_prepared_component(
+        _prepare_sampled_component(dag), runner, shots, qpu, qpu_dict, seed, needed
+    )
 
 
 class _FragmentReads:
