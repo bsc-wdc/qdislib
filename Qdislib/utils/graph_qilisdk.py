@@ -230,3 +230,19 @@ def sample_qilisdk(circuit, shots, seed=None, gpu=False):
 def qilisdk_num_qubits(circuit):
     """A QiliSDK circuit's width (idle qubits included)."""
     return int(circuit.nqubits)
+
+
+def qilisdk_statevector(circuit):
+    """The exact state from QiliSim, qubit 0 the most significant bit."""
+    import numpy as np
+    from qilisdk.backends import QiliSim
+    from qilisdk.functionals import DigitalPropagation
+    from qilisdk.readout import Readout
+
+    state = (
+        QiliSim()
+        .execute(DigitalPropagation(circuit), Readout().with_state_tomography())
+        .get_state()
+    )
+    dense = state.dense() if callable(getattr(state, "dense", None)) else state.dense
+    return np.asarray(dense, dtype=complex).reshape(-1)

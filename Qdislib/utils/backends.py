@@ -78,13 +78,6 @@ __all__ = [
 ]
 
 #: Mapping from a circuit's SDK class to the converter that turns it into a DAG.
-_CIRCUIT_TO_DAG = {
-    QuantumCircuit: circuit_qiskit_to_dag,
-    QiboCircuit: circuit_qibo_to_dag,
-    PyKernelDecorator: circuit_cudaq_to_dag,
-    PennylaneScript: circuit_pennylane_to_dag,
-    PennylaneQNode: circuit_pennylane_to_dag,
-}
 
 
 def convert_to_dag(circuit, observables=None):
@@ -106,24 +99,21 @@ def convert_to_dag(circuit, observables=None):
     :return: The corresponding ``networkx`` DAG, or ``circuit`` unchanged if the
         type is not recognised.
     """
-    converter = next(
-        (fn for t, fn in _CIRCUIT_TO_DAG.items() if isinstance(circuit, t)), None
-    )
-    if converter is None:
-        from Qdislib.utils.sdks import sdk_of
+    from Qdislib.utils.sdks import sdk_of
 
-        entry = sdk_of(circuit)
-        if entry is not None:  # an SDK only the registry knows (e.g. QiliSDK)
-            converter = lambda c, **kw: entry.call("to_dag", c, **kw)  # noqa: E731
-    if converter is None:
-        logger.warning("Unsupported circuit type: %s", type(circuit).__name__)
-        return circuit  # Unknown type (e.g. already a DAG), return unchanged.
+    entry = sdk_of(circuit)
+    if entry is None:
+        import networkx
+
+        if not isinstance(circuit, networkx.Graph):
+            logger.warning("Unsupported circuit type: %s", type(circuit).__name__)
+        return circuit  # already a DAG (or an unknown type): unchanged
 
     kwargs = {}
     if observables and "I" in observables:
         kwargs["obs_I"] = observables
 
-    return converter(circuit, **kwargs)
+    return entry.call("to_dag", circuit, **kwargs)
 
 
 def normalize_observables(observables):
@@ -234,68 +224,18 @@ def iter_gates(circuit):
     :raises TypeError: If the circuit type is not recognised.
     :return: List of ``(name, qubits)`` tuples.
     """
-    if isinstance(circuit, QiboCircuit):
-        gates = [
-            (
-                gate.__class__.__name__.upper(),
-                tuple(gate.qubits),
-                gate.__class__.__name__ == "M" and not getattr(gate, "collapse", False),
-            )
-            for gate in circuit.queue
-        ]
-    elif isinstance(circuit, QuantumCircuit):
-        gates = [
-            (
-                instruction.operation.name.upper(),
-                (
-                    ()
-                    if instruction.operation.name == "barrier"
-                    else tuple(circuit.find_bit(q).index for q in instruction.qubits)
-                ),
-                instruction.operation.name == "measure",
-            )
-            for instruction in circuit.data
-        ]
-    else:
-        gates = None
-    if gates is not None:
-        final = _final_measurements([(m, qubits) for _, qubits, m in gates])
-        return [
-            (name, () if position in final else qubits)
-            for position, (name, qubits, _) in enumerate(gates)
-        ]
-    if isinstance(circuit, PyKernelDecorator):
-        # CUDA-Q has no gate-iteration API; reuse the source parser that
-        # circuit_cudaq_to_dag already relies on. Node insertion order is gate
-        # order, so this stays consistent with that converter's indexing.
-        dag = circuit_cudaq_to_dag(circuit)
-        return _labels_of(dag)
-    if isinstance(circuit, (PennylaneScript, PennylaneQNode)):
-        # Reuse the PennyLane converter so the canonical (normalised) gate names
-        # and node/gate order match circuit_pennylane_to_dag's indexing.
-        dag = circuit_pennylane_to_dag(circuit)
-        return _labels_of(dag)
     from Qdislib.utils.sdks import sdk_of
 
     entry = sdk_of(circuit)
-    if entry is not None and entry.gates:
-        listed = entry.call("gates", circuit)
-        final = _final_measurements([(m, qubits) for _, qubits, m in listed])
-        return [
-            (name, () if position in final else qubits)
-            for position, (name, qubits, _) in enumerate(listed)
-        ]
-    raise TypeError(
-        f"Unsupported circuit type for gate iteration: {type(circuit).__name__}"
-    )
-
-
-def _labels_of(dag):
-    """``[(name, qubits), ...]`` in node order, ``name`` the node label's prefix (the
-    DAG's ``gate`` is the canonical name, the label keeps the SDK's)."""
+    if entry is None:
+        raise TypeError(
+            f"Unsupported circuit type for gate iteration: {type(circuit).__name__}"
+        )
+    listed = entry.call("gates", circuit)
+    final = _final_measurements([(m, qubits) for _, qubits, m in listed])
     return [
-        (str(node).rsplit("_", 1)[0], tuple(data["qubits"]))
-        for node, data in dag.nodes(data=True)
+        (name, () if position in final else qubits)
+        for position, (name, qubits, _) in enumerate(listed)
     ]
 
 
@@ -309,10 +249,6 @@ def num_qubits(circuit):
     :param circuit: A Qibo ``Circuit``, Qiskit ``QuantumCircuit`` or CUDA-Q kernel.
     :return: The number of qubits as an ``int``.
     """
-    if isinstance(circuit, QiboCircuit):
-        return circuit.nqubits
-    if isinstance(circuit, QuantumCircuit):
-        return circuit.num_qubits
     from Qdislib.utils.sdks import sdk_of
 
     entry = sdk_of(circuit)
@@ -329,28 +265,16 @@ def _materialize(dag, num_qubits, software):
     Qiskit ``QuantumCircuit`` or a CUDA-Q kernel. Used to produce the serial
     subcircuits and to rebuild a :class:`Subcircuit` in the process that runs it.
     """
-    from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
-    from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
-    from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
-    from Qdislib.utils.graph_pennylane import dag_to_circuit_pennylane
     from Qdislib.utils.exceptions import UnsupportedBackendError
+    from Qdislib.utils.sdks import sdk, sdk_names
 
-    from Qdislib.utils.sdks import sdk
-
-    builders = {
-        "qibo": dag_to_circuit_qibo,
-        "qiskit": dag_to_circuit_qiskit,
-        "cudaq": dag_to_circuit_cudaq_kernel,
-        "pennylane": dag_to_circuit_pennylane,
-    }
-    if software not in builders and sdk(software) is not None:
-        return sdk(software).call("from_dag", dag, num_qubits)
-    if software not in builders:
+    entry = sdk(software) if isinstance(software, str) else None
+    if entry is None:
         raise UnsupportedBackendError(
             f"Unsupported software backend: '{software}'. "
-            f"Expected one of {list(builders)}."
+            f"Expected one of {list(sdk_names())}."
         )
-    return builders[software](dag, num_qubits)
+    return entry.call("from_dag", dag, num_qubits)
 
 
 def _first(built):
@@ -439,14 +363,15 @@ class Subcircuit:
 
     def _exact_expectation(self, backend):
         """``<observable>`` from the statevector (mid-circuit measurements deferred)."""
-        from Qdislib.core.cutting_algorithms.mixed_cutting import _exact_fragment
+        from Qdislib.core.cutting_algorithms.mixed_cutting import (
+            _exact_fragment,
+            _exact_runner,
+        )
 
         runner = self.software if backend is None else backend
         if runner not in _sdk_names():
             raise ValueError("shots=None (exact) needs a simulator backend")
-        corr, original = _exact_fragment(
-            self.dag, "qibo" if runner == "qibo" else "qiskit"
-        )
+        corr, original = _exact_fragment(self.dag, _exact_runner(runner))
         observable = self.observable
         mask = sum(1 << i for i, q in enumerate(original) if observable[q] != "I")
         return float(corr[mask])
@@ -956,9 +881,12 @@ def _exact_expectation_task(subcircuit, backend):
 @task(returns=1)
 def _exact_correlators_task(dag, runner):
     """A sampling subcircuit's exact Z correlators (statevector), as a task."""
-    from Qdislib.core.cutting_algorithms.mixed_cutting import _exact_fragment
+    from Qdislib.core.cutting_algorithms.mixed_cutting import (
+        _exact_fragment,
+        _exact_runner,
+    )
 
-    corr, original = _exact_fragment(dag, "qibo" if runner == "qibo" else "qiskit")
+    corr, original = _exact_fragment(dag, _exact_runner(runner))
     return dict(enumerate(corr)), original
 
 

@@ -860,7 +860,7 @@ def _prepare_wire_state(graph, cut, state):
     _apply_wire_prep_state(graph, cut, "+i" if state == "-i" else "+")
     first = f"PS_{cut}_Hi" if state == "-i" else f"PS_{cut}"
     flip = f"PS_{cut}_X"
-    graph.add_node(flip, gate="X", qubits=graph.nodes[first]["qubits"], parameters=())
+    graph.add_node(flip, gate="x", qubits=graph.nodes[first]["qubits"], parameters=())
     graph.add_edge(flip, first, color="blue")
 
 
@@ -893,9 +893,9 @@ def _insert_hadamard_gadgets(dag, assignments, ancilla_of):
         (qubit,) = dag.nodes[node]["qubits"]
         if ancilla not in tail:
             tail[ancilla] = None
-            append(ancilla, f"{node}_open", "H")
+            append(ancilla, f"{node}_open", "h")
             if g == 1:
-                append(ancilla, f"{node}_open_S", "S")
+                append(ancilla, f"{node}_open_S", "s")
         theta_i, phi_i, lam_i, _ = _u3_angles(u_i)
         theta_m, phi_m, lam_m, gphase = _u3_angles(
             np.asarray(u_j) @ np.asarray(u_i).conj().T
@@ -903,9 +903,12 @@ def _insert_hadamard_gadgets(dag, assignments, ancilla_of):
         preds, succs = list(dag.pred[node]), list(dag.succ[node])
         dag.remove_node(node)
         u3, cu3 = f"{node}_U3", f"{node}_CU3"
-        dag.add_node(u3, gate="U3", qubits=(qubit,), parameters=(theta_i, phi_i, lam_i))
+        dag.add_node(u3, gate="u", qubits=(qubit,), parameters=(theta_i, phi_i, lam_i))
         dag.add_node(
-            cu3, gate="CU3", qubits=(ancilla, qubit), parameters=(theta_m, phi_m, lam_m)
+            cu3,
+            gate="cu",  # OpenQASM's cu, phased to control qibo's SU(2) U3 exactly
+            qubits=(ancilla, qubit),
+            parameters=(theta_m, phi_m, lam_m, -(phi_m + lam_m) / 2),
         )
         for pred in preds:
             dag.add_edge(pred, u3, color="blue")
@@ -916,9 +919,31 @@ def _insert_hadamard_gadgets(dag, assignments, ancilla_of):
             dag.add_edge(tail[ancilla], cu3, color="blue")
         tail[ancilla] = cu3
         if abs(gphase) > 1e-12:
-            append(ancilla, f"{node}_U1", "U1", (gphase,))
+            append(ancilla, f"{node}_U1", "p", (gphase,))
         if last_marker[key] == node:
-            append(ancilla, f"{node}_close", "H")
+            append(ancilla, f"{node}_close", "h")
+
+
+def _exact_runner(runner):
+    """The SDK an exact (statevector) run uses for ``runner``: the SDK itself when
+    it is one, Qiskit for a registered backend or backend object."""
+    return runner if isinstance(runner, str) else "qiskit"
+
+
+def _sdk_probabilities(software, dag, num_qubits):
+    """Basis-state probabilities (index bit ``q`` = qubit ``q``) of a DAG from
+    ``software``'s own statevector, or ``None`` if it has none."""
+    from Qdislib.utils.sdks import sdk
+
+    entry = sdk(software)
+    if entry is None or not entry.statevector or not entry.installed():
+        return None
+    built = entry.call("from_dag", dag, num_qubits)
+    circuit = built[0] if isinstance(built, (list, tuple)) else built
+    state = np.asarray(entry.call("statevector", circuit)).reshape(-1)
+    n = int(round(math.log2(len(state))))
+    probs = np.abs(state) ** 2  # qubit 0 the most significant bit
+    return probs.reshape([2] * n).transpose(list(range(n))[::-1]).reshape(-1)
 
 
 def _exact_fragment(dag, software="qibo"):
@@ -941,10 +966,17 @@ def _exact_fragment(dag, software="qibo"):
     for node in list(dag.nodes):
         if (dag.nodes[node].get("gate") or "").lower() == "measure":
             (qubit,) = dag.nodes[node]["qubits"]
-            dag.nodes[node].update(gate="CNOT", qubits=(qubit, fresh + deferred))
+            dag.nodes[node].update(gate="cx", qubits=(qubit, fresh + deferred))
             deferred += 1
     renumbered, n = _update_qubits(dag)
-    if software == "qiskit":
+    probs = None
+    if software in ("qilisdk",):  # SDKs whose own statevector serves exact mode
+        probs = _sdk_probabilities(software, renumbered, n)
+    if probs is not None:
+        from Qdislib.core.cutting_algorithms.gate_cutting import _fast_walsh_hadamard
+
+        corr = _fast_walsh_hadamard(probs)
+    elif software != "qibo":
         from qiskit.quantum_info import Statevector
 
         from Qdislib.core.cutting_algorithms.gate_cutting import _fast_walsh_hadamard
@@ -1056,7 +1088,7 @@ def _run_fragment(template, spec, runner, shots, qpu, qpu_dict, seed, mask=None)
         original = _component_original_qubits(dag)
         needed = _needed_masks(template, original, spec[2], mask)
     if shots is None:
-        corr, original = _exact_fragment(dag, "qibo" if runner == "qibo" else "qiskit")
+        corr, original = _exact_fragment(dag, _exact_runner(runner))
         if needed is None:
             return corr, original
         return {i: float(corr[i]) for i in needed}, original

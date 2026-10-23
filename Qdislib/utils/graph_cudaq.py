@@ -452,3 +452,30 @@ def _build_cudaq_run_kernel(dag, num_qubits, observables):
     )
     kernel = _compile_cudaq_source(source)
     return [kernel, observables, measured_order]
+
+
+# --- SDK table adapters (see Qdislib.utils.sdks) ------------------------------
+
+
+def cudaq_gates(kernel):
+    """``[(label, qubits, False), ...]`` in kernel order (CUDA-Q has no gate
+    iteration API: the kernel source is parsed, as for the DAG)."""
+    return [
+        (str(node).rsplit("_", 1)[0], tuple(data["qubits"]), False)
+        for node, data in circuit_cudaq_to_dag(kernel).nodes(data=True)
+    ]
+
+
+def cudaq_num_qubits(kernel):
+    """The highest qubit a gate touches, plus one (a kernel states no width)."""
+    qubits = [q for _, qs, _ in cudaq_gates(kernel) for q in qs]
+    return max(qubits) + 1 if qubits else 0
+
+
+def cudaq_statevector(kernel):
+    """The exact state, qubit 0 the most significant bit (CUDA-Q's is reversed)."""
+    import cudaq
+
+    n = cudaq_num_qubits(kernel)
+    data = np.asarray(cudaq.get_state(kernel), dtype=complex).reshape(-1)
+    return data.reshape([2] * n).transpose(list(range(n))[::-1]).reshape(-1)

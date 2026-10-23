@@ -315,3 +315,34 @@ def dag_to_circuit_pennylane(dag: nx.DiGraph, num_qubits: int):
     observables = "".join(observables)
 
     return [PennylaneCircuit(ops, highest_qubit), observables]
+
+
+# --- SDK table adapters (see Qdislib.utils.sdks) ------------------------------
+
+
+def pennylane_gates(circuit):
+    """``[(label, qubits, False), ...]`` per operation, named as the DAG names it."""
+    return [
+        (str(node).rsplit("_", 1)[0], tuple(data["qubits"]), False)
+        for node, data in circuit_pennylane_to_dag(circuit).nodes(data=True)
+    ]
+
+
+def pennylane_num_qubits(circuit):
+    return len(_to_tape(circuit).wires)
+
+
+def pennylane_statevector(circuit):
+    """The exact state, qubit 0 the most significant bit (PennyLane's order)."""
+    import numpy as np
+
+    tape = _to_tape(circuit)
+    dev = qml.device("default.qubit", wires=len(tape.wires))
+
+    @qml.qnode(dev)
+    def state():
+        for op in tape.operations:
+            qml.apply(op)
+        return qml.state()
+
+    return np.asarray(state(), dtype=complex)

@@ -526,3 +526,28 @@ def _max_qubits_graph(s: typing.Any) -> int:
 
     highest_qubit = max(my_set) + 1 - _count_missing_up_to(my_set, max(my_set))
     return highest_qubit
+
+
+# --- SDK table adapters (see Qdislib.utils.sdks) ------------------------------
+
+
+def qibo_gate_list(circuit):
+    """``[(label, qubits, is_measurement), ...]`` per gate (a collapsing M is a
+    gate cut's own measurement, not a final one)."""
+    return [
+        (
+            gate.__class__.__name__.upper(),
+            tuple(gate.qubits),
+            gate.__class__.__name__ == "M" and not getattr(gate, "collapse", False),
+        )
+        for gate in circuit.queue
+    ]
+
+
+def qibo_num_qubits(circuit):
+    return circuit.nqubits
+
+
+def qibo_statevector(circuit):
+    """The exact state, qubit 0 the most significant bit (qibo's own order)."""
+    return np.asarray(circuit().state(numpy=True), dtype=complex)

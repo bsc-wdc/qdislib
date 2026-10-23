@@ -145,6 +145,27 @@ class QiliSDKTest(BaseTimedTestCase):
         self.assertLess(abs(subs.reconstruct(values) - exact), 0.05)
 
 
+@unittest.skipUnless(QILISDK and QISKIT, "qilisdk and qiskit needed")
+class QiliSDKExactTest(BaseTimedTestCase):
+    def test_exact_on_qilisim(self):
+        """shots=None on QiliSDK subcircuits simulates them on QiliSim itself."""
+        import Qdislib as qd
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+
+        qili, qk = _pair()
+        exact = Statevector(qk).expectation_value(SparsePauliOp("ZZZZ")).real
+        for cuts in ({"gate": ["CNOT_11"]}, {"hadamard": ["CNOT_11"]}):
+            value = qd.circuit_cutting(qili, cuts, backend="qilisdk", shots=None)
+            self.assertAlmostEqual(value, exact, places=9)
+        self.assertAlmostEqual(qd.analytical_solution(qili, "ZZZZ"), exact, places=9)
+        again = qd.from_qasm(
+            'OPENQASM 2.0;\ninclude "qelib1.inc";\nqreg q[2];\nh q[0];\ncx q[0],q[1];\n',
+            software="qilisdk",
+        )
+        self.assertEqual(type(again).__module__.split(".")[0], "qilisdk")
+        self.assertAlmostEqual(qd.analytical_solution(again, "ZZ"), 1.0, places=9)
+
+
 class RegistryTest(BaseTimedTestCase):
     def test_every_sdk_is_registered(self):
         from Qdislib.utils.sdks import sdk, sdk_names

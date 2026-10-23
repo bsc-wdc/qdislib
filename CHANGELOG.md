@@ -14,9 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has, checked against Qiskit's statevector. Install with `pip install
   qdislib[qilisdk]`.
 - **One table of SDKs** (`Qdislib/utils/sdks.py`): how to recognise an SDK's
-  circuits, convert them to and from a DAG, and which backend runs them. Adding an
-  SDK is a converter module and one `register_sdk(...)` call, instead of edits in
-  ten places.
+  circuits, list their gates, convert them to and from a DAG, give their exact
+  state, and which backend runs them. Everything that depends on the SDK asks it
+  (`convert_to_dag`, `iter_gates`, `num_qubits`, the subcircuit builders,
+  `analytical_solution`, `from_qasm`, exact mode), so adding an SDK is a converter
+  module and one `register_sdk(...)` call, instead of edits in ten places.
+  `from_qasm` now builds a circuit in any of them (e.g. `software="qilisdk"` or
+  `"cudaq"`), and exact runs of QiliSDK subcircuits use QiliSim's own state.
 - **Many cuts reconstruct in seconds: the reconstruction is a contraction.** Each
   cut (a measure-and-prepare gate cut, a Hadamard group, a wire) is a bond and each
   fragment a tensor over the bonds it touches; contracting them replaces the loop

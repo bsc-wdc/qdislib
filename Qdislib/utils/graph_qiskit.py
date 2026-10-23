@@ -237,3 +237,37 @@ def dag_to_circuit_qiskit(dag, num_qubits):
     observables = ["Z"] * num_qubits
     observables = "".join(observables)
     return [circuit, observables]
+
+
+# --- SDK table adapters (see Qdislib.utils.sdks) ------------------------------
+
+
+def qiskit_gates(circuit):
+    """``[(label, qubits, is_measurement), ...]`` per instruction (a barrier acts
+    on no qubit: it keeps its slot but is never a gate)."""
+    return [
+        (
+            instruction.operation.name.upper(),
+            (
+                ()
+                if instruction.operation.name == "barrier"
+                else tuple(circuit.find_bit(q).index for q in instruction.qubits)
+            ),
+            instruction.operation.name == "measure",
+        )
+        for instruction in circuit.data
+    ]
+
+
+def qiskit_num_qubits(circuit):
+    return circuit.num_qubits
+
+
+def qiskit_statevector(circuit):
+    """The exact state, qubit 0 the most significant bit."""
+    import numpy as np
+    from qiskit.quantum_info import Statevector
+
+    n = circuit.num_qubits
+    data = np.asarray(Statevector(circuit).data, dtype=complex)
+    return data.reshape([2] * n).transpose(list(range(n))[::-1]).reshape(-1)

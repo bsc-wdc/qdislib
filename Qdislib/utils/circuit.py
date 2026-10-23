@@ -64,9 +64,9 @@ def from_qasm(qasm, software="qibo"):
     into Qdislib's cutting workflows through it, without a dedicated backend.
 
     :param qasm: An OpenQASM 2.0 program (string).
-    :param software: ``"qibo"`` (default), ``"qiskit"`` or ``"pennylane"`` -- the
-        circuit type to return; pick whichever backend you will execute the
-        subcircuits on.
+    :param software: The SDK of the circuit to return (``"qibo"`` by default; any
+        name of :func:`~Qdislib.utils.sdks.sdk_names`, e.g. ``"qiskit"``,
+        ``"pennylane"``, ``"qilisdk"``); pick whichever you will run on.
     :raises ImportError: If the requested backend SDK is not installed.
     :raises ValueError: For an unknown ``software``.
     :return: A Qibo ``Circuit``, a Qiskit ``QuantumCircuit`` or a PennyLane
@@ -122,9 +122,27 @@ def from_qasm(qasm, software="qibo"):
             for gate, qubits, params in ops:
                 _apply_pennylane_gate(gate, qubits, params)
         return tape
-    raise ValueError(
-        f"Unknown software {software!r}; expected 'qibo', 'qiskit' or 'pennylane'."
-    )
+    from Qdislib.utils.sdks import sdk, sdk_names
+
+    entry = sdk(software)
+    if entry is None:
+        raise ValueError(
+            f"Unknown software {software!r}; expected one of {list(sdk_names())}."
+        )
+    if not entry.installed():
+        raise ImportError(
+            f"from_qasm(software={software!r}) requires {entry.package} "
+            f"(install Qdislib[{software}])."
+        )
+    # Parse with a standard parser, then build the circuit through the DAG.
+    from Qdislib.utils.backends import convert_to_dag, num_qubits as _num_qubits
+
+    try:
+        base = from_qasm(qasm, software="qiskit")
+    except ImportError:
+        base = from_qasm(qasm, software="qibo")
+    built = entry.call("from_dag", convert_to_dag(base), _num_qubits(base))
+    return built[0] if isinstance(built, (list, tuple)) else built
 
 
 # Single-qubit Pauli matrices for the exact expectation-value oracle.
@@ -134,16 +152,6 @@ _PAULI_MATRIX = {
     "Y": np.array([[0.0, -1.0j], [1.0j, 0.0]], dtype=complex),
     "Z": np.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex),
 }
-
-
-def _reverse_qubit_order(statevector: np.ndarray, n: int) -> np.ndarray:
-    """Flip a flat statevector between little- and big-endian qubit order."""
-    return (
-        np.asarray(statevector, dtype=complex)
-        .reshape([2] * n)
-        .transpose(list(range(n))[::-1])
-        .reshape(-1)
-    )
 
 
 def exact_statevector(circuit: typing.Any) -> np.ndarray:
@@ -161,61 +169,15 @@ def exact_statevector(circuit: typing.Any) -> np.ndarray:
     :raises TypeError: If ``circuit`` is not a supported circuit type.
     :return: The statevector as a length-``2**n`` complex numpy array.
     """
-    # Qibo -- qubit 0 is the most-significant bit; use as-is.
-    if qibo_available and isinstance(circuit, models.Circuit):
-        return np.asarray(circuit().state(numpy=True), dtype=complex)
+    from Qdislib.utils.sdks import sdk_names, sdk_of
 
-    # Qiskit -- qubit 0 is the least-significant bit; reverse.
-    try:
-        from qiskit import QuantumCircuit
-        from qiskit.quantum_info import Statevector
-
-        if isinstance(circuit, QuantumCircuit):
-            data = np.asarray(Statevector(circuit).data, dtype=complex)
-            return _reverse_qubit_order(data, circuit.num_qubits)
-    except ImportError:
-        pass
-
-    # PennyLane tape / QNode -- qubit 0 is the most-significant bit; use as-is.
-    try:
-        import pennylane as qml
-        from pennylane.tape import QuantumScript
-
-        if isinstance(circuit, (QuantumScript, qml.QNode)):
-            from Qdislib.utils.graph_pennylane import _to_tape
-
-            tape = _to_tape(circuit)
-            n = len(tape.wires)
-            dev = qml.device("default.qubit", wires=n)
-
-            @qml.qnode(dev)
-            def _state():
-                for op in tape.operations:
-                    qml.apply(op)
-                return qml.state()
-
-            return np.asarray(_state(), dtype=complex)
-    except ImportError:
-        pass
-
-    # CUDA-Q kernel -- qubit 0 is the least-significant bit; reverse.
-    try:
-        from cudaq.kernel.kernel_decorator import PyKernelDecorator
-
-        if isinstance(circuit, PyKernelDecorator):
-            import cudaq
-            from Qdislib.utils.backends import num_qubits
-
-            n = num_qubits(circuit)
-            data = np.asarray(cudaq.get_state(circuit), dtype=complex).reshape(-1)
-            return _reverse_qubit_order(data, n)
-    except ImportError:
-        pass
-
-    raise TypeError(
-        f"analytical_solution: unsupported circuit type {type(circuit)!r}; "
-        "expected a Qibo, Qiskit, CUDA-Q or PennyLane circuit."
-    )
+    entry = sdk_of(circuit)
+    if entry is None or not entry.statevector:
+        raise TypeError(
+            f"analytical_solution: unsupported circuit type {type(circuit)!r}; "
+            f"expected a circuit of {list(sdk_names())}."
+        )
+    return np.asarray(entry.call("statevector", circuit), dtype=complex).reshape(-1)
 
 
 def _pauli_expectation(state: np.ndarray, pauli: str) -> float:

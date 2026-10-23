@@ -63,11 +63,14 @@ class SDK:
     from_dag: str
     #: The registered backend (see ``Qdislib.core.backend.registry``) that runs it.
     backend: str
-    #: ``"module:function"``: ``circuit -> [(label, qubits, is_measurement), ...]``,
-    #: for SDKs ``iter_gates`` does not know natively.
+    #: ``"module:function"``: ``circuit -> [(label, qubits, is_measurement), ...]``
+    #: in circuit order (``label`` as the DAG names the gate).
     gates: str = None
     #: ``"module:function"``: ``circuit -> number of qubits``.
     num_qubits: str = None
+    #: ``"module:function"``: ``circuit -> exact state``, qubit 0 the most
+    #: significant bit (optional; exact mode falls back to Qiskit or qibo).
+    statevector: str = None
 
     def installed(self):
         return importlib.util.find_spec(self.package) is not None
@@ -117,7 +120,7 @@ def sdk_of(circuit):
 
 
 _U = "Qdislib.utils"
-register_sdk(
+for _entry in (
     SDK(
         name="qibo",
         package="qibo",
@@ -125,9 +128,10 @@ register_sdk(
         to_dag=f"{_U}.graph_qibo:circuit_qibo_to_dag",
         from_dag=f"{_U}.graph_qibo:dag_to_circuit_qibo",
         backend="QIBO_BACKEND",
-    )
-)
-register_sdk(
+        gates=f"{_U}.graph_qibo:qibo_gate_list",
+        num_qubits=f"{_U}.graph_qibo:qibo_num_qubits",
+        statevector=f"{_U}.graph_qibo:qibo_statevector",
+    ),
     SDK(
         name="qiskit",
         package="qiskit",
@@ -135,9 +139,10 @@ register_sdk(
         to_dag=f"{_U}.graph_qiskit:circuit_qiskit_to_dag",
         from_dag=f"{_U}.graph_qiskit:dag_to_circuit_qiskit",
         backend="AER_BACKEND",
-    )
-)
-register_sdk(
+        gates=f"{_U}.graph_qiskit:qiskit_gates",
+        num_qubits=f"{_U}.graph_qiskit:qiskit_num_qubits",
+        statevector=f"{_U}.graph_qiskit:qiskit_statevector",
+    ),
     SDK(
         name="cudaq",
         package="cudaq",
@@ -145,9 +150,10 @@ register_sdk(
         to_dag=f"{_U}.graph_cudaq:circuit_cudaq_to_dag",
         from_dag=f"{_U}.graph_cudaq:dag_to_circuit_cudaq_kernel",
         backend="CUDAQ_BACKEND",
-    )
-)
-register_sdk(
+        gates=f"{_U}.graph_cudaq:cudaq_gates",
+        num_qubits=f"{_U}.graph_cudaq:cudaq_num_qubits",
+        statevector=f"{_U}.graph_cudaq:cudaq_statevector",
+    ),
     SDK(
         name="pennylane",
         package="pennylane",
@@ -155,9 +161,10 @@ register_sdk(
         to_dag=f"{_U}.graph_pennylane:circuit_pennylane_to_dag",
         from_dag=f"{_U}.graph_pennylane:dag_to_circuit_pennylane",
         backend="PENNYLANE_BACKEND",
-    )
-)
-register_sdk(
+        gates=f"{_U}.graph_pennylane:pennylane_gates",
+        num_qubits=f"{_U}.graph_pennylane:pennylane_num_qubits",
+        statevector=f"{_U}.graph_pennylane:pennylane_statevector",
+    ),
     SDK(
         name="qilisdk",
         package="qilisdk",
@@ -167,5 +174,7 @@ register_sdk(
         backend="QILISDK_BACKEND",
         gates=f"{_U}.graph_qilisdk:qilisdk_gates",
         num_qubits=f"{_U}.graph_qilisdk:qilisdk_num_qubits",
-    )
-)
+        statevector=f"{_U}.graph_qilisdk:qilisdk_statevector",
+    ),
+):
+    register_sdk(_entry)

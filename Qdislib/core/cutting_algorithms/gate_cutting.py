@@ -48,6 +48,7 @@ import re
 from collections import namedtuple
 
 from Qdislib.utils.sdks import sdk_names as _sdk_names
+from Qdislib.utils.gates import canonical
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 
 
@@ -485,10 +486,10 @@ def _generate_cut(dag, gates_cut):
         dag_copy.remove_node(gate_name)
 
         dag_copy.add_node(
-            f"SUBS1_{index}", gate="S", qubits=(target_qubits[0],), parameters=()
+            f"SUBS1_{index}", gate="s", qubits=(target_qubits[0],), parameters=()
         )
         dag_copy.add_node(
-            f"SUBS2_{index}", gate="S", qubits=(target_qubits[1],), parameters=()
+            f"SUBS2_{index}", gate="s", qubits=(target_qubits[1],), parameters=()
         )
 
         if pred_0:
@@ -647,7 +648,12 @@ def _decompose_gate_in_dag(dag, gate_name):
         if name == "CZ":
             node_qubits = tuple(sorted(node_qubits))
         node_id = f"{name}_{gate_name}_{i}"
-        dag.add_node(node_id, gate=name, qubits=node_qubits, parameters=list(op_params))
+        dag.add_node(
+            node_id,
+            gate=canonical(name)[0],
+            qubits=node_qubits,
+            parameters=list(op_params),
+        )
         for q in node_qubits:
             if last[q] is not None:
                 dag.add_edge(last[q], node_id, color="blue")
@@ -688,7 +694,14 @@ def _expand_general_gate_cuts(dag, gates_cut):
 # on any cut qubit correctly. All three CPU backends do; the guard below still
 # applies to GPU/QPU evaluation paths (not decoupled) and to the 3-step
 # subcircuit workflow (which evaluates without the decoupled reconstruction).
-_IDENTITY_CUT_DECOUPLED = {"qiskit", "qibo", "cudaq", "pennylane"}
+class _Simulators:
+    """Every SDK of ``Qdislib.utils.sdks`` (its simulator decouples the sign)."""
+
+    def __contains__(self, software):
+        return software in _sdk_names()
+
+
+_IDENTITY_CUT_DECOUPLED = _Simulators()
 
 
 def _assert_identity_observable_supported(cut_dag, software=None, gpu=False, qpu=False):
@@ -1185,7 +1198,7 @@ def _defer_cut_measurements(dag, num_qubits, prep_sorted):
     deferred = dag.copy()
     for node, qubit in zip(measures, qubits):
         fresh = num_qubits + prep_sorted.index(qubit)
-        deferred.nodes[node].update(gate="CNOT", qubits=(qubit, fresh), parameters=())
+        deferred.nodes[node].update(gate="cx", qubits=(qubit, fresh), parameters=())
     return deferred
 
 

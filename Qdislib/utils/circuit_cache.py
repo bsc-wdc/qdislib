@@ -140,14 +140,8 @@ __all__ = [
 
 
 def _detect_software(circuit):
-    """Return ``"qibo"``/``"qiskit"``/``"cudaq"``/``"pennylane"`` for a circuit, or ``None``."""
-    if isinstance(circuit, _QiboCircuit):
-        return "qibo"
-    if isinstance(circuit, _QiskitCircuit):
-        return "qiskit"
-    if isinstance(circuit, _CudaqKernel):
-        return "cudaq"
-    if isinstance(circuit, _PennylaneCircuit):
+    """The SDK name of a circuit (``Qdislib.utils.sdks``), or ``None``."""
+    if isinstance(circuit, _PennylaneCircuit):  # Qdislib's own PennyLane wrapper
         return "pennylane"
     from Qdislib.utils.sdks import sdk_of
 

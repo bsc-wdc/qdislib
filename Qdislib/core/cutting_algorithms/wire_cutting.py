@@ -1111,9 +1111,9 @@ def _place_wire_cuts(dag, wire_cuts, num_qubits):
         # (O) side.
         _relabel_qubit_downstream(dag, target, line, num_qubits + index)
 
-        dag.add_node(f"O_{index}", gate="S", qubits=(line,), parameters=())
+        dag.add_node(f"O_{index}", gate="s", qubits=(line,), parameters=())
         dag.add_node(
-            f"PS_{index}", gate="T", qubits=(num_qubits + index,), parameters=()
+            f"PS_{index}", gate="t", qubits=(num_qubits + index,), parameters=()
         )
         dag.add_edge(source, f"O_{index}", color="blue")
         dag.add_edge(f"PS_{index}", target, color="blue")
@@ -1221,20 +1221,20 @@ def _apply_wire_substitution(
         # I 1
         elif index == 1:
             updated_dag.nodes[f"O_{idx2}"]["gate"] = "Observable I"
-            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "X"
+            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "x"
 
         # X +
         elif index == 2:
-            updated_dag.nodes[f"O_{idx2}"]["gate"] = "H"
-            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "H"
+            updated_dag.nodes[f"O_{idx2}"]["gate"] = "h"
+            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "h"
 
         # X -
         elif index == 3:
-            updated_dag.nodes[f"O_{idx2}"]["gate"] = "H"
-            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "H"
+            updated_dag.nodes[f"O_{idx2}"]["gate"] = "h"
+            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "h"
             updated_dag.add_node(
                 f"PS2_{idx2}",
-                gate="X",
+                gate="x",
                 qubits=updated_dag.nodes[f"PS_{idx2}"].get("qubits"),
                 parameters=(),
             )
@@ -1242,18 +1242,18 @@ def _apply_wire_substitution(
 
         # Y +i
         elif index == 4:
-            updated_dag.nodes[f"O_{idx2}"]["gate"] = "SDG"
+            updated_dag.nodes[f"O_{idx2}"]["gate"] = "sdg"
             updated_dag.add_node(
                 f"O2_{idx2}",
-                gate="H",
+                gate="h",
                 qubits=updated_dag.nodes[f"O_{idx2}"].get("qubits"),
                 parameters=(),
             )
             updated_dag.add_edge(f"O_{idx2}", f"O2_{idx2}", color="blue")
-            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "S"
+            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "s"
             updated_dag.add_node(
                 f"PS2_{idx2}",
-                gate="H",
+                gate="h",
                 qubits=updated_dag.nodes[f"PS_{idx2}"].get("qubits"),
                 parameters=(),
             )
@@ -1261,25 +1261,25 @@ def _apply_wire_substitution(
 
         # Y -i
         elif index == 5:
-            updated_dag.nodes[f"O_{idx2}"]["gate"] = "SDG"
+            updated_dag.nodes[f"O_{idx2}"]["gate"] = "sdg"
             updated_dag.add_node(
                 f"O2_{idx2}",
-                gate="H",
+                gate="h",
                 qubits=updated_dag.nodes[f"O_{idx2}"].get("qubits"),
                 parameters=(),
             )
             updated_dag.add_edge(f"O_{idx2}", f"O2_{idx2}", color="blue")
-            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "S"
+            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "s"
             updated_dag.add_node(
                 f"PS2_{idx2}",
-                gate="H",
+                gate="h",
                 qubits=updated_dag.nodes[f"PS_{idx2}"].get("qubits"),
                 parameters=(),
             )
             updated_dag.add_edge(f"PS2_{idx2}", f"PS_{idx2}", color="blue")
             updated_dag.add_node(
                 f"PS3_{idx2}",
-                gate="X",
+                gate="x",
                 qubits=updated_dag.nodes[f"PS_{idx2}"].get("qubits"),
                 parameters=(),
             )
@@ -1293,7 +1293,7 @@ def _apply_wire_substitution(
         # Z 1
         elif index == 7:
             updated_dag.remove_node(f"O_{idx2}")
-            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "X"
+            updated_dag.nodes[f"PS_{idx2}"]["gate"] = "x"
 
         else:
             raise ValueError(f"Unexpected wire-cut substitution index: {index}")
@@ -1441,6 +1441,7 @@ def _gate_matrix(name, qubits, k):
         "H": np.array([[1, 1], [1, -1]]) / np.sqrt(2),
         "SDG": np.diag([1, -1j]),
     }
+    name = name.upper()
     if name in single:
         out = np.array([[1.0 + 0j]])
         for q in range(k):
@@ -1478,9 +1479,9 @@ def _joint_measurement_settings(k):
             [int(i == j) for i in range(k)] for j in range(k)
         ]  # generator j: X_j
         z_parts = [[a[i][j] for i in range(k)] for j in range(k)]  # times Z^(column j)
-        gates = [("SDG", (i,)) for i in range(k) if a[i][i]]
-        gates += [("CZ", (i, j)) for i in range(k) for j in range(i + 1, k) if a[i][j]]
-        gates += [("H", (i,)) for i in range(k)]
+        gates = [("sdg", (i,)) for i in range(k) if a[i][i]]
+        gates += [("cz", (i, j)) for i in range(k) for j in range(i + 1, k) if a[i][j]]
+        gates += [("h", (i,)) for i in range(k)]
         groups.append((gates, x_parts, z_parts))
     identity = [[int(i == j) for i in range(k)] for j in range(k)]
     groups.append(([], [[0] * k for _ in range(k)], identity))  # the all-Z group
@@ -1659,14 +1660,14 @@ def _apply_wire_prep_state(graph, cut_index, state):
     if state == "0":
         graph.remove_node(node)
     elif state == "1":
-        graph.nodes[node]["gate"] = "X"
+        graph.nodes[node]["gate"] = "x"
     elif state == "+":
-        graph.nodes[node]["gate"] = "H"
+        graph.nodes[node]["gate"] = "h"
     elif state == "+i":
-        graph.nodes[node]["gate"] = "S"
+        graph.nodes[node]["gate"] = "s"
         rotate = f"{node}_Hi"
         graph.add_node(
-            rotate, gate="H", qubits=graph.nodes[node]["qubits"], parameters=()
+            rotate, gate="h", qubits=graph.nodes[node]["qubits"], parameters=()
         )
         graph.add_edge(rotate, node, color="blue")  # H then S = |+i>
 
@@ -1685,12 +1686,12 @@ def _apply_wire_measure_option(graph, cut_index, option):
     if option == "ZI":
         graph.nodes[node]["gate"] = "Observable I"
     elif option == "XP":
-        graph.nodes[node]["gate"] = "H"
+        graph.nodes[node]["gate"] = "h"
     elif option == "YP":
-        graph.nodes[node]["gate"] = "SDG"
+        graph.nodes[node]["gate"] = "sdg"
         rotate = f"{node}_HY"
         graph.add_node(
-            rotate, gate="H", qubits=graph.nodes[node]["qubits"], parameters=()
+            rotate, gate="h", qubits=graph.nodes[node]["qubits"], parameters=()
         )
         graph.add_edge(node, rotate, color="blue")
     elif option == "ZP":
