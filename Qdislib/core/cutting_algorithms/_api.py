@@ -39,7 +39,24 @@ import inspect
 import warnings
 
 #: The SDKs a circuit can be written in.
-SDKS = ("qibo", "qiskit", "cudaq", "pennylane")
+from Qdislib.utils.sdks import sdk_names
+
+
+class _SDKNames:
+    """The SDK names (``Qdislib.utils.sdks``), read when used: an SDK registered
+    later is included."""
+
+    def __contains__(self, name):
+        return name in sdk_names()
+
+    def __iter__(self):
+        return iter(sdk_names())
+
+    def __repr__(self):
+        return repr(sdk_names())
+
+
+SDKS = _SDKNames()
 
 #: Qibo platforms, which ``wire_cutting(backend=...)`` used to take.
 _QIBO_PLATFORMS = {

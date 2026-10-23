@@ -47,6 +47,7 @@ except ImportError:  # qiskit / qiskit-aer are optional
 import re
 from collections import namedtuple
 
+from Qdislib.utils.sdks import sdk_names as _sdk_names
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 
 
@@ -2178,10 +2179,8 @@ def _gate_cutting_subcircuits(
 
     # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
     dispatch_map = {
-        "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
-        "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
-        "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
-        "pennylane": lambda d, n: make_subcircuit(d, n, "pennylane"),
+        name: (lambda d, n, name=name: make_subcircuit(d, n, name))
+        for name in _sdk_names()
     }
 
     number_cuts = len(gates_cut)
@@ -2248,10 +2247,10 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     # pass ``software`` so the guard only fires for the paths that genuinely can't.
     _assert_identity_observable_supported(new_dag, software=software)
 
-    if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
+    if software not in _sdk_names():
         raise UnsupportedBackendError(
             f"Unsupported software backend: '{software}'. "
-            "Expected one of ['qibo', 'qiskit', 'cudaq', 'pennylane']."
+            f"Expected one of {list(_sdk_names())}."
         )
 
     # Each subcircuit is *created* in its own task (_make_subcircuit_task), separate

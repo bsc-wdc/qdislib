@@ -37,6 +37,7 @@ _BACKEND_REGISTRY: dict[str, tuple[str, str]] = {
     "QIBO_BACKEND": ("Qdislib.core.backend.qibo_backend", "QiboBackend"),
     "CUDAQ_BACKEND": ("Qdislib.core.backend.cudaq_backend", "CudaqBackend"),
     "PENNYLANE_BACKEND": ("Qdislib.core.backend.pennylane_backend", "PennylaneBackend"),
+    "QILISDK_BACKEND": ("Qdislib.core.backend.qilisdk_backend", "QiliSDKBackend"),
     "IQM_BACKEND": ("Qdislib.core.backend.iqm_backend", "IQMBackend"),
     "BSC_QPU_BACKEND": ("Qdislib.core.backend.qpu_backends", "BSCQpuBackend"),
     "IBM_BACKEND": ("Qdislib.core.backend.qpu_backends", "IBMBackend"),
@@ -118,7 +119,12 @@ def build_execution_backend(
             "AER_BACKEND",
             BackendConfig(num_qubits=size, extra={**extra, "use_gpu": True}),
         )
-    name = _SOFTWARE_ALIAS.get(software, software or DEFAULT_BACKEND_NAME)
+    name = _SOFTWARE_ALIAS.get(software)
+    if name is None:
+        from Qdislib.utils.sdks import sdk
+
+        entry = sdk(software) if isinstance(software, str) else None
+        name = entry.backend if entry is not None else software or DEFAULT_BACKEND_NAME
     return build_backend(name, BackendConfig(num_qubits=size, extra=extra))
 
 

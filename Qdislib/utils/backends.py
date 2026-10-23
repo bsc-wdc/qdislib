@@ -28,6 +28,7 @@ across the cutting algorithms.
 
 import logging
 
+from Qdislib.utils.sdks import sdk_names as _sdk_names
 from Qdislib.utils.graph_qibo import _final_measurements, circuit_qibo_to_dag
 from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
 from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
@@ -108,6 +109,12 @@ def convert_to_dag(circuit, observables=None):
     converter = next(
         (fn for t, fn in _CIRCUIT_TO_DAG.items() if isinstance(circuit, t)), None
     )
+    if converter is None:
+        from Qdislib.utils.sdks import sdk_of
+
+        entry = sdk_of(circuit)
+        if entry is not None:  # an SDK only the registry knows (e.g. QiliSDK)
+            converter = lambda c, **kw: entry.call("to_dag", c, **kw)  # noqa: E731
     if converter is None:
         logger.warning("Unsupported circuit type: %s", type(circuit).__name__)
         return circuit  # Unknown type (e.g. already a DAG), return unchanged.
@@ -268,6 +275,16 @@ def iter_gates(circuit):
         # and node/gate order match circuit_pennylane_to_dag's indexing.
         dag = circuit_pennylane_to_dag(circuit)
         return _labels_of(dag)
+    from Qdislib.utils.sdks import sdk_of
+
+    entry = sdk_of(circuit)
+    if entry is not None and entry.gates:
+        listed = entry.call("gates", circuit)
+        final = _final_measurements([(m, qubits) for _, qubits, m in listed])
+        return [
+            (name, () if position in final else qubits)
+            for position, (name, qubits, _) in enumerate(listed)
+        ]
     raise TypeError(
         f"Unsupported circuit type for gate iteration: {type(circuit).__name__}"
     )
@@ -296,6 +313,11 @@ def num_qubits(circuit):
         return circuit.nqubits
     if isinstance(circuit, QuantumCircuit):
         return circuit.num_qubits
+    from Qdislib.utils.sdks import sdk_of
+
+    entry = sdk_of(circuit)
+    if entry is not None and entry.num_qubits:
+        return entry.call("num_qubits", circuit)
     indices = [qubit for _, qubits in iter_gates(circuit) for qubit in qubits]
     return max(indices) + 1 if indices else 0
 
@@ -313,12 +335,16 @@ def _materialize(dag, num_qubits, software):
     from Qdislib.utils.graph_pennylane import dag_to_circuit_pennylane
     from Qdislib.utils.exceptions import UnsupportedBackendError
 
+    from Qdislib.utils.sdks import sdk
+
     builders = {
         "qibo": dag_to_circuit_qibo,
         "qiskit": dag_to_circuit_qiskit,
         "cudaq": dag_to_circuit_cudaq_kernel,
         "pennylane": dag_to_circuit_pennylane,
     }
+    if software not in builders and sdk(software) is not None:
+        return sdk(software).call("from_dag", dag, num_qubits)
     if software not in builders:
         raise UnsupportedBackendError(
             f"Unsupported software backend: '{software}'. "
@@ -416,7 +442,7 @@ class Subcircuit:
         from Qdislib.core.cutting_algorithms.mixed_cutting import _exact_fragment
 
         runner = self.software if backend is None else backend
-        if runner not in ("qibo", "qiskit", "cudaq", "pennylane"):
+        if runner not in _sdk_names():
             raise ValueError("shots=None (exact) needs a simulator backend")
         corr, original = _exact_fragment(
             self.dag, "qibo" if runner == "qibo" else "qiskit"
@@ -474,7 +500,7 @@ class SampledSubcircuit(Subcircuit):
     def _sample(self, shots, backend, seed):
         if shots is None:  # statevector, mid-circuit measurements deferred
             runner = self.software if backend is None else backend
-            if runner not in ("qibo", "qiskit", "cudaq", "pennylane"):
+            if runner not in _sdk_names():
                 raise ValueError("shots=None (exact) needs a simulator backend")
             return _exact_correlators_task(self.dag, runner)
         from Qdislib.core.cutting_algorithms.gate_cutting import (
@@ -509,10 +535,10 @@ def make_subcircuit(dag, num_qubits, software):
     """The :class:`Subcircuit` handed back by the ``*_subcircuits`` API."""
     from Qdislib.utils.exceptions import UnsupportedBackendError
 
-    if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
+    if software not in _sdk_names():
         raise UnsupportedBackendError(
             f"Unsupported software backend: '{software}'. "
-            "Expected one of ['qibo', 'qiskit', 'cudaq', 'pennylane']."
+            f"Expected one of {list(_sdk_names())}."
         )
     if pycompss_available:
         # The DAG/qubit count come from @task helpers (e.g. _update_qubits), so

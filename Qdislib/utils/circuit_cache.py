@@ -60,6 +60,7 @@ from fractions import Fraction
 import networkx
 from networkx.algorithms.graph_hashing import weisfeiler_lehman_graph_hash
 
+from Qdislib.utils.sdks import sdk_names as _sdk_names
 from Qdislib.utils.runtime import pycompss_available
 
 logger = logging.getLogger(__name__)
@@ -148,7 +149,10 @@ def _detect_software(circuit):
         return "cudaq"
     if isinstance(circuit, _PennylaneCircuit):
         return "pennylane"
-    return None
+    from Qdislib.utils.sdks import sdk_of
+
+    entry = sdk_of(circuit)
+    return entry.name if entry is not None else None
 
 
 # One-/two-qubit OpenQASM 2.0 mnemonics for Qdislib's canonical gate names, used to
@@ -324,7 +328,7 @@ def semantic_key(circuit, software=None):
         return None
     if software is None:
         software = _detect_software(circuit)
-    if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
+    if software not in _sdk_names():
         logger.debug(
             "semantic_key is unsupported for software=%r; "
             "caching skipped for this circuit.",

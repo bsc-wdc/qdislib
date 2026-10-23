@@ -97,7 +97,10 @@ cache = ["pyzx", "lmdb"]
 # side. Deliberately NOT in `all`: qililab is only needed on the QPU host, and
 # the classical/CI side imports Qdislib without it.
 qpu = ["qililab"]
-all = ["Qdislib[qibo,qiskit,cudaq,pennylane,cache]"]
+# QiliSDK (Qilimanjaro): its circuits are read and subcircuits written in it;
+# backend="qilisdk" runs them on its QiliSim simulator.
+qilisdk = ["qilisdk>=0.3.1"]
+all = ["Qdislib[qibo,qiskit,cudaq,pennylane,qilisdk,cache]"]
 ci = [
   "pycodestyle",
   "pydocstyle",

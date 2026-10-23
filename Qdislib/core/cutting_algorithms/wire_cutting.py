@@ -66,6 +66,7 @@ except ImportError:  # pennylane is optional; functions that need it fail when c
     qml = None
     pennylane_available = False
 
+from Qdislib.utils.sdks import sdk_names as _sdk_names
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 
 from Qdislib.utils.graph_qibo import (
@@ -2872,10 +2873,10 @@ def _optimized_wire_cutting_subcircuits(dag, cut, num_qubits, software, joint=Fa
     target, so the standard three-step loop is unchanged. Returns ``None`` only
     when a cut's marker is missing entirely (a bookkeeping inconsistency).
     """
-    if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
+    if software not in _sdk_names():
         raise UnsupportedBackendError(
             f"Unsupported software backend: '{software}'. "
-            "Expected one of ['qibo', 'qiskit', 'cudaq', 'pennylane']."
+            f"Expected one of {list(_sdk_names())}."
         )
     wire_cuts = _expand_wire_cuts(dag, cut)
     fragments = _optimized_wire_fragments(dag, wire_cuts, num_qubits)
@@ -3192,10 +3193,10 @@ def _generate_wire_cutting_subcircuits(
 
     _place_wire_cuts(dag, wire_cuts, num_qubits)
 
-    if software not in ("qibo", "qiskit", "cudaq", "pennylane"):
+    if software not in _sdk_names():
         raise UnsupportedBackendError(
             f"Unsupported software backend: '{software}'. "
-            "Expected one of ['qibo', 'qiskit', 'cudaq', 'pennylane']."
+            f"Expected one of {list(_sdk_names())}."
         )
 
     # Each subcircuit is *created* in its own task (_make_subcircuit_task), separate
