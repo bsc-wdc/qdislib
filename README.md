@@ -45,7 +45,7 @@ With Qdislib, researchers and developers can:
 - Cut **any two-qubit gate** (CZ/CX natively; others auto-decomposed to CZ, or use the Hadamard cut).
 - Leverage **GPU acceleration** using cuQuantum or Qibojit.
 - Submit subcircuits to **remote QPUs** like IBM Quantum.
-- Work with circuits defined in **Qibo**, **Qiskit**, **CUDA-Q**, and **PennyLane**.
+- Work with circuits defined in **Qibo**, **Qiskit**, **CUDA-Q**, **PennyLane** and **QiliSDK**.
 - Automatically identify good cut points with `find_cut` — a **cost-aware** search (`mixed=True`) that prices gate, Hadamard and wire cuts as they will run (each gate's own sampling overhead, joint cuts) within a time limit, and **hardware-aware** selection that cuts the longest-routing gates for a given QPU `coupling_map` (SparseCut, [arXiv:2511.05492](https://arxiv.org/abs/2511.05492)).
 - Extract and manipulate subcircuits independently.
 
@@ -119,7 +119,7 @@ print(result)  # ≈ -0.717
 `qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")])` works
 the same way for **wire cutting** (and for `gate_cutting_hadamard_subcircuits` and
 `circuit_cutting_subcircuits`). The subcircuits are written in the circuit's own SDK
-unless you pass `software=` (`"qibo"`, `"qiskit"`, `"cudaq"`, `"pennylane"`), and
+unless you pass `software=` (`"qibo"`, `"qiskit"`, `"cudaq"`, `"pennylane"`, `"qilisdk"`), and
 `qd.expectation_value(s, shots=..., backend=...)` runs each one anywhere: that SDK's
 simulator by default, or a QPU backend.
 

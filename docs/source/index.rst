@@ -17,7 +17,7 @@ With Qdislib, researchers and developers can:
 - Cut **any two-qubit gate** — CZ/CX natively, other gates auto-decomposed to CZ, or cut in a single step with the Hadamard-test method.
 - Leverage **GPU acceleration** using Qiskit Aer, cuQuantum or Qibojit.
 - Submit subcircuits to **remote QPUs** like IBM Quantum.
-- Work with circuits defined in **Qibo**, **Qiskit**, **CUDA-Q**, and **PennyLane**.
+- Work with circuits defined in **Qibo**, **Qiskit**, **CUDA-Q**, **PennyLane** and **QiliSDK**.
 - Automatically identify good cut points with `find_cut`, including a **cost-aware** search (``mixed=True``) that prices gate, Hadamard and wire cuts as they will run, and **hardware-aware** selection that cuts the longest-routing gates for a given QPU ``coupling_map`` (SparseCut, `arXiv:2511.05492 <https://arxiv.org/abs/2511.05492>`_).
 - Extract and manipulate subcircuits independently.
 

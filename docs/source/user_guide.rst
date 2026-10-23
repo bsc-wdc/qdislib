@@ -83,7 +83,7 @@ where ``X`` is ``gate_cutting``, ``wire_cutting``, ``gate_cutting_hadamard`` or
   weighted Pauli sum; ``None`` is ``Z`` on every qubit); ``X_sampling`` returns the
   output **distribution** ``{bitstring: probability}``.
 - ``backend`` is **where** the subcircuits run: an SDK name (``"qibo"``,
-  ``"qiskit"``, ``"cudaq"``, ``"pennylane"`` -- its local simulator), a registered
+  ``"qiskit"``, ``"cudaq"``, ``"pennylane"``, ``"qilisdk"`` -- its local simulator), a registered
   backend name (``"IBM_BACKEND"``, ``"IQM_BACKEND"``, ``"BSC_QPU_BACKEND"``, ...) or a
   backend object from ``qd.build_backend(...)``. ``None`` uses the circuit's own SDK.
 - ``shots=None`` gives the **exact** result (statevector) on every cut type.
@@ -108,6 +108,31 @@ The 1.x names (``observables=``, ``software=`` on the all-in-one calls, ``qpu=``
 ``qpu_dict=``, ``gpu=``, ``method=``, ``gates_cut=``, ``gate_wire_cutting``,
 ``cut_cost`` and the standalone ``*_reconstruction`` functions) still work in this
 release, with a ``DeprecationWarning`` naming the replacement.
+
+Circuits, SDKs and naming the gates to cut
+------------------------------------------
+
+A circuit can come from **Qibo**, **Qiskit**, **CUDA-Q**, **PennyLane** or
+**QiliSDK** (``pip install qdislib[qilisdk]``); subcircuits can be written in any of
+them (``software=``) and run on any of them (``backend=``), whatever the input was.
+
+Inside, every circuit becomes the same DAG, whose gates are named and defined as in
+**OpenQASM 3** (``stdgates.inc``: ``h``, ``x``, ``rz``, ``p``, ``u``, ``cx``, ``cz``,
+``cp``, ``cu``, ``swap``, ``ccx``, ... plus ``rxx``, ``ryy``, ``rzz``, ``iswap``).
+Each SDK's conventions are converted on the way in -- qibo's ``CU3`` (a controlled
+SU(2) gate) is ``cu`` with the matching phase -- so the same circuit gives the same
+DAG in every SDK.
+
+A cut names a gate by its **name and position** in the circuit, counting from 1:
+``"CZ_8"`` is the 8th instruction, a CZ. Any SDK's spelling of the gate works --
+``"CX_7"``, ``"CNOT_7"`` and ``"cx_7"`` are the same gate -- and naming a gate that
+is not there says what gate 7 actually is. :func:`~Qdislib.find_cut` returns these
+names, and :func:`~Qdislib.draw_cut` prints each gate's index on the diagram. A wire
+cut is the edge between two gates on the same qubit, ``("RY_3", "CZ_8")``.
+
+Another SDK can be added in one place (``Qdislib/utils/sdks.py``): a converter to
+and from the DAG, and a backend, registered with
+``Qdislib.utils.sdks.register_sdk``.
 
 Algorithms
 ----------
@@ -336,7 +361,7 @@ cutting and the reconstruction. This enables:
 .. code-block:: python
 
     # 1. Cut the circuit into subcircuits, written in the SDK you choose
-    #    ("qibo", "qiskit", "cudaq", "pennylane"; None = the circuit's own).
+    #    ("qibo", "qiskit", "cudaq", "pennylane", "qilisdk"; None = the circuit's own).
     subcircuits = qd.gate_cutting_subcircuits(circuit, gate_cut, "ZZZZ", software="qiskit")
     # (the same for wire_cutting_, gate_cutting_hadamard_ and circuit_cutting_subcircuits)
 
@@ -499,7 +524,7 @@ Choosing a backend
 -------------------
 
 The ``backend`` argument selects where the subcircuits run -- an SDK's simulator
-(``"qibo"``, ``"qiskit"``, ``"cudaq"``, ``"pennylane"``), a registered backend by name,
+(``"qibo"``, ``"qiskit"``, ``"cudaq"``, ``"pennylane"``, ``"qilisdk"``), a registered backend by name,
 or a configured backend object -- and is accepted by every cutting call and by
 ``expectation_value`` / ``sample_subcircuit``. Under the hood a pluggable **backend
 layer** turns it into a concrete backend:

@@ -722,7 +722,7 @@ def _story():
     s.append(gap(3))
     s.append(
         body(
-            "Pass a <b>Qibo, Qiskit, CUDA-Q or PennyLane</b> circuit — Qdislib converts "
+            "Pass a <b>Qibo, Qiskit, CUDA-Q, PennyLane or QiliSDK</b> circuit — Qdislib converts "
             "it through a neutral DAG that speaks every backend (U3/CU3/… included). "
             "Or import OpenQASM 2:"
         )

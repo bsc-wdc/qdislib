@@ -28,7 +28,7 @@ reconstruction.
     import Qdislib as qd
     from qibo import models, gates
 
-    # A small example circuit (works the same with Qiskit, CUDA-Q or PennyLane circuits).
+    # A small example circuit (works the same with Qiskit, CUDA-Q, PennyLane or QiliSDK circuits).
     circuit = models.Circuit(2)
     circuit.add(gates.H(0))
     circuit.add(gates.CZ(0, 1))
@@ -48,7 +48,7 @@ reconstruction.
 ``qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")])`` works the same way for
 **wire cutting**, and so do the Hadamard cut and ``circuit_cutting`` below. Each
 subcircuit ``s`` is written in the circuit's own SDK unless you pass ``software=``
-(``"qibo"``, ``"qiskit"``, ``"cudaq"``, ``"pennylane"``); ``s.circuit`` is the native
+(``"qibo"``, ``"qiskit"``, ``"cudaq"``, ``"pennylane"``, ``"qilisdk"``); ``s.circuit`` is the native
 circuit. ``qd.expectation_value(s, shots=..., backend=...)`` runs it anywhere: the
 SDK's simulator by default, or a QPU backend.
 
