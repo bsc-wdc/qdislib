@@ -291,5 +291,39 @@ class HadamardSamplingTest(BaseTimedTestCase):
             qd.gate_cutting_hadamard_sampling(circuit, cut, observable="ZZ", shots=None)
 
 
+@unittest.skipUnless(
+    QIBO_AVAILABLE and importlib.util.find_spec("qiskit") is not None,
+    "qibo and qiskit needed",
+)
+class QiskitCircuitTest(BaseTimedTestCase):
+    """A Qiskit circuit keeps Qiskit's gate names (u, p, cx, cp) in its DAG; the
+    fragments must still build."""
+
+    def test_qiskit_gate_names(self):
+        import Qdislib as qd
+        from qiskit import QuantumCircuit
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+
+        rng = np.random.default_rng(5)
+        qc = QuantumCircuit(4)
+        for q in range(4):
+            qc.u(*rng.uniform(0, 2 * np.pi, 3), q)
+        qc.cx(0, 1)
+        qc.cp(0.4, 2, 3)
+        qc.cx(1, 2)
+        qc.rzz(0.7, 0, 3)
+        for q in range(4):
+            qc.p(rng.uniform(0, 2 * np.pi), q)
+            qc.u(*rng.uniform(0, 2 * np.pi, 3), q)
+        qc.cz(0, 1)
+        qc.cx(2, 3)
+        exact = Statevector(qc).expectation_value(SparsePauliOp("ZZZZ")).real
+        for joint in (True, False):
+            value = qd.gate_cutting_hadamard(
+                qc, ["CX_7", "RZZ_8"], joint=joint, shots=None
+            )
+            self.assertAlmostEqual(value, exact, places=9)
+
+
 if __name__ == "__main__":
     unittest.main()

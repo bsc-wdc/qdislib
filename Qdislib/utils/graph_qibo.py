@@ -53,6 +53,18 @@ from Qdislib.utils.runtime import task
 # Cache for the case-insensitive gate lookup (built lazily on first miss).
 _QIBO_GATE_BY_UPPER = None
 
+# Qiskit gate names a Qiskit-built DAG carries, as qibo calls them. ``u``/``p``/``cp``
+# differ from qibo's U3/U1/CU1 only by a global phase (U3 is the SU(2) form).
+_QISKIT_ALIASES = {
+    "U": "U3",
+    "P": "U1",
+    "PHASE": "U1",
+    "CP": "CU1",
+    "CPHASE": "CU1",
+    "CX": "CNOT",
+    "CCX": "TOFFOLI",
+}
+
 
 def _resolve_qibo_gate(name: str):
     """Resolve a gate class name to its ``qibo.gates`` class, case-insensitively.
@@ -76,8 +88,9 @@ def _resolve_qibo_gate(name: str):
             for attr in dir(gates)
             if isinstance((obj := getattr(gates, attr, None)), type)
         }
+    upper = name.upper()
     try:
-        return _QIBO_GATE_BY_UPPER[name.upper()]
+        return _QIBO_GATE_BY_UPPER[_QISKIT_ALIASES.get(upper, upper)]
     except KeyError:
         raise AttributeError(f"qibo.gates has no gate class {name!r}")
 
