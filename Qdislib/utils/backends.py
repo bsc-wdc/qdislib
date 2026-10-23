@@ -262,21 +262,24 @@ def iter_gates(circuit):
         # circuit_cudaq_to_dag already relies on. Node insertion order is gate
         # order, so this stays consistent with that converter's indexing.
         dag = circuit_cudaq_to_dag(circuit)
-        return [
-            (data["gate"].upper(), tuple(data["qubits"]))
-            for _, data in dag.nodes(data=True)
-        ]
+        return _labels_of(dag)
     if isinstance(circuit, (PennylaneScript, PennylaneQNode)):
         # Reuse the PennyLane converter so the canonical (normalised) gate names
         # and node/gate order match circuit_pennylane_to_dag's indexing.
         dag = circuit_pennylane_to_dag(circuit)
-        return [
-            (data["gate"].upper(), tuple(data["qubits"]))
-            for _, data in dag.nodes(data=True)
-        ]
+        return _labels_of(dag)
     raise TypeError(
         f"Unsupported circuit type for gate iteration: {type(circuit).__name__}"
     )
+
+
+def _labels_of(dag):
+    """``[(name, qubits), ...]`` in node order, ``name`` the node label's prefix (the
+    DAG's ``gate`` is the canonical name, the label keeps the SDK's)."""
+    return [
+        (str(node).rsplit("_", 1)[0], tuple(data["qubits"]))
+        for node, data in dag.nodes(data=True)
+    ]
 
 
 def num_qubits(circuit):

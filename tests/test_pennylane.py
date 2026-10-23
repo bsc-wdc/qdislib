@@ -78,9 +78,9 @@ class PennylaneConversionTest(BaseTimedTestCase):
         )
 
         dag = circuit_pennylane_to_dag(_pennylane_tape())
-        # Canonical (normalised) gate names in the DAG.
+        # Canonical (OpenQASM) gate names in the DAG.
         gate_names = sorted(d["gate"] for _, d in dag.nodes(data=True))
-        self.assertEqual(gate_names, ["CZ", "CZ", "CZ", "RY", "RY", "RY", "RY"])
+        self.assertEqual(gate_names, ["cz", "cz", "cz", "ry", "ry", "ry", "ry"])
 
         built = dag_to_circuit_pennylane(dag, _NQUBITS)
         circuit, observables = built
@@ -88,7 +88,7 @@ class PennylaneConversionTest(BaseTimedTestCase):
         self.assertEqual(circuit.num_qubits, _NQUBITS)
         self.assertEqual(observables, "Z" * _NQUBITS)
         # Same multiset of operations survives the round-trip.
-        self.assertEqual(sorted(op[0] for op in circuit.ops), gate_names)
+        self.assertEqual(sorted(op[0].lower() for op in circuit.ops), gate_names)
 
     def test_iter_gates_and_num_qubits(self):
         """find_cut's backend-neutral helpers understand a PennyLane circuit."""

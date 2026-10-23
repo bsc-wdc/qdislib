@@ -82,7 +82,9 @@ def standard_arguments(func):
       three-step generators keep ``software``: the SDK of their subcircuits);
     - a Qibo platform passed as ``backend="numpy"`` becomes ``backend="qibo"``;
     - ``qpu``, ``qpu_dict``, ``qpu_config``, ``gpu``, ``gpu_min_qubits``, ``method``
-      are handed to the function as ``_legacy`` (when it still honours them).
+      are handed to the function as ``_legacy`` (when it still honours them);
+    - the ``cuts`` may name a gate as any SDK does (``CX_7``, ``CNOT_7``, ``cx_7``):
+      :func:`~Qdislib.utils.gates.resolve_cuts` maps them to the circuit's names.
 
     Positional calls beyond ``(circuit, cuts, observable)`` raise a ``TypeError``
     that says every other argument is keyword-only.
@@ -138,6 +140,16 @@ def standard_arguments(func):
                     f"{func.__name__}() does not take {sorted(legacy)}; use backend="
                 )
             kwargs["_legacy"] = legacy
+        if "cuts" in positional and "circuit" in positional:
+            # A cut may name its gate as any SDK does (CX_7 / CNOT_7 / cx_7).
+            from Qdislib.utils.gates import resolve_cuts
+
+            bound = signature.bind_partial(*args, **kwargs)
+            if "cuts" in bound.arguments and "circuit" in bound.arguments:
+                bound.arguments["cuts"] = resolve_cuts(
+                    bound.arguments["circuit"], bound.arguments["cuts"]
+                )
+                args, kwargs = bound.args, bound.kwargs
         return func(*args, **kwargs)
 
     wrapper.__signature__ = signature.replace(

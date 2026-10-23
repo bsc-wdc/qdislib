@@ -228,6 +228,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **One gate vocabulary for every SDK: OpenQASM 3.** A circuit's DAG now names its
+  gates as OpenQASM 3's `stdgates.inc` does (`cx`, `u`, `p`, `cp`, `cu`, ... plus
+  `rxx`, `ryy`, `rzz`, `iswap`), whatever SDK it came from, with each SDK's
+  conventions converted (qibo's `CU3`, a controlled SU(2) gate, is `cu` with the
+  matching phase). The same circuit in Qiskit and in qibo gives the same DAG, and
+  every converter speaks one language (`Qdislib/utils/gates.py`). The DAG's `gate`
+  attribute changes (e.g. `"cx"` where a Qiskit DAG had `"cx"` and a qibo one
+  `"CNOT"`); node names do not.
+- **One SDK-to-DAG builder.** Each SDK's converter only lists its operations;
+  `Qdislib/utils/circuit_dag.py` builds the DAG (names, dependency edges, markers)
+  the same way for all of them, in linear time (it searched back through every
+  earlier gate for each gate, and CUDA-Q's converter added more red edges than the
+  others).
+- **A cut may name its gate as any SDK does**: `CX_7`, `CNOT_7` and `cx_7` are gate
+  7 when it is a CX; naming the wrong gate says what gate 7 is.
 - **Fragment circuits are built where they run.** `circuit_cutting` (and every cut
   type's exact, optimized and `num_samples` runs, which go through it) ships each
   fragment once and a small spec per circuit; the circuit is built in its task, not

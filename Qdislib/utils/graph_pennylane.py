@@ -105,6 +105,18 @@ class PennylaneCircuit:
 
 
 def _apply_pennylane_gate(gate, qubits, parameters):
+    """Apply a gate of any vocabulary (canonical names, the cut gadgets' ``CU3``...)
+    inside a PennyLane qfunc, through :func:`~Qdislib.utils.gates.lowered`."""
+    from Qdislib.utils.gates import lowered
+
+    result = None
+    for name, positions, values in lowered(gate, parameters or ()):
+        on = qubits if positions is None else [qubits[i] for i in positions]
+        result = _apply_lowered_pennylane_gate(name.upper(), on, list(values))
+    return result  # a MEASURE's MeasurementValue
+
+
+def _apply_lowered_pennylane_gate(gate, qubits, parameters):
     """Apply one canonical DAG gate inside a PennyLane QNode / recording context.
 
     The inverse of :data:`_PENNYLANE_TO_CANONICAL`, extended with the ``CX`` alias
@@ -237,64 +249,26 @@ def circuit_pennylane_to_dag(circuit, obs_I=None) -> nx.DiGraph:
         upper-cased name), ``qubits`` (tuple of ints) and ``parameters`` (list of
         floats), with blue (nearest-predecessor) and red (other-predecessor) edges.
     """
-    tape = _to_tape(circuit)
-    dag = nx.DiGraph()
+    from Qdislib.utils.circuit_dag import ops_to_dag
 
-    for gate_idx, op in enumerate(tape.operations, start=1):
+    tape = _to_tape(circuit)
+    ops = []
+    for index, op in enumerate(tape.operations, start=1):
         name = _PENNYLANE_TO_CANONICAL.get(op.name)
         if name is None:
             raise ValueError(
                 f"Unsupported PennyLane operation '{op.name}'; supported: "
                 f"{sorted(_PENNYLANE_TO_CANONICAL)}."
             )
-        qubits = tuple(int(w) for w in op.wires)
-        parameters = [float(p) for p in op.parameters]
-        gate_name = f"{name}_{gate_idx}"
-        dag.add_node(gate_name, gate=name, qubits=qubits, parameters=parameters)
-
-        # Blue edges: nearest preceding gate on each shared qubit.
-        for qubit in qubits:
-            for pred_gate in reversed(list(dag.nodes)):
-                if (
-                    dag.nodes[pred_gate].get("qubits")
-                    and qubit in dag.nodes[pred_gate]["qubits"]
-                    and pred_gate != gate_name
-                ):
-                    dag.add_edge(pred_gate, gate_name, color="blue")
-                    break
-
-        # Red edges: other earlier gates on a shared qubit, if not already linked.
-        for qubit in qubits:
-            for pred_gate in reversed(list(dag.nodes)):
-                if (
-                    dag.nodes[pred_gate].get("qubits")
-                    and qubit in dag.nodes[pred_gate]["qubits"]
-                    and pred_gate != gate_name
-                    and not dag.has_edge(pred_gate, gate_name)
-                ):
-                    dag.add_edge(pred_gate, gate_name, color="red")
-
-    # Append identity-observable sink nodes when requested, after the LAST gate
-    # acting on each identity qubit (see circuit_qibo_to_dag for the rationale).
-    if obs_I:
-        for idx, observable in enumerate(obs_I):
-            if observable != "I":
-                continue
-            last = None
-            for node, data in dag.nodes(data=True):
-                if (
-                    idx in (data.get("qubits") or ())
-                    and data.get("gate") != "Observable I"
-                ):
-                    last = node
-            if last is not None:
-                obs_node = f"OBSI_{idx}"
-                dag.add_node(
-                    obs_node, gate="Observable I", qubits=(idx,), parameters=[]
-                )
-                dag.add_edge(last, obs_node, color="blue")
-
-    return dag
+        ops.append(
+            (
+                f"{name}_{index}",
+                name,
+                tuple(int(w) for w in op.wires),
+                [float(p) for p in op.parameters],
+            )
+        )
+    return ops_to_dag(ops, obs_I, sdk="pennylane")
 
 
 @task(returns=1)

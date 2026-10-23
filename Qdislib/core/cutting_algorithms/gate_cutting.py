@@ -609,15 +609,16 @@ def _decompose_gate_in_dag(dag, gate_name):
     decomposition (mutates ``dag`` in place); return the new ``CZ`` node ids (the cut
     targets). The single-qubit gates ride along in whichever fragment their qubit lands
     in, exactly like any other gate on the cut qubits."""
-    import qibo
-    from Qdislib.utils.graph_qibo import _resolve_qibo_gate
+    from Qdislib.utils.graph_qibo import gate_matrix
 
     node = dag.nodes[gate_name]
     qubits = node["qubits"]
     params = node.get("parameters") or ()
-    matrix = np.asarray(
-        _resolve_qibo_gate(str(node["gate"]))(0, 1, *params).matrix(qibo.get_backend())
-    )
+    if len(qubits) != 2:
+        raise InvalidCutError(
+            f"Gate cutting needs a two-qubit gate; {gate_name!r} is not one"
+        )
+    matrix = gate_matrix(str(node["gate"]), params, 2)
     if matrix.shape != (4, 4):
         raise InvalidCutError(
             f"Gate cutting needs a two-qubit gate; {gate_name!r} is {matrix.shape}"

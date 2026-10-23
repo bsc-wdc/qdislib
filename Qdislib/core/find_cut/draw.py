@@ -92,6 +92,9 @@ def draw_cut(circuit, cuts, filename=None, *, hadamard=False, ax=None, show=None
         drawn into a given ``ax``.
     :return: The matplotlib ``Axes``.
     """
+    from Qdislib.utils.gates import resolve_cuts
+
+    cuts = resolve_cuts(circuit, cuts)
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
     from matplotlib.patches import FancyBboxPatch, Patch

@@ -1710,7 +1710,11 @@ def cutting_overhead(circuit, cuts, *, hadamard=False, optimized=False, joint=Tr
         fragments, and the sampling overhead (shots grow as ``gamma**2`` for a given
         precision).
     """
-    plan = _CutPlan(circuit, cuts, None, hadamard, optimized, joint)
+    from Qdislib.utils.gates import resolve_cuts
+
+    plan = _CutPlan(
+        circuit, resolve_cuts(circuit, cuts), None, hadamard, optimized, joint
+    )
     return {
         "subcircuits": plan.num_units(),
         "configurations": plan.num_configurations,

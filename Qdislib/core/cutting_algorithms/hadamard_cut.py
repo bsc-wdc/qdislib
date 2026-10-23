@@ -249,14 +249,18 @@ def _general_local_terms(u):
 
 
 def _two_qubit_matrix(gate_name, params=()):
-    """The 4x4 unitary of a named two-qubit qibo gate (for the general cut path)."""
-    import qibo
+    """The 4x4 unitary of a named two-qubit gate (any vocabulary; for the general
+    cut path)."""
+    from Qdislib.utils.gates import GATES, canonical
+    from Qdislib.utils.graph_qibo import gate_matrix
 
-    from Qdislib.utils.graph_qibo import _resolve_qibo_gate
-
+    name = canonical(gate_name, params)[0]
+    if GATES.get(name, (2,))[0] != 2:
+        raise NotImplementedError(
+            f"Hadamard-test cut needs a two-qubit gate; {gate_name!r} is not one"
+        )
     try:
-        gate = _resolve_qibo_gate(str(gate_name))(0, 1, *params)
-        matrix = np.asarray(gate.matrix(qibo.get_backend()))
+        matrix = gate_matrix(gate_name, params, 2)
     except Exception as exc:  # noqa: BLE001
         raise NotImplementedError(
             f"cannot build a two-qubit matrix for {gate_name!r}: {exc}"
@@ -514,7 +518,7 @@ def _component_hadamard_circuit(component, assignments):
     import networkx as nx
     from qibo import gates, models
 
-    from Qdislib.utils.graph_qibo import _resolve_qibo_gate
+    from Qdislib.utils.graph_qibo import qibo_gates
 
     orig_qubits = sorted(
         {q for _, d in component.nodes(data=True) for q in (d.get("qubits") or ())}
@@ -550,12 +554,10 @@ def _component_hadamard_circuit(component, assignments):
         elif name in ("OBSERVABLE I", "MEASURE"):
             continue
         else:
-            gate_cls = _resolve_qibo_gate(data.get("gate") or "")
-            params = data.get("parameters")
-            if params:
-                circuit.add(gate_cls(*qubits, *params))
-            else:
-                circuit.add(gate_cls(*qubits))
+            for gate in qibo_gates(
+                data.get("gate") or "", list(qubits), data.get("parameters") or ()
+            ):
+                circuit.add(gate)
     return circuit, qubit_map, [anc_of[key] for key in keys]
 
 

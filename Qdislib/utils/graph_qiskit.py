@@ -52,40 +52,13 @@ import math
 
 
 def _emit_qiskit_gate(circuit, gate_name, params, qubits):
-    """Append one neutral-DAG gate to a Qiskit circuit, bridging the naming gap.
+    """Append one DAG gate to a Qiskit circuit. The DAG's canonical names are
+    OpenQASM's, which are Qiskit's; other vocabularies (a DAG built by hand, the
+    cut gadgets' ``CU3``) go through :func:`~Qdislib.utils.gates.canonical` first."""
+    from Qdislib.utils.gates import canonical
 
-    The neutral DAG uses qibo-style gate names, but Qiskit's ``QuantumCircuit`` methods
-    are named/parameterised differently -- and Qiskit >= 1.0 removed the OpenQASM-2
-    aliases ``u3``/``u2``/``u1``/``cu3``/``cu1``. Map those explicitly (``u3 -> u``,
-    ``u1 -> p``, ``cu3 -> cu`` with the extra global-phase arg, ``cu1 -> cp``, ...); any
-    other gate falls through to the lower-cased method name (``rz``, ``iswap``,
-    ``rzz``, ...), which the two libraries already share.
-    """
-    up = gate_name.upper()
-    params = list(params or [])
-    if up in ("CNOT", "CX"):
-        circuit.cx(*qubits)
-    elif up == "TOFFOLI" or up == "CCX":
-        circuit.ccx(*qubits)
-    elif up == "U3":  # qibo U3(theta, phi, lam) == qiskit u(theta, phi, lam)
-        circuit.u(*params, *qubits)
-    elif up == "U2":  # qiskit dropped u2; u2(phi, lam) == u(pi/2, phi, lam)
-        circuit.u(math.pi / 2, *params, *qubits)
-    elif up == "U1":  # u1(lam) == p(lam) (a phase gate)
-        circuit.p(*params, *qubits)
-    elif up == "CU3":
-        # qibo CU3 applies the SU(2) U3 on the control-1 block; qiskit's `cu` applies
-        # the OpenQASM u (an extra e^{i(phi+lam)/2} global phase) plus a controlled
-        # phase `gamma`. Set gamma = -(phi+lam)/2 to cancel that phase so the block is
-        # exactly qibo's SU(2) U3.
-        theta, phi, lam = params
-        circuit.cu(theta, phi, lam, -(phi + lam) / 2, *qubits)
-    elif up == "CU1":  # controlled phase
-        circuit.cp(*params, *qubits)
-    elif params:
-        getattr(circuit, gate_name.lower())(*params, *qubits)
-    else:
-        getattr(circuit, gate_name.lower())(*qubits)
+    name, params = canonical(gate_name, list(params or []))
+    getattr(circuit, name)(*params, *qubits)
 
 
 def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGraph:
@@ -128,8 +101,7 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
             dag = qd.circuit_qiskit_to_dag(qc)
             print(dag.nodes(data=True))
     """
-    # Create a directed graph
-    dag = networkx.DiGraph()
+    from Qdislib.utils.circuit_dag import ops_to_dag
 
     # A final measure (e.g. from measure_all) is left out: see _final_measurements.
     final = _final_measurements(
@@ -145,76 +117,18 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
             for gate in circuit.data
         ]
     )
-
-    # Add gates to the DAG as nodes with unique identifiers
-    for gate_idx, gate in enumerate(circuit.data, start=1):
-
-        if gate.operation.name != "barrier" and gate_idx - 1 not in final:
-
-            # Unique identifier for each gate instance
-            gate_name = f"{gate.operation.name}_{gate_idx}".upper()
-
-            qubits = ()
-            for elem in gate.qubits:
-                # Use the global index so indices from different registers
-                # do not collide.
-                qubits = qubits + (circuit.find_bit(elem).index,)
-
-            # Add the gate to the DAG, including the gate type, qubits, and parameters
-            dag.add_node(
-                gate_name,
-                gate=gate.operation.name,
-                qubits=qubits,
-                parameters=gate.operation.params,
-            )
-
-            # Connect gates based on qubit dependencies
-            for qubit in qubits:
-                # Skip the last node since it is the current gate being added
-                for pred_gate in reversed(list(dag.nodes)):
-                    # Check if the qubit is in the node's qubits
-                    if (
-                        dag.nodes[pred_gate].get("qubits")
-                        and qubit in dag.nodes[pred_gate]["qubits"]
-                        and gate_name != pred_gate
-                    ):
-                        dag.add_edge(pred_gate, gate_name, color="blue")
-                        break
-
-            for qubit in qubits:
-                for pred_gate in reversed(list(dag.nodes)):
-                    if (
-                        dag.nodes[pred_gate].get("qubits")
-                        and qubit in dag.nodes[pred_gate]["qubits"]
-                        and gate_name != pred_gate
-                        and not dag.has_edge(pred_gate, gate_name)
-                    ):
-                        dag.add_edge(pred_gate, gate_name, color="red")
-    if obs_I:
-        for idx, pauli in enumerate(obs_I):
-            if pauli != "I":
-                continue
-            # Attach the Observable-I marker after the LAST gate acting on qubit
-            # idx. That gate may be multi-qubit (e.g. a CZ), so requiring a sink
-            # whose qubits are exactly (idx,) silently dropped the marker whenever
-            # a qubit ended on a two-qubit gate -- and the identity then wrongly
-            # became a Z on the cutting path.
-            last = None
-            for node, data in dag.nodes(data=True):
-                if (
-                    idx in (data.get("qubits") or ())
-                    and data.get("gate") != "Observable I"
-                ):
-                    last = node
-            if last is not None:
-                dag.add_node(
-                    f"OBSI_{idx}",
-                    gate="Observable I",
-                    qubits=(idx,),
-                    parameters=(),
-                )
-                dag.add_edge(last, f"OBSI_{idx}", color="blue")
-    return dag
+    ops = [
+        (
+            f"{gate.operation.name}_{index}".upper(),
+            gate.operation.name,
+            # the global index, so qubits of different registers do not collide
+            tuple(circuit.find_bit(q).index for q in gate.qubits),
+            gate.operation.params,
+        )
+        for index, gate in enumerate(circuit.data, start=1)
+        if gate.operation.name != "barrier" and index - 1 not in final
+    ]
+    return ops_to_dag(ops, obs_I, sdk="qiskit")
 
 
 @task(returns=1)

@@ -48,6 +48,8 @@ except ImportError:
     cudaq_available = False
 
 from Qdislib.utils.runtime import task
+from Qdislib.utils.circuit_dag import ops_to_dag
+from Qdislib.utils.gates import lowered
 
 
 def _cudaq_gate_name(call):
@@ -117,7 +119,7 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
     if func is None:
         return dag
 
-    gate_idx = 0
+    ops = []
     for statement in func.body:
         # Gate operations are bare calls (``h(q[0])``) or measurement
         # assignments (``m = mz(q[0])``); everything else is skipped.
@@ -148,61 +150,9 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
 
         if not qubits:  # e.g. cudaq.qvector(...) or a whole-register op -> skip
             continue
+        ops.append((f"{name}_{len(ops) + 1}", name, qubits, parameters))
 
-        gate_idx += 1
-        gate_name = f"{name}_{gate_idx}"
-        dag.add_node(gate_name, gate=name, qubits=tuple(qubits), parameters=parameters)
-
-        # Blue edges: nearest preceding gate on each shared qubit.
-        for qubit in qubits:
-            for pred_gate in reversed(list(dag.nodes)):
-                if (
-                    dag.nodes[pred_gate].get("qubits")
-                    and qubit in dag.nodes[pred_gate]["qubits"]
-                    and pred_gate != gate_name
-                ):
-                    dag.add_edge(pred_gate, gate_name, color="blue")
-                    break
-
-        # Red edges: other earlier gates on a shared qubit, if not already linked.
-        for qubit in qubits:
-            for pred_gate in reversed(list(dag.nodes)):
-                if (
-                    dag.nodes[pred_gate].get("qubits")
-                    and qubit in dag.nodes[pred_gate]["qubits"]
-                    and pred_gate != gate_name
-                    and not dag.has_edge(pred_gate, gate_name)
-                ):
-                    dag.add_edge(pred_gate, gate_name, color="red")
-
-    # Append identity-observable sink nodes when requested. Attach each marker
-    # after the LAST gate acting on that qubit (a multi-qubit gate is fine);
-    # requiring a sink whose qubits are exactly (idx,) silently dropped the marker
-    # when a qubit ended on a two-qubit gate, turning the identity into a Z.
-    if obs_I:
-        for idx, observable in enumerate(obs_I):
-            if observable != "I":
-                continue
-            last = None
-            for node, data in dag.nodes(data=True):
-                if (
-                    idx in (data.get("qubits") or ())
-                    and data.get("gate") != "Observable I"
-                ):
-                    last = node
-            if last is not None:
-                obs_node = f"OBSI_{idx}"
-                dag.add_node(
-                    obs_node, gate="Observable I", qubits=(idx,), parameters=[]
-                )
-                dag.add_edge(last, obs_node, color="blue")
-
-    return dag
-
-
-#: Qiskit gate names a Qiskit-built DAG carries, as these builders call them (``u``
-#: and ``p`` differ from U3/U1 only by a global phase).
-_QISKIT_ALIASES = {"U": "U3", "P": "U1", "PHASE": "U1", "CP": "CU1"}
+    return ops_to_dag(ops, obs_I, sdk="cudaq")
 
 
 @task(returns=1)
@@ -292,89 +242,94 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
     # Traverse DAG
     for node in nx.topological_sort(dag):
         node_data = dag.nodes[node]
-        gate = node_data["gate"].upper()
-        gate = _QISKIT_ALIASES.get(gate, gate)
-        qubits = node_data["qubits"]
-        params = node_data["parameters"]
+        for gate, positions, params in lowered(
+            node_data["gate"], node_data["parameters"] or ()
+        ):
+            gate = gate.upper()
+            qubits = node_data["qubits"]
+            if positions is not None:
+                qubits = tuple(qubits[k] for k in positions)
 
-        # --- Common 1-qubit gates ---
-        if gate in ["H", "X", "Y", "Z", "T", "S", "SDG"]:
-            for qb in qubits:
-                getattr(kernel, gate.lower())(q[qb])
+            # --- Common 1-qubit gates ---
+            if gate in ["H", "X", "Y", "Z", "T", "S", "SDG"]:
+                for qb in qubits:
+                    getattr(kernel, gate.lower())(q[qb])
 
-        # --- Rotation gates ---
-        elif gate in ["RX", "RY", "RZ"]:
-            angle = params[0] if params else 0.0
-            for qb in qubits:
-                getattr(kernel, gate.lower())(angle, q[qb])
+            # --- Rotation gates ---
+            elif gate in ["RX", "RY", "RZ"]:
+                angle = params[0] if params else 0.0
+                for qb in qubits:
+                    getattr(kernel, gate.lower())(angle, q[qb])
 
-        # --- General single-qubit unitary / phase ---
-        elif gate == "U3":
-            for qb in qubits:
-                kernel.u3(params[0], params[1], params[2], q[qb])
+            # --- General single-qubit unitary / phase ---
+            elif gate == "U3":
+                for qb in qubits:
+                    kernel.u3(params[0], params[1], params[2], q[qb])
 
-        elif gate in ["U1", "CPHASE_SINGLE"]:  # r1 = phase gate diag(1, e^{i lam})
-            for qb in qubits:
-                kernel.r1(params[0], q[qb])
+            elif gate in ["U1", "CPHASE_SINGLE"]:  # r1 = phase gate diag(1, e^{i lam})
+                for qb in qubits:
+                    kernel.r1(params[0], q[qb])
 
-        # --- Controlled gates ---
-        elif gate in ["CNOT", "CX"]:
-            ctrl, tgt = qubits
-            kernel.cx(q[ctrl], q[tgt])
+            # --- Controlled gates ---
+            elif gate in ["CNOT", "CX"]:
+                ctrl, tgt = qubits
+                kernel.cx(q[ctrl], q[tgt])
 
-        elif gate == "CZ":
-            ctrl, tgt = qubits
-            kernel.cz(q[ctrl], q[tgt])
+            elif gate == "CZ":
+                ctrl, tgt = qubits
+                kernel.cz(q[ctrl], q[tgt])
 
-        elif gate == "CU3":
-            # Controlled SU(2) U3. cudaq's cu3 applies the OpenQASM u3 (an extra
-            # e^{i(phi+lam)/2} global phase) on the control-1 block; cancel it with a
-            # phase (r1) on the control so the block is exactly qibo's SU(2) U3.
-            ctrl, tgt = qubits
-            theta, phi, lam = params[0], params[1], params[2]
-            kernel.cu3(theta, phi, lam, q[ctrl], q[tgt])
-            kernel.r1(-(phi + lam) / 2, q[ctrl])
+            elif gate == "CU3":
+                # Controlled SU(2) U3. cudaq's cu3 applies the OpenQASM u3 (an extra
+                # e^{i(phi+lam)/2} global phase) on the control-1 block; cancel it with a
+                # phase (r1) on the control so the block is exactly qibo's SU(2) U3.
+                ctrl, tgt = qubits
+                theta, phi, lam = params[0], params[1], params[2]
+                kernel.cu3(theta, phi, lam, q[ctrl], q[tgt])
+                kernel.r1(-(phi + lam) / 2, q[ctrl])
 
-        elif gate in ["CU1", "CPHASE"]:  # controlled phase on |11>
-            ctrl, tgt = qubits
-            kernel.cr1(params[0], q[ctrl], q[tgt])
+            elif gate in ["CU1", "CPHASE"]:  # controlled phase on |11>
+                ctrl, tgt = qubits
+                kernel.cr1(params[0], q[ctrl], q[tgt])
 
-        elif gate == "SWAP":
-            kernel.swap(q[qubits[0]], q[qubits[1]])
+            elif gate == "SWAP":
+                kernel.swap(q[qubits[0]], q[qubits[1]])
 
-        elif gate == "RZZ":  # exp(-i theta/2 ZZ) = CX . RZ(theta) . CX (no native rzz)
-            ctrl, tgt = qubits
-            kernel.cx(q[ctrl], q[tgt])
-            kernel.rz(params[0], q[tgt])
-            kernel.cx(q[ctrl], q[tgt])
+            elif (
+                gate == "RZZ"
+            ):  # exp(-i theta/2 ZZ) = CX . RZ(theta) . CX (no native rzz)
+                ctrl, tgt = qubits
+                kernel.cx(q[ctrl], q[tgt])
+                kernel.rz(params[0], q[tgt])
+                kernel.cx(q[ctrl], q[tgt])
 
-        elif gate == "ISWAP":  # no native iswap; standard 6-gate decomposition
-            a, b = qubits
-            kernel.s(q[a])
-            kernel.s(q[b])
-            kernel.h(q[a])
-            kernel.cx(q[a], q[b])
-            kernel.cx(q[b], q[a])
-            kernel.h(q[b])
+            elif gate == "ISWAP":  # no native iswap; standard 6-gate decomposition
+                a, b = qubits
+                kernel.s(q[a])
+                kernel.s(q[b])
+                kernel.h(q[a])
+                kernel.cx(q[a], q[b])
+                kernel.cx(q[b], q[a])
+                kernel.h(q[b])
 
-        # --- Measurement gates ---
-        elif gate in ["MZ", "MX", "MY"]:
-            for qb in qubits:
-                getattr(kernel, gate.lower())(q[qb])
+            # --- Measurement gates ---
+            elif gate in ["MZ", "MX", "MY"]:
+                for qb in qubits:
+                    getattr(kernel, gate.lower())(q[qb])
 
-        # --- Gate-cut MEASURE: a projective Z measurement that collapses the
-        # --- qubit to its outcome |s> and lets it CONTINUE (the CZ cut's
-        # --- (I +/- Z)/2 projector, Mitarai-Fujii arXiv:1909.07534). The outcome
-        # --- is recovered from the explicit-measurements record for the
-        # --- reconstruction sign; the qubit is NOT reset (resetting it discarded
-        # --- the collapse and broke reconstruction for gates after the cut).
-        elif gate == "MEASURE":
-            for qb in qubits:
-                kernel.mz(q[qb])
-                measured_order.append(qb)
+            # --- Gate-cut MEASURE: a projective Z measurement that collapses the
+            # --- qubit to its outcome |s> and lets it CONTINUE (the CZ cut's
+            # --- (I +/- Z)/2 projector, Mitarai-Fujii arXiv:1909.07534). The outcome
+            # --- is recovered from the explicit-measurements record for the
+            # --- reconstruction sign; the qubit is NOT reset (resetting it discarded
+            # --- the collapse and broke reconstruction for gates after the cut).
+            elif gate == "MEASURE":
+                for qb in qubits:
+                    kernel.mz(q[qb])
+                    measured_order.append(qb)
 
-        else:
-            raise ValueError(f"Unsupported gate type: {gate}")
+            else:
+                raise ValueError(f"Unsupported gate type: {gate}")
 
     return [kernel, observables]
 
@@ -431,44 +386,45 @@ def _build_cudaq_run_kernel(dag, num_qubits, observables):
     measured_order = []
     for node in nx.topological_sort(dag):
         data = dag.nodes[node]
-        gate = data["gate"].upper()
-        gate = _QISKIT_ALIASES.get(gate, gate)
-        qubits = data["qubits"]
-        params = data["parameters"]
-        if gate in _CUDAQ_ONE_QUBIT:
-            for qb in qubits:
-                lines.append(f"    {_CUDAQ_ONE_QUBIT[gate]}(q[{qb}])")
-        elif gate == "SDG":
-            for qb in qubits:
-                lines.append(f"    s.adj(q[{qb}])")
-        elif gate == "TDG":
-            for qb in qubits:
-                lines.append(f"    t.adj(q[{qb}])")
-        elif gate in ("RX", "RY", "RZ"):
-            angle = float(params[0]) if params else 0.0
-            for qb in qubits:
-                lines.append(f"    {gate.lower()}({angle!r}, q[{qb}])")
-        elif gate == "U3":
-            theta, phi, lam = (float(p) for p in params)
-            for qb in qubits:
-                lines.append(f"    u3({theta!r}, {phi!r}, {lam!r}, q[{qb}])")
-        elif gate == "U1":
-            for qb in qubits:
-                lines.append(f"    r1({float(params[0])!r}, q[{qb}])")
-        elif gate in ("CNOT", "CX"):
-            ctrl, tgt = qubits
-            lines.append(f"    x.ctrl(q[{ctrl}], q[{tgt}])")
-        elif gate == "CZ":
-            ctrl, tgt = qubits
-            lines.append(f"    z.ctrl(q[{ctrl}], q[{tgt}])")
-        elif gate == "MEASURE":
-            for qb in qubits:
-                var = f"m{len(measured_vars)}"
-                lines.append(f"    {var} = mz(q[{qb}])")
-                measured_vars.append(var)
-                measured_order.append(qb)
-        else:
-            raise ValueError(f"Unsupported gate type: {gate}")
+        for gate, positions, params in lowered(data["gate"], data["parameters"] or ()):
+            gate = gate.upper()
+            qubits = data["qubits"]
+            if positions is not None:
+                qubits = tuple(qubits[k] for k in positions)
+            if gate in _CUDAQ_ONE_QUBIT:
+                for qb in qubits:
+                    lines.append(f"    {_CUDAQ_ONE_QUBIT[gate]}(q[{qb}])")
+            elif gate == "SDG":
+                for qb in qubits:
+                    lines.append(f"    s.adj(q[{qb}])")
+            elif gate == "TDG":
+                for qb in qubits:
+                    lines.append(f"    t.adj(q[{qb}])")
+            elif gate in ("RX", "RY", "RZ"):
+                angle = float(params[0]) if params else 0.0
+                for qb in qubits:
+                    lines.append(f"    {gate.lower()}({angle!r}, q[{qb}])")
+            elif gate == "U3":
+                theta, phi, lam = (float(p) for p in params)
+                for qb in qubits:
+                    lines.append(f"    u3({theta!r}, {phi!r}, {lam!r}, q[{qb}])")
+            elif gate == "U1":
+                for qb in qubits:
+                    lines.append(f"    r1({float(params[0])!r}, q[{qb}])")
+            elif gate in ("CNOT", "CX"):
+                ctrl, tgt = qubits
+                lines.append(f"    x.ctrl(q[{ctrl}], q[{tgt}])")
+            elif gate == "CZ":
+                ctrl, tgt = qubits
+                lines.append(f"    z.ctrl(q[{ctrl}], q[{tgt}])")
+            elif gate == "MEASURE":
+                for qb in qubits:
+                    var = f"m{len(measured_vars)}"
+                    lines.append(f"    {var} = mz(q[{qb}])")
+                    measured_vars.append(var)
+                    measured_order.append(qb)
+            else:
+                raise ValueError(f"Unsupported gate type: {gate}")
 
     final_vars = [f"f{qb}" for qb in range(num_qubits)]
     for qb in range(num_qubits):

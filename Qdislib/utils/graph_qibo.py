@@ -53,17 +53,27 @@ from Qdislib.utils.runtime import task
 # Cache for the case-insensitive gate lookup (built lazily on first miss).
 _QIBO_GATE_BY_UPPER = None
 
-# Qiskit gate names a Qiskit-built DAG carries, as qibo calls them. ``u``/``p``/``cp``
-# differ from qibo's U3/U1/CU1 only by a global phase (U3 is the SU(2) form).
-_QISKIT_ALIASES = {
-    "U": "U3",
-    "P": "U1",
-    "PHASE": "U1",
-    "CP": "CU1",
-    "CPHASE": "CU1",
-    "CX": "CNOT",
-    "CCX": "TOFFOLI",
-}
+
+def qibo_gates(name, qubits, params=()):
+    """A gate of any vocabulary (canonical, qibo, ...) as qibo gate objects on
+    ``qubits``: usually one; a canonical ``cu`` is a ``CU3`` and a phase on the
+    control (see :func:`Qdislib.utils.gates.lowered`)."""
+    from Qdislib.utils.gates import lowered
+
+    out = []
+    for gate, positions, values in lowered(name, _unpack_parameters(params)):
+        on = qubits if positions is None else [qubits[i] for i in positions]
+        out.append(_resolve_qibo_gate(gate)(*on, *values))
+    return out
+
+
+def gate_matrix(name, params=(), num_qubits=2):
+    """The unitary of a gate (any vocabulary) on ``num_qubits`` qubits, qibo's
+    ordering (qubit 0 the most significant bit)."""
+    circuit = models.Circuit(num_qubits)
+    for gate in qibo_gates(name, list(range(num_qubits)), params):
+        circuit.add(gate)
+    return np.asarray(circuit.unitary())
 
 
 def _resolve_qibo_gate(name: str):
@@ -88,9 +98,11 @@ def _resolve_qibo_gate(name: str):
             for attr in dir(gates)
             if isinstance((obj := getattr(gates, attr, None)), type)
         }
-    upper = name.upper()
+    from Qdislib.utils.gates import lowered
+
+    upper = lowered(name)[0][0].upper()
     try:
-        return _QIBO_GATE_BY_UPPER[_QISKIT_ALIASES.get(upper, upper)]
+        return _QIBO_GATE_BY_UPPER[upper]
     except KeyError:
         raise AttributeError(f"qibo.gates has no gate class {name!r}")
 
@@ -171,8 +183,7 @@ def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph
             print(dag.nodes(data=True))
             print(dag.edges(data=True))
     """
-    # Create a directed graph
-    dag = networkx.DiGraph()
+    from Qdislib.utils.circuit_dag import ops_to_dag
 
     # A final M is left out (see _final_measurements); a collapsing M is a gate
     # cut's own cut-point measurement and always kept.
@@ -185,71 +196,17 @@ def circuit_qibo_to_dag(circuit: models.Circuit, obs_I=None) -> networkx.DiGraph
             for gate in circuit.queue
         ]
     )
-
-    # Add gates to the DAG as nodes with unique identifiers
-    for gate_idx, gate in enumerate(circuit.queue, start=1):
-        if gate_idx - 1 in final:
-            continue
-        # Unique identifier for each gate instance
-        gate_name = f"{gate.__class__.__name__}_{gate_idx}".upper()
-
-        # Add the gate to the DAG, including the gate type, qubits, and parameters
-        dag.add_node(
-            gate_name,
-            gate=gate.__class__.__name__,
-            qubits=gate.qubits,
-            parameters=gate.parameters,
+    ops = [
+        (
+            f"{gate.__class__.__name__}_{index}".upper(),
+            gate.__class__.__name__,
+            gate.qubits,
+            gate.parameters,
         )
-
-        # Connect gates based on qubit dependencies
-        for qubit in gate.qubits:
-            # Skip the last node since it is the current gate being added
-            for pred_gate in reversed(list(dag.nodes)):
-                # Check if the qubit is in the node's qubits
-                if (
-                    dag.nodes[pred_gate].get("qubits")
-                    and qubit in dag.nodes[pred_gate]["qubits"]
-                    and gate_name != pred_gate
-                ):
-                    dag.add_edge(pred_gate, gate_name, color="blue")
-                    break
-
-        for qubit in gate.qubits:
-            for pred_gate in reversed(list(dag.nodes)):
-                if (
-                    dag.nodes[pred_gate].get("qubits")
-                    and qubit in dag.nodes[pred_gate]["qubits"]
-                    and gate_name != pred_gate
-                    and not dag.has_edge(pred_gate, gate_name)
-                ):
-                    dag.add_edge(pred_gate, gate_name, color="red")
-
-    if obs_I:
-        for idx, pauli in enumerate(obs_I):
-            if pauli != "I":
-                continue
-            # Attach the Observable-I marker after the LAST gate acting on qubit
-            # idx. That gate may be multi-qubit (e.g. a CZ), so requiring a sink
-            # whose qubits are exactly (idx,) silently dropped the marker whenever
-            # a qubit ended on a two-qubit gate -- and the identity then wrongly
-            # became a Z on the cutting path.
-            last = None
-            for node, data in dag.nodes(data=True):
-                if (
-                    idx in (data.get("qubits") or ())
-                    and data.get("gate") != "Observable I"
-                ):
-                    last = node
-            if last is not None:
-                dag.add_node(
-                    f"OBSI_{idx}",
-                    gate="Observable I",
-                    qubits=(idx,),
-                    parameters=(),
-                )
-                dag.add_edge(last, f"OBSI_{idx}", color="blue")
-
-    return dag
+        for index, gate in enumerate(circuit.queue, start=1)
+        if index - 1 not in final
+    ]
+    return ops_to_dag(ops, obs_I, sdk="qibo")
 
 
 def plot_dag(dag: networkx.DiGraph) -> None:
@@ -412,13 +369,9 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
         qubits = node_data["qubits"]
         params = _unpack_parameters(node_data["parameters"])
 
-        # Resolve the gate class case-insensitively (handles iSWAP, fSim, ...) and
-        # splat each parameter as its own positional argument (handles U2, U3, ...).
-        gate_class = _resolve_qibo_gate(gate_raw)
-        if params:
-            circuit.add(gate_class(*qubits, *params))
-        else:
-            circuit.add(gate_class(*qubits))
+        # Any vocabulary (canonical names, qibo's own, ...) into qibo gates.
+        for gate in qibo_gates(gate_raw, list(qubits), params):
+            circuit.add(gate)
 
     if obs_I:
         observables = ["Z"] * circuit.nqubits
