@@ -431,11 +431,22 @@ Drawing configurations instead of running them all (``num_samples``)
 
 A cut is a weighted sum over configurations -- ``6**n`` for ``n`` gate cuts, ``8**n``
 for ``n`` wire cuts, products of the Hadamard settings. By default every
-configuration runs with ``shots`` each. With ``num_samples=N``, Qdislib instead draws
-``N`` configurations with probability ``|weight| / gamma`` and runs only the fragment
-circuits those draws use, each with ``shots`` per draw that uses it -- the textbook
-quasiprobability Monte-Carlo estimate. It is unbiased, and its error shrinks as
-``gamma / sqrt(N * shots)``:
+configuration runs with ``shots`` each. With ``num_samples=N``, Qdislib instead uses
+``N`` configurations in proportion to ``|weight| / gamma`` and runs only the fragment
+circuits they use, each with ``shots`` per draw that uses it -- the quasiprobability
+Monte-Carlo estimate. It is unbiased.
+
+The draws are **allocated**, not drawn at random (Dai & Koczor: a share in proportion
+to the weight is never worse than random draws). When all configurations fit in
+``N``, each gets its share, which is the same as running them all; otherwise the cuts
+that fit are allocated and the rest drawn.
+
+The error has two parts. Which configurations are drawn contributes at most
+``gamma / sqrt(N)``, **whatever the shots**; the shot noise is the rest. When the
+configurations do not all fit in ``N``, the first part usually dominates, so more
+shots per draw do not help: for a given budget, use **more draws with fewer shots
+each** (``shots=1`` is fine). When they all fit, the error falls with the shots, as
+when running every configuration.
 
 .. code-block:: python
 
@@ -455,11 +466,10 @@ When to use it:
 - **unequal weights** (Hadamard cuts of rotations): the shots go where the weight
   is, which can save orders of magnitude over equal shots per configuration.
 
-With equal weights (measure-and-prepare, wire cuts) and few enough configurations
-to run them all, running all of them with the same total shots is slightly more
-accurate (about 15% lower error in our tests); ``num_samples`` adds the variance
-of which configurations happen to be drawn. Note also that sampling does not change
-``gamma``: the total shots for a given precision still grow as ``gamma**2``.
+With few enough configurations to run them all, ``num_samples`` at least as large as
+their number gives the same accuracy as running them all with the same total shots
+(each gets its share). Sampling does not change ``gamma``: the draws and shots for a
+given precision still grow as ``gamma**2``.
 
 Sampling the output distribution
 --------------------------------

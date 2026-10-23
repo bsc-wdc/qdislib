@@ -583,7 +583,7 @@ class _CutPlan:
             tuple(config[g] for g in fragment["had_groups"]),
         )
 
-    def draw(self, num_samples, seed=None):
+    def draw(self, num_samples, seed=None, stratified=True):
         """Draw ``num_samples`` configurations with probability ``|weight| / gamma``
         (Monte-Carlo quasiprobability sampling), without listing them all.
 
@@ -591,23 +591,106 @@ class _CutPlan:
         uniform; a Hadamard group's setting ``(s, t, g)`` is drawn with probability
         ``c_s c_t / phi`` (Harrow & Lowe), ``s`` and ``t`` gate by gate.
 
+        ``stratified`` (the default) allocates the draws instead of drawing them
+        independently (Dai & Koczor: allocating shots to the terms in proportion to
+        their weight is never worse than drawing them at random). Every cut is
+        stratified when all configurations fit in ``num_samples``; otherwise the
+        cuts are taken smallest first while there are about 8 draws or more per
+        joint configuration. Each of those configurations gets ``floor(N p)`` draws, and
+        the remaining draws are spread by systematic sampling, so the total stays
+        ``N`` and each configuration is drawn ``N p`` times on average (unbiased).
+        Within it, the other cuts are drawn independently. With equal weights and
+        ``N`` a multiple of the configuration count it is exactly every
+        configuration, ``N / count`` times each.
+
         :return: ``[(digits, config, wire, weight, count), ...]``, one per distinct
-            draw: ``weight = gamma * sign / num_samples`` per draw, ``count`` the
-            times it was drawn.
+            draw: ``weight`` per draw (``gamma * sign / num_samples``, or
+            ``gamma * p * sign / n_h`` in a stratum of probability ``p`` drawn
+            ``n_h`` times), ``count`` the times it was drawn.
         """
+        from Qdislib.core.cutting_algorithms.hadamard_cut import _draw_settings
+
         rng = np.random.default_rng(seed)
         n = int(num_samples)
         gamma = self.gamma()
         digits = rng.integers(0, 6, size=(n, len(self.gate_cuts)))
         wires = rng.integers(0, 8, size=(n, len(self.wire_cuts)))
+        group_counts = self._group_settings()
+        fixed = {}  # group -> (s, t, g) of the groups the strata set
+        per_draw = np.full(n, gamma / n)  # the weight of each draw (before its sign)
+        if stratified:
+            # The cuts as dimensions with their term probabilities, smallest first.
+            dims = [("gate", k, 6) for k in range(len(self.gate_cuts))]
+            dims += [("wire", i, 8) for i in range(len(self.wire_cuts))]
+            dims += [("group", g, c) for g, c in enumerate(group_counts)]
+            dims.sort(key=lambda d: d[2])
+            # Every cut when all configurations fit in N (that is running them all,
+            # in proportion); otherwise only while each stratum gets about 8 draws
+            # or more, where splitting N unevenly (n_h and n_h + 1) costs < 2%.
+            limit = n if math.prod(d[2] for d in dims) <= n else n / 8
+            chosen, size = [], 1
+            for dim in dims:
+                if size * dim[2] > limit:
+                    break
+                chosen.append(dim)
+                size *= dim[2]
+            probs = []
+            for kind, index, count in chosen:
+                if kind == "group":
+                    weights = np.abs(self._hadamard_settings[index][1])
+                    probs.append(weights / weights.sum())
+                else:
+                    probs.append(np.full(count, 1.0 / count))
+            # Every joint configuration of the chosen cuts, its probability, and
+            # its draws: floor(N p) each, the rest by systematic sampling.
+            p = np.ones(1)
+            for q in probs:
+                p = np.outer(p, q).reshape(-1)
+            share = n * p
+            counts = np.floor(share).astype(np.int64)
+            remainder = share - counts
+            extra = n - int(counts.sum())
+            if extra > 0:
+                points = rng.random() + np.arange(extra)
+                cuts_at = np.cumsum(remainder)
+                where = np.searchsorted(cuts_at, points, side="right")
+                counts += np.bincount(
+                    np.minimum(where, len(counts) - 1), minlength=len(counts)
+                )
+            stratum = np.repeat(np.arange(len(counts)), counts)
+            rng.shuffle(stratum)
+            # A stratum always drawn (N p >= 1) is weighted by what it actually got,
+            # gamma p / n_h per draw: the stratified estimator, whose variance does
+            # not take on the rounding of n_h. A rarer one keeps gamma / N
+            # (Horvitz-Thompson); both are unbiased.
+            sure = share >= 1.0
+            per_stratum = np.where(sure, gamma * p / np.maximum(counts, 1), gamma / n)
+            per_draw = per_stratum[stratum]
+            # Decode each draw's stratum into its chosen cuts' terms.
+            radix = [len(q) for q in probs]
+            place = stratum.copy()
+            values = []
+            for r in reversed(radix):
+                values.append(place % r)
+                place //= r
+            values.reverse()
+            for (kind, index, _), value in zip(chosen, values):
+                if kind == "gate":
+                    digits[:, index] = value
+                elif kind == "wire":
+                    wires[:, index] = value
+                else:
+                    picked = np.array(self._hadamard_settings[index][0])[value]
+                    fixed[index] = (picked[:, 0], picked[:, 1], picked[:, 2])
         flips = np.isin(digits, (3, 5)).sum(axis=1) + np.isin(wires, (3, 5, 7)).sum(
             axis=1
         )
-        from Qdislib.core.cutting_algorithms.hadamard_cut import _draw_settings
-
         settings = []
-        for _, terms in self.groups:
-            s, t, g = _draw_settings(terms, n, rng)
+        for index, (_, terms) in enumerate(self.groups):
+            if index in fixed:
+                s, t, g = fixed[index]
+            else:
+                s, t, g = _draw_settings(terms, n, rng)
             flips = flips + g
             settings.append((s, t, g))
         signs = np.where(flips % 2, -1.0, 1.0)
@@ -621,11 +704,11 @@ class _CutPlan:
                 config,
                 tuple(int(w) for w in wires[row]),
             )
-            entry = distinct.setdefault(key, [signs[row], 0])
-            entry[1] += 1
+            entry = distinct.setdefault(key, [signs[row], per_draw[row], 0])
+            entry[2] += 1
         return [
-            (d, c, w, gamma * sign / n, count)
-            for (d, c, w), (sign, count) in distinct.items()
+            (d, c, w, sign * weight, count)
+            for (d, c, w), (sign, weight, count) in distinct.items()
         ]
 
     def _setting_for(self, f, letters):
@@ -655,8 +738,12 @@ class _CutPlan:
 
         units = []
         if draws is not None:
-            if not self.optimized:  # every fragment of every distinct draw
-                for c, (digits, config, wire, _, count) in enumerate(draws):
+            if not self.optimized:
+                # The fragment circuits the draws use, one per distinct set of the
+                # fragment's own terms, with the shots of every draw that uses it
+                # (pooled, as running every configuration pools them).
+                needed = {}
+                for digits, config, wire, _, count in draws:
                     for f, fragment in enumerate(self.fragments):
                         setting = tuple(
                             _WIRE_DIGIT_BASIS[wire[i - 1]] for i in fragment["measures"]
@@ -664,16 +751,13 @@ class _CutPlan:
                         states = tuple(
                             _WIRE_DIGIT_STATE[wire[i - 1]] for i in fragment["preps"]
                         )
-                        units.append(
-                            (
-                                (f, "draw", c),
-                                f,
-                                (digits, config),
-                                states,
-                                setting,
-                                count,
-                            )
+                        key = (f, self.gate_legs(f, digits, config), states)
+                        entry = needed.setdefault(
+                            (key, setting), [(digits, config), states, 0]
                         )
+                        entry[2] += count
+                for (key, setting), (gate_config, states, count) in needed.items():
+                    units.append((key, key[0], gate_config, states, setting, count))
                 return units
             needed = {}  # the circuits the draws read, and how many draws read each
             for digits, config, wire, _, count in draws:
@@ -1273,21 +1357,10 @@ def _draws_sum(plan, readers, draws):
         wire = {i + 1: d for i, d in enumerate(wire)}
         contribution = np.array(weight * count)
         for f, reads in enumerate(readers):
-            if plan.optimized:
-                value = _fragment_value(plan, f, reads, digits, config, wire)
-            else:
-                letters_key = (f, "draw", c)
-                value = _draw_read(plan, f, reads, letters_key, wire)
+            value = _fragment_value(plan, f, reads, digits, config, wire)
             contribution = np.multiply.outer(contribution, value)
         total = total + contribution
     return total
-
-
-def _draw_read(plan, f, reads, key, wire):
-    from Qdislib.core.cutting_algorithms.wire_cutting import _SETTING_PAULI
-
-    letters = tuple(_SETTING_PAULI[wire[i]] for i in plan.fragments[f]["measures"])
-    return reads.read(key, letters)
 
 
 def _split_by_fragment(plan, keys, readouts, results):
@@ -1494,16 +1567,21 @@ def circuit_cutting(
     :param optimized: Run each fragment once per distinct setting of its own cuts.
     :param joint: Measure the wires a fragment sends together (with ``optimized``)
         and cut the Hadamard gates crossing one boundary together.
-    :param num_samples: Draw this many configurations with probability
-        ``|weight| / gamma`` instead of running them all (Monte-Carlo
-        quasiprobability sampling): only the circuits the draws use run, each with
-        ``shots`` per draw that uses it, so the shots follow the weights. Unbiased;
-        the error shrinks as ``gamma / sqrt(num_samples * shots)``. The way to run
-        cuts with too many configurations to list (``6**n`` for gate cuts, ``8**n``
-        for wire cuts; with ``optimized=True`` the circuits per fragment are
-        ``5**n`` and ``3**n + 4**n``), and the best use of shots when the weights
-        differ (Hadamard cuts). With equal weights, running every configuration
-        with the same total shots is slightly more accurate.
+    :param num_samples: Use this many configurations, in proportion to
+        ``|weight| / gamma``, instead of running them all (quasiprobability
+        Monte-Carlo): only the circuits they use run, each with ``shots`` per draw
+        that uses it. The draws are allocated, not drawn at random: every
+        configuration gets its share when they all fit in ``num_samples``
+        (equivalent to running them all), otherwise the cuts that fit are
+        allocated and the rest drawn (see :meth:`_CutPlan.draw`). Unbiased. The
+        error has two parts: which configurations are drawn -- at most
+        ``gamma / sqrt(num_samples)``, whatever the shots -- and the shot noise. When
+        the configurations do not all fit, the first usually dominates and more
+        shots per draw do not help: for a given budget use more draws with fewer
+        shots each. The way to run cuts with too many configurations to list
+        (``6**n`` for gate cuts, ``8**n`` for wire cuts; with ``optimized=True`` the
+        circuits per fragment are ``5**n`` and ``3**n + 4**n``), and the shots then
+        follow the weights (Hadamard cuts).
     :return: The reconstructed expectation value.
     """
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms

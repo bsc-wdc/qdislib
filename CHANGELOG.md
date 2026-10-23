@@ -32,13 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `circuit_cutting` (with their `_sampling` and three-step forms) can draw `N`
   configurations with probability `|weight| / gamma` instead of running them all,
   and run only the fragment circuits the draws use, with `shots` per draw -- the
-  quasiprobability Monte-Carlo estimate, so the shots follow the weights. Unbiased
-  (error ~ `gamma / sqrt(N * shots)`); the way to run cuts with too many
-  configurations to list (`6**n`, `8**n`), and much cheaper than equal shots when
-  weights differ (Hadamard cuts of rotations: about 1,600x fewer shots on a QAOA-100
-  cut). With equal weights and few configurations, running them all with the same
-  total shots stays slightly more accurate (about 15% lower error). Three-step lists
-  give each subcircuit a `draws` count to size its shots. (`gate_cutting_hadamard`
+  quasiprobability Monte-Carlo estimate, so the shots follow the weights. Unbiased.
+  Its error is at most `gamma / sqrt(N)` from which configurations are drawn,
+  whatever the shots, plus the shot noise; with more configurations than draws the
+  first usually dominates, so for a given budget use more draws with fewer shots
+  each. The way to run cuts with too many configurations to list (`6**n`, `8**n`).
+  When the weights differ (Hadamard cuts of rotations), giving every configuration
+  the same shots needs `M * sum(w**2) / gamma**2` times the shots of a share in
+  proportion to the weight, for the same worst-case precision: about 1,600x on a
+  QAOA-100 cut (a model ratio; its 10^11.4 configurations could not be listed
+  anyway). Three-step lists give each subcircuit a `draws` count to size its shots. (`gate_cutting_hadamard`
   already had `num_samples`; this brings it to every cut type.)
 - **`circuit_cutting`: any combination of cuts on one circuit.** Measure-and-prepare
   gate cuts, Hadamard gate cuts and wire cuts, in any number, with the same four forms
@@ -243,6 +246,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **`num_samples` allocates its draws in proportion to the weights** instead of
+  drawing them independently (Dai & Koczor: never worse). When all configurations
+  fit in `N`, each gets its share -- the same accuracy as running them all with the
+  same shots (it was about 3x worse at equal budget on two gate cuts), and with
+  unequal weights (Hadamard) about 15x lower error; with exact fragments it then
+  reproduces running them all exactly. Otherwise the cuts that fit (about 8 draws
+  per configuration or more) are allocated and the rest drawn, unbiased. The
+  circuits of draws that share a fragment's terms are pooled into one, as running
+  every configuration does.
 - **One gate vocabulary for every SDK: OpenQASM 3.** A circuit's DAG now names its
   gates as OpenQASM 3's `stdgates.inc` does (`cx`, `u`, `p`, `cp`, `cu`, ... plus
   `rxx`, `ryy`, `rzz`, `iswap`), whatever SDK it came from, with each SDK's

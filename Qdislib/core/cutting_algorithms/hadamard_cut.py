@@ -1054,14 +1054,17 @@ class HadamardCutSubcircuits(list):
         values = [qd.expectation_value(s) for s in subs]
         result = subs.reconstruct(values)
 
-    Each item is a ``[fragment_circuit, observable]`` pair; every fragment belongs to
-    one enumeration configuration (``config_of[i]``) whose signed coefficient is
-    ``weights[config_of[i]]``. Reconstruction multiplies the values within a
-    configuration and sums the weighted products.
+    Each item is a :class:`~Qdislib.Subcircuit` (``.circuit``, ``.software``,
+    ``.num_qubits``, ``.observable``), as for every cut type; run it with
+    :func:`~Qdislib.expectation_value` and recombine with :meth:`reconstruct`.
+    (``s[0]`` / ``s[1]`` still give the circuit and observable, as the 1.x
+    ``[circuit, observable]`` pairs did.)
     """
 
     def __init__(self, subcircuits, *, weights, config_of, number_cuts):
         super().__init__(subcircuits)
+        # Internal: what :meth:`reconstruct` needs, and the deprecated
+        # gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of).
         #: Signed coefficient of each configuration (``c_i c_j (-1)^g`` product).
         self.weights = weights
         #: Configuration index each subcircuit (in order) belongs to.

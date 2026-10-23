@@ -170,5 +170,60 @@ class LargeJointGroupTest(BaseTimedTestCase):
         self.assertEqual(cost["configurations"], 2**12 * (2**13 - 1))
 
 
+@unittest.skipUnless(QISKIT, "qiskit not installed")
+class AllocationTest(BaseTimedTestCase):
+    """The draws are allocated in proportion to the weights (Dai & Koczor), not drawn
+    independently."""
+
+    def test_every_configuration_fits_is_exact(self):
+        """With exact fragments and every configuration's share at least one draw,
+        the allocation reproduces running them all, whatever the seed -- for equal
+        weights and unequal ones (Hadamard)."""
+        import Qdislib as qd
+        from tests.test_circuit_cutting import _exact, _line
+
+        for kinds, n in ((["gate", "gate"], 72), (["hadamard", "hadamard"], 4000)):
+            circuit, cuts = _line(3, kinds)
+            exact = _exact(circuit, "Z" * circuit.num_qubits)
+            for seed in (1, 2):
+                value = qd.circuit_cutting(
+                    circuit, cuts, shots=None, num_samples=n, seed=seed
+                )
+                self.assertAlmostEqual(value, exact, places=10, msg=(kinds, seed))
+
+    def test_partly_allocated_is_unbiased(self):
+        """More configurations than draws: some cuts allocated, the rest drawn."""
+        import Qdislib as qd
+        from tests.test_circuit_cutting import _exact, _line
+
+        circuit, cuts = _line(5, ["gate", "gate", "gate", "gate"])
+        exact = _exact(circuit, "Z" * circuit.num_qubits)
+        values = [
+            qd.circuit_cutting(
+                circuit, cuts, shots=None, optimized=True, num_samples=300, seed=s
+            )
+            for s in range(30)
+        ]
+        error = np.std(values) / np.sqrt(len(values))
+        self.assertLess(abs(np.mean(values) - exact), 5 * error + 1e-9)
+
+    def test_draw_counts(self):
+        """N draws in total; with all configurations fitting, each gets N p of them
+        (rounded down or up)."""
+        from Qdislib.core.cutting_algorithms.mixed_cutting import _CutPlan
+        from tests.test_circuit_cutting import _line
+
+        circuit, cuts = _line(3, ["gate", "gate"])
+        plan = _CutPlan(circuit, cuts, None, False, False, True)
+        for n in (36, 100, 1000):
+            draws = plan.draw(n, seed=5)
+            counts = [count for *_, count in draws]
+            self.assertEqual(sum(counts), n)
+            self.assertEqual(len(draws), 36)
+            self.assertTrue(all(n // 36 <= c <= -(-n // 36) for c in counts))
+        independent = plan.draw(100, seed=5, stratified=False)
+        self.assertEqual(sum(count for *_, count in independent), 100)
+
+
 if __name__ == "__main__":
     unittest.main()
