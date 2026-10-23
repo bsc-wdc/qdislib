@@ -200,6 +200,11 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
     return dag
 
 
+#: Qiskit gate names a Qiskit-built DAG carries, as these builders call them (``u``
+#: and ``p`` differ from U3/U1 only by a global phase).
+_QISKIT_ALIASES = {"U": "U3", "P": "U1", "PHASE": "U1", "CP": "CU1"}
+
+
 @task(returns=1)
 def dag_to_circuit_cudaq(dag: nx.DiGraph, num_qubits: int):
     if dag is None:
@@ -288,6 +293,7 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
     for node in nx.topological_sort(dag):
         node_data = dag.nodes[node]
         gate = node_data["gate"].upper()
+        gate = _QISKIT_ALIASES.get(gate, gate)
         qubits = node_data["qubits"]
         params = node_data["parameters"]
 
@@ -426,6 +432,7 @@ def _build_cudaq_run_kernel(dag, num_qubits, observables):
     for node in nx.topological_sort(dag):
         data = dag.nodes[node]
         gate = data["gate"].upper()
+        gate = _QISKIT_ALIASES.get(gate, gate)
         qubits = data["qubits"]
         params = data["parameters"]
         if gate in _CUDAQ_ONE_QUBIT:
@@ -441,6 +448,13 @@ def _build_cudaq_run_kernel(dag, num_qubits, observables):
             angle = float(params[0]) if params else 0.0
             for qb in qubits:
                 lines.append(f"    {gate.lower()}({angle!r}, q[{qb}])")
+        elif gate == "U3":
+            theta, phi, lam = (float(p) for p in params)
+            for qb in qubits:
+                lines.append(f"    u3({theta!r}, {phi!r}, {lam!r}, q[{qb}])")
+        elif gate == "U1":
+            for qb in qubits:
+                lines.append(f"    r1({float(params[0])!r}, q[{qb}])")
         elif gate in ("CNOT", "CX"):
             ctrl, tgt = qubits
             lines.append(f"    x.ctrl(q[{ctrl}], q[{tgt}])")

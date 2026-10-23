@@ -134,6 +134,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   after the other; each is now a task, in the all-in-one and three-step forms.
 - **`gate_cutting_hadamard` on Qiskit circuits** with `u`, `p`, `cp` or `cx` gates
   failed (`qibo.gates has no gate class 'u'`).
+- **`backend="cudaq"` on Qiskit circuits** with `u`, `p` or `cp` gates failed
+  (`Unsupported gate type: U`); the CUDA-Q builders now take Qiskit's gate names.
 - **Large joint Hadamard groups no longer hang.** A joint group of k gates has
   `2**k` product terms and `2 * 4**k - 2**k` settings; they were written out as Python
   lists, so `cutting_overhead`, `draw_cut` and `num_samples` hung on cuts like the
