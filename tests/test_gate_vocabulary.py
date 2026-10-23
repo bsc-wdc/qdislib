@@ -208,5 +208,44 @@ class GateNamesTest(BaseTimedTestCase):
             self.assertEqual(names, set(convert_to_dag(circuit).nodes), circuit)
 
 
+@unittest.skipUnless(QISKIT, "qiskit not installed")
+class StatevectorTest(BaseTimedTestCase):
+    def test_every_canonical_gate_matches_qiskit(self):
+        """Exact mode's own simulator agrees with Qiskit on every canonical gate,
+        each followed by more gates (so a wrong phase would show)."""
+        from qiskit import QuantumCircuit
+        from qiskit.quantum_info import Statevector
+
+        from Qdislib.utils.backends import convert_to_dag
+        from Qdislib.utils.statevector import dag_probabilities
+
+        rng = np.random.default_rng(0)
+        a = lambda: float(rng.uniform(0.2, 2.8))  # noqa: E731
+        qc = QuantumCircuit(4)
+
+        def mix():
+            for q in range(4):
+                qc.ry(a(), q)
+                qc.rz(a(), q)
+
+        mix()
+        for add in (
+            lambda: (qc.h(0), qc.x(1), qc.y(2), qc.z(3)),
+            lambda: (qc.s(0), qc.sdg(1), qc.t(2), qc.tdg(3)),
+            lambda: (qc.sx(0), qc.id(1), qc.rx(a(), 2), qc.p(a(), 3)),
+            lambda: (qc.u(a(), a(), a(), 0), qc.cx(0, 1), qc.cy(1, 2), qc.cz(2, 3)),
+            lambda: (qc.ch(3, 0), qc.cp(a(), 0, 2), qc.crx(a(), 1, 3)),
+            lambda: (qc.cry(a(), 2, 0), qc.crz(a(), 3, 1)),
+            lambda: (qc.cu(a(), a(), a(), a(), 0, 3), qc.swap(1, 2)),
+            lambda: (qc.iswap(0, 1), qc.rxx(a(), 2, 3), qc.ryy(a(), 0, 2)),
+            lambda: (qc.rzz(a(), 1, 3), qc.ccx(0, 1, 2), qc.cswap(3, 0, 1)),
+        ):
+            add()
+            mix()
+        want = Statevector(qc).probabilities()
+        got = dag_probabilities(convert_to_dag(qc), 4)
+        self.assertTrue(np.allclose(want, got, atol=1e-12))
+
+
 if __name__ == "__main__":
     unittest.main()

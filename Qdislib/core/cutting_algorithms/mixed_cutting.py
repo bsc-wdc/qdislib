@@ -1056,6 +1056,10 @@ def _exact_fragment(dag, software="qibo"):
     probs = None
     if software in ("qilisdk",):  # SDKs whose own statevector serves exact mode
         probs = _sdk_probabilities(software, renumbered, n)
+    if probs is None:  # Qdislib's own simulator: no SDK circuit to build
+        from Qdislib.utils.statevector import dag_probabilities
+
+        probs = dag_probabilities(renumbered, n)
     if probs is not None:
         from Qdislib.core.cutting_algorithms.gate_cutting import _fast_walsh_hadamard
 

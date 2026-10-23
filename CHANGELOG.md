@@ -246,6 +246,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **Exact mode simulates fragments itself.** A small numpy statevector simulator
+  applies the DAG's OpenQASM gates directly, instead of building an SDK circuit
+  (whose per-gate overhead dominated small fragments): 1,000 drawn settings of a
+  13-gate Hadamard group take 2.3 s instead of 38 s. QiliSDK fragments still use
+  QiliSim's state; a gate it does not know falls back to Qiskit / qibo.
 - **`num_samples` allocates its draws in proportion to the weights** instead of
   drawing them independently (Dai & Koczor: never worse). When all configurations
   fit in `N`, each gets its share -- the same accuracy as running them all with the
