@@ -528,9 +528,10 @@ class HadamardSamplingTest(BaseTimedTestCase):
         single = gate_cutting_hadamard(
             c, ["CZ_2"], "ZZ", backend="qiskit", shots=500, seed=9
         )
-        tree = gate_cutting_hadamard(
-            c, ["CZ_2"], "ZZ", backend="qiskit", shots=500, seed=9, reduce_chunk=3
-        )
+        with self.assertWarns(DeprecationWarning):
+            tree = gate_cutting_hadamard(
+                c, ["CZ_2"], "ZZ", backend="qiskit", shots=500, seed=9, reduce_chunk=3
+            )
         self.assertAlmostEqual(single, tree, places=9)
 
 

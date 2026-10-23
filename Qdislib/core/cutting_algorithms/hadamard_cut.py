@@ -1800,11 +1800,20 @@ def gate_cutting_hadamard(
         gate to its last; ``False`` cuts each gate on its own.
     :param num_samples: Draw this many configurations from the quasiprobability
         distribution instead of running them all.
-    :param reduce_chunk: Fold the results through a balanced tree of this arity
-        (with shots and no ``num_samples``; the other runs go through
-        :func:`circuit_cutting`, whose reconstruction is one contraction).
+    :param reduce_chunk: Deprecated, removed in the next release: the reconstruction
+        is one cheap task. Still folds a shot run's results through a balanced
+        tree of this arity.
     :return: The reconstructed expectation value.
     """
+    if reduce_chunk is not None:
+        import warnings
+
+        warnings.warn(
+            "reduce_chunk is deprecated and removed in the next release: the "
+            "reconstruction is one task, and a cheap one.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
     if shots is None or num_samples is not None:
         # Exact and Monte-Carlo runs go through circuit_cutting, as gate_cutting's
         # do: every fragment circuit is built and run in its own task.

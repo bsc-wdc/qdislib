@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Many cuts reconstruct in seconds: the reconstruction is a contraction.** Each
+  cut (a measure-and-prepare gate cut, a Hadamard group, a wire) is a bond and each
+  fragment a tensor over the bonds it touches; contracting them replaces the loop
+  over every configuration. Ten cuts in a line now reconstruct exactly in about
+  0.2-9 s (`6**10` to `8**10` configurations, which did not finish before), and the
+  cost follows the fragment graph, not the number of cuts. An expectation value is
+  one task; a distribution reduces each fragment's results in its own task first.
 - **`num_samples` on every cut type.** `gate_cutting`, `wire_cutting` and
   `circuit_cutting` (with their `_sampling` and three-step forms) can draw `N`
   configurations with probability `|weight| / gamma` instead of running them all,
@@ -108,6 +115,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **`sync=False` returns a future from every cutting function.** Under PyCOMPSs,
+  several paths reconstructed on the master from futures or waited anyway:
+  `gate_cutting` / `wire_cutting` with shots (`TypeError` summing futures),
+  `wire_cutting(optimized=True)`, the exact Hadamard cut, weighted Pauli sums in
+  `wire_cutting` (one wait per term), the three-step exact runs (task converters
+  called on the master) and the Hadamard three-step `reconstruct`. A strict fake
+  PyCOMPSs in the tests now catches any of these.
+- **Exact runs are parallel.** `shots=None` fragment circuits ran on the master one
+  after the other; each is now a task, in the all-in-one and three-step forms.
+- **`gate_cutting_hadamard` on Qiskit circuits** with `u`, `p`, `cp` or `cx` gates
+  failed (`qibo.gates has no gate class 'u'`).
 - **Large joint Hadamard groups no longer hang.** A joint group of k gates has
   `2**k` product terms and `2 * 4**k - 2**k` settings; they were written out as Python
   lists, so `cutting_overhead`, `draw_cut` and `num_samples` hung on cuts like the
@@ -200,6 +218,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **Fragment circuits are built where they run.** `circuit_cutting` (and every cut
+  type's exact, optimized and `num_samples` runs, which go through it) ships each
+  fragment once and a small spec per circuit; the circuit is built in its task, not
+  on the master. For an expectation value a circuit's task returns only the few Z
+  correlators the reconstruction reads, not all `2**width`.
+- **`gate_cutting_hadamard(_sampling)` exact and `num_samples` runs go through
+  `circuit_cutting`**, as `gate_cutting`'s already did.
+- **`reduce_chunk` is deprecated** (removed in the next release): the
+  reconstruction is one cheap task. It still works, for shot runs of the Hadamard
+  cut.
 - **Breaking: one calling convention for every cut type.** Gate, wire, Hadamard and
   `circuit_cutting` take the same arguments, with the same names and defaults:
 
