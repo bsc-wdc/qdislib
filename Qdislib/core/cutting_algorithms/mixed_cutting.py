@@ -764,6 +764,9 @@ class _FragmentTemplate:
         self.fragment = plan.fragments[f]
         self.graph = plan.graph.subgraph(self.fragment["nodes"]).copy()
         self.groups = plan.groups
+        self.ancilla_base = plan.ancilla_base
+        self.cut_source_index = plan.cut_source_index
+        self.prepared_to_orig = plan.prepared_to_orig
         qubits = {
             q for _, d in self.graph.nodes(data=True) for q in d.get("qubits") or ()
         }
@@ -807,6 +810,30 @@ class _FragmentTemplate:
                 fragment["ancilla_of"],
             )
         return sub, readout
+
+
+def _needed_correlators(template, result, setting, mask):
+    """Only the correlators an expectation value reads from one circuit's result:
+    the observable's output bits, every ancilla bit, and each readout's cut-wire
+    bits -- a few numbers instead of ``2**width``, so a big fragment's task sends
+    back almost nothing."""
+    corr, original = result
+    fragment = template.fragment
+    base = 0
+    for i, qubit in enumerate(original):
+        if qubit >= template.ancilla_base:
+            base |= 1 << i
+        elif template.cut_source_index.get(qubit) not in fragment["measures"]:
+            output = template.prepared_to_orig.get(qubit, qubit)
+            base |= ((mask >> output) & 1) << i
+    positions = [
+        original.index(fragment["cut_qubits"][c]) for c in fragment["measures"]
+    ]
+    needed = {
+        base | sum(1 << positions[b] for b in bits)
+        for _, _, bits in _setting_readout(len(fragment["measures"]), setting)
+    }
+    return {i: float(corr[i]) for i in needed}, original
 
 
 def _setting_readout(num_measures, setting):
@@ -952,9 +979,12 @@ class _FragmentCircuit(Subcircuit):
     #: every configuration is run.
     draws = 1
 
-    def __init__(self, template, spec, software, qpu=False, qpu_dict=None):
+    def __init__(self, template, spec, software, qpu=False, qpu_dict=None, mask=None):
         self.template = template
         self.spec = spec  # (gate_config, prep_states, setting)
+        #: The observable's global Z mask (expectation lists): running it returns
+        #: only the correlators the reconstruction reads. ``None``: all of them.
+        self.mask = mask
         self.num_qubits = template.num_qubits
         self.software = software
         self.qpu = qpu
@@ -987,7 +1017,14 @@ class _FragmentCircuit(Subcircuit):
         if shots is None and not is_simulator(runner):
             raise ValueError("shots=None (exact) needs a simulator backend")
         return _run_fragment(
-            self.template, self.spec, runner, shots, self.qpu, self.qpu_dict, seed
+            self.template,
+            self.spec,
+            runner,
+            shots,
+            self.qpu,
+            self.qpu_dict,
+            seed,
+            self.mask,
         )
 
     def _expectation(self, shots, backend, seed, cache, cache_mode):
@@ -1000,23 +1037,28 @@ class _FragmentCircuit(Subcircuit):
 
 
 @task(returns=1)
-def _run_fragment(template, spec, runner, shots, qpu, qpu_dict, seed):
+def _run_fragment(template, spec, runner, shots, qpu, qpu_dict, seed, mask=None):
     """Build one fragment circuit from its template and run it: ``(corr, original)``.
 
     The circuit is built here, in the task, so the master only sends the small
     ``spec``; the template is the same object for every circuit of the fragment.
+    With ``mask`` (an expectation value) ``corr`` keeps only what is read.
     """
     dag, _ = template.build(*spec)
     if shots is None:
-        return _exact_fragment(dag, "qibo" if runner == "qibo" else "qiskit")
-    from Qdislib.core.cutting_algorithms.gate_cutting import (
-        _prepare_sampled_component,
-        _sample_prepared_component,
-    )
+        result = _exact_fragment(dag, "qibo" if runner == "qibo" else "qiskit")
+    else:
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _prepare_sampled_component,
+            _sample_prepared_component,
+        )
 
-    return _sample_prepared_component(
-        _prepare_sampled_component(dag), runner, shots, qpu, qpu_dict, seed
-    )
+        result = _sample_prepared_component(
+            _prepare_sampled_component(dag), runner, shots, qpu, qpu_dict, seed
+        )
+    if mask is None:
+        return result
+    return _needed_correlators(template, result, spec[2], mask)
 
 
 class _FragmentReads:
@@ -1034,7 +1076,7 @@ class _FragmentReads:
         entries = []
         outputs = set()
         for corr, original in results:
-            if isinstance(corr, dict):
+            if isinstance(corr, dict) and len(corr) == 2 ** len(original):
                 corr = np.array([corr[m] for m in range(len(corr))])
             roles = []
             for qubit in original:
@@ -1049,7 +1091,9 @@ class _FragmentReads:
             positions = [
                 original.index(fragment["cut_qubits"][c]) for c in fragment["measures"]
             ]
-            entries.append((np.asarray(corr), roles, positions))
+            if not isinstance(corr, dict):
+                corr = np.asarray(corr)
+            entries.append((corr, roles, positions))
         self.out = sorted(outputs)
         where = {q: j for j, q in enumerate(self.out)}
         if mask is None:
@@ -1084,8 +1128,11 @@ class _FragmentReads:
                 corr, index, positions = self.prepared[n]
                 for pauli, sign, bits in self.readouts[n]:
                     if tuple(pauli) == letters:
-                        bits_index = sum(1 << positions[b] for b in bits)
-                        values.append(sign * corr[index | bits_index])
+                        at = index | sum(1 << positions[b] for b in bits)
+                        if isinstance(corr, dict):  # only the read correlators
+                            values.append(sign * np.array([corr[int(i)] for i in at]))
+                        else:
+                            values.append(sign * corr[at])
             if not values:
                 raise RuntimeError(f"no circuit reads {letters} for {key}")
             self.cache[(key, letters)] = np.mean(values, axis=0)
@@ -1338,12 +1385,14 @@ def _prepare_cut(
             raise ValueError(f"num_samples must be at least 1, got {num_samples}")
         draws = plan.draw(num_samples, next_seed(seed, "draws"))
     templates = [_FragmentTemplate(plan, f) for f in range(len(plan.fragments))]
+    # An expectation value reads one mask: its circuits return only that part.
+    mask = None if observable is None else _observable_mask(observable, plan.width)
     keys, readouts, circuits = [], [], []
     for key, f, gate_config, states, setting, count in plan.units(draws):
         keys.append(key)
         readouts.append(_setting_readout(len(plan.fragments[f]["measures"]), setting))
         circuit_ = _FragmentCircuit(
-            templates[f], (gate_config, states, setting), software, qpu, qpu_dict
+            templates[f], (gate_config, states, setting), software, qpu, qpu_dict, mask
         )
         circuit_.draws = count
         circuits.append(circuit_)

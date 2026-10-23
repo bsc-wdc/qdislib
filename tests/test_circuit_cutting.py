@@ -411,6 +411,25 @@ class ContractionTest(BaseTimedTestCase):
             )
             self.assertLess(_tvd(dist, exact), 1e-9, optimized)
 
+    def test_expectation_results_are_small(self):
+        """An expectation value's circuits return only the correlators the
+        reconstruction reads, not all ``2**width`` of them."""
+        import Qdislib as qd
+
+        circuit, cuts = _line(3, ["gate", "wire"])
+        observable = "Z" * circuit.num_qubits
+        for kw in ({}, {"optimized": True}):
+            subs = qd.circuit_cutting_subcircuits(circuit, cuts, observable, **kw)
+            results = [qd.expectation_value(s, shots=None) for s in subs]
+            for s, (corr, original) in zip(subs, results):
+                self.assertLessEqual(len(corr), 4, s)  # one Z mask x readouts
+            self.assertAlmostEqual(
+                subs.reconstruct(results), _exact(circuit, observable), places=10
+            )
+            dist = qd.circuit_cutting_sampling_subcircuits(circuit, cuts, **kw)
+            corr, original = qd.sample_subcircuit(dist[0], shots=None)
+            self.assertEqual(len(corr), 2 ** len(original))
+
     def test_fragment_width_without_building(self):
         import Qdislib as qd
 
