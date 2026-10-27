@@ -321,6 +321,18 @@ def _golden_wires(graph, fragments):
 from Qdislib.utils.exceptions import InvalidCutError  # noqa: E402
 
 
+class _Draws(list):
+    """The drawn configurations, ``[(digits, config, wire, weight, count)]``, and
+    the stratum of each (``strata``): the error bars resample draws within it."""
+
+    def __init__(self, draws, strata):
+        super().__init__(draws)
+        self.strata = list(strata)
+
+    def __reduce__(self):
+        return (_Draws, (list(self), self.strata))
+
+
 def _normalise_cuts(cuts, hadamard):
     """``(gate, hadamard, wire)`` cut lists from a dict or a flat list.
 
@@ -775,6 +787,8 @@ class _CutPlan:
         group_counts = self._group_settings()
         fixed = {}  # group -> (s, t, g) of the groups the strata set
         per_draw = np.full(n, gamma / n)  # the weight of each draw (before its sign)
+        # each draw's stratum, for the error bars: draws resample within it
+        group = np.zeros(n, dtype=np.int64)
         if stratified:
             # The cuts as dimensions with their term probabilities, smallest first.
             dims = [("gate", k, 6) for k in range(len(self.gate_cuts))]
@@ -827,6 +841,9 @@ class _CutPlan:
             sure = share >= 1.0
             per_stratum = np.where(sure, gamma * p / np.maximum(counts, 1), gamma / n)
             per_draw = per_stratum[stratum]
+            # a sure stratum resamples on its own; the rare ones (Horvitz-Thompson)
+            # together, as one group
+            group = np.where(sure[stratum], stratum + 1, 0)
             # Decode each draw's stratum into its chosen cuts' terms.
             radix = [len(q) for q in probs]
             place = stratum.copy()
@@ -856,6 +873,7 @@ class _CutPlan:
             settings.append((s, t, g))
         signs = np.where(flips % 2, -1.0, 1.0)
         distinct = {}
+        group_of = {}
         for row in range(n):
             config = tuple(
                 (int(s[row]), int(t[row]), int(g[row])) for s, t, g in settings
@@ -866,11 +884,15 @@ class _CutPlan:
                 tuple(int(w) for w in wires[row]),
             )
             entry = distinct.setdefault(key, [signs[row], per_draw[row], 0])
+            group_of.setdefault(key, int(group[row]))
             entry[2] += 1
-        return [
-            (d, c, w, sign * weight, count)
-            for (d, c, w), (sign, weight, count) in distinct.items()
-        ]
+        return _Draws(
+            [
+                (d, c, w, sign * weight, count)
+                for (d, c, w), (sign, weight, count) in distinct.items()
+            ],
+            [group_of[key] for key in distinct],
+        )
 
     def _setting_for(self, f, letters):
         """The measurement setting of fragment ``f`` that reads the Pauli
@@ -1400,21 +1422,48 @@ class _FragmentCircuit(Subcircuit):
 
 @task(returns=1)
 def _run_fragment(
-    template, spec, runner, shots, qpu, qpu_dict, seed, mask=None, cache=None
+    template,
+    spec,
+    runner,
+    shots,
+    qpu,
+    qpu_dict,
+    seed,
+    mask=None,
+    cache=None,
+    keep_counts=False,
+    merge=None,
 ):
     """Build one fragment circuit from its template and run it: a
     :class:`~Qdislib.core.cutting_algorithms.describe.FragmentResult`
-    ``(corr, original)`` (see :func:`_fragment_run`)."""
+    ``(corr, original)`` (see :func:`_fragment_run`). ``merge``: an earlier run's
+    counts of the same circuit, returned added to this run's (``total_shots``)."""
     from Qdislib.core.cutting_algorithms.describe import FragmentResult
 
     corr, original = _fragment_run(
-        template, spec, runner, shots, qpu, qpu_dict, seed, mask, cache
+        template, spec, runner, shots, qpu, qpu_dict, seed, mask, cache, keep_counts
     )
+    if merge is not None:
+        from Qdislib.core.cutting_algorithms.gate_cutting import _JointCounts
+
+        joint = dict(merge[0].joint)
+        for outcome, count in corr.joint.items():
+            joint[outcome] = joint.get(outcome, 0) + count
+        corr = _JointCounts(joint, corr.prep_sorted, corr.k)
     return FragmentResult(corr, original)
 
 
 def _fragment_run(
-    template, spec, runner, shots, qpu, qpu_dict, seed, mask=None, cache=None
+    template,
+    spec,
+    runner,
+    shots,
+    qpu,
+    qpu_dict,
+    seed,
+    mask=None,
+    cache=None,
+    keep_counts=False,
 ):
     """Build one fragment circuit from its template and run it: ``(corr, original)``.
 
@@ -1456,6 +1505,16 @@ def _fragment_run(
             cache.put(key, result)
         return result
     needed = None
+    if keep_counts and shots is not None:  # the counts, for the error bars
+        return _sample_prepared_component(
+            _prepare_sampled_component(dag),
+            runner,
+            shots,
+            qpu,
+            qpu_dict,
+            seed,
+            keep_counts=True,
+        )
     if mask is not None:
         original = _component_original_qubits(dag)
         needed = _needed_masks(template, original, spec[2], mask)
@@ -1728,19 +1787,51 @@ def _distribution(z_correlators, width):
     return {key: abs(float(p)) / norm for key, p in zip(keys, probabilities)}
 
 
+def _expectation(plan, keys, readouts, results, observable, draws):
+    """The expectation value of a term (a Pauli string) or of a commuting group
+    (``[(coefficient, mask)]``) from the fragment results."""
+    if isinstance(observable, list):
+        masks = tuple(mask for _, mask in observable)
+        tensor, _ = _cut_tensor(plan, keys, readouts, results, masks, draws)
+        values = np.asarray(tensor).reshape(-1)
+        return float(sum(c * v for (c, _), v in zip(observable, values)))
+    mask = _observable_mask(observable, plan.width)
+    tensor, _ = _cut_tensor(plan, keys, readouts, results, mask, draws)
+    return float(np.asarray(tensor).reshape(-1)[0])
+
+
 @task(returns=1, results=COLLECTION_IN)
-def _reconstruct_cut_task(plan, keys, readouts, results, mode, observable, draws=None):
+def _reconstruct_cut_task(
+    plan,
+    keys,
+    readouts,
+    results,
+    mode,
+    observable,
+    draws=None,
+    bootstrap=0,
+    seed=None,
+):
     """Expectation (``mode="expectation"``) or distribution from the fragment
-    results, as one task fed straight by the fragment futures."""
+    results, as one task fed straight by the fragment futures. With ``bootstrap``
+    resamples, an expectation value is an
+    :class:`~Qdislib.core.cutting_algorithms.uncertainty.Estimate` with its
+    standard error."""
     if mode == "expectation":
-        if isinstance(observable, list):  # a commuting group: [(coefficient, mask)]
-            masks = tuple(mask for _, mask in observable)
-            tensor, _ = _cut_tensor(plan, keys, readouts, results, masks, draws)
-            values = np.asarray(tensor).reshape(-1)
-            return float(sum(c * v for (c, _), v in zip(observable, values)))
-        mask = _observable_mask(observable, plan.width)
-        tensor, _ = _cut_tensor(plan, keys, readouts, results, mask, draws)
-        return float(np.asarray(tensor).reshape(-1)[0])
+        value = _expectation(plan, keys, readouts, results, observable, draws)
+        if not bootstrap:
+            return value
+        from Qdislib.core.cutting_algorithms.uncertainty import Estimate
+        from Qdislib.core.cutting_algorithms.uncertainty import bootstrap as resample
+
+        error, shots = resample(
+            lambda res, drs: _expectation(plan, keys, readouts, res, observable, drs),
+            results,
+            draws,
+            bootstrap,
+            seed,
+        )
+        return Estimate(value, error, shots)
     tensor, outs = _cut_tensor(plan, keys, readouts, results, None, draws)
     return _distribution(_global_correlators(tensor, outs, plan.width), plan.width)
 
@@ -1759,7 +1850,17 @@ def _contract_distribution_task(plan, parts):
     return _distribution(_global_correlators(tensor, outs, plan.width), plan.width)
 
 
-def _reconstruct(plan, keys, readouts, results, mode, observable, draws=None):
+def _reconstruct(
+    plan,
+    keys,
+    readouts,
+    results,
+    mode,
+    observable,
+    draws=None,
+    bootstrap=0,
+    seed=None,
+):
     """The reconstruction as a future. An expectation value is one task (the
     contraction is cheap); a distribution reduces each fragment's results in its own
     task first, then contracts the small tensors."""
@@ -1771,14 +1872,18 @@ def _reconstruct(plan, keys, readouts, results, mode, observable, draws=None):
             )
         ]
         return _contract_distribution_task(plan, parts)
-    return _reconstruct_cut_task(plan, keys, readouts, results, mode, observable, draws)
+    return _reconstruct_cut_task(
+        plan, keys, readouts, results, mode, observable, draws, bootstrap, seed
+    )
 
 
 @task(returns=1, values=COLLECTION_IN)
 def _weighted_sum(coefficients, values):
     """``sum(c * v)`` of a weighted Pauli sum's terms, as a task (so ``sync=False``
-    returns one future)."""
-    return float(sum(c * v for c, v in zip(coefficients, values)))
+    returns one future); an ``Estimate`` when the values carry errors."""
+    from Qdislib.core.cutting_algorithms.uncertainty import combine
+
+    return combine(coefficients, values)
 
 
 def _prepare_cut(
@@ -1864,15 +1969,31 @@ def _caller_stacklevel():
     return level
 
 
-def _run(circuits, shots, seed, cache=None):
+def _run(circuits, shots, seed, cache=None, keep_counts=False):
     """Run every circuit, one task each; with drawn configurations a circuit gets
     ``shots`` per draw that uses it (the shots follow the weights). With a
     ``cache`` (:func:`~Qdislib.core.cutting_algorithms.engine_cache.resolve`), a
-    circuit already run is read back instead."""
+    circuit already run is read back instead. ``keep_counts`` returns each run's
+    counts (for the error bars; a cached run keeps them anyway)."""
     results = []
     for n, circuit in enumerate(circuits):
         unit_shots = None if shots is None else shots * circuit.draws
-        if cache is None:
+        if cache is None and keep_counts:
+            results.append(
+                _run_fragment(
+                    circuit.template,
+                    circuit.spec,
+                    circuit.software,
+                    unit_shots,
+                    circuit.qpu,
+                    circuit.qpu_dict,
+                    next_seed(seed, n),
+                    None,
+                    None,
+                    True,
+                )
+            )
+        elif cache is None:
             results.append(circuit.sample(unit_shots, next_seed(seed, n)))
         else:
             results.append(cache.run(circuit, unit_shots, next_seed(seed, n)))
@@ -1904,6 +2025,8 @@ def circuit_cutting(
     cache=None,
     cache_key=None,
     cache_refresh=False,
+    error=False,
+    total_shots=None,
 ):
     """Reconstruct ``<observable>`` from a circuit cut by any combination of cuts.
 
@@ -1955,20 +2078,48 @@ def circuit_cutting(
         or ``"semantic"`` (also equivalent circuits, by a ZX hash in the task).
     :param cache_refresh: Run every circuit again and replace what is stored
         (fresh samples, e.g. to repeat a run for error bars).
+    :param error: ``True`` (or a number of resamples) returns an
+        :class:`~Qdislib.Estimate`: the value -- still a ``float`` -- with
+        ``.error``, its standard error by bootstrap over the shots (and the
+        ``num_samples`` draws), and ``.shots``. Costs reconstruction time only.
+        With ``num_samples`` and more configurations than draws it errs high
+        (resampling the draws and their shots separately).
+    :param total_shots: One shot budget for the whole call instead of ``shots``
+        per circuit: a pilot round (20%) split by each circuit's weight in the
+        reconstruction, then the rest by weight x the spread the pilot measured
+        (the master waits for the pilot). With ``num_samples``, ``shots`` per draw
+        and fragment is ``total_shots // (num_samples * fragments)``, so at most
+        the budget is spent.
     :return: The reconstructed expectation value.
     """
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms
 
     from Qdislib.core.cutting_algorithms.engine_cache import resolve
 
-    _check_exact(shots, backend)
+    from Qdislib.core.cutting_algorithms.uncertainty import resamples
+
     software = resolve_backend(backend, circuit)
     engine_cache = resolve(cache, cache_key, cache_refresh)
+    count = resamples(error)
+    budget = None
+    if total_shots is not None:
+        if int(total_shots) < 1:
+            raise ValueError(f"total_shots must be positive, got {total_shots}")
+        if num_samples is not None:
+            shots = 1  # set per draw below, once the fragments are known
+        else:
+            if engine_cache is not None:
+                raise ValueError(
+                    "total_shots= splits the shots between two rounds; it does not "
+                    "combine with cache= yet"
+                )
+            budget, shots = int(total_shots), 1
+    _check_exact(shots, backend)
     terms = _observable_terms(default_observable(observable, circuit))
     # identity terms are constants; the others run in qubit-wise commuting groups
     constant = sum(c for c, term in terms if set(term) <= {"I"})
     groups = _commuting_groups([(c, t) for c, t in terms if not set(t) <= {"I"}])
-    values = []
+    prepared = []
     for g, (basis, members) in enumerate(groups):
         group_seed = None if seed is None else next_seed(seed, g)
         masks = [_term_mask(term) for _, term in members]
@@ -1986,10 +2137,50 @@ def circuit_cutting(
             group_seed,
             masks=masks,
         )
-        results = _run(circuits, shots, group_seed, engine_cache)
+        prepared.append((plan, draws, keys, readouts, circuits, members, masks))
+    if total_shots is not None and num_samples is not None:
+        # a draw runs one circuit per fragment, in every group
+        per_draw = int(num_samples) * sum(len(p[0].fragments) for p in prepared)
+        shots = max(1, int(total_shots) // max(1, per_draw))
+    if budget is not None:
+        from Qdislib.core.cutting_algorithms.budget import run_with_budget
+
+        all_results = run_with_budget(
+            [
+                (plan, circuits, keys, sum(abs(c) for c, _ in members))
+                for plan, _, keys, _, circuits, members, _ in prepared
+            ],
+            budget,
+            seed,
+        )
+    else:
+        all_results = [
+            _run(
+                circuits,
+                shots,
+                None if seed is None else next_seed(seed, g),
+                engine_cache,
+                keep_counts=count > 0,
+            )
+            for g, (_, _, _, _, circuits, _, _) in enumerate(prepared)
+        ]
+    values = []
+    for g, ((plan, draws, keys, readouts, _, members, masks), results) in enumerate(
+        zip(prepared, all_results)
+    ):
         group = [(c, mask) for (c, _), mask in zip(members, masks)]
         values.append(
-            _reconstruct(plan, keys, readouts, results, "expectation", group, draws)
+            _reconstruct(
+                plan,
+                keys,
+                readouts,
+                results,
+                "expectation",
+                group,
+                draws,
+                count,
+                None if seed is None else next_seed(seed, "bootstrap", g),
+            )
         )
     if constant:
         values.append(float(constant))
@@ -1999,6 +2190,10 @@ def circuit_cutting(
         total = values[0]
     else:
         total = _weighted_sum([1.0] * len(values), values)
+    if count and not values:
+        from Qdislib.core.cutting_algorithms.uncertainty import Estimate
+
+        total = Estimate(total)
     return total if not sync else compss_wait_on(total)
 
 
@@ -2359,8 +2554,8 @@ def cutting_overhead(circuit, cuts, *, hadamard=False, optimized=False, joint=Tr
         "wire": ...}`` or a list.
     :return: ``{"subcircuits", "configurations", "fragments", "gamma"}``: the
         circuits to run, the terms of the combined decomposition, the independent
-        fragments, and the sampling overhead (shots grow as ``gamma**2`` for a given
-        precision).
+        fragments, and the sampling overhead (for the same worst-case precision,
+        the shots grow as ``gamma**2``; see :func:`~Qdislib.shots_for`).
     """
     from Qdislib.utils.gates import resolve_cuts
 

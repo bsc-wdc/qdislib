@@ -154,6 +154,18 @@ _SCRIPT = textwrap.dedent("""
             failures.append(f"{name}: {type(e).__name__}: {e}")
     if not store.stats()["hits"]:
         failures.append("cached runs never hit")
+    # error bars and a shot budget through futures
+    try:
+        value = fc.compss_wait_on(qd.circuit_cutting(
+            mixed, mc, ham(8), shots=100, seed=3, sync=False, error=20))
+        if not value.error > 0:
+            failures.append("error=: no error bar")
+        value = fc.compss_wait_on(qd.circuit_cutting(
+            gate, gc, "Z" * 6, total_shots=5000, seed=3, sync=False, error=20))
+        if value.shots != 5000:
+            failures.append(f"total_shots=: spent {value.shots}")
+    except Exception as e:
+        failures.append(f"error/total_shots: {type(e).__name__}: {e}")
     for make, qc, cuts in (
         (qd.gate_cutting_subcircuits, gate, gc["gate"]),
         (qd.gate_cutting_hadamard_subcircuits, had, hc["hadamard"]),

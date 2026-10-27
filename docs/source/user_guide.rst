@@ -242,7 +242,9 @@ Qdislib includes several circuit cutting strategies:
 
   **How the cost grows.** The sampling overhead ``gamma`` is the product of the cuts'
   (3 per measure-and-prepare gate, 3 per Hadamard gate or ``2**(k+1) - 1`` for a joint
-  group of ``k``, 4 per wire), and the shots grow as ``gamma**2``. The number of
+  group of ``k``, 4 per wire). For the same worst-case precision the shots grow as
+  ``gamma**2`` (see :ref:`error bars <error-bars-label>` for what a run actually
+  needs). The number of
   circuits depends on ``optimized``:
 
   - ``optimized=False`` runs every fragment for every term of the combined
@@ -328,7 +330,8 @@ The result is a gate cut you feed to ``gate_cutting`` as usual; pass a ``layout`
 
 **Cost-aware cut discovery.** With ``mixed=True``, ``find_cut`` searches every kind of
 cut at once and prices it the way :func:`~Qdislib.circuit_cutting` runs it, minimising
-the sampling overhead ``gamma`` (shots grow as ``gamma**2``):
+the sampling overhead ``gamma`` (for the same worst-case precision the shots grow as
+``gamma**2``):
 
 - each gate cut takes the cheaper of measure-and-prepare and the Hadamard test; both
   follow the gate's angle (``1 + 2|sin θ|`` for a rotation, so weak gates are nearly
@@ -569,8 +572,49 @@ When to use it:
 
 With few enough configurations to run them all, ``num_samples`` at least as large as
 their number gives the same accuracy as running them all with the same total shots
-(each gets its share). Sampling does not change ``gamma``: the draws and shots for a
-given precision still grow as ``gamma**2``.
+(each gets its share). Sampling does not change ``gamma``: with drawn configurations
+the shots for a given precision grow as ``gamma**2`` at least -- exactly
+``(gamma**2 - <O>**2) / (1 - <O>**2)`` times the uncut circuit's -- while running
+every configuration with its share of the shots can need fewer.
+
+.. _error-bars-label:
+
+Error bars and a shot budget
+----------------------------
+
+``error=True`` returns the value with its **standard error**, by bootstrap over the
+shots: every fragment circuit's counts are resampled (and the ``num_samples``
+draws, within their strata) and the cheap reconstruction is repeated, so it costs
+reconstruction time, not device time. The value is an :class:`~Qdislib.Estimate`, a
+``float`` that also carries ``.error`` and ``.shots``:
+
+.. code-block:: python
+
+    value = qd.circuit_cutting(circuit, cuts, hamiltonian, shots=4000, error=True)
+    value                  # 0.7397 ± 0.0024
+    value.error, value.shots
+    qd.gate_cutting(circuit, cut, "ZZZZ", error=500)   # 500 resamples (default 200)
+
+It matches the spread of repeated runs (in tests within a few percent). With
+``num_samples`` and more configurations than draws it errs high (up to ~40% in
+tests), as it resamples the draws and their shots separately. An exact run
+(``shots=None``) has ``error`` 0.
+
+``total_shots=`` spends **one budget** across all the fragment circuits instead of
+``shots`` per circuit, in two rounds: a pilot (20% of the budget) split by each
+circuit's weight in the reconstruction, then the rest by weight x the spread the
+pilot measured (Neyman allocation). In tests it reached the accuracy of an even
+split with 1.4-1.9x fewer shots. The master waits for the pilot round to decide the
+second. With ``num_samples`` it sets the shots per draw instead.
+
+.. code-block:: python
+
+    value = qd.circuit_cutting(circuit, cuts, hamiltonian, total_shots=10**6, error=True)
+
+``qd.shots_for(circuit, cuts, epsilon, delta=0.05)`` gives the shots that guarantee
+an error below ``epsilon`` with probability ``1 - delta`` for *any* circuit with this
+cut (Hoeffding: ``2 gamma**2 / epsilon**2 * ln(2/delta)``) -- a worst case, usually
+far more than ``error=True`` shows a run needs.
 
 Sampling the output distribution
 --------------------------------

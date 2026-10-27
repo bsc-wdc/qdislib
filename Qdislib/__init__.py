@@ -83,6 +83,8 @@ __all__ = [
     "exact_statevector",
     # Finding and inspecting cuts.
     "cutting_overhead",
+    "shots_for",
+    "Estimate",
     "find_cut",
     "draw_cut",
     "cut_cost",

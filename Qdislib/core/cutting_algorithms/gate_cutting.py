@@ -2737,6 +2737,8 @@ def gate_cutting(
     cache=None,
     cache_key=None,
     cache_refresh=False,
+    error=False,
+    total_shots=None,
     cache_mode=None,
     _legacy=None,
 ):
@@ -2766,6 +2768,11 @@ def gate_cutting(
         and :func:`~Qdislib.use_cache`).
     :param cache_key: ``"exact"`` (default) or ``"semantic"``.
     :param cache_refresh: Run every circuit again and replace what is stored.
+    :param error: ``True`` (or a number of resamples): return an
+        :class:`~Qdislib.Estimate` with its standard error (see
+        :func:`circuit_cutting`).
+    :param total_shots: One shot budget instead of ``shots`` per circuit (see
+        :func:`circuit_cutting`).
     :param cache_mode: Deprecated and ignored (the cache keeps the whole result).
     :return: The reconstructed expectation value.
     """
@@ -2792,6 +2799,13 @@ def gate_cutting(
             cache=cache,
             cache_key=cache_key,
             cache_refresh=cache_refresh,
+            error=error,
+            total_shots=total_shots,
+        )
+    if error or total_shots is not None:
+        raise ValueError(
+            "error= and total_shots= run through circuit_cutting: they are not available with the "
+            "deprecated qpu=/gpu=/method= options."
         )
     legacy = _legacy or {}
     return _gate_cutting(

@@ -24,6 +24,7 @@ from Qdislib.core.cutting_algorithms.gate_cutting import *
 from Qdislib.core.cutting_algorithms.hadamard_cut import *
 from Qdislib.core.cutting_algorithms.mixed_cutting import *
 from Qdislib.core.cutting_algorithms.engine_cache import use_cache
+from Qdislib.core.cutting_algorithms.uncertainty import Estimate, shots_for
 from Qdislib.core.find_cut.find_cut import *
 from Qdislib.core.estimate import *
 from Qdislib.core.backend import *

@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Error bars: `error=True`.** Every expectation-value cutting function returns an
+  `Estimate` -- a `float` (old code is unchanged) with `.error` and `.shots` -- the
+  standard error by bootstrap over the shots: each fragment circuit's counts (and the
+  `num_samples` draws, within their strata) are resampled and the cheap
+  reconstruction repeated, so it costs no device time. It matches the spread of
+  repeated runs; with `num_samples` and more configurations than draws it errs high.
+- **`total_shots=`: one shot budget for a call.** A pilot round (20%) split by each
+  fragment circuit's weight in the reconstruction (identical circuits share theirs),
+  then the rest by weight x the spread the pilot measured (Neyman). In tests the
+  accuracy of an even split with 1.4-1.9x fewer shots.
+- **`qd.shots_for(circuit, cuts, epsilon, delta)`**: the worst-case (Hoeffding)
+  shots for an error below `epsilon`, `2 gamma**2 / epsilon**2 * ln(2/delta)`.
 - **Results of subcircuits run with your own tools reconstruct too.**
   `subs.reconstruct_counts(counts)` takes one `{bitstring: count}` per circuit of
   `subs.circuits(software, defer_measurements=True)` (every qubit measured at the
@@ -129,7 +141,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gate DAG with a spring layout, which placed gates at random and only knew a gate
   list or a wire list.
 - **`find_cut(mixed=True)` searches every kind of cut, priced as it runs.** It
-  minimises the sampling overhead `gamma` (shots grow as `gamma**2`) over gate,
+  minimises the sampling overhead `gamma` (for the same worst-case precision the
+  shots grow as `gamma**2`) over gate,
   Hadamard and wire cuts together:
   - each gate cut takes the cheaper of measure-and-prepare and the Hadamard test,
     both following the gate's angle;
