@@ -109,6 +109,14 @@ The 1.x names (``observables=``, ``software=`` on the all-in-one calls, ``qpu=``
 ``cut_cost`` and the standalone ``*_reconstruction`` functions) still work in this
 release, with a ``DeprecationWarning`` naming the replacement.
 
+Every cut type runs on one engine, :func:`~Qdislib.circuit_cutting`'s: ``gate_cutting``,
+``wire_cutting`` and ``gate_cutting_hadamard`` (and their ``_sampling`` forms) build
+each fragment circuit in its own task and reconstruct by contracting the cuts. Only
+the deprecated ``qpu=`` / ``qpu_dict=`` / ``gpu=`` / ``method=`` options and
+``cache=`` still run the 1.x implementation, and the standard three-step lists keep
+their 1.x layout while the deprecated ``*_reconstruction`` functions that read it
+remain.
+
 Circuits, SDKs and naming the gates to cut
 ------------------------------------------
 
@@ -139,7 +147,10 @@ Algorithms
 
 Qdislib includes several circuit cutting strategies:
 
-- **Gate Cutting** (``gate_cutting``): Cuts selected two-qubit gates — a measure-and-prepare quasiprobability decomposition — to divide a circuit into smaller, independently executable subcircuits, then post-processes them to reconstruct the original expectation value. Cuts **any** two-qubit gate: ``CZ``/``CX`` natively, and other gates by automatically decomposing them into ``CZ`` + single-qubit gates. Cost is ``6`` terms per cut.
+- **Gate Cutting** (``gate_cutting``): Cuts selected two-qubit gates — a measure-and-prepare quasiprobability decomposition — to divide a circuit into smaller, independently executable subcircuits, then post-processes them to reconstruct the original expectation value. Cuts **any** two-qubit gate: ``CZ``/``CX`` natively, and other gates by automatically decomposing them into ``CZ`` + single-qubit gates. Cost is ``6`` terms per cut. For a rotation-like gate (``rzz``, ``cp``, ``crz``,
+  ...) the Hadamard cut below is usually far cheaper -- its ``gamma`` follows the
+  angle, measure-and-prepare pays ``3`` per CZ of the decomposition -- and Qdislib
+  warns when it is (e.g. ``gamma`` 9 against 1.2 for ``rzz(0.1)``).
 
 - **Hadamard-test Gate Cutting** (``gate_cutting_hadamard``): An alternative gate cut (Harrow & Lowe, `arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) that replaces the mid-circuit measurement with **one local ancilla** per fragment running a Hadamard test. It cuts **any** two-qubit gate as a *single* cut at the **optimal** overhead (``gamma(CZ) = 3``, tending to ``1`` for weak interactions), which makes it a good fit for superconducting hardware where mid-circuit measurement is costly. Like the other cuts, it has an all-in-one call and a three-step ``_subcircuits`` workflow for expectation values, and ``_sampling`` variants for the output distribution. ``num_samples=N`` draws the configurations at random instead of enumerating them all (the native Harrow–Lowe estimator), which bounds the cost for many cuts.
 
@@ -179,8 +190,17 @@ Qdislib includes several circuit cutting strategies:
   better. Some of the joint circuits add ``CZ`` gates between the fragment's cut
   qubits; pass ``joint=False`` to measure each wire on its own, with no entangling
   gates, e.g. on hardware with costly two-qubit gates. The preparation side
-  (``4**k``) is unchanged, and a wire cut's sampling overhead cannot drop below
-  ``4**n`` without classical communication between fragments.
+  (``4**k``) is unchanged, and in general a wire cut's sampling overhead cannot
+  drop below ``4**n`` without classical communication between fragments.
+
+  **Golden cut points.** When the fragment that sends a wire has a real state --
+  every gate a real matrix (``ry``, ``cz``, ``cx``, ``h``, ...), no gate cut, every
+  wire it receives golden too -- and sends no other wire, the wire's two ``Y`` terms
+  are zero and are left out: 6 terms instead of 8, ``gamma = 3`` instead of 4, and
+  no ``Y`` measurement or ``|+i>`` preparation (Chen et al., "golden cutting
+  points"). It is exact and automatic; ``qd.cutting_overhead`` reports it. A ``Y``
+  in the observable, a complex gate (``rx``, ``rz``, ``s``, ...) or a second wire
+  from the same fragment keeps all 8 (``<O Y Y>`` of a real state need not vanish).
 
   .. code-block:: python
 
@@ -254,7 +274,7 @@ Qdislib includes several circuit cutting strategies:
   3, 3   331,776    3,564        1,314          1,264               1,728 / 960
   =====  =========  ===========  =============  ==================  ==========
 
-Every subcircuit is an independent PyCOMPSs task, so all methods fan out and run in parallel; for large fan-outs, ``sync=False`` overlaps independent cuts and ``reduce_chunk=n`` folds the results through a balanced reduction tree.
+Every subcircuit is an independent PyCOMPSs task, so all methods fan out and run in parallel; ``sync=False`` overlaps independent cuts, and the reconstruction is one cheap task.
 
 
 **Find Cut Function**
@@ -304,7 +324,8 @@ the sampling overhead ``gamma`` (shots grow as ``gamma**2``):
   ``1 + 2|sin θ|``-like for a rotation, so weak gates are nearly free;
 - the Hadamard cuts between two fragments are priced jointly (``2**(k+1) - 1`` for k
   CZ/CX, one shared ancilla per side);
-- a wire cut (``gamma = 4``) splits a qubit's timeline where that is cheaper.
+- a wire cut (``gamma = 4``, 3 at a golden cut point) splits a qubit's timeline
+  where that is cheaper.
 
 Every fragment fits ``max_qubits`` *with its Hadamard ancillas* (``None`` asks for
 halves), every cut separates its two sides, and the search returns the best cut it

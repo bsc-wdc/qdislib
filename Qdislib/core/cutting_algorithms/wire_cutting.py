@@ -3289,11 +3289,9 @@ def _wire_cutting_subcircuit_reconstruction(
 
 
 def _exact_or_legacy(legacy, cache=None):
-    if (legacy and set(legacy) - {"platform"}) or cache is not None:
-        raise ValueError(
-            "shots=None (exact) runs through circuit_cutting, which takes backend= "
-            "only (no qpu options, no cache)."
-        )
+    from Qdislib.core.cutting_algorithms.gate_cutting import _route_to_circuit_cutting
+
+    _route_to_circuit_cutting(legacy, cache)
 
 
 @standard_arguments
@@ -3334,7 +3332,9 @@ def wire_cutting(
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: The reconstructed expectation value.
     """
-    if shots is None or num_samples is not None:
+    from Qdislib.core.cutting_algorithms.gate_cutting import _legacy_run
+
+    if not _legacy_run(_legacy, cache) or shots is None or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
 
         _exact_or_legacy(_legacy, cache)
@@ -3389,7 +3389,9 @@ def wire_cutting_sampling(
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
-    if shots is None or num_samples is not None:
+    from Qdislib.core.cutting_algorithms.gate_cutting import _legacy_run
+
+    if not _legacy_run(_legacy) or shots is None or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import (
             circuit_cutting_sampling,
         )

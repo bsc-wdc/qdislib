@@ -135,6 +135,27 @@ class IQMBackend(BaseBackend):
             dag_to_circuit_qiskit(dag, num_qubits), shots=shots, prep_qubits=prep_qubits
         )
 
+    def evaluate_joint_counts(
+        self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
+    ):
+        """Joint final/cut-point counts on the IQM device (the cut-point
+        measurements run mid-circuit). ``seed`` is ignored (hardware)."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _joint_from_qiskit_counts,
+        )
+        from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+
+        built = dag_to_circuit_qiskit(dag, num_qubits)
+        if built is None:
+            return None
+        base = built[0] if isinstance(built, (list, tuple)) else built
+        circuit = base.copy()
+        circuit.measure_all()
+        counts = self._counts(circuit, True, shots)
+        return _joint_from_qiskit_counts(
+            counts, base, num_qubits, sorted(cut_point_qubits)
+        )
+
     def evaluate_subcircuit(self, subcircuit, shots: int = 1024, prep_qubits=None):
         """Evaluate one already-built cut subcircuit on the device (3-step workflow).
 

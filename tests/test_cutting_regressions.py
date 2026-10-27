@@ -51,24 +51,21 @@ class WireCuttingForwardsShotsTest(BaseTimedTestCase):
         qibo.set_backend("numpy")
 
     def _spy_shots(self, circuit, cut, user_shots):
+        import Qdislib.core.cutting_algorithms.mixed_cutting as mc
         import Qdislib.core.cutting_algorithms.wire_cutting as wc
 
         seen = []
-        original = wc._build_and_run_subcircuit
+        original = mc._run_fragment
 
-        def spy(*args, **kwargs):
-            # ``shots`` is the 3rd positional arg of _build_and_run_subcircuit on
-            # every branch (some add a trailing arg, e.g. resource_manager); capture
-            # it whether passed positionally or by keyword and forward untouched.
-            shots = args[2] if len(args) > 2 else kwargs.get("shots")
+        def spy(template, spec, runner, shots, *args, **kwargs):
             seen.append(shots)
-            return original(*args, **kwargs)
+            return original(template, spec, runner, shots, *args, **kwargs)
 
-        wc._build_and_run_subcircuit = spy
+        mc._run_fragment = spy
         try:
             wc.wire_cutting(circuit, cut, shots=user_shots, backend="qibo")
         finally:
-            wc._build_and_run_subcircuit = original
+            mc._run_fragment = original
         return seen
 
     def test_single_component_forwards_shots(self):

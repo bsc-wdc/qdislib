@@ -969,12 +969,22 @@ def _joint_counts_qiskit(dag, num_qubits, prep_sorted, shots, seed=None):
     if built is None:
         return None
     qc = built[0] if isinstance(built, (list, tuple)) else built
+    return _joint_from_qiskit_counts(
+        _counts_qiskit(qc, shots=shots, seed=seed), qc, num_qubits, prep_sorted
+    )
+
+
+def _joint_from_qiskit_counts(counts, qc, num_qubits, prep_sorted):
+    """``{(final_bits, cut_point_bits): count}`` from the Qiskit-style counts of
+    ``qc`` run with ``measure_all`` appended (keys ``"<meas> <c{K}> ... <c>"``,
+    each little-endian), as Aer and the IBM / IQM samplers return them. ``qc`` is
+    the circuit *without* that final measurement: its measurements are the cut
+    points."""
     rounds = _cut_point_rounds(
         qc.find_bit(inst.qubits[0]).index
         for inst in qc.data
         if inst.operation.name == "measure"
     )
-    counts = _counts_qiskit(qc, shots=shots, seed=seed)
     joint = {}
     for key, cnt in counts.items():
         measure_all = key.split()[0]
@@ -1955,6 +1965,24 @@ def _counts_from_sampler(pub_result, circuit):
     return counts
 
 
+def _joint_counts_qiskit_qpu(dag, num_qubits, prep_sorted, shots, batch, backend):
+    """Joint final/cut-point counts of a fragment on IBM hardware (SamplerV2):
+    the cut-point measurements stay mid-circuit, each in its own register."""
+    from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+
+    built = dag_to_circuit_qiskit(dag, num_qubits)
+    if built is None:
+        return None
+    base = built[0] if isinstance(built, (list, tuple)) else built
+    qc = base.copy()
+    qc.measure_all()
+    pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
+    job = Sampler(mode=batch).run([pm.run(qc)], shots=shots)
+    logger.info(f"job id: {job.job_id()}")
+    counts = _counts_from_sampler(job.result()[0], qc)
+    return _joint_from_qiskit_counts(counts, base, num_qubits, prep_sorted)
+
+
 # Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _expec_value_qiskit_qpu(
     qc, shots=1024, method="automatic", batch=None, backend=None, prep_qubits=None
@@ -2372,11 +2400,19 @@ def _gate_cutting_subcircuit_reconstruction(
 # --------------------------------------------------------------------------- #
 
 
+def _legacy_run(legacy, cache=None):
+    """True when a call needs the pre-2.0 implementation: the deprecated execution
+    options (``qpu=``, ``gpu=``, ...) or a semantic ``cache``. Everything else runs
+    through :func:`circuit_cutting` (the qibo platform of a ``backend="numpy"``-style
+    call is not honoured there: it is the ``"qibo"`` simulator)."""
+    return bool(set(legacy or ()) - {"platform"}) or cache is not None
+
+
 def _route_to_circuit_cutting(legacy, cache=None):
-    if legacy or cache is not None:
+    if _legacy_run(legacy, cache):
         raise ValueError(
-            "shots=None (exact) and optimized=True run through circuit_cutting, which "
-            "takes backend= only (no qpu/gpu options, no cache)."
+            "shots=None (exact), optimized=True and num_samples run through "
+            "circuit_cutting, which takes backend= only (no qpu/gpu options, no cache)."
         )
 
 
@@ -2420,7 +2456,12 @@ def gate_cutting(
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: The reconstructed expectation value.
     """
-    if shots is None or optimized or num_samples is not None:
+    if (
+        not _legacy_run(_legacy, cache)
+        or shots is None
+        or optimized
+        or num_samples is not None
+    ):
         from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
 
         _route_to_circuit_cutting(_legacy, cache)
@@ -2475,7 +2516,12 @@ def gate_cutting_sampling(
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
-    if shots is None or optimized or num_samples is not None:
+    if (
+        not _legacy_run(_legacy)
+        or shots is None
+        or optimized
+        or num_samples is not None
+    ):
         from Qdislib.core.cutting_algorithms.mixed_cutting import (
             circuit_cutting_sampling,
         )

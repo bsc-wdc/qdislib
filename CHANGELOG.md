@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Golden wire cut points.** A wire sent alone by a fragment whose state is real
+  (only real gates such as `ry`, `cz`, `cx`, `h`; no gate cut; every wire it
+  receives golden too) has zero `Y` terms, which are now left out: 6 terms instead
+  of 8, `gamma` 3 instead of 4 per such wire (shots `16/9` fewer each), and with
+  `optimized=True` no `Y` measurement and no `|+i>` preparation. Exact and automatic,
+  in every wire and mixed cut. `cutting_overhead` reports it, and `find_cut` uses it
+  to choose among its final candidates (its search still prices a wire at 4).
+- **A warning when the Hadamard cut is clearly cheaper.** A measure-and-prepare cut
+  of a gate other than CZ/CX pays `gamma` 3 per CZ of its decomposition, while the
+  Hadamard cut's follows the angle (`rzz(0.1)`: 9 against 1.2, 56x the shots).
+  `circuit_cutting`, `gate_cutting` and `cutting_overhead` now say so and how to
+  ask for it.
+- **IBM and IQM backends give joint final / cut-point counts**, so the gate cut's
+  mid-circuit measurements run on them through `circuit_cutting` (each cut point in
+  its own register, read per shot).
 - **QiliSDK (Qilimanjaro) is a supported SDK.** A QiliSDK `Circuit` can be cut like
   any other circuit (every cut type, `find_cut`, `draw_cut`), subcircuits can be
   written in it (`software="qilisdk"`), and `backend="qilisdk"` runs them on its
@@ -133,6 +148,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **A gate cut on the BSC QPU whose cut qubit keeps evolving** read the
+  mid-circuit outcome as the final bit, which only holds when nothing acts on the
+  qubit after the cut (the device returns final counts only), so the value was
+  wrong. Such a cut point is now deferred to the end (a CNOT onto a fresh qubit, one
+  qubit more), which is exact.
 - **Shot runs of big fragments were very slow.** Turning a fragment's samples into
   Z correlators looped in Python over all `2**width` masks (hours at 16 qubits);
   it is now vectorised, and an expectation value computes only the masks it reads.
@@ -246,6 +266,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **Every cut type runs on `circuit_cutting`'s engine.** The default shot runs of
+  `gate_cutting`, `wire_cutting` and `gate_cutting_hadamard` (and their `_sampling`
+  forms), like their exact, optimized and `num_samples` runs already, build each
+  fragment circuit in its own task and reconstruct by contraction: one
+  implementation, the vectorised correlators and deferred cut-point measurements on
+  simulators everywhere. The values are the same up to shot noise. Only the
+  deprecated `qpu=` / `qpu_dict=` / `gpu=` / `method=` options and `cache=` still
+  run the 1.x code, and the standard three-step lists keep their 1.x layout while
+  the deprecated `*_subcircuit_reconstruction` functions that read it remain.
+  `reduce_chunk` is now ignored (deprecated).
 - **Exact mode simulates fragments itself.** A small numpy statevector simulator
   applies the DAG's OpenQASM gates directly, instead of building an SDK circuit
   (whose per-gate overhead dominated small fragments): 1,000 drawn settings of a

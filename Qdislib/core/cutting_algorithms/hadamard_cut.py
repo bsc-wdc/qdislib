@@ -1805,26 +1805,28 @@ def gate_cutting_hadamard(
         gate to its last; ``False`` cuts each gate on its own.
     :param num_samples: Draw this many configurations from the quasiprobability
         distribution instead of running them all.
-    :param reduce_chunk: Deprecated, removed in the next release: the reconstruction
-        is one cheap task. Still folds a shot run's results through a balanced
-        tree of this arity.
+    :param reduce_chunk: Deprecated and ignored, removed in the next release: the
+        reconstruction is one cheap task.
     :return: The reconstructed expectation value.
     """
     if reduce_chunk is not None:
         import warnings
 
         warnings.warn(
-            "reduce_chunk is deprecated and removed in the next release: the "
-            "reconstruction is one task, and a cheap one.",
+            "reduce_chunk is deprecated and ignored, and removed in the next "
+            "release: the reconstruction is one task, and a cheap one.",
             DeprecationWarning,
             stacklevel=3,
         )
-    if shots is None or num_samples is not None:
-        # Exact and Monte-Carlo runs go through circuit_cutting, as gate_cutting's
-        # do: every fragment circuit is built and run in its own task.
-        from Qdislib.core.cutting_algorithms.gate_cutting import (
-            _route_to_circuit_cutting,
-        )
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _legacy_run,
+        _route_to_circuit_cutting,
+    )
+
+    if not _legacy_run(_legacy) or shots is None or num_samples is not None:
+        # Every run goes through circuit_cutting, as gate_cutting's do: each
+        # fragment circuit is built and run in its own task. Only the deprecated
+        # qpu= / qpu_dict= options keep the pre-2.0 implementation.
         from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
 
         _route_to_circuit_cutting(_legacy)
@@ -1850,7 +1852,7 @@ def gate_cutting_hadamard(
         qpu=legacy.get("qpu", False),
         qpu_dict=legacy.get("qpu_dict"),
         sync=sync,
-        reduce_chunk=reduce_chunk,
+        reduce_chunk=None,
         joint=joint,
         num_samples=num_samples,
     )
@@ -1874,10 +1876,12 @@ def gate_cutting_hadamard_sampling(
 
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
-    if shots is None or num_samples is not None:
-        from Qdislib.core.cutting_algorithms.gate_cutting import (
-            _route_to_circuit_cutting,
-        )
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _legacy_run,
+        _route_to_circuit_cutting,
+    )
+
+    if not _legacy_run(_legacy) or shots is None or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import (
             circuit_cutting_sampling,
         )

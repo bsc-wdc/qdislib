@@ -66,38 +66,74 @@ class BSCQpuBackend(_QpuBackendBase):
     def evaluate_joint_counts(
         self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
     ):
-        """Joint final/cut-point counts from a BSC QPU (sampling reconstruction).
+        """Joint final/cut-point counts from a BSC QPU.
 
         Ships the subcircuit through the shared-filesystem bridge and reads back the
-        hardware counts (``result.counts()``, qubit-0-first). A real QPU reports only
-        aggregated *final* counts -- the mid-circuit cut-point outcome isn't returned
-        -- so each cut qubit's cut-point bit is taken to equal its final bit. That is
-        exact for a **terminal** cut (no gate on a cut qubit after the cut, as in the
-        image-cutting tutorial); a cut qubit that keeps evolving afterwards cannot be
-        decoupled from aggregated hardware counts (the same limitation that guards the
-        QPU expectation path). ``seed`` is accepted for interface parity but ignored
-        (hardware sampling is not seedable).
+        hardware counts (``result.counts()``, qubit-0-first). The device reports
+        only *final* counts, not the mid-circuit cut-point outcomes. A cut qubit
+        with no gate after its cut point (a **terminal** cut) is read from its final
+        bit. Otherwise its cut-point measurement is deferred: a CNOT onto a fresh
+        qubit, read at the end (one more qubit per such cut; the same channel), so
+        the counts stay exact. ``seed`` is accepted for interface parity but
+        ignored (hardware sampling is not seedable).
         """
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _defer_cut_measurements,
+        )
+
+        cut_points = sorted(cut_point_qubits)
+        if cut_points and not _terminal_cut_points(dag):
+            deferred = _defer_cut_measurements(dag, num_qubits, cut_points)
+            if deferred is None:
+                raise NotImplementedError(
+                    "BSC QPU: a qubit measured twice mid-circuit cannot be deferred; "
+                    "use the Hadamard cut (no mid-circuit measurement)."
+                )
+            freq = self._final_counts(deferred, num_qubits + len(cut_points))
+            joint = {}
+            for key, count in freq.items():
+                final = tuple(int(key[q]) for q in range(num_qubits))
+                cut = tuple(int(key[num_qubits + j]) for j in range(len(cut_points)))
+                joint[(final, cut)] = joint.get((final, cut), 0) + count
+            return joint
+        freq = self._final_counts(dag, num_qubits)
+        joint = {}
+        for key, count in freq.items():
+            final = tuple(int(key[q]) for q in range(num_qubits))
+            cut = tuple(final[q] for q in cut_points)  # terminal: cut point == final
+            joint[(final, cut)] = joint.get((final, cut), 0) + count
+        return joint
+
+    @staticmethod
+    def _final_counts(dag, num_qubits):
+        """Final counts of a DAG run through the bridge (``{}`` for an empty one)."""
         import qibo
         from Qdislib.utils.graph_qibo import dag_to_circuit_qibo
         from Qdislib.utils.qpu_bridge import submit_and_wait
 
         subcirc = dag_to_circuit_qibo(dag, num_qubits)
         if subcirc is None:
-            return None
+            return {}
         if type(subcirc) != qibo.models.circuit.Circuit:
             subcirc = subcirc[0]  # drop the "Observable I" marker; sampling reads bits
+        return submit_and_wait(subcirc).counts()
 
-        freq = submit_and_wait(subcirc).counts()
-        cut_points = list(cut_point_qubits)
-        joint = {}
-        for key, count in freq.items():
-            final = tuple(int(key[q]) for q in range(num_qubits))
-            cut = tuple(
-                final[q] for q in cut_points
-            )  # terminal cut: cut-point == final
-            joint[(final, cut)] = joint.get((final, cut), 0) + count
-        return joint
+
+def _terminal_cut_points(dag):
+    """True if no gate acts on a measured cut qubit after its measurement."""
+    import networkx as nx
+
+    for node, data in dag.nodes(data=True):
+        if (data.get("gate") or "").lower() != "measure":
+            continue
+        qubit = data["qubits"][0]
+        for later in nx.descendants(dag, node):
+            other = dag.nodes[later]
+            if (other.get("gate") or "").upper() == "OBSERVABLE I":
+                continue
+            if qubit in (other.get("qubits") or ()):
+                return False
+    return True
 
 
 def _ibm_setting(extra: dict, key: str, env: str, default=""):
@@ -190,6 +226,24 @@ class IBMBackend(_QpuBackendBase):
     def ibm_backend(self):
         """The selected IBM backend."""
         return self._ibm_backend
+
+    def evaluate_joint_counts(
+        self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
+    ):
+        """Joint final/cut-point counts on the IBM device (the cut-point
+        measurements run mid-circuit). ``seed`` is ignored (hardware)."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _joint_counts_qiskit_qpu,
+        )
+
+        return _joint_counts_qiskit_qpu(
+            dag,
+            num_qubits,
+            sorted(cut_point_qubits),
+            shots,
+            self._session,
+            self._ibm_backend,
+        )
 
     def evaluate_expectation(
         self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic", seed=None

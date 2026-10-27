@@ -245,6 +245,58 @@ def gate_wire_cutting(
 
 _WIRE_DIGIT_BASIS = {0: "Z", 1: "Z", 2: "X", 3: "X", 4: "Y", 5: "Y", 6: "Z", 7: "Z"}
 _WIRE_DIGIT_STATE = {0: "0", 1: "1", 2: "+", 3: "-", 4: "+i", 5: "-i", 6: "0", 7: "1"}
+#: A wire's eight terms, and the six left without its two Y terms (digits 4, 5).
+_ALL_WIRE_DIGITS = tuple(range(8))
+_NO_Y_DIGITS = (0, 1, 2, 3, 6, 7)
+_MARKER_PREFIXES = ("O_", "PS_", "GATE", "SUBS")
+
+
+def _is_real_gate(data):
+    """True if a DAG node's gate is a real matrix (so it keeps a real state real)."""
+    from Qdislib.utils.statevector import gate_unitary
+
+    name = str(data.get("gate") or "")
+    if name.upper() == "OBSERVABLE I":
+        return True
+    matrix = gate_unitary(name, data.get("parameters") or ())
+    return matrix is not None and not np.any(np.abs(np.imag(matrix)) > 1e-12)
+
+
+def _golden_wires(graph, fragments):
+    """The wire cuts whose two Y terms are zero ("golden" cut points), so they are
+    left out: 6 terms instead of 8, ``gamma = 3`` instead of 4. Exact.
+
+    A wire qualifies when the fragment that sends it has a real state and reads
+    only real operators: every gate a real matrix (an X/Y observable's basis change
+    is a gate of the fragment, so a Y in the observable is caught), no gate-cut or
+    Hadamard leg, and every wire it receives golden too (no ``|+i>`` prepared).
+    Then ``<O (x) Y> = 0`` for every Z/I string ``O``: ``O (x) Y`` is imaginary.
+    The fragment must send this wire only: with two, ``<O (x) Y (x) Y>`` is real
+    and need not vanish.
+    """
+    real_gates = []
+    for fragment in fragments:
+        real_gates.append(
+            not fragment["gate_sides"]
+            and not fragment["had_groups"]
+            and len(fragment["measures"]) == 1
+            and all(
+                _is_real_gate(graph.nodes[node])
+                for node in fragment["nodes"]
+                if not str(node).startswith(_MARKER_PREFIXES)
+            )
+        )
+    golden = set()
+    changed = True
+    while changed:  # a fragment is real once every wire it receives is golden
+        changed = False
+        for fragment, real in zip(fragments, real_gates):
+            if real and set(fragment["preps"]) <= golden:
+                wire = fragment["measures"][0]
+                if wire not in golden:
+                    golden.add(wire)
+                    changed = True
+    return golden
 
 
 def _normalise_cuts(cuts, hadamard):
@@ -283,7 +335,15 @@ class _CutPlan:
     """
 
     def __init__(
-        self, circuit, cuts, observable, hadamard, optimized, joint, validate=True
+        self,
+        circuit,
+        cuts,
+        observable,
+        hadamard,
+        optimized,
+        joint,
+        validate=True,
+        golden=True,
     ):
         import networkx as nx
 
@@ -297,6 +357,7 @@ class _CutPlan:
             _generate_cut_hadamard,
             _cut_groups,
             _cut_settings,
+            gamma_factor,
             local_unitary_decomposition,
             _num_circuit_qubits,
         )
@@ -333,8 +394,29 @@ class _CutPlan:
             )
             for name in had_cuts
         ]
+        #: A measure-and-prepare cut of a gate other than CZ/CX -> ``(CZs it is cut
+        #: as, the Hadamard cut's gamma for it)``, to point out a cheaper cut.
+        self.general_gate_cuts = {}
         if gate_cuts:
-            dag, gate_cuts = _expand_general_gate_cuts(dag, gate_cuts)
+            expanded = []
+            for name in gate_cuts:
+                data = dag.nodes[name]
+                kind = (data.get("gate") or "").lower()
+                hadamard_gamma = None
+                if kind not in ("cz", "cx", "cnot"):
+                    try:
+                        hadamard_gamma = gamma_factor(
+                            local_unitary_decomposition(
+                                kind.upper(), data.get("parameters") or ()
+                            )
+                        )
+                    except Exception:  # noqa: BLE001 -- no Hadamard form known
+                        pass
+                dag, new = _expand_general_gate_cuts(dag, [name])
+                expanded.extend(new)
+                if kind not in ("cz", "cx", "cnot"):
+                    self.general_gate_cuts[name] = (len(new), hadamard_gamma)
+            gate_cuts = expanded
         # Wires first, as gate_wire_cutting does: a wire cut right after a cut gate
         # still finds the gate in place.
         wire_cuts = _expand_wire_cuts(dag, wire_edges) if wire_edges else []
@@ -423,6 +505,13 @@ class _CutPlan:
                     },
                 }
             )
+        golden_wires = _golden_wires(graph, self.fragments) if golden else set()
+        #: Per wire cut, the terms (base-8 digits) it keeps: all eight, or six
+        #: when its Y terms are provably zero (see :func:`_golden_wires`).
+        self.wire_digits = [
+            _NO_Y_DIGITS if i in golden_wires else _ALL_WIRE_DIGITS
+            for i in range(1, len(wire_cuts) + 1)
+        ]
 
     # The configurations are built on first use: a plan made only to inspect or
     # draw a cut never enumerates them (there are 6**g * 8**w of them).
@@ -463,7 +552,7 @@ class _CutPlan:
                 digits,
                 (-1) ** sum(d in (3, 5, 7) for d in digits) / 2 ** len(self.wire_cuts),
             )
-            for digits in itertools.product(range(8), repeat=len(self.wire_cuts))
+            for digits in itertools.product(*self.wire_digits)
         ]
 
     def invalid_cuts(self):
@@ -484,11 +573,12 @@ class _CutPlan:
 
     @property
     def num_configurations(self):
-        """``6**g * (Hadamard settings) * 8**w``, without listing them."""
+        """``6**g * (Hadamard settings) * 8**w`` (6 per golden wire), without
+        listing them."""
         return (
             6 ** len(self.gate_cuts)
             * math.prod(self._group_settings())
-            * 8 ** len(self.wire_cuts)
+            * math.prod(len(digits) for digits in self.wire_digits)
         )
 
     def _group_settings(self):
@@ -517,9 +607,8 @@ class _CutPlan:
                 sides[k] = sides.get(k, 0) + 1
             count = math.prod(6 if n == 2 else 5 for n in sides.values())
             count *= math.prod(group_settings[g] for g in fragment["had_groups"])
-            count *= 4 ** len(fragment["preps"])
-            m = len(fragment["measures"])
-            count *= 2**m + 1 if self.joint_wires and m > 1 else 3**m
+            count *= math.prod(len(self._prep_states(i)) for i in fragment["preps"])
+            count *= len(self._measure_settings(fragment))
             total += count
         return total
 
@@ -527,7 +616,8 @@ class _CutPlan:
         """The sampling overhead: the product of every cut's 1-norm."""
         from Qdislib.core.cutting_algorithms.hadamard_cut import phi_factor
 
-        total = 3.0 ** len(self.gate_cuts) * 4.0 ** len(self.wire_cuts)
+        total = 3.0 ** len(self.gate_cuts)
+        total *= math.prod(len(digits) / 2 for digits in self.wire_digits)
         for _, terms in self.groups:
             total *= phi_factor(terms)
         return total
@@ -570,7 +660,9 @@ class _CutPlan:
         if kind == "gate":
             return np.array([(-1) ** (d in (3, 5)) / 2 for d in range(6)])
         if kind == "wire":
-            return np.array([(-1) ** (d in (3, 5, 7)) / 2 for d in range(8)])
+            return np.array(
+                [(-1) ** (d in (3, 5, 7)) / 2 for d in self.wire_digits[index - 1]]
+            )
         return self._hadamard_settings[index][1]
 
     def gate_legs(self, f, digits, config):
@@ -615,13 +707,18 @@ class _CutPlan:
         gamma = self.gamma()
         digits = rng.integers(0, 6, size=(n, len(self.gate_cuts)))
         wires = rng.integers(0, 8, size=(n, len(self.wire_cuts)))
+        for i, choices in enumerate(self.wire_digits):
+            if len(choices) < 8:  # a golden wire: its six terms
+                wires[:, i] = np.array(choices)[rng.integers(0, len(choices), n)]
         group_counts = self._group_settings()
         fixed = {}  # group -> (s, t, g) of the groups the strata set
         per_draw = np.full(n, gamma / n)  # the weight of each draw (before its sign)
         if stratified:
             # The cuts as dimensions with their term probabilities, smallest first.
             dims = [("gate", k, 6) for k in range(len(self.gate_cuts))]
-            dims += [("wire", i, 8) for i in range(len(self.wire_cuts))]
+            dims += [
+                ("wire", i, len(digits)) for i, digits in enumerate(self.wire_digits)
+            ]
             dims += [("group", g, c) for g, c in enumerate(group_counts)]
             dims.sort(key=lambda d: d[2])
             # Every cut when all configurations fit in N (that is running them all,
@@ -678,7 +775,7 @@ class _CutPlan:
                 if kind == "gate":
                     digits[:, index] = value
                 elif kind == "wire":
-                    wires[:, index] = value
+                    wires[:, index] = np.array(self.wire_digits[index])[value]
                 else:
                     picked = np.array(self._hadamard_settings[index][0])[value]
                     fixed[index] = (picked[:, 0], picked[:, 1], picked[:, 2])
@@ -730,10 +827,8 @@ class _CutPlan:
         circuits to run. ``key`` (``f`` first) is how the reconstruction finds them;
         ``count`` how many draws use the circuit (1 when every configuration is run)."""
         from Qdislib.core.cutting_algorithms.wire_cutting import (
-            _PREP_STATES,
             _SETTING_PAULI,
             _WIRE_PREP,
-            _measurement_settings,
         )
 
         units = []
@@ -798,16 +893,33 @@ class _CutPlan:
         for f, fragment in enumerate(self.fragments):
             for gate_config in self._local_gate_configs(f):
                 for states in itertools.product(
-                    _PREP_STATES, repeat=len(fragment["preps"])
+                    *(self._prep_states(i) for i in fragment["preps"])
                 ):
-                    for setting in _measurement_settings(
-                        len(fragment["measures"]), self.joint_wires
-                    ):
+                    for setting in self._measure_settings(fragment):
                         leg = self.gate_legs(f, *gate_config)
                         units.append(
                             ((f, leg, states), f, gate_config, states, setting, 1)
                         )
         return units
+
+    def _prep_states(self, wire):
+        """The states the optimized decomposition prepares for a wire it receives
+        (no ``|+i>`` for a golden wire)."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import _PREP_STATES
+
+        if len(self.wire_digits[wire - 1]) < 8:
+            return tuple(state for state in _PREP_STATES if state != "+i")
+        return _PREP_STATES
+
+    def _measure_settings(self, fragment):
+        """The optimized measurement settings of the wires a fragment sends (no Y
+        basis for a golden wire, which is always sent alone)."""
+        from Qdislib.core.cutting_algorithms.wire_cutting import _measurement_settings
+
+        measures = fragment["measures"]
+        if len(measures) == 1 and len(self.wire_digits[measures[0] - 1]) < 8:
+            return [("X",), ("Z",)]
+        return _measurement_settings(len(measures), self.joint_wires)
 
     def _local_gate_configs(self, f):
         """One gate configuration per distinct set of fragment ``f``'s gate legs,
@@ -1303,7 +1415,10 @@ def _fragment_tensor(plan, f, reads):
         config = [None] * len(plan.groups)
         for g in fragment["had_groups"]:
             config[g] = settings[g][0][at[("hadamard", g)]]
-        wire = {i: at[("wire", i)] for i in fragment["measures"] + fragment["preps"]}
+        wire = {
+            i: plan.wire_digits[i - 1][at[("wire", i)]]
+            for i in fragment["measures"] + fragment["preps"]
+        }
         tensor[index] = _fragment_value(plan, f, reads, digits, config, wire)
     return tensor, bonds + [("out", f)], reads.out
 
@@ -1492,6 +1607,7 @@ def _prepare_cut(
     runs them (an SDK, registered backend or backend object). No circuit is built
     here: each is built where it runs."""
     plan = _CutPlan(circuit, cuts, observable, hadamard, optimized, joint)
+    _warn_cheaper_hadamard(plan)
     draws = None
     if num_samples is not None:
         if int(num_samples) < 1:
@@ -1510,6 +1626,32 @@ def _prepare_cut(
         circuit_.draws = count
         circuits.append(circuit_)
     return plan, draws, keys, readouts, circuits
+
+
+def _warn_cheaper_hadamard(plan):
+    """Warn when a measure-and-prepare cut of a rotation-like gate costs clearly
+    more than the Hadamard cut would (``3**n`` for its ``n`` CZs against the
+    Hadamard ``gamma``, which follows the gate's angle)."""
+    cheaper = [
+        (name, 3.0**n, gamma)
+        for name, (n, gamma) in plan.general_gate_cuts.items()
+        if gamma is not None and gamma < 0.9 * 3.0**n
+    ]
+    if not cheaper:
+        return
+    import warnings
+
+    detail = "; ".join(
+        f"{name}: gamma {mp:g} measure-and-prepare, {had:.3g} Hadamard"
+        for name, mp, had in cheaper
+    )
+    names = [name for name, _, _ in cheaper]
+    warnings.warn(
+        f"The Hadamard cut is cheaper for {names} ({detail}; the shots grow as "
+        f"gamma**2). Cut them with {{'hadamard': {names}}} or hadamard=True.",
+        UserWarning,
+        stacklevel=3,
+    )
 
 
 def _run(circuits, shots, seed):
@@ -1829,6 +1971,7 @@ def cutting_overhead(circuit, cuts, *, hadamard=False, optimized=False, joint=Tr
     plan = _CutPlan(
         circuit, resolve_cuts(circuit, cuts), None, hadamard, optimized, joint
     )
+    _warn_cheaper_hadamard(plan)
     return {
         "subcircuits": plan.num_units(),
         "configurations": plan.num_configurations,

@@ -336,7 +336,8 @@ class _Problem:
             key = (min(a, b), max(a, b)) if self.joint else ("gate", k)
             groups.setdefault(key, [a, b, []])[2].append(by_id[gid])
         log_gamma = sum(by_id[g].mp for g in plan.requested_gate_cuts if g in by_id)
-        log_gamma += _LOG4 * len(plan.wire_cuts)
+        # 4 per wire, 3 at a golden cut point (the plan finds them)
+        log_gamma += sum(math.log(len(d) / 2) for d in plan.wire_digits)
         for a, b, members in groups.values():
             ancillas[a] += 1
             ancillas[b] += 1
