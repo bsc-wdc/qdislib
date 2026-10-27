@@ -77,14 +77,7 @@ def _resample_counts(corr, rng):
 
     if not isinstance(corr, _JointCounts):
         return corr  # exact: nothing to resample
-    outcomes = list(corr.joint)
-    counts = np.array([corr.joint[o] for o in outcomes], dtype=float)
-    total = counts.sum()
-    if total <= 0:
-        return corr
-    drawn = rng.multinomial(int(round(total)), counts / total)
-    joint = {o: int(n) for o, n in zip(outcomes, drawn) if n}
-    return _JointCounts(joint, corr.prep_sorted, corr.k)
+    return corr.resampled(rng)
 
 
 def _resample_draws(draws, rng):

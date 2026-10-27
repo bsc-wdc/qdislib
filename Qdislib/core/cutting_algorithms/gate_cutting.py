@@ -1372,35 +1372,110 @@ class _JointCounts:
     """A fragment run's joint final / cut-point counts: the result the cache
     keeps, which serves any observable. A plain object, not a container, so that
     PyCOMPSs ships it whole (a dict inside a ``COLLECTION_IN`` is rebuilt as a
-    plain dict); the reconstruction reads it through :class:`_CountCorrelators`."""
+    plain dict); the reconstruction reads it through :class:`_CountCorrelators`.
 
-    def __init__(self, joint, prep_sorted, k):
-        self.joint = joint
+    It also holds its outcomes as arrays, built once: a bootstrap resample
+    (:meth:`resampled`) is a new count vector over the same outcomes.
+    """
+
+    def __init__(self, joint, prep_sorted, k, _arrays=None):
+        self._joint = joint
         self.prep_sorted = list(prep_sorted)
         self.k = int(k)
+        self._arrays = _arrays
+
+    @property
+    def joint(self):
+        """``{(final_bits, cut_point_bits): count}``."""
+        if self._joint is None:
+            outcomes, _, _, counts = self._arrays
+            self._joint = {o: int(c) for o, c in zip(outcomes, counts) if c}
+        return self._joint
+
+    def arrays(self):
+        """``(outcomes, bits, sign, counts)``: the outcomes, their final bits (one
+        row each), their cut-point sign ``prod -(-1)**m`` and their counts."""
+        if self._arrays is None:
+            items = list(self._joint.items())
+            outcomes = [outcome for outcome, _ in items]
+            bits = np.array(
+                [[int(b) for b in final[: self.k]] for final, _ in outcomes],
+                dtype=np.uint8,
+            ).reshape(len(items), self.k)
+            sign = np.ones(len(items))
+            if self.prep_sorted:
+                cuts = np.array(
+                    [[int(b) for b in cut] for _, cut in outcomes], dtype=float
+                ).reshape(len(items), -1)
+                sign = np.prod(-((-1.0) ** cuts), axis=1)
+            counts = np.array([count for _, count in items], dtype=float)
+            self._arrays = (outcomes, bits, sign, counts)
+        return self._arrays
+
+    def resampled(self, rng):
+        """The same number of shots drawn again from these counts (bootstrap)."""
+        outcomes, bits, sign, counts = self.arrays()
+        total = counts.sum()
+        if total <= 0:
+            return self
+        drawn = rng.multinomial(int(round(total)), counts / total).astype(float)
+        return _JointCounts(
+            None, self.prep_sorted, self.k, (outcomes, bits, sign, drawn)
+        )
 
     def correlators(self):
-        return _CountCorrelators(self.joint, self.prep_sorted, self.k)
+        return _CountCorrelators(counts=self)
+
+    def __getstate__(self):  # ship the counts, not the arrays
+        return {
+            "_joint": self.joint,
+            "prep_sorted": self.prep_sorted,
+            "k": self.k,
+            "_arrays": None,
+        }
 
 
 class _CountCorrelators(dict):
     """The correlators of :class:`_JointCounts`, computed when first read (any
     mask)."""
 
-    def __init__(self, joint, prep_sorted, k):
+    #: Up to this many qubits every correlator is computed at once (a
+    #: Walsh-Hadamard transform); above, only the ones read.
+    FULL_TRANSFORM_QUBITS = 10
+
+    def __init__(self, joint=None, prep_sorted=(), k=0, counts=None):
         super().__init__()
-        self.joint = joint
-        self.prep_sorted = list(prep_sorted)
-        self.k = int(k)
+        self.counts = (
+            counts if counts is not None else _JointCounts(joint, prep_sorted, k)
+        )
+
+    @property
+    def joint(self):
+        return self.counts.joint
+
+    @property
+    def prep_sorted(self):
+        return self.counts.prep_sorted
+
+    @property
+    def k(self):
+        return self.counts.k
 
     def __missing__(self, mask):
-        if self.k <= 16:  # all of them at once (a Walsh-Hadamard transform)
+        mask = int(mask)
+        if self.k <= self.FULL_TRANSFORM_QUBITS:
             self.update(_z_correlators(self.joint, self.prep_sorted, self.k))
-            if int(mask) in self:
-                return dict.__getitem__(self, int(mask))
-        value = _z_correlators(self.joint, self.prep_sorted, self.k, [int(mask)])
-        self.update(value)
-        return value[int(mask)]
+            if mask in self:
+                return dict.__getitem__(self, mask)
+        _, bits, sign, counts = self.counts.arrays()
+        total = counts.sum() or 1.0
+        picked = [q for q in range(self.k) if (mask >> q) & 1]
+        parity = (
+            bits[:, picked].sum(axis=1, dtype=np.int64) & 1 if picked else 0
+        )  # signed: 1 - 2 * parity must not wrap
+        value = float(np.sum(counts * sign * (1 - 2 * parity)) / total)
+        dict.__setitem__(self, mask, value)
+        return value
 
     def __reduce__(self):
         return (_CountCorrelators, (self.joint, self.prep_sorted, self.k))
