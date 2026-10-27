@@ -973,6 +973,12 @@ class CombinedCutSubcircuits(CutSubcircuits):
         #: Number of parts recombined.
         self.number_components = len(self.parts)
 
+    def describe(self, values=None):
+        """A table of every part's subcircuits (see ``CutCircuits.describe``)."""
+        from Qdislib.core.cutting_algorithms.describe import describe
+
+        return describe(self, values)
+
     def reconstruct(self, expected_values):
         """Recombine one value per subcircuit, in this object's order."""
         values = list(expected_values)

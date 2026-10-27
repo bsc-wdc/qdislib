@@ -470,6 +470,8 @@ class _CutPlan:
         self.cut_source_index, self.prepared_to_orig = _wire_cut_line_maps(
             placed, self.num_qubits
         )
+        #: How the measure-and-prepare cuts are named to the user (the gate cut).
+        self.gate_labels = [label.get(g, g) for g in gate_cuts]
         if gate_cuts:
             dag = _generate_cut(dag, gate_cuts, rotations=True)
             # Both gate cuts name their markers SUBS{side}_{k}; keep them apart.
@@ -1022,6 +1024,10 @@ class _FragmentTemplate:
         self.graph = plan.graph.subgraph(self.fragment["nodes"]).copy()
         self.groups = plan.groups
         self.gate_tables = plan.gate_tables
+        # names of the cuts, for the readable views (not part of the circuit)
+        self.gate_labels = plan.gate_labels
+        self.had_cuts = plan.had_cuts
+        self.wire_cuts = plan.wire_cuts
         self.ancilla_base = plan.ancilla_base
         self.cut_source_index = plan.cut_source_index
         self.prepared_to_orig = plan.prepared_to_orig
@@ -1328,6 +1334,11 @@ class _FragmentCircuit(Subcircuit):
     def observable(self):
         return None
 
+    def __repr__(self):
+        from Qdislib.core.cutting_algorithms.describe import item_repr
+
+        return item_repr(self)
+
     def _sample(self, shots, backend, seed):
         runner = self.software if backend is None else backend
         if shots is None and not is_simulator(runner):
@@ -1360,6 +1371,20 @@ class _FragmentCircuit(Subcircuit):
 
 @task(returns=1)
 def _run_fragment(
+    template, spec, runner, shots, qpu, qpu_dict, seed, mask=None, cache=None
+):
+    """Build one fragment circuit from its template and run it: a
+    :class:`~Qdislib.core.cutting_algorithms.describe.FragmentResult`
+    ``(corr, original)`` (see :func:`_fragment_run`)."""
+    from Qdislib.core.cutting_algorithms.describe import FragmentResult
+
+    corr, original = _fragment_run(
+        template, spec, runner, shots, qpu, qpu_dict, seed, mask, cache
+    )
+    return FragmentResult(corr, original)
+
+
+def _fragment_run(
     template, spec, runner, shots, qpu, qpu_dict, seed, mask=None, cache=None
 ):
     """Build one fragment circuit from its template and run it: ``(corr, original)``.
@@ -2034,9 +2059,24 @@ class CutCircuits(list):
     """
 
     def __init__(
-        self, circuits, *, plan, keys, readouts, mode, observable=None, draws=None
+        self,
+        circuits,
+        *,
+        plan,
+        keys,
+        readouts,
+        mode,
+        observable=None,
+        draws=None,
+        basis=None,
     ):
         super().__init__(circuits)
+        #: The Pauli string the circuits measure in (a term, or a group's basis).
+        self.basis = (
+            basis
+            if basis is not None
+            else (observable if isinstance(observable, str) else None)
+        )
         self.plan = plan
         self.keys = keys
         self.readouts = readouts
@@ -2047,6 +2087,19 @@ class CutCircuits(list):
         self.number_cuts = (
             len(plan.gate_cuts) + len(plan.had_cuts) + len(plan.wire_cuts)
         )
+
+    def __repr__(self):
+        from Qdislib.core.cutting_algorithms.describe import summary
+
+        return summary(self)
+
+    def describe(self, values=None):
+        """A table of the subcircuits -- fragment, qubits, the cut terms each
+        runs -- and, given their results, each one's values named by qubit and
+        the reconstructed value. ``.rows`` holds the data."""
+        from Qdislib.core.cutting_algorithms.describe import describe
+
+        return describe(self, values)
 
     def __getattr__(self, name):
         if name in ("number_components", "weights", "config_of"):
@@ -2143,6 +2196,7 @@ def circuit_cutting_subcircuits(
                     else [(c, mask) for (c, _), mask in zip(members, masks)]
                 ),
                 draws=draws,
+                basis=basis,
             )
         )
     if len(parts) == 1:

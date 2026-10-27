@@ -353,7 +353,11 @@ class EngineCache:
             if self.key == "exact":
                 payload = self._get(key)
                 if payload is not None:
-                    return from_payload(payload)
+                    from Qdislib.core.cutting_algorithms.describe import (
+                        FragmentResult,
+                    )
+
+                    return FragmentResult(*from_payload(payload))
         request = CacheRequest(
             self.store, key if self.key == "exact" else None, self.refresh, shots
         )

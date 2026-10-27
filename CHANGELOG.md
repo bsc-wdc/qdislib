@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Readable three-step objects.** A subcircuit list prints a summary (subcircuits,
+  fragments, cuts, `gamma`, observable), each subcircuit its fragment, qubits and the
+  cut terms it runs, and each result -- now a `FragmentResult` `(corr, qubits)`,
+  still a pair -- its values named by qubit and Pauli (`Z[q0,q1,q2]: -0.0143`,
+  `X[q0,q1]` for a term measured in X) instead of bit masks.
+  `subs.describe(values)` is a table of every subcircuit with its values and the
+  reconstructed value (`.rows` for the data, HTML in Jupyter). A distribution
+  list's results show `<Z>` per qubit, not their `2**n` correlators.
 - **A Pauli-sum observable runs once per commuting group, not once per term.** The
   terms are grouped qubit-wise (on every qubit the same Pauli or `I`); each group
   runs one set of fragment circuits in its basis and every term of the group is

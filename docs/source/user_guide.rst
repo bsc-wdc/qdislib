@@ -404,14 +404,15 @@ cutting and the reconstruction. This enables:
 Every item is a :class:`~Qdislib.Subcircuit`, whatever the cut type:
 
 - ``s.circuit`` -- the native circuit in ``software`` (a Qiskit ``QuantumCircuit``
-  above), to inspect, draw, transpile or submit yourself;
-- ``s.software``, ``s.num_qubits``;
-- ``s.observable`` -- the Z/I string read at its end, or ``None`` when every qubit is
-  read in Z (the ``_sampling_subcircuits`` lists).
+  above), built when asked for, to inspect, draw, transpile or submit yourself;
+- ``s.software``, ``s.num_qubits``, and ``s.draws`` (with ``num_samples``: how many
+  drawn configurations use it, to size its shots).
 
-Run the items of a ``*_subcircuits`` list with ``qd.expectation_value(s, shots=...,
-backend=..., seed=...)`` and those of a ``*_sampling_subcircuits`` list with
-``qd.sample_subcircuit(s, shots=..., backend=..., seed=...)``; ``backend`` takes the
+Running an item -- ``qd.expectation_value(s, shots=..., backend=..., seed=...)`` or
+``qd.sample_subcircuit(...)``, either works -- returns a ``FragmentResult``
+``(corr, qubits)``: the subcircuit's Z-correlators that the reconstruction reads
+(the gate cut's measurement sign applied), and the circuit qubits they refer to.
+``reconstruct`` takes one per item, in order. ``backend`` takes the
 same values as in the all-in-one calls, and ``None`` runs the subcircuit on its own
 SDK's simulator. Choosing it per subcircuit is how you route by size:
 
@@ -422,6 +423,31 @@ SDK's simulator. Choosing it per subcircuit is how you route by size:
         qd.expectation_value(s, shots=4000, backend=ibm if s.num_qubits <= 127 else None)
         for s in subcircuits
     ]
+
+**Seeing what is passed between the steps.** The list, each item and each result
+print readably, and ``subcircuits.describe(values)`` is a table of every
+subcircuit -- its fragment, its qubits (``q2'`` is a wire cut's prepared line
+carrying qubit 2, ``a0`` a Hadamard ancilla), the cut terms it runs, and its values
+named by the qubits and Pauli they read -- with the reconstructed value at the end
+(``.rows`` has the data, e.g. for pandas; in Jupyter it shows as a table):
+
+.. code-block:: python
+
+    >>> subcircuits
+    <CutCircuits: 12 subcircuits, 2 fragments, gate ['CZ_9'], gamma 3, observable ZZZZZZ>
+    >>> values[0]
+    FragmentResult(Z[q0,q1,q2]: -0.0143; 1 correlator)
+    >>> subcircuits.describe(values)
+    #   fragment  qubits    terms                           values
+    0   0         q0 q1 q2  CZ_9 side 1: RZ(-π/2)           Z[q0,q1,q2]: -0.01431
+    1   1         q3 q4 q5  CZ_9 side 2: RZ(-π/2)           Z[q3,q4,q5]: +0.4348
+    ...
+    reconstructed value: +0.03848
+
+A value is the subcircuit's own expectation of its part of the observable (with a
+Pauli sum, one per term of its group). For a distribution list each result holds all
+``2**n`` correlators, so the views show only ``<Z>`` of each qubit, and the most
+likely outcomes of the reconstructed distribution.
 
 ``subcircuits.reconstruct(results)`` is the one way to recombine (the 1.x
 ``*_reconstruction`` functions are deprecated).
