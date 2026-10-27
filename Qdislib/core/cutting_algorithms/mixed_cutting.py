@@ -317,6 +317,9 @@ def _golden_wires(graph, fragments):
     return golden
 
 
+from Qdislib.utils.exceptions import InvalidCutError  # noqa: E402
+
+
 def _normalise_cuts(cuts, hadamard):
     """``(gate, hadamard, wire)`` cut lists from a dict or a flat list.
 
@@ -331,10 +334,21 @@ def _normalise_cuts(cuts, hadamard):
             raise ValueError(
                 f"Unknown cut kind(s) {sorted(unknown)}: use 'gate', 'hadamard', 'wire'."
             )
+        for kind in ("gate", "hadamard", "wire"):
+            if isinstance(cuts.get(kind), str):
+                raise InvalidCutError(
+                    f"cuts[{kind!r}] must be a list of cuts, got the string "
+                    f"{cuts[kind]!r} (write [{cuts[kind]!r}])."
+                )
         gate = list(cuts.get("gate") or [])
         had = list(cuts.get("hadamard") or [])
         wire = [tuple(edge) for edge in cuts.get("wire") or []]
     else:
+        if isinstance(cuts, str):
+            raise InvalidCutError(
+                f"cuts must be a list of cuts, got the string {cuts!r} "
+                f"(write [{cuts!r}])."
+            )
         gate, had, wire = [], [], []
         for cut in cuts or []:
             if isinstance(cut, str):
@@ -1322,9 +1336,15 @@ class _FragmentCircuit(Subcircuit):
         )
 
     def _expectation(self, shots, backend, seed, cache, cache_mode):
-        if cache is not None:
-            raise ValueError("cache= is not supported for circuit_cutting fragments")
-        return self._sample(shots, backend, seed)
+        if cache is None or cache is False:
+            return self._sample(shots, backend, seed)
+        # The engine's cache (cache_mode does not apply: the whole result is kept).
+        from Qdislib.core.cutting_algorithms.engine_cache import EngineCache, _store
+
+        runner = self.software if backend is None else backend
+        if shots is None and not is_simulator(runner):
+            raise ValueError("shots=None (exact) needs a simulator backend")
+        return EngineCache(_store(cache)).run(self, shots, seed, runner=runner)
 
     def sample(self, shots=1024, seed=None):
         return self._sample(shots, None, seed)
@@ -1962,6 +1982,15 @@ class CutCircuits(list):
         self.number_cuts = (
             len(plan.gate_cuts) + len(plan.had_cuts) + len(plan.wire_cuts)
         )
+
+    def __getattr__(self, name):
+        if name in ("number_components", "weights", "config_of"):
+            raise AttributeError(
+                f"subcircuit lists have no {name!r} since 2.0.0 (they come from "
+                "the circuit_cutting engine): combine the results with "
+                "subs.reconstruct(results)."
+            )
+        raise AttributeError(name)
 
     def reconstruct(self, results):
         """Recombine one result per subcircuit, in this order (values or futures)."""

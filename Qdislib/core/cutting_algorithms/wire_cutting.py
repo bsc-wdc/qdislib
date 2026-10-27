@@ -3462,28 +3462,19 @@ def wire_cutting_subcircuits(
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: A list of subcircuits with ``reconstruct(values)``.
     """
-    if num_samples is not None:
-        from Qdislib.core.cutting_algorithms.mixed_cutting import (
-            circuit_cutting_subcircuits,
-        )
+    from Qdislib.core.cutting_algorithms.mixed_cutting import (
+        circuit_cutting_subcircuits,
+    )
 
-        return circuit_cutting_subcircuits(
-            circuit,
-            {"wire": cuts},
-            observable,
-            software=software,
-            optimized=optimized,
-            joint=joint,
-            num_samples=num_samples,
-            seed=seed,
-        )
-    return _wire_cutting_subcircuits(
+    return circuit_cutting_subcircuits(
         circuit,
-        cuts,
-        observables=default_observable(observable, circuit),
-        software=resolve_software(software, circuit),
+        {"wire": cuts},
+        observable,
+        software=software,
         optimized=optimized,
         joint=joint,
+        num_samples=num_samples,
+        seed=seed,
     )
 
 
@@ -3504,22 +3495,18 @@ def wire_cutting_sampling_subcircuits(
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: A list of subcircuits with ``reconstruct(results)``.
     """
-    if optimized or num_samples is not None:
-        from Qdislib.core.cutting_algorithms.mixed_cutting import (
-            circuit_cutting_sampling_subcircuits,
-        )
+    from Qdislib.core.cutting_algorithms.mixed_cutting import (
+        circuit_cutting_sampling_subcircuits,
+    )
 
-        return circuit_cutting_sampling_subcircuits(
-            circuit,
-            {"wire": cuts},
-            software=software,
-            optimized=optimized,
-            num_samples=num_samples,
-            seed=seed,
-            joint=joint,
-        )
-    return _wire_cutting_sampling_subcircuits(
-        circuit, cuts, software=resolve_software(software, circuit)
+    return circuit_cutting_sampling_subcircuits(
+        circuit,
+        {"wire": cuts},
+        software=software,
+        optimized=optimized,
+        num_samples=num_samples,
+        seed=seed,
+        joint=joint,
     )
 
 
@@ -3538,6 +3525,9 @@ def wire_cutting_subcircuit_reconstruction(
         DeprecationWarning,
         stacklevel=2,
     )
+    from Qdislib.core.cutting_algorithms._reconstruction import reject_engine_results
+
+    reject_engine_results(expected_values, "wire_cutting_subcircuit_reconstruction")
     return _wire_cutting_subcircuit_reconstruction(
         expected_values, number_cuts, number_components
     )

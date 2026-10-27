@@ -282,8 +282,10 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
             circuit, _CHAIN_CUTS, software="qibo", optimized=True
         )
         self.assertIsNotNone(subs)
-        # Measure-only (3) + mixed (3*4) + prepare-only (4) = 19, not 8**2 = 64.
-        self.assertEqual(len(subs), 3**1 + (3**1) * (4**1) + 4**1)
+        # Measure-only + mixed + prepare-only, not 8**2 = 64: 3 + 3*4 + 4 = 19 in
+        # general, 2 + 2*3 + 3 = 11 here (both wires are golden cut points), the
+        # same circuits as the all-in-one call.
+        self.assertEqual(len(subs), 2 + 2 * 3 + 3)
         values = [qd.expectation_value(s, shots=10000) for s in subs]
         self.assertLess(abs(subs.reconstruct(values) - analytical), 0.2)
 

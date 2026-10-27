@@ -22,6 +22,8 @@
 import importlib.util
 import unittest
 
+from Qdislib import expectation_value
+
 from tests import BaseTimedTestCase
 
 CUDAQ_AVAILABLE = importlib.util.find_spec("cudaq") is not None
@@ -142,12 +144,12 @@ class CircuitTest(BaseTimedTestCase):
         for subcircuit in subcircuits:
             print(subcircuit)
             # Execute individually each subcircuit
-            result = _expec_value_qibo(subcircuit)
+            result = expectation_value(subcircuit, backend="qibo")
             results.append(result)
 
         # results = compss_wait_on(results)
 
-        reconstruction = wire_cutting_subcircuit_reconstruction(results, number_cuts=1)
+        reconstruction = subcircuits.reconstruct(results)
 
         analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
         if abs(reconstruction - analytical) < 0.2:
@@ -317,10 +319,10 @@ class CircuitTest(BaseTimedTestCase):
         results = []
         for subcircuit in subcircuits:
             # Execute individually each subcircuit
-            result = _expec_value_qiskit(subcircuit)
+            result = expectation_value(subcircuit, backend="qiskit")
             results.append(result)
 
-        reconstruction = wire_cutting_subcircuit_reconstruction(results, number_cuts=1)
+        reconstruction = subcircuits.reconstruct(results)
 
         analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
         if abs(reconstruction - analytical) < 0.2:
@@ -401,13 +403,13 @@ class CircuitTest(BaseTimedTestCase):
         results = []
         for subcircuit in subcircuits:
             # Execute individually each subcircuit
-            result = _expec_value_cudaq(subcircuit)
+            result = expectation_value(subcircuit, backend="cudaq")
             results.append(result)
 
         results = compss_wait_on(results)
         print(results)
 
-        reconstruction = wire_cutting_subcircuit_reconstruction(results, number_cuts=1)
+        reconstruction = subcircuits.reconstruct(results)
 
         analytical = analytical_solution(circuit, "Z" * circuit.nqubits)
         if abs(reconstruction - analytical) < 0.2:

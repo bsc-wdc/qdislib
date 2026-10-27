@@ -1946,11 +1946,15 @@ def gate_cutting_hadamard_subcircuits(
     :param seed: Seed for the ``num_samples`` draws.
     :return: A list of subcircuits with ``reconstruct(values)``.
     """
-    return _gate_cutting_hadamard_subcircuits(
+    from Qdislib.core.cutting_algorithms.mixed_cutting import (
+        circuit_cutting_subcircuits,
+    )
+
+    return circuit_cutting_subcircuits(
         circuit,
-        cuts,
-        default_observable(observable, circuit),
-        software=resolve_software(software, circuit),
+        {"hadamard": cuts},
+        observable,
+        software=software,
         joint=joint,
         num_samples=num_samples,
         seed=seed,
@@ -1965,10 +1969,14 @@ def gate_cutting_hadamard_sampling_subcircuits(
 
     :return: A list of subcircuits with ``reconstruct(results)``.
     """
-    return _gate_cutting_hadamard_sampling_subcircuits(
+    from Qdislib.core.cutting_algorithms.mixed_cutting import (
+        circuit_cutting_sampling_subcircuits,
+    )
+
+    return circuit_cutting_sampling_subcircuits(
         circuit,
-        cuts,
-        software=resolve_software(software, circuit),
+        {"hadamard": cuts},
+        software=software,
         joint=joint,
         num_samples=num_samples,
         seed=seed,
@@ -1988,4 +1996,7 @@ def gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of):
         DeprecationWarning,
         stacklevel=2,
     )
+    from Qdislib.core.cutting_algorithms._reconstruction import reject_engine_results
+
+    reject_engine_results(values, "gate_cutting_hadamard_subcircuit_reconstruction")
     return _gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of)

@@ -121,3 +121,21 @@ def scaled_sum(values, scale):
 def scaled_product(values, scale):
     """``scale * prod(values)`` as a task (independent pieces of a circuit)."""
     return scale * math.prod(values)
+
+
+def reject_engine_results(values, name):
+    """Stop a deprecated positional reconstruction (``name``) from reading the
+    results of a 2.0 subcircuit list, which only ``subs.reconstruct`` can combine
+    (a fragment circuit's result is its ``(correlators, qubits)`` pair)."""
+    for value in values or ():
+        if (
+            isinstance(value, (tuple, list))
+            and len(value) == 2
+            and isinstance(value[1], (list, tuple))
+            and not isinstance(value[0], (int, float))
+        ):
+            raise TypeError(
+                f"{name}() cannot combine these results: since 2.0.0 the "
+                "subcircuit lists come from the circuit_cutting engine. Use "
+                "subs.reconstruct(results) on the list they came from."
+            )

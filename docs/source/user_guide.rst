@@ -107,15 +107,20 @@ running it: ``{"subcircuits", "configurations", "fragments", "gamma"}``.
 The 1.x names (``observables=``, ``software=`` on the all-in-one calls, ``qpu=``,
 ``qpu_dict=``, ``gpu=``, ``method=``, ``gates_cut=``, ``gate_wire_cutting``,
 ``cut_cost`` and the standalone ``*_reconstruction`` functions) still work in this
-release, with a ``DeprecationWarning`` naming the replacement.
+release, with a ``DeprecationWarning`` naming the replacement -- except that the
+positional ``*_subcircuit_reconstruction`` functions cannot read the results of
+2.0 subcircuit lists (see below).
 
 Every cut type runs on one engine, :func:`~Qdislib.circuit_cutting`'s: ``gate_cutting``,
 ``wire_cutting`` and ``gate_cutting_hadamard`` (and their ``_sampling`` forms) build
 each fragment circuit in its own task and reconstruct by contracting the cuts. Only
 the deprecated ``qpu=`` / ``qpu_dict=`` / ``gpu=`` / ``method=`` options (and a
-custom ``CacheStrategy``) still run the 1.x implementation, and the standard
-three-step lists keep their 1.x layout while the deprecated ``*_reconstruction``
-functions that read it remain.
+custom ``CacheStrategy``) still run the 1.x implementation. The three-step lists
+(``*_subcircuits``) come from the same engine, so they hold the same circuits as
+the all-in-one calls and :func:`~Qdislib.cutting_overhead` count -- golden cut
+points and angle-aware gate cuts included -- and ``subs.reconstruct(results)``
+combines them. The deprecated positional ``*_subcircuit_reconstruction`` functions
+cannot read these lists' results and raise an error that says so.
 
 Circuits, SDKs and naming the gates to cut
 ------------------------------------------

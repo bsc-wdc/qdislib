@@ -336,12 +336,14 @@ class EngineCache:
         #: key -> the (future) result of a circuit this call submitted.
         self._inflight = {}
 
-    def run(self, circuit, shots, seed):
+    def run(self, circuit, shots, seed, runner=None):
         """The result of one fragment circuit: from the store or an earlier
-        submission when it has one, else run (in a task that stores it)."""
+        submission when it has one, else run (in a task that stores it).
+        ``runner`` is where it runs (default: the circuit's own backend)."""
         from Qdislib.core.cutting_algorithms.mixed_cutting import _run_fragment
 
-        key = circuit_key(circuit.template, circuit.spec, circuit.software, shots)
+        runner = circuit.software if runner is None else runner
+        key = circuit_key(circuit.template, circuit.spec, runner, shots)
         if key in self._inflight:  # this call already runs it (another term)
             return self._inflight[key]
         if not self.refresh:
@@ -355,7 +357,7 @@ class EngineCache:
         future = _run_fragment(
             circuit.template,
             circuit.spec,
-            circuit.software,
+            runner,
             shots,
             circuit.qpu,
             circuit.qpu_dict,

@@ -219,7 +219,12 @@ def resolve_cuts(circuit, cuts):
         return cut
 
     if isinstance(cuts, dict):
-        return {kind: walk(list(value or [])) for kind, value in cuts.items()}
+        # a string where a list belongs is left for the caller to reject (list()
+        # would split it into characters)
+        return {
+            kind: value if isinstance(value, str) else walk(list(value or []))
+            for kind, value in cuts.items()
+        }
     return walk(cuts) if isinstance(cuts, (list, tuple, str)) else cuts
 
 

@@ -300,8 +300,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implementation, the vectorised correlators and deferred cut-point measurements on
   simulators everywhere. The values are the same up to shot noise. Only the
   deprecated `qpu=` / `qpu_dict=` / `gpu=` / `method=` options still run the 1.x
-  code, and the standard three-step lists keep their 1.x layout while
-  the deprecated `*_subcircuit_reconstruction` functions that read it remain.
+  code.
+- **The three-step lists come from the engine too** (`gate_cutting_subcircuits`,
+  `wire_cutting_subcircuits`, `gate_cutting_hadamard_subcircuits` and their
+  `_sampling` forms): the same circuits the all-in-one call runs and
+  `cutting_overhead` counts, golden and angle-aware cuts included (a golden wire:
+  12 circuits, 5 optimized, where the 1.x list had 16 and 7; an `rzz(0.1)` gate
+  cut: 12 at `gamma` 1.2 where it had 72 at 9). `expectation_value(s, cache=...)`
+  uses the engine's cache. **Breaking for 1.x scripts:** the deprecated
+  positional `*_subcircuit_reconstruction` functions cannot read these results
+  (nor `subs.number_components` / `weights` / `config_of`); they raise an error
+  naming `subs.reconstruct(results)`, which every list has.
   `reduce_chunk` is now ignored (deprecated).
 - **Exact mode simulates fragments itself.** A small numpy statevector simulator
   applies the DAG's OpenQASM gates directly, instead of building an SDK circuit

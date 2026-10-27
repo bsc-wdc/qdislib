@@ -327,18 +327,16 @@ class HadamardThreeStepTest(BaseTimedTestCase):
         import Qdislib as qd
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
             gate_cutting_hadamard_subcircuits,
-            _expectation_z,
         )
 
         qibo.set_backend("numpy")
         c = self._circuit()
         analytical = qd.analytical_solution(c, "ZZ")
         subs = gate_cutting_hadamard_subcircuits(c, ["CZ_2"], "ZZ", software="qibo")
-        self.assertEqual(len(subs), len(subs.config_of))
-        values = []
-        for frag, obs in subs:
-            z_qubits = [q for q, ch in enumerate(obs) if ch == "Z"]
-            values.append(_expectation_z(frag, z_qubits))
+        self.assertEqual(
+            len(subs), qd.cutting_overhead(c, {"hadamard": ["CZ_2"]})["subcircuits"]
+        )
+        values = [qd.expectation_value(s, shots=None) for s in subs]
         self.assertLess(abs(analytical - subs.reconstruct(values)), _TOL)
 
     def test_subcircuits_via_expectation_value(self):
@@ -484,12 +482,7 @@ class HadamardSamplingTest(BaseTimedTestCase):
             c, ["CZ_2"], "ZZ", software="qibo", num_samples=8000, seed=1
         )
         # exact per-fragment eval isolates the config-sampling noise
-        from Qdislib.core.cutting_algorithms.hadamard_cut import _expectation_z
-
-        values = [
-            _expectation_z(frag, [q for q, ch in enumerate(obs) if ch == "Z"])
-            for frag, obs in subs
-        ]
+        values = [qd.expectation_value(s, shots=None) for s in subs]
         self.assertLess(abs(analytical - subs.reconstruct(values)), 0.1)
 
     def test_seed_reproducible(self):

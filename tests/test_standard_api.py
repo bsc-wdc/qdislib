@@ -198,15 +198,15 @@ class SubcircuitObjectTest(BaseTimedTestCase):
         subs = qd.gate_cutting_subcircuits(_circuit(), ["CZ_8"])
         self.assertIsInstance(subs[0].circuit, QuantumCircuit)
 
-    def test_wrong_run_helper_says_which(self):
+    def test_either_run_helper_runs_a_subcircuit(self):
+        """A fragment circuit returns its correlators, which serve the expectation
+        value and the distribution, so either helper runs it."""
         import Qdislib as qd
 
-        subs = qd.gate_cutting_subcircuits(_circuit(), ["CZ_8"])
-        with self.assertRaisesRegex(TypeError, "expectation_value"):
-            qd.sample_subcircuit(subs[0], shots=10)
-        subs = qd.gate_cutting_sampling_subcircuits(_circuit(), ["CZ_8"])
-        with self.assertRaisesRegex(TypeError, "sample_subcircuit"):
-            qd.expectation_value(subs[0], shots=10)
+        qc = _circuit()
+        subs = qd.gate_cutting_subcircuits(qc, ["CZ_8"], "ZZZZ")
+        values = [qd.sample_subcircuit(s, shots=None) for s in subs]
+        self.assertAlmostEqual(subs.reconstruct(values), _exact(qc, "ZZZZ"), places=9)
 
     def test_route_each_subcircuit_by_size(self):
         """The three-step loop picks the backend per subcircuit."""
@@ -295,11 +295,18 @@ class DeprecatedNamesTest(BaseTimedTestCase):
             qd.cut_cost(["CZ_8"])
         subs = qd.gate_cutting_subcircuits(qc, ["CZ_8"])
         values = [qd.expectation_value(s, shots=None) for s in subs]
+        # the deprecated positional reconstruction cannot read 2.0 lists, and says
+        # what to use instead
         with self.assertWarns(DeprecationWarning):
-            old = qd.gate_cutting_subcircuit_reconstruction(values, 1, 2)
+            with self.assertRaisesRegex(TypeError, "subs.reconstruct"):
+                qd.gate_cutting_subcircuit_reconstruction(values, 1, 2)
+        with self.assertRaisesRegex(AttributeError, "subs.reconstruct"):
+            subs.number_components
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
-            self.assertAlmostEqual(subs.reconstruct(values), old)
+            self.assertAlmostEqual(
+                subs.reconstruct(values), _exact(qc, "Z" * qc.num_qubits), places=9
+            )
 
 
 class OverheadTest(BaseTimedTestCase):

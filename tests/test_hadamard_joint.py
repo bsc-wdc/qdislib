@@ -91,14 +91,15 @@ class JointHadamardCutTest(BaseTimedTestCase):
                     self.assertAlmostEqual(
                         self._joint(circuit, cut), self._exact(circuit), places=10
                     )
+                    import Qdislib as qd
+
                     subs = gate_cutting_hadamard_subcircuits(
                         circuit, cut, "Z" * circuit.nqubits, joint=True
                     )
-                    self.assertEqual(
-                        len(set(subs.config_of)), 2**k * (2 ** (k + 1) - 1)
-                    )
+                    cost = qd.cutting_overhead(circuit, {"hadamard": cut}, joint=True)
+                    self.assertEqual(cost["configurations"], 2**k * (2 ** (k + 1) - 1))
                     # one ancilla per side, however many gates cross
-                    self.assertEqual({s[0].nqubits for s in subs}, {k + 1})
+                    self.assertEqual({s.num_qubits for s in subs}, {k + 1})
                     phi, groups = _hadamard_cut_overhead(circuit, cut, joint=True)
                     self.assertAlmostEqual(phi, 2 ** (k + 1) - 1)
                     self.assertEqual(len(groups), 1)
@@ -113,12 +114,12 @@ class JointHadamardCutTest(BaseTimedTestCase):
         )
 
         circuit, cut = _one_boundary(1)
-        separate = gate_cutting_hadamard_subcircuits(circuit, cut, "ZZ")
+        separate = gate_cutting_hadamard_subcircuits(circuit, cut, "ZZ", joint=False)
         joint = gate_cutting_hadamard_subcircuits(circuit, cut, "ZZ", joint=True)
-        self.assertEqual(separate.weights, joint.weights)
-        for (a, obs_a), (b, obs_b) in zip(separate, joint):
-            self.assertEqual(obs_a, obs_b)
-            self.assertEqual(a.draw(), b.draw())
+        self.assertEqual(len(separate), len(joint))
+        for a, b in zip(separate, joint):
+            self.assertEqual(a.observable, b.observable)
+            self.assertEqual(a.circuit.to_qasm(), b.circuit.to_qasm())
 
     def test_general_gates_in_one_group(self):
         from qibo import gates, models
@@ -215,7 +216,9 @@ class JointHadamardCutTest(BaseTimedTestCase):
                     subs = gate_cutting_hadamard_subcircuits(
                         circuit, cut, observable, joint=joint
                     )
-                    values = [self._exact(s[0], s[1]) for s in subs]
+                    import Qdislib as qd
+
+                    values = [qd.expectation_value(s, shots=None) for s in subs]
                     self.assertAlmostEqual(subs.reconstruct(values), exact, places=10)
 
     def test_sampling_is_unbiased(self):
