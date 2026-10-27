@@ -73,8 +73,8 @@ has the same four functions with the same arguments:
 
     X(circuit, cuts, observable=None, *, backend=None, shots=1024, seed=None, sync=True, ...)
     X_sampling(circuit, cuts, *, backend=None, shots=1024, seed=None, sync=True, ...)
-    X_subcircuits(circuit, cuts, observable=None, *, software=None, ...)
-    X_sampling_subcircuits(circuit, cuts, *, software=None, ...)
+    X_subcircuits(circuit, cuts, observable=None, *, ...)
+    X_sampling_subcircuits(circuit, cuts, *, ...)
 
 where ``X`` is ``gate_cutting``, ``wire_cutting``, ``gate_cutting_hadamard`` or
 ``circuit_cutting``.
@@ -96,10 +96,12 @@ where ``X`` is ``gate_cutting``, ``wire_cutting``, ``gate_cutting_hadamard`` or
   (``circuit_cutting``).
 - Only ``circuit``, ``cuts`` and ``observable`` go by position; the rest by keyword.
 
-The three-step forms take ``software`` -- the **language** the subcircuits are
-written in (``None``: the circuit's own) -- and return a list of
-:class:`~Qdislib.Subcircuit` objects, the same for every cut type, plus
-``reconstruct``. See :ref:`three-step <three-step-label>`.
+The three-step forms return a list of :class:`~Qdislib.Subcircuit` objects, the same
+for every cut type, plus ``reconstruct``. The list is SDK-neutral: the **language**
+of its circuits is chosen when they are built, ``subs.circuits(software)`` (``None``:
+the circuit's own), and where they run with ``backend=``. See
+:ref:`three-step <three-step-label>`. (``software=`` on the three-step forms is
+deprecated: it only set that default language.)
 
 ``qd.cutting_overhead(circuit, cuts, ...)`` reports the cost of any cut without
 running it: ``{"subcircuits", "configurations", "fragments", "gamma"}``.
@@ -390,13 +392,13 @@ cutting and the reconstruction. This enables:
 
 .. code-block:: python
 
-    # 1. Cut the circuit into subcircuits, written in the SDK you choose
-    #    ("qibo", "qiskit", "cudaq", "pennylane", "qilisdk"; None = the circuit's own).
-    subcircuits = qd.gate_cutting_subcircuits(circuit, gate_cut, "ZZZZ", software="qiskit")
+    # 1. Cut the circuit into subcircuits (SDK-neutral; subcircuits.circuits("qiskit")
+    #    gives them as native circuits in any SDK).
+    subcircuits = qd.gate_cutting_subcircuits(circuit, gate_cut, "ZZZZ")
     # (the same for wire_cutting_, gate_cutting_hadamard_ and circuit_cutting_subcircuits)
 
-    # 2. Run each subcircuit — this loop is yours to control.
-    values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
+    # 2. Run each subcircuit — this loop is yours to control (backend= picks where).
+    values = [qd.expectation_value(s, shots=8192, backend="qiskit") for s in subcircuits]
 
     # 3. Recombine into the original circuit's expectation value.
     result = subcircuits.reconstruct(values)
@@ -438,9 +440,26 @@ One native circuit per subcircuit, in the list's order, on the subcircuit's qubi
 (``subcircuits.describe()`` names them). A gate cut's measuring side has a
 mid-circuit measurement; ``defer_measurements=True`` moves it onto an extra qubit
 read at the end (the same channel), for hardware without mid-circuit measurement --
-an SDK that cannot express it (QiliSDK) gets that circuit anyway. To have Qdislib
-recombine their results, run the items themselves (step 2 above), which return what
-``reconstruct`` reads.
+an SDK that cannot express it (QiliSDK) gets that circuit anyway.
+
+Run with your own tools, their counts come back with ``reconstruct_counts`` --
+one ``{bitstring: count}`` per circuit, every qubit measured at the end:
+
+.. code-block:: python
+
+    circuits = subcircuits.circuits("qiskit", defer_measurements=True)
+    counts = []
+    for c in circuits:
+        c = c.copy()
+        c.measure_all()
+        counts.append(my_backend.run(c, shots=8192).result().get_counts())
+    value = subcircuits.reconstruct_counts(counts, bit_order="q0_last")  # Qiskit's order
+
+``bit_order`` is ``"q0_first"`` (the default, qubit 0 first) or ``"q0_last"``
+(Qiskit's ``get_counts()``). ``qd.result_from_counts(s, counts)`` converts one
+subcircuit's counts into the result ``reconstruct`` reads, to mix your own runs with
+Qdislib's. Counts of a circuit whose gate cut still measures mid-circuit are
+refused: build it with ``defer_measurements=True``.
 
 **Seeing what is passed between the steps.** The list, each item and each result
 print readably, and ``subcircuits.describe(values)`` is a table of every
@@ -688,7 +707,7 @@ subcircuits there from the three-step loop:
     gpu = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"use_gpu": True}))
     value = qd.gate_cutting(circuit, cut, backend=gpu)
 
-    subs = qd.gate_cutting_subcircuits(circuit, cut, software="qiskit")
+    subs = qd.gate_cutting_subcircuits(circuit, cut)
     values = [
         qd.expectation_value(s, backend=gpu if s.num_qubits >= 18 else None)
         for s in subs

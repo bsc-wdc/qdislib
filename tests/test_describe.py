@@ -147,6 +147,52 @@ class NativeCircuitsTest(BaseTimedTestCase):
             self.assertEqual(deferred[n].num_qubits, plain[n].num_qubits + 1)
             self.assertEqual(mid(deferred[n]), 0)
 
+    @unittest.skipUnless(importlib.util.find_spec("qiskit_aer"), "qiskit-aer required")
+    def test_own_tools_results_reconstruct(self):
+        """Run subs.circuits() with Aer directly and hand the counts back."""
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+        from qiskit_aer import AerSimulator
+
+        qd = self.qd
+        state = Statevector(self.qc)
+
+        def exact(p):
+            return float(state.expectation_value(SparsePauliOp(p[::-1])).real)
+
+        simulator = AerSimulator(seed_simulator=3)
+        for cuts, observable in (
+            ({"gate": ["CZ_9"]}, "ZZZZZZ"),
+            ({"wire": [("CZ_7", "CZ_8")]}, "ZXZZYZ"),
+            ({"hadamard": ["CZ_9"]}, [(0.5, "ZZZZZZ"), (0.2, "XXIIII")]),
+        ):
+            subs = qd.circuit_cutting_subcircuits(self.qc, cuts, observable)
+            counts = []
+            for circuit in subs.circuits("qiskit", defer_measurements=True):
+                circuit = circuit.copy()
+                circuit.measure_all()
+                counts.append(simulator.run(circuit, shots=20000).result().get_counts())
+            value = subs.reconstruct_counts(counts, bit_order="q0_last")
+            ref = (
+                exact(observable)
+                if isinstance(observable, str)
+                else sum(c * exact(p) for c, p in observable)
+            )
+            with self.subTest(cuts=cuts):
+                self.assertLess(abs(value - ref), 0.03)
+
+    def test_counts_need_the_deferred_circuit(self):
+        qd = self.qd
+        subs = qd.circuit_cutting_subcircuits(self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ")
+        deferred = subs.circuits(defer_measurements=True)
+        measuring = next(s for s, c in zip(subs, deferred) if c.num_qubits == 4)
+        with self.assertRaisesRegex(ValueError, "defer_measurements=True"):
+            qd.result_from_counts(measuring, {"000": 10})
+        # tuples of bits and probabilities work too
+        result = qd.result_from_counts(
+            measuring, {(0, 0, 0, 1): 0.5, (1, 1, 0, 0): 0.5}
+        )
+        self.assertEqual(result.qubits, [0, 1, 2])
+
     @unittest.skipUnless(importlib.util.find_spec("qilisdk"), "qilisdk required")
     def test_qilisdk_defers_by_itself(self):
         subs = self.qd.circuit_cutting_subcircuits(

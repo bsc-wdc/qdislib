@@ -332,11 +332,11 @@ class HadamardThreeStepTest(BaseTimedTestCase):
         qibo.set_backend("numpy")
         c = self._circuit()
         analytical = qd.analytical_solution(c, "ZZ")
-        subs = gate_cutting_hadamard_subcircuits(c, ["CZ_2"], "ZZ", software="qibo")
+        subs = gate_cutting_hadamard_subcircuits(c, ["CZ_2"], "ZZ")
         self.assertEqual(
             len(subs), qd.cutting_overhead(c, {"hadamard": ["CZ_2"]})["subcircuits"]
         )
-        values = [qd.expectation_value(s, shots=None) for s in subs]
+        values = [qd.expectation_value(s, shots=None, backend="qibo") for s in subs]
         self.assertLess(abs(analytical - subs.reconstruct(values)), _TOL)
 
     def test_subcircuits_via_expectation_value(self):
@@ -350,8 +350,8 @@ class HadamardThreeStepTest(BaseTimedTestCase):
         qibo.set_backend("numpy")
         c = self._circuit()
         analytical = qd.analytical_solution(c, "ZZ")
-        subs = gate_cutting_hadamard_subcircuits(c, ["CZ_2"], "ZZ", software="qibo")
-        values = [qd.expectation_value(s, shots=8000) for s in subs]
+        subs = gate_cutting_hadamard_subcircuits(c, ["CZ_2"], "ZZ")
+        values = [qd.expectation_value(s, shots=8000, backend="qibo") for s in subs]
         self.assertLess(abs(analytical - subs.reconstruct(values)), 0.08)
 
     def test_standalone_reconstruction_matches_container(self):

@@ -2879,15 +2879,13 @@ def gate_cutting_subcircuits(
     cuts,
     observable=None,
     *,
-    software=None,
+    _software=None,
     optimized=False,
     num_samples=None,
     seed=None,
 ):
     """The subcircuits of :func:`gate_cutting`, to run yourself (three-step).
 
-    :param software: The SDK the subcircuits are written in (``None``: the
-        circuit's own); where they run is chosen when you run them.
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: A list of subcircuits with ``reconstruct(values)``.
@@ -2900,7 +2898,7 @@ def gate_cutting_subcircuits(
         circuit,
         {"gate": cuts},
         observable,
-        software=software,
+        _software=_software,
         optimized=optimized,
         num_samples=num_samples,
         seed=seed,
@@ -2909,7 +2907,7 @@ def gate_cutting_subcircuits(
 
 @standard_arguments
 def gate_cutting_sampling_subcircuits(
-    circuit, cuts, *, software=None, optimized=False, num_samples=None, seed=None
+    circuit, cuts, *, _software=None, optimized=False, num_samples=None, seed=None
 ):
     """The subcircuits of :func:`gate_cutting_sampling`, to sample yourself.
 
@@ -2924,7 +2922,7 @@ def gate_cutting_sampling_subcircuits(
     return circuit_cutting_sampling_subcircuits(
         circuit,
         {"gate": cuts},
-        software=software,
+        _software=_software,
         optimized=optimized,
         num_samples=num_samples,
         seed=seed,

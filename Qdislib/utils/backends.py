@@ -973,6 +973,20 @@ class CombinedCutSubcircuits(CutSubcircuits):
         #: Number of parts recombined.
         self.number_components = len(self.parts)
 
+    def reconstruct_counts(self, counts, bit_order="q0_first"):
+        """``reconstruct`` from the counts of :meth:`circuits` run with your own
+        tools (see ``CutCircuits.reconstruct_counts``)."""
+        from Qdislib.core.cutting_algorithms.mixed_cutting import result_from_counts
+
+        counts = list(counts)
+        if len(counts) != len(self):
+            raise ValueError(
+                f"expected {len(self)} counts, one per subcircuit, got {len(counts)}"
+            )
+        return self.reconstruct(
+            [result_from_counts(s, c, bit_order) for s, c in zip(self, counts)]
+        )
+
     def circuits(self, software=None, *, defer_measurements=False):
         """The native circuits of every part, in order (see
         ``CutCircuits.circuits``)."""

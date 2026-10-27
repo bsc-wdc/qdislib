@@ -161,8 +161,11 @@ class PennylaneCuttingTest(BaseTimedTestCase):
 
         circuit = _qibo_circuit()
         cut = qd.find_cut(circuit, gate_cut=True, wire_cut=False)
-        subcircuits = qd.gate_cutting_subcircuits(circuit, cut, software="pennylane")
-        values = [qd.expectation_value(s, shots=8000) for s in subcircuits]
+        subcircuits = qd.gate_cutting_subcircuits(circuit, cut)
+        values = [
+            qd.expectation_value(s, shots=8000, backend="pennylane")
+            for s in subcircuits
+        ]
         reconstruction = subcircuits.reconstruct(values)
         self.assertLess(abs(reconstruction - self.analytical), 0.2)
 

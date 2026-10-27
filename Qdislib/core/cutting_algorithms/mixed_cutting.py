@@ -58,6 +58,7 @@ __all__ = [
     "circuit_cutting_sampling_subcircuits",
     "cutting_overhead",
     "CutCircuits",
+    "result_from_counts",
 ]
 
 
@@ -1336,6 +1337,10 @@ class _FragmentCircuit(Subcircuit):
         )
         from Qdislib.utils.backends import _materialize
 
+        if software is not None and software != self.software:
+            from Qdislib.core.cutting_algorithms._api import resolve_software
+
+            software = resolve_software(software, None)
         software = software or self.software
         dag, width = self._renumbered()
 
@@ -2067,6 +2072,63 @@ def circuit_cutting_sampling(
     return compss_wait_on(future) if sync else future
 
 
+_BIT_ORDERS = ("q0_first", "q0_last")
+
+
+def result_from_counts(subcircuit, counts, bit_order="q0_first"):
+    """What :func:`~Qdislib.expectation_value` would return for ``subcircuit``,
+    from measurement counts of its circuit run with your own tools.
+
+    The circuit is the one ``subs.circuits(software, defer_measurements=True)``
+    builds, with **every qubit measured at the end** (a gate cut's mid-circuit
+    measurement is then an extra qubit, the last ones). ``counts`` maps each
+    outcome to its count (or probability): a bitstring with qubit 0 first
+    (``bit_order="q0_first"``, Qdislib's order) or last (``"q0_last"``, Qiskit's
+    ``get_counts()``; of a key with several registers, the first is read -- the
+    one ``measure_all()`` adds). Outcomes may also be tuples of bits.
+
+    :return: A :class:`~Qdislib.core.cutting_algorithms.describe.FragmentResult`
+        for ``subs.reconstruct``.
+    """
+    from Qdislib.core.cutting_algorithms.describe import FragmentResult
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _JointCounts,
+        _prepare_sampled_component,
+    )
+
+    if bit_order not in _BIT_ORDERS:
+        raise ValueError(f"bit_order must be one of {_BIT_ORDERS}, got {bit_order!r}")
+    dag, width, prep_sorted, original = _prepare_sampled_component(subcircuit.dag)
+    if dag is None:  # an empty fragment
+        return FragmentResult({0: 1.0}, [])
+    expected = width + len(prep_sorted)
+    joint = {}
+    for outcome, count in counts.items():
+        if isinstance(outcome, str):
+            bits = outcome.split()[0] if " " in outcome.strip() else outcome.strip()
+        else:
+            bits = "".join(str(int(b)) for b in outcome)
+        if bit_order == "q0_last":
+            bits = bits[::-1]
+        if len(bits) != expected:
+            hint = (
+                " Its gate cut measures mid-circuit: build it with "
+                "defer_measurements=True and measure every qubit at the end."
+                if prep_sorted and len(bits) == width
+                else ""
+            )
+            raise ValueError(
+                f"an outcome of {len(bits)} bits ({outcome!r}) for a circuit of "
+                f"{expected} qubits.{hint}"
+            )
+        key = (
+            tuple(int(b) for b in bits[:width]),
+            tuple(int(b) for b in bits[width:]),
+        )
+        joint[key] = joint.get(key, 0) + count
+    return FragmentResult(_JointCounts(joint, prep_sorted, width), original)
+
+
 class CutCircuits(list):
     """The fragment circuits of a :func:`circuit_cutting` cut, plus what recombines
     them::
@@ -2116,6 +2178,20 @@ class CutCircuits(list):
         from Qdislib.core.cutting_algorithms.describe import summary
 
         return summary(self)
+
+    def reconstruct_counts(self, counts, bit_order="q0_first"):
+        """:meth:`reconstruct` from the measurement counts of :meth:`circuits`
+        (``defer_measurements=True``, every qubit measured at the end) run with
+        your own tools, one counts dict per subcircuit in order; see
+        :func:`result_from_counts`."""
+        counts = list(counts)
+        if len(counts) != len(self):
+            raise ValueError(
+                f"expected {len(self)} counts, one per subcircuit, got {len(counts)}"
+            )
+        return self.reconstruct(
+            [result_from_counts(s, c, bit_order) for s, c in zip(self, counts)]
+        )
 
     def circuits(self, software=None, *, defer_measurements=False):
         """The native circuits, one per subcircuit, in this list's order: a plain
@@ -2172,7 +2248,7 @@ def circuit_cutting_subcircuits(
     cuts,
     observable=None,
     *,
-    software=None,
+    _software=None,
     hadamard=False,
     optimized=False,
     joint=True,
@@ -2186,8 +2262,6 @@ def circuit_cutting_subcircuits(
     :class:`~Qdislib.CombinedCutSubcircuits` of one list per qubit-wise commuting
     group of its terms (see :func:`circuit_cutting`).
 
-    :param software: The SDK the subcircuits are written in (``None``: the
-        circuit's own); where they run is chosen when you run them.
     :param num_samples: Draw configurations instead of running them all (see
         :func:`circuit_cutting`); each subcircuit's ``draws`` says how many draws
         use it.
@@ -2196,7 +2270,7 @@ def circuit_cutting_subcircuits(
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms
     from Qdislib.utils.backends import CombinedCutSubcircuits
 
-    software = resolve_software(software, circuit)
+    software = resolve_software(_software, circuit)
     terms = _observable_terms(default_observable(observable, circuit))
     if len(terms) == 1 and terms[0][0] == 1.0:
         groups = [(terms[0][1], None)]  # one term: its own list, as before
@@ -2245,7 +2319,7 @@ def circuit_cutting_sampling_subcircuits(
     circuit,
     cuts,
     *,
-    software=None,
+    _software=None,
     hadamard=False,
     optimized=False,
     joint=True,
@@ -2262,7 +2336,7 @@ def circuit_cutting_sampling_subcircuits(
         hadamard,
         optimized,
         joint,
-        resolve_software(software, circuit),
+        resolve_software(_software, circuit),
         False,
         None,
         num_samples,

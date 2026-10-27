@@ -330,7 +330,7 @@ def _story():
             "          shots=8192)      # None = exact\n"
             "\n"
             "subs = qd.gate_cutting_subcircuits(\n"
-            "    circ, cut, 'ZZZZ', software='qiskit')\n"
+            "    circ, cut, 'ZZZZ')  # .circuits('qiskit')\n"
             "vals = [qd.expectation_value(s,\n"
             "    backend=None)  # or a QPU, per s\n"
             "        for s in subs]\n"
@@ -538,7 +538,7 @@ def _story():
         api_table(
             [
                 ("backend=", "Where it runs: 'qiskit', 'IBM_BACKEND', an object."),
-                ("software=", "3-step: SDK the subcircuits are written in."),
+                ("subs.circuits(sdk)", "3-step: the subcircuits in any SDK."),
                 ("shots=None / seed=n", "Exact / reproducible, on every cut."),
                 ("build_backend(name, cfg)", "A configured backend (QPU, GPU Aer)."),
                 ("available_backends()", "List registered backends."),

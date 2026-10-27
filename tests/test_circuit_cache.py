@@ -316,9 +316,7 @@ class CachedExpectationTest(BaseTimedTestCase):
         # result could not slip through near zero.
         self.assertGreater(abs(analytical), 0.5)
 
-        subs = qd.wire_cutting_subcircuits(
-            _nonzero_circuit(), [("H_1", "CZ_2")], software="qibo"
-        )
+        subs = qd.wire_cutting_subcircuits(_nonzero_circuit(), [("H_1", "CZ_2")])
         cache = qd.InMemoryCircuitCache()
         values = [qd.expectation_value(s, shots=20000, cache=cache) for s in subs]
         self.assertLess(abs(subs.reconstruct(values) - analytical), 0.2)
@@ -332,9 +330,7 @@ class CachedExpectationTest(BaseTimedTestCase):
         # Guard: a clearly non-zero analytical value (~ -0.717).
         self.assertGreater(abs(analytical), 0.5)
 
-        subs = qd.gate_cutting_subcircuits(
-            _nonzero_circuit(), ["CZ_2"], software="qibo"
-        )
+        subs = qd.gate_cutting_subcircuits(_nonzero_circuit(), ["CZ_2"])
         cache = qd.InMemoryCircuitCache()
         values = [qd.expectation_value(s, shots=20000, cache=cache) for s in subs]
         # Gate cutting with the cache must still match the (non-zero) analytical.

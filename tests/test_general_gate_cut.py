@@ -135,10 +135,8 @@ class GeneralGateCuttingTest(BaseTimedTestCase):
     def test_general_gate_three_step(self):
         import Qdislib as qd
 
-        subs = qd.gate_cutting_subcircuits(
-            self._iswap_circuit(), ["ISWAP_3"], software="qibo"
-        )
-        values = [qd.expectation_value(s, shots=1024) for s in subs]
+        subs = qd.gate_cutting_subcircuits(self._iswap_circuit(), ["ISWAP_3"])
+        values = [qd.expectation_value(s, shots=1024, backend="qibo") for s in subs]
         analytical = qd.analytical_solution(self._iswap_circuit(), "ZZ")
         self.assertLess(abs(analytical - subs.reconstruct(values)), 0.2)
 

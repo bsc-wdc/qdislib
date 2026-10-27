@@ -135,7 +135,7 @@ class CircuitTest(BaseTimedTestCase):
 
         cut = find_cut(circuit)
         print(cut)
-        subcircuits = gate_cutting_subcircuits(circuit, cut, software="qibo")
+        subcircuits = gate_cutting_subcircuits(circuit, cut)
 
         results = []
         for subcircuit in subcircuits:
@@ -226,7 +226,7 @@ class CircuitTest(BaseTimedTestCase):
 
         cut = find_cut(circuit)
         print(cut)
-        subcircuits = gate_cutting_subcircuits(circuit, cut, software="qiskit")
+        subcircuits = gate_cutting_subcircuits(circuit, cut)
 
         results = []
         for subcircuit in subcircuits:
@@ -286,7 +286,7 @@ class CircuitTest(BaseTimedTestCase):
 
         cut = find_cut(circuit)
         print(cut)
-        subcircuits = gate_cutting_subcircuits(circuit, cut, software="cudaq")
+        subcircuits = gate_cutting_subcircuits(circuit, cut)
 
         # subcircuits = compss_wait_on(subcircuits)
 

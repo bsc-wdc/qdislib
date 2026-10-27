@@ -55,8 +55,10 @@ class PublicWorkflowTest(BaseTimedTestCase):
         circuit = _example_circuit()
         analytical = qd.analytical_solution(circuit, "ZZ")
 
-        subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"], software="qibo")
-        values = [qd.expectation_value(s, shots=20000) for s in subcircuits]
+        subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"])
+        values = [
+            qd.expectation_value(s, shots=20000, backend="qibo") for s in subcircuits
+        ]
         reconstruction = subcircuits.reconstruct(values)
 
         self.assertEqual(subcircuits.number_cuts, 1)
@@ -70,10 +72,10 @@ class PublicWorkflowTest(BaseTimedTestCase):
         circuit = _example_circuit()
         analytical = qd.analytical_solution(circuit, "ZZ")
 
-        subcircuits = qd.wire_cutting_subcircuits(
-            circuit, [("H_1", "CZ_2")], software="qibo"
-        )
-        values = [qd.expectation_value(s, shots=20000) for s in subcircuits]
+        subcircuits = qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")])
+        values = [
+            qd.expectation_value(s, shots=20000, backend="qibo") for s in subcircuits
+        ]
         reconstruction = subcircuits.reconstruct(values)
 
         self.assertEqual(subcircuits.number_cuts, 1)
@@ -88,8 +90,10 @@ class PublicWorkflowTest(BaseTimedTestCase):
         circuit = _example_circuit()
         analytical = qd.analytical_solution(circuit, "ZZ")
 
-        subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"], software="qiskit")
-        values = [qd.expectation_value(s, shots=20000) for s in subcircuits]
+        subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"])
+        values = [
+            qd.expectation_value(s, shots=20000, backend="qiskit") for s in subcircuits
+        ]
         reconstruction = subcircuits.reconstruct(values)
 
         self.assertLess(abs(reconstruction - analytical), _TOLERANCE)
@@ -151,11 +155,12 @@ class ErrorPathTest(BaseTimedTestCase):
         import Qdislib as qd
         from Qdislib import UnsupportedBackendError, QdislibException
 
+        subs = qd.gate_cutting_subcircuits(_example_circuit(), ["CZ_2"])
         with self.assertRaises(UnsupportedBackendError):
-            qd.gate_cutting_subcircuits(_example_circuit(), ["CZ_2"], software="bogus")
+            subs.circuits("bogus")
         # Backward compatible: it is also a ValueError and a QdislibException.
         try:
-            qd.gate_cutting_subcircuits(_example_circuit(), ["CZ_2"], software="bogus")
+            subs.circuits("bogus")
         except UnsupportedBackendError as exc:
             self.assertIsInstance(exc, ValueError)
             self.assertIsInstance(exc, QdislibException)

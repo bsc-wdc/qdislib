@@ -213,7 +213,7 @@ class SubcircuitObjectTest(BaseTimedTestCase):
         import Qdislib as qd
 
         qc = _circuit()
-        subs = qd.gate_cutting_subcircuits(qc, ["CZ_8"], "ZZZZ", software="qibo")
+        subs = qd.gate_cutting_subcircuits(qc, ["CZ_8"], "ZZZZ")
         values = [
             qd.expectation_value(
                 s, shots=None, backend="qiskit" if s.num_qubits <= 2 else "qibo"

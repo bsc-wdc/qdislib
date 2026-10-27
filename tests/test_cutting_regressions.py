@@ -194,16 +194,14 @@ class SubcircuitsGroupingTest(BaseTimedTestCase):
     def test_gate_cut_with_an_uncut_piece(self):
         import Qdislib as qd
 
-        subs = qd.gate_cutting_subcircuits(
-            _two_blocks(), ["CZ_3"], observable="ZZZZ", software="qiskit"
-        )
+        subs = qd.gate_cutting_subcircuits(_two_blocks(), ["CZ_3"], observable="ZZZZ")
         self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
 
     def test_gate_cut_on_both_pieces(self):
         import Qdislib as qd
 
         subs = qd.gate_cutting_subcircuits(
-            _two_blocks(), ["CZ_3", "CZ_7"], observable="ZZZZ", software="qiskit"
+            _two_blocks(), ["CZ_3", "CZ_7"], observable="ZZZZ"
         )
         self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
 
@@ -211,7 +209,7 @@ class SubcircuitsGroupingTest(BaseTimedTestCase):
         import Qdislib as qd
 
         subs = qd.wire_cutting_subcircuits(
-            _two_blocks(), [("RY_1", "CZ_3")], observable="ZZZZ", software="qiskit"
+            _two_blocks(), [("RY_1", "CZ_3")], observable="ZZZZ"
         )
         self.assertLess(abs(_three_step(subs) - _exact(_two_blocks(), "ZZZZ")), 0.05)
 
@@ -240,25 +238,21 @@ class SubcircuitsPauliSumTest(BaseTimedTestCase):
     def test_gate_cutting_subcircuits(self):
         import Qdislib as qd
 
-        subs = qd.gate_cutting_subcircuits(
-            _two_blocks(), ["CZ_3"], observable=self.H, software="qiskit"
-        )
+        subs = qd.gate_cutting_subcircuits(_two_blocks(), ["CZ_3"], observable=self.H)
         self.assertLess(abs(_three_step(subs) - self._exact_h()), 0.05)
 
     def test_wire_cutting_subcircuits(self):
         import Qdislib as qd
 
         subs = qd.wire_cutting_subcircuits(
-            _two_blocks(), [("RY_1", "CZ_3")], observable=self.H, software="qiskit"
+            _two_blocks(), [("RY_1", "CZ_3")], observable=self.H
         )
         self.assertLess(abs(_three_step(subs) - self._exact_h()), 0.05)
 
     def test_reconstruct_checks_the_value_count(self):
         import Qdislib as qd
 
-        subs = qd.gate_cutting_subcircuits(
-            _two_blocks(), ["CZ_3"], observable=self.H, software="qiskit"
-        )
+        subs = qd.gate_cutting_subcircuits(_two_blocks(), ["CZ_3"], observable=self.H)
         with self.assertRaises(ValueError):
             subs.reconstruct([0.0] * (len(subs) - 1))
 
@@ -314,9 +308,7 @@ class SerialWireCutsTest(BaseTimedTestCase):
                 _serial_wire(), cuts, observable="ZZ", backend="qiskit", shots=40000
             )
             self.assertLess(abs(value - exact), 0.05, cuts)
-        subs = qd.wire_cutting_subcircuits(
-            _serial_wire(), self.CUTS, observable="ZZ", software="qiskit"
-        )
+        subs = qd.wire_cutting_subcircuits(_serial_wire(), self.CUTS, observable="ZZ")
         self.assertLess(abs(_three_step(subs, shots=40000) - exact), 0.05)
 
     def test_sampling(self):

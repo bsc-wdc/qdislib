@@ -181,9 +181,7 @@ class ZeroCutReconstructionTest(BaseTimedTestCase):
         circuit.cx(0, 1)
         circuit.rx(0.9, 2)
         circuit.ry(1.2, 3)
-        pieces = gate_cutting_subcircuits(
-            circuit, [], observable="ZZZZ", software="qiskit"
-        )
+        pieces = gate_cutting_subcircuits(circuit, [], observable="ZZZZ")
         self.assertEqual(sorted(p[0].num_qubits for p in pieces), [1, 1, 2])
         self.assertAlmostEqual(
             gate_cutting(circuit, [], observable="ZZZZ", shots=200_000),
@@ -197,7 +195,7 @@ class ZeroCutReconstructionTest(BaseTimedTestCase):
             gate_cutting_subcircuits,
         )
 
-        pieces = gate_cutting_subcircuits(two_blocks(), [], software="qiskit")
+        pieces = gate_cutting_subcircuits(two_blocks(), [])
         self.assertEqual(pieces.number_cuts, 0)
 
 

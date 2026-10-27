@@ -47,6 +47,8 @@ __all__ = [
     "gate_wire_cutting",
     # The engine's result cache (on per call with cache=, or for a session).
     "use_cache",
+    # Results of subcircuits run with your own tools, for subs.reconstruct.
+    "result_from_counts",
     # Cutting -- explicit subcircuits + reconstruction (the three-step workflow).
     "gate_cutting_subcircuits",
     "gate_cutting_subcircuit_reconstruction",

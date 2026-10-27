@@ -135,12 +135,12 @@ class QiliSDKTest(BaseTimedTestCase):
 
         _, qk = _pair()
         exact = Statevector(qk).expectation_value(SparsePauliOp("ZZZZ")).real
-        subs = qd.circuit_cutting_subcircuits(
-            qk, {"gate": ["CX_11"]}, software="qilisdk"
-        )
-        self.assertTrue(type(subs[0].circuit).__module__.startswith("qilisdk"))
+        subs = qd.circuit_cutting_subcircuits(qk, {"gate": ["CX_11"]})
+        circuits = subs.circuits("qilisdk")  # a Qiskit circuit's cut, in QiliSDK
+        self.assertTrue(all(type(c).__module__.startswith("qilisdk") for c in circuits))
         values = [
-            qd.expectation_value(s, shots=20000, seed=i) for i, s in enumerate(subs)
+            qd.expectation_value(s, shots=20000, seed=i, backend="qilisdk")
+            for i, s in enumerate(subs)
         ]
         self.assertLess(abs(subs.reconstruct(values) - exact), 0.05)
 

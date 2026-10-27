@@ -26,11 +26,13 @@ All-in-one::
 
 Three-step::
 
-    X_subcircuits(circuit, cuts, observable=None, *, software=None, <options>)
-    X_sampling_subcircuits(circuit, cuts, *, software=None, <options>)
+    X_subcircuits(circuit, cuts, observable=None, *, <options>)
+    X_sampling_subcircuits(circuit, cuts, *, <options>)
 
-``backend`` is where the subcircuits run, ``software`` the SDK the three-step
-subcircuits are written in. The pre-2.0 names keep working for one release with a
+``backend`` is where the subcircuits run. A subcircuit list is SDK-neutral: the SDK
+its circuits are written in is chosen when they are built --
+``subs.circuits(software)`` or ``s.to_circuit(software)``, the input circuit's SDK
+by default. The pre-2.0 names keep working for one release with a
 :class:`DeprecationWarning` (:func:`standard_arguments`).
 """
 
@@ -95,8 +97,9 @@ def standard_arguments(func):
     """Accept the pre-2.0 argument names of a cutting function, with a warning.
 
     - ``observables=``, ``gates_cut=``/``cut=``, ``dag=``/``rand_qc=`` are renamed;
-    - ``software=`` becomes ``backend=`` on functions that run circuits (the
-      three-step generators keep ``software``: the SDK of their subcircuits);
+    - ``software=`` becomes ``backend=`` on functions that run circuits; on the
+      three-step generators it is deprecated (it sets the list's default SDK, which
+      ``subs.circuits(software)`` chooses now);
     - a Qibo platform passed as ``backend="numpy"`` becomes ``backend="qibo"``;
     - ``qpu``, ``qpu_dict``, ``qpu_config``, ``gpu``, ``gpu_min_qubits``, ``method``
       are handed to the function as ``_legacy`` (when it still honours them);
@@ -134,6 +137,14 @@ def standard_arguments(func):
                 _deprecated(func, f"{old}= is now {new}=")
                 kwargs[new] = kwargs.pop(old)
         legacy = {}
+        if "software" in kwargs and "_software" in params:
+            _deprecated(
+                func,
+                "software= is deprecated: a subcircuit list is SDK-neutral; build "
+                "its circuits in an SDK with subs.circuits(software) or "
+                "s.to_circuit(software)",
+            )
+            kwargs["_software"] = kwargs.pop("software")
         if "software" in kwargs and "software" not in params:
             if "backend" in kwargs:
                 raise TypeError(f"{func.__name__}() got both software= and backend=")
@@ -170,7 +181,7 @@ def standard_arguments(func):
         return func(*args, **kwargs)
 
     wrapper.__signature__ = signature.replace(
-        parameters=[p for p in params.values() if p.name != "_legacy"]
+        parameters=[p for p in params.values() if not p.name.startswith("_")]
     )
     return wrapper
 

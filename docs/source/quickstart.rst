@@ -47,10 +47,11 @@ reconstruction.
 
 ``qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")])`` works the same way for
 **wire cutting**, and so do the Hadamard cut and ``circuit_cutting`` below. Each
-subcircuit ``s`` is written in the circuit's own SDK unless you pass ``software=``
-(``"qibo"``, ``"qiskit"``, ``"cudaq"``, ``"pennylane"``, ``"qilisdk"``); ``s.circuit`` is the native
-circuit. ``qd.expectation_value(s, shots=..., backend=...)`` runs it anywhere: the
-SDK's simulator by default, or a QPU backend.
+list is SDK-neutral: ``subs.circuits("qiskit")`` (or ``"qibo"``, ``"cudaq"``,
+``"pennylane"``, ``"qilisdk"``) gives the native circuits, in the circuit's own SDK by
+default, and ``s.circuit`` one of them. ``qd.expectation_value(s, shots=...,
+backend=...)`` runs a subcircuit anywhere: the circuit's own SDK's simulator by
+default, or a QPU backend.
 
 All-in-one
 ----------

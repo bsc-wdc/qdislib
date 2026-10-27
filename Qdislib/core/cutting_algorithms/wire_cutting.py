@@ -3448,7 +3448,7 @@ def wire_cutting_subcircuits(
     cuts,
     observable=None,
     *,
-    software=None,
+    _software=None,
     optimized=False,
     joint=True,
     num_samples=None,
@@ -3456,8 +3456,6 @@ def wire_cutting_subcircuits(
 ):
     """The subcircuits of :func:`wire_cutting`, to run yourself (three-step).
 
-    :param software: The SDK the subcircuits are written in (``None``: the
-        circuit's own); where they run is chosen when you run them.
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: A list of subcircuits with ``reconstruct(values)``.
@@ -3470,7 +3468,7 @@ def wire_cutting_subcircuits(
         circuit,
         {"wire": cuts},
         observable,
-        software=software,
+        _software=_software,
         optimized=optimized,
         joint=joint,
         num_samples=num_samples,
@@ -3483,7 +3481,7 @@ def wire_cutting_sampling_subcircuits(
     circuit,
     cuts,
     *,
-    software=None,
+    _software=None,
     optimized=False,
     joint=True,
     num_samples=None,
@@ -3502,7 +3500,7 @@ def wire_cutting_sampling_subcircuits(
     return circuit_cutting_sampling_subcircuits(
         circuit,
         {"wire": cuts},
-        software=software,
+        _software=_software,
         optimized=optimized,
         num_samples=num_samples,
         seed=seed,

@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Results of subcircuits run with your own tools reconstruct too.**
+  `subs.reconstruct_counts(counts)` takes one `{bitstring: count}` per circuit of
+  `subs.circuits(software, defer_measurements=True)` (every qubit measured at the
+  end; `bit_order="q0_last"` for Qiskit's `get_counts()`), and
+  `qd.result_from_counts(s, counts)` converts one. Before, raw counts could not be
+  recombined: `reconstruct` reads Qdislib's own results.
 - **`subs.circuits(software)`: just the subcircuits, in any SDK.** A plain list of
   native circuits, one per subcircuit in order, built in the SDK asked for
   (`"qiskit"`, `"qibo"`, `"cudaq"`, `"pennylane"`, `"qilisdk"`) without cutting
@@ -311,6 +317,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **`software=` on the three-step generators is deprecated**: a subcircuit list is
+  SDK-neutral, and the language of its circuits is chosen when they are built
+  (`subs.circuits(software)`, `s.to_circuit(software)`; default: the input circuit's
+  SDK) and where they run with `backend=`. For one release `software=` still sets
+  the list's default language, with a `DeprecationWarning`.
 - **`cache=` runs through the engine** in `gate_cutting` and `wire_cutting` too (it
   kept the 1.x implementation), and `cache_mode` is deprecated and ignored: the
   cache keeps each circuit's whole result. A custom `CacheStrategy` still runs the

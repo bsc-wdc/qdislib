@@ -118,10 +118,11 @@ print(result)  # ≈ -0.717
 
 `qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")])` works
 the same way for **wire cutting** (and for `gate_cutting_hadamard_subcircuits` and
-`circuit_cutting_subcircuits`). The subcircuits are written in the circuit's own SDK
-unless you pass `software=` (`"qibo"`, `"qiskit"`, `"cudaq"`, `"pennylane"`, `"qilisdk"`), and
-`qd.expectation_value(s, shots=..., backend=...)` runs each one anywhere: that SDK's
-simulator by default, or a QPU backend.
+`circuit_cutting_subcircuits`). The list is SDK-neutral: `subs.circuits("qiskit")`
+(or `"qibo"`, `"cudaq"`, `"pennylane"`, `"qilisdk"`) gives the native circuits, in the
+circuit's own SDK by default, and `qd.expectation_value(s, shots=..., backend=...)`
+runs each one anywhere: the circuit's own SDK's simulator by default, or a QPU
+backend.
 
 If you'd rather not manage the loop, the all-in-one `qd.gate_cutting(...)` and
 `qd.wire_cutting(...)` run the cut, execution and reconstruction in a single call

@@ -1934,15 +1934,13 @@ def gate_cutting_hadamard_subcircuits(
     cuts,
     observable=None,
     *,
-    software=None,
+    _software=None,
     joint=True,
     num_samples=None,
     seed=None,
 ):
     """The fragments of :func:`gate_cutting_hadamard`, to run yourself (three-step).
 
-    :param software: The SDK the fragments are written in (``None``: the
-        circuit's own); where they run is chosen when you run them.
     :param seed: Seed for the ``num_samples`` draws.
     :return: A list of subcircuits with ``reconstruct(values)``.
     """
@@ -1954,7 +1952,7 @@ def gate_cutting_hadamard_subcircuits(
         circuit,
         {"hadamard": cuts},
         observable,
-        software=software,
+        _software=_software,
         joint=joint,
         num_samples=num_samples,
         seed=seed,
@@ -1963,7 +1961,7 @@ def gate_cutting_hadamard_subcircuits(
 
 @standard_arguments
 def gate_cutting_hadamard_sampling_subcircuits(
-    circuit, cuts, *, software=None, joint=True, num_samples=None, seed=None
+    circuit, cuts, *, _software=None, joint=True, num_samples=None, seed=None
 ):
     """The fragments of :func:`gate_cutting_hadamard_sampling`, to sample yourself.
 
@@ -1976,7 +1974,7 @@ def gate_cutting_hadamard_sampling_subcircuits(
     return circuit_cutting_sampling_subcircuits(
         circuit,
         {"hadamard": cuts},
-        software=software,
+        _software=_software,
         joint=joint,
         num_samples=num_samples,
         seed=seed,

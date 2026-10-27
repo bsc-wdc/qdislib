@@ -128,8 +128,8 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
         the same distribution as the all-in-one gate_cutting_sampling."""
         import Qdislib as qd
 
-        subs = qd.gate_cutting_sampling_subcircuits(_circuit(), cut, software=software)
-        sampled = [qd.sample_subcircuit(s, shots=shots) for s in subs]
+        subs = qd.gate_cutting_sampling_subcircuits(_circuit(), cut)
+        sampled = [qd.sample_subcircuit(s, shots=shots, backend=software) for s in subs]
         dist = subs.reconstruct(sampled)
         self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
         self.assertLess(
@@ -203,8 +203,10 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
         import Qdislib as qd
 
         cut = qd.find_cut(_circuit(), gate_cut=False, wire_cut=True)
-        subs = qd.wire_cutting_sampling_subcircuits(_circuit(), cut, software=software)
-        dist = subs.reconstruct([qd.sample_subcircuit(s, shots=shots) for s in subs])
+        subs = qd.wire_cutting_sampling_subcircuits(_circuit(), cut)
+        dist = subs.reconstruct(
+            [qd.sample_subcircuit(s, shots=shots, backend=software) for s in subs]
+        )
         self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
         self.assertLess(
             _tvd(_exact_distribution(), dist), _TOL, f"wire 3-step {software} {cut}"
