@@ -195,11 +195,14 @@ def resolve(cache, cache_key=None, refresh=False):
 def to_payload(result):
     """A fragment run's ``(corr, original)`` as a JSON value, or ``None`` when it
     is not cached (an exact result too wide to store)."""
-    from Qdislib.core.cutting_algorithms.gate_cutting import _CountCorrelators
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _CountCorrelators,
+        _JointCounts,
+    )
 
     corr, original = result
     original = [int(q) for q in original]
-    if isinstance(corr, _CountCorrelators):
+    if isinstance(corr, (_JointCounts, _CountCorrelators)):
         return {
             "kind": "counts",
             "counts": [
@@ -222,14 +225,14 @@ def to_payload(result):
 
 def from_payload(payload):
     """``(corr, original)`` back from :func:`to_payload`."""
-    from Qdislib.core.cutting_algorithms.gate_cutting import _CountCorrelators
+    from Qdislib.core.cutting_algorithms.gate_cutting import _JointCounts
 
     if payload["kind"] == "counts":
         joint = {
             (tuple(int(b) for b in final), tuple(int(b) for b in cut)): count
             for final, cut, count in payload["counts"]
         }
-        corr = _CountCorrelators(joint, payload["prep"], payload["k"])
+        corr = _JointCounts(joint, payload["prep"], payload["k"])
     else:
         corr = np.asarray(payload["corr"], dtype=float)
     return corr, list(payload["original"])

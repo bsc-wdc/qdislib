@@ -1421,7 +1421,11 @@ class _FragmentReads:
         fragment = plan.fragments[f]
         entries = []
         outputs = set()
+        from Qdislib.core.cutting_algorithms.gate_cutting import _JointCounts
+
         for corr, original in results:
+            if isinstance(corr, _JointCounts):  # a cached run: its counts
+                corr = corr.correlators()
             if isinstance(corr, dict) and len(corr) == 2 ** len(original):
                 corr = np.array([corr[m] for m in range(len(corr))])
             roles = []

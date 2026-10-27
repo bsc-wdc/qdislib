@@ -1368,9 +1368,24 @@ def _z_correlators(joint, prep_sorted, k, masks=None):
     return dict(enumerate(_fast_walsh_hadamard(histogram).tolist()))
 
 
+class _JointCounts:
+    """A fragment run's joint final / cut-point counts: the result the cache
+    keeps, which serves any observable. A plain object, not a container, so that
+    PyCOMPSs ships it whole (a dict inside a ``COLLECTION_IN`` is rebuilt as a
+    plain dict); the reconstruction reads it through :class:`_CountCorrelators`."""
+
+    def __init__(self, joint, prep_sorted, k):
+        self.joint = joint
+        self.prep_sorted = list(prep_sorted)
+        self.k = int(k)
+
+    def correlators(self):
+        return _CountCorrelators(self.joint, self.prep_sorted, self.k)
+
+
 class _CountCorrelators(dict):
-    """A fragment run's correlators, computed from its joint counts when first
-    read: the result the cache keeps, which serves any observable (any mask)."""
+    """The correlators of :class:`_JointCounts`, computed when first read (any
+    mask)."""
 
     def __init__(self, joint, prep_sorted, k):
         super().__init__()
@@ -1438,7 +1453,7 @@ def _sample_prepared_component(
             s_new, highest_qubit, prep_sorted, shots, seed=seed
         )
     if keep_counts:
-        return (_CountCorrelators(joint, prep_sorted, highest_qubit), original)
+        return (_JointCounts(joint, prep_sorted, highest_qubit), original)
     corr = _z_correlators(joint, prep_sorted, highest_qubit, masks)
     return (corr, original)
 

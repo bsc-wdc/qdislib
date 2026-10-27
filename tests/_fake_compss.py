@@ -59,9 +59,14 @@ class Future:
 
 def _open(value, deep=False):
     if isinstance(value, Future):
-        return value._value
+        value = value._value
     if deep and isinstance(value, (list, tuple)):
         return type(value)(_open(v, deep) for v in value)
+    if deep and isinstance(value, dict):
+        # PyCOMPSs takes a COLLECTION_IN apart, nested containers too, and builds
+        # a dict back as a plain dict: a dict subclass loses its class (seen on
+        # MareNostrum 5, where a lazily computed dict arrived empty and plain)
+        return {k: _open(v, deep) for k, v in value.items()}
     return value
 
 
