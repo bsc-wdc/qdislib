@@ -1017,6 +1017,18 @@ class _FragmentTemplate:
         #: The width of its circuits: its qubits and its Hadamard ancillas.
         self.num_qubits = len(qubits) + len(self.fragment["ancilla_of"])
 
+    def leg(self, gate_config):
+        """This fragment's own part of a gate configuration (as
+        :meth:`_CutPlan.gate_legs`): what its circuit depends on."""
+        digits, config = gate_config
+        return (
+            tuple(
+                self.gate_tables[k - 1][s - 1][digits[k - 1]]
+                for k, s in self.fragment["gate_sides"]
+            ),
+            tuple(config[g] for g in self.fragment["had_groups"]),
+        )
+
     def build(self, gate_config, states, setting):
         """The fragment's DAG for one set of legs, and its readout."""
         from Qdislib.core.cutting_algorithms.gate_cutting import (
@@ -1319,12 +1331,16 @@ class _FragmentCircuit(Subcircuit):
 
 
 @task(returns=1)
-def _run_fragment(template, spec, runner, shots, qpu, qpu_dict, seed, mask=None):
+def _run_fragment(
+    template, spec, runner, shots, qpu, qpu_dict, seed, mask=None, cache=None
+):
     """Build one fragment circuit from its template and run it: ``(corr, original)``.
 
     The circuit is built here, in the task, so the master only sends the small
     ``spec``; the template is the same object for every circuit of the fragment.
-    With ``mask`` (an expectation value) ``corr`` keeps only what is read.
+    With ``mask`` (an expectation value) ``corr`` keeps only what is read. With a
+    ``cache`` request (:mod:`~Qdislib.core.cutting_algorithms.engine_cache`) the
+    whole result is kept -- the counts, or every exact correlator -- and stored.
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _component_original_qubits,
@@ -1333,6 +1349,30 @@ def _run_fragment(template, spec, runner, shots, qpu, qpu_dict, seed, mask=None)
     )
 
     dag, _ = template.build(*spec)
+    if cache is not None:
+        from Qdislib.core.cutting_algorithms.engine_cache import from_payload
+
+        key = cache.lookup_key(dag, runner)
+        if key is not None:
+            payload = cache.get(key)
+            if payload is not None:  # a semantic hit: the order of its qubits
+                corr, _ = from_payload(payload)
+                return corr, _component_original_qubits(dag)
+        if shots is None:
+            result = _exact_fragment(dag, _exact_runner(runner))
+        else:
+            result = _sample_prepared_component(
+                _prepare_sampled_component(dag),
+                runner,
+                shots,
+                qpu,
+                qpu_dict,
+                seed,
+                keep_counts=True,
+            )
+        if key is not None:
+            cache.put(key, result)
+        return result
     needed = None
     if mask is not None:
         original = _component_original_qubits(dag)
@@ -1718,15 +1758,19 @@ def _caller_stacklevel():
     return level
 
 
-def _run(circuits, shots, seed):
+def _run(circuits, shots, seed, cache=None):
     """Run every circuit, one task each; with drawn configurations a circuit gets
-    ``shots`` per draw that uses it (the shots follow the weights)."""
-    return [
-        circuit.sample(
-            None if shots is None else shots * circuit.draws, next_seed(seed, n)
-        )
-        for n, circuit in enumerate(circuits)
-    ]
+    ``shots`` per draw that uses it (the shots follow the weights). With a
+    ``cache`` (:func:`~Qdislib.core.cutting_algorithms.engine_cache.resolve`), a
+    circuit already run is read back instead."""
+    results = []
+    for n, circuit in enumerate(circuits):
+        unit_shots = None if shots is None else shots * circuit.draws
+        if cache is None:
+            results.append(circuit.sample(unit_shots, next_seed(seed, n)))
+        else:
+            results.append(cache.run(circuit, unit_shots, next_seed(seed, n)))
+    return results
 
 
 def _check_exact(shots, backend):
@@ -1751,6 +1795,9 @@ def circuit_cutting(
     optimized=False,
     joint=True,
     num_samples=None,
+    cache=None,
+    cache_key=None,
+    cache_refresh=False,
 ):
     """Reconstruct ``<observable>`` from a circuit cut by any combination of cuts.
 
@@ -1792,12 +1839,24 @@ def circuit_cutting(
         (``6**n`` for gate cuts, ``8**n`` for wire cuts; with ``optimized=True`` the
         circuits per fragment are ``5**n`` and ``3**n + 4**n``), and the shots then
         follow the weights (Hadamard cuts).
+    :param cache: Reuse fragment circuits already run: ``True`` (in memory; LMDB
+        in the working directory under PyCOMPSs), ``"memory"``, ``"lmdb:<path>"``,
+        ``"redis[://host:port/db]"`` or a ``CircuitCache``; ``False`` turns off a
+        session cache (:func:`~Qdislib.use_cache`). A hit is the circuit's whole
+        result (counts or exact correlators), so it serves any observable.
+    :param cache_key: ``"exact"`` (default: the same circuit, backend and shots)
+        or ``"semantic"`` (also equivalent circuits, by a ZX hash in the task).
+    :param cache_refresh: Run every circuit again and replace what is stored
+        (fresh samples, e.g. to repeat a run for error bars).
     :return: The reconstructed expectation value.
     """
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms
 
+    from Qdislib.core.cutting_algorithms.engine_cache import resolve
+
     _check_exact(shots, backend)
     software = resolve_backend(backend, circuit)
+    engine_cache = resolve(cache, cache_key, cache_refresh)
     terms = _observable_terms(default_observable(observable, circuit))
     values = []
     for k, (coefficient, term) in enumerate(terms):
@@ -1815,7 +1874,7 @@ def circuit_cutting(
             num_samples,
             term_seed,
         )
-        results = _run(circuits, shots, term_seed)
+        results = _run(circuits, shots, term_seed, engine_cache)
         values.append(
             (
                 coefficient,
@@ -1842,6 +1901,9 @@ def circuit_cutting_sampling(
     optimized=False,
     joint=True,
     num_samples=None,
+    cache=None,
+    cache_key=None,
+    cache_refresh=False,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut by any
     combination of cuts, from the same fragment circuits as :func:`circuit_cutting`.
@@ -1864,9 +1926,10 @@ def circuit_cutting_sampling(
         num_samples,
         seed,
     )
-    future = _reconstruct(
-        plan, keys, readouts, _run(circuits, shots, seed), "distribution", None, draws
-    )
+    from Qdislib.core.cutting_algorithms.engine_cache import resolve
+
+    results = _run(circuits, shots, seed, resolve(cache, cache_key, cache_refresh))
+    future = _reconstruct(plan, keys, readouts, results, "distribution", None, draws)
     return compss_wait_on(future) if sync else future
 
 

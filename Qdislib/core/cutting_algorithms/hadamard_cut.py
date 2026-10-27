@@ -1785,6 +1785,9 @@ def gate_cutting_hadamard(
     sync=True,
     joint=True,
     num_samples=None,
+    cache=None,
+    cache_key=None,
+    cache_refresh=False,
     reduce_chunk=None,
     _legacy=None,
 ):
@@ -1805,6 +1808,10 @@ def gate_cutting_hadamard(
         gate to its last; ``False`` cuts each gate on its own.
     :param num_samples: Draw this many configurations from the quasiprobability
         distribution instead of running them all.
+    :param cache: Reuse fragment circuits already run (see :func:`circuit_cutting`
+        and :func:`~Qdislib.use_cache`).
+    :param cache_key: ``"exact"`` (default) or ``"semantic"``.
+    :param cache_refresh: Run every circuit again and replace what is stored.
     :param reduce_chunk: Deprecated and ignored, removed in the next release: the
         reconstruction is one cheap task.
     :return: The reconstructed expectation value.
@@ -1840,6 +1847,9 @@ def gate_cutting_hadamard(
             sync=sync,
             joint=joint,
             num_samples=num_samples,
+            cache=cache,
+            cache_key=cache_key,
+            cache_refresh=cache_refresh,
         )
     legacy = _legacy or {}
     return _gate_cutting_hadamard(
@@ -1869,6 +1879,9 @@ def gate_cutting_hadamard_sampling(
     sync=True,
     joint=True,
     num_samples=None,
+    cache=None,
+    cache_key=None,
+    cache_refresh=False,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** with the Hadamard cut.
@@ -1896,6 +1909,9 @@ def gate_cutting_hadamard_sampling(
             sync=sync,
             joint=joint,
             num_samples=num_samples,
+            cache=cache,
+            cache_key=cache_key,
+            cache_refresh=cache_refresh,
         )
     legacy = _legacy or {}
     return _gate_cutting_hadamard_sampling(

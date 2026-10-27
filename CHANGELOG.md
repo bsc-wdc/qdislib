@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **The cutting engine caches fragment results; turn it on per call or for a
+  session.** `cache=` on every cutting function (`True`, `"memory"`,
+  `"lmdb:<path>"`, `"redis[://host:port/db]"` or a store), or `qd.use_cache(...)`
+  for every call (also as a context manager; `cache=False` turns it off for one
+  call). What is kept is a fragment circuit's whole result -- its joint counts, or
+  its exact correlators -- so one entry serves every observable: the terms of a
+  Hamiltonian share the fragments they don't change (15 circuits instead of 36 for
+  a 3-term example), and a repeated call runs none. `cache_key="exact"` (default)
+  matches the same circuit, backend and shots, computed on the master without
+  building the circuit, so a hit never becomes a task and never matches another
+  circuit; `cache_key="semantic"` also matches equivalent circuits (ZX hash, in the
+  task). Shot results are reused by later runs; `cache_refresh=True` runs again for
+  fresh samples. Under PyCOMPSs, `cache=True` is an LMDB store in the working
+  directory (or `$QDISLIB_CACHE_DIR`), shared by the workers.
 - **Golden wire cut points.** A wire sent alone by a fragment whose state is real
   (only real gates such as `ry`, `cz`, `cx`, `h`; no gate cut; every wire it
   receives golden too) has zero `Y` terms, which are now left out: 6 terms instead
@@ -275,14 +289,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **`cache=` runs through the engine** in `gate_cutting` and `wire_cutting` too (it
+  kept the 1.x implementation), and `cache_mode` is deprecated and ignored: the
+  cache keeps each circuit's whole result. A custom `CacheStrategy` still runs the
+  1.x code for this release.
 - **Every cut type runs on `circuit_cutting`'s engine.** The default shot runs of
   `gate_cutting`, `wire_cutting` and `gate_cutting_hadamard` (and their `_sampling`
   forms), like their exact, optimized and `num_samples` runs already, build each
   fragment circuit in its own task and reconstruct by contraction: one
   implementation, the vectorised correlators and deferred cut-point measurements on
   simulators everywhere. The values are the same up to shot noise. Only the
-  deprecated `qpu=` / `qpu_dict=` / `gpu=` / `method=` options and `cache=` still
-  run the 1.x code, and the standard three-step lists keep their 1.x layout while
+  deprecated `qpu=` / `qpu_dict=` / `gpu=` / `method=` options still run the 1.x
+  code, and the standard three-step lists keep their 1.x layout while
   the deprecated `*_subcircuit_reconstruction` functions that read it remain.
   `reduce_chunk` is now ignored (deprecated).
 - **Exact mode simulates fragments itself.** A small numpy statevector simulator

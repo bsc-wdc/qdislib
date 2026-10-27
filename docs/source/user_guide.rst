@@ -112,10 +112,10 @@ release, with a ``DeprecationWarning`` naming the replacement.
 Every cut type runs on one engine, :func:`~Qdislib.circuit_cutting`'s: ``gate_cutting``,
 ``wire_cutting`` and ``gate_cutting_hadamard`` (and their ``_sampling`` forms) build
 each fragment circuit in its own task and reconstruct by contracting the cuts. Only
-the deprecated ``qpu=`` / ``qpu_dict=`` / ``gpu=`` / ``method=`` options and
-``cache=`` still run the 1.x implementation, and the standard three-step lists keep
-their 1.x layout while the deprecated ``*_reconstruction`` functions that read it
-remain.
+the deprecated ``qpu=`` / ``qpu_dict=`` / ``gpu=`` / ``method=`` options (and a
+custom ``CacheStrategy``) still run the 1.x implementation, and the standard
+three-step lists keep their 1.x layout while the deprecated ``*_reconstruction``
+functions that read it remain.
 
 Circuits, SDKs and naming the gates to cut
 ------------------------------------------
@@ -532,17 +532,50 @@ distribution:
 Caching repeated subcircuits
 ----------------------------
 
-Cutting produces many *functionally equivalent* subcircuits (repeated fragments,
-or the same ansatz across variational iterations). The **semantic cache** keys
-each subcircuit by a ZX-reduced graph hash and simulates an equivalent fragment
-only once. Install it with ``pip install "qdislib[cache]"`` and pass a store to
-any cutting call:
+A cut runs many fragment circuits, and much of that work comes back: the terms of a
+Hamiltonian share every fragment their basis changes do not touch, a variational
+loop changes only some fragments per step, and a run is often repeated. The
+**cache** keeps what each fragment circuit returned -- its joint counts, or its
+exact correlators -- so a circuit already run is read back instead of run again,
+and one entry serves every observable later read from that circuit.
+
+Turn it on for one call with ``cache=``, on every cutting function, or for a whole
+session with :func:`~Qdislib.use_cache`:
 
 .. code-block:: python
 
-    cache = qd.default_circuit_cache("memory")   # or "lmdb" (on disk) / "redis"
-    value = qd.gate_cutting(circuit, cut, cache=cache)
-    print(cache.stats())                         # hits, misses, hit-rate, size
+    value = qd.circuit_cutting(circuit, cuts, hamiltonian, cache=True)
+
+    qd.use_cache(True)                      # every call from now on
+    qd.use_cache("lmdb:/gpfs/scratch/me/qd-cache")   # persistent, shared on disk
+    qd.use_cache(None)                      # off again
+
+    with qd.use_cache("redis://host:6379/0"):
+        ...                                 # only inside the block
+
+``cache=`` takes ``True`` (in memory; under PyCOMPSs, LMDB in the working directory
+or ``$QDISLIB_CACHE_DIR``, so every worker shares it), ``"memory"``,
+``"lmdb:<path>"``, ``"redis"`` / ``"redis://host:port/db"`` or a store object
+(``qd.default_circuit_cache(...)``; ``store.stats()`` gives hits, misses and size).
+``cache=False`` turns a session cache off for one call.
+
+What counts as the same circuit (``cache_key=``):
+
+- ``"exact"`` (the default): the same fragment circuit -- gates, qubits and the
+  terms it runs -- on the same backend with the same shots. It is computed on the
+  master without building the circuit, so a hit never becomes a task, and it never
+  matches a different circuit.
+- ``"semantic"``: also equivalent circuits, by a ZX-reduced graph hash computed in
+  the task (``pip install "qdislib[cache]"`` for PyZX). ZX reduction is not a
+  canonical form, so an equivalent circuit can still be missed (it is then run, not
+  served wrongly).
+
+A shot result is reused by later runs: the key holds the backend and the shots, not
+the seed, so a repeated run returns the same samples and costs no device time.
+``cache_refresh=True`` runs every circuit again and replaces what is stored -- for
+fresh samples, e.g. to repeat a run for error bars. An exact result is the same on
+every simulator and is shared between them; fragments wider than 18 qubits are not
+stored exactly (their correlator vector would be too large).
 
 Bound the in-memory store for long runs: ``max_entries`` evicts the
 least-recently-used entry, and ``ttl`` expires entries after a number of seconds
@@ -550,9 +583,11 @@ least-recently-used entry, and ``ttl`` expires entries after a number of seconds
 
 .. code-block:: python
 
-    cache = qd.default_circuit_cache("memory", max_entries=5000, ttl=3600)
+    store = qd.default_circuit_cache("memory", max_entries=5000, ttl=3600)
+    value = qd.gate_cutting(circuit, cut, cache=store)
 
-Under PyCOMPSs, use the ``"redis"`` store so the cache is shared across workers.
+The three-step workflow caches through ``qd.expectation_value(s, cache=...)``, per
+subcircuit, as before.
 
 
 Choosing a backend

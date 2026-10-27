@@ -45,6 +45,8 @@ __all__ = [
     "wire_cutting",
     "circuit_cutting",
     "gate_wire_cutting",
+    # The engine's result cache (on per call with cache=, or for a session).
+    "use_cache",
     # Cutting -- explicit subcircuits + reconstruction (the three-step workflow).
     "gate_cutting_subcircuits",
     "gate_cutting_subcircuit_reconstruction",

@@ -1368,6 +1368,29 @@ def _z_correlators(joint, prep_sorted, k, masks=None):
     return dict(enumerate(_fast_walsh_hadamard(histogram).tolist()))
 
 
+class _CountCorrelators(dict):
+    """A fragment run's correlators, computed from its joint counts when first
+    read: the result the cache keeps, which serves any observable (any mask)."""
+
+    def __init__(self, joint, prep_sorted, k):
+        super().__init__()
+        self.joint = joint
+        self.prep_sorted = list(prep_sorted)
+        self.k = int(k)
+
+    def __missing__(self, mask):
+        if self.k <= 16:  # all of them at once (a Walsh-Hadamard transform)
+            self.update(_z_correlators(self.joint, self.prep_sorted, self.k))
+            if int(mask) in self:
+                return dict.__getitem__(self, int(mask))
+        value = _z_correlators(self.joint, self.prep_sorted, self.k, [int(mask)])
+        self.update(value)
+        return value[int(mask)]
+
+    def __reduce__(self):
+        return (_CountCorrelators, (self.joint, self.prep_sorted, self.k))
+
+
 def _prepare_sampled_component(component):
     """Renumber a fragment DAG to a standalone ``0..n`` subcircuit and resolve its
     measure-and-prepare (cut-point) qubits: ``(dag, num_qubits, prep_sorted,
@@ -1381,11 +1404,18 @@ def _prepare_sampled_component(component):
 
 
 def _sample_prepared_component(
-    prepared, software, shots, qpu=False, qpu_dict=None, seed=None, masks=None
+    prepared,
+    software,
+    shots,
+    qpu=False,
+    qpu_dict=None,
+    seed=None,
+    masks=None,
+    keep_counts=False,
 ):
     """Build and sample a prepared subcircuit: ``(corr, original)``, ``corr`` its
     ``<Z^b>`` correlators with the cut-point sign baked in (only ``masks``, if
-    given)."""
+    given; with ``keep_counts`` a :class:`_CountCorrelators` over the counts)."""
     s_new, highest_qubit, prep_sorted, original = prepared
     if s_new is None:  # empty component
         return ({0: 1.0}, [])
@@ -1407,6 +1437,8 @@ def _sample_prepared_component(
         joint = backend.evaluate_joint_counts(
             s_new, highest_qubit, prep_sorted, shots, seed=seed
         )
+    if keep_counts:
+        return (_CountCorrelators(joint, prep_sorted, highest_qubit), original)
     corr = _z_correlators(joint, prep_sorted, highest_qubit, masks)
     return (corr, original)
 
@@ -2622,20 +2654,57 @@ def _gate_cutting_subcircuit_reconstruction(
 # --------------------------------------------------------------------------- #
 
 
-def _legacy_run(legacy, cache=None):
+def _legacy_run(legacy, custom_strategy=False):
     """True when a call needs the pre-2.0 implementation: the deprecated execution
-    options (``qpu=``, ``gpu=``, ...) or a semantic ``cache``. Everything else runs
-    through :func:`circuit_cutting` (the qibo platform of a ``backend="numpy"``-style
-    call is not honoured there: it is the ``"qibo"`` simulator)."""
-    return bool(set(legacy or ()) - {"platform"}) or cache is not None
+    options (``qpu=``, ``gpu=``, ...) or a custom ``CacheStrategy``. Everything else
+    runs through :func:`circuit_cutting`, with its cache (the qibo platform of a
+    ``backend="numpy"``-style call is not honoured there: it is the ``"qibo"``
+    simulator)."""
+    return bool(set(legacy or ()) - {"platform"}) or bool(custom_strategy)
 
 
-def _route_to_circuit_cutting(legacy, cache=None):
-    if _legacy_run(legacy, cache):
+def _route_to_circuit_cutting(legacy, custom_strategy=False):
+    if _legacy_run(legacy, custom_strategy):
         raise ValueError(
             "shots=None (exact), optimized=True and num_samples run through "
-            "circuit_cutting, which takes backend= only (no qpu/gpu options, no cache)."
+            "circuit_cutting, which takes backend= only (no qpu/gpu options, no "
+            "custom cache strategy)."
         )
+
+
+def _cache_mode_option(cache_mode):
+    """True for a custom ``CacheStrategy`` (kept on the 1.x path for one release);
+    ``cache_mode`` is otherwise ignored: the engine caches each circuit's whole
+    result (counts or exact correlators), which serves every observable."""
+    import warnings
+
+    if cache_mode is None:
+        return False
+    from Qdislib.utils.circuit_cache import CacheStrategy
+
+    custom = isinstance(cache_mode, CacheStrategy)
+    warnings.warn(
+        "cache_mode is deprecated and removed in the next release: the cache keeps "
+        "each fragment circuit's counts (or exact correlators), which serve every "
+        "observable"
+        + (
+            "; a custom CacheStrategy still runs the 1.x implementation."
+            if custom
+            else ", so it is ignored."
+        ),
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    return custom
+
+
+def _legacy_store(cache):
+    """A store object for the 1.x path from what ``cache=`` takes."""
+    if cache is None or cache is False:
+        return None
+    from Qdislib.core.cutting_algorithms.engine_cache import _store
+
+    return _store(cache)
 
 
 @standard_arguments
@@ -2649,9 +2718,11 @@ def gate_cutting(
     seed=None,
     sync=True,
     optimized=False,
-    cache=None,
-    cache_mode="expectation",
     num_samples=None,
+    cache=None,
+    cache_key=None,
+    cache_refresh=False,
+    cache_mode=None,
     _legacy=None,
 ):
     """Reconstruct ``<observable>`` from a circuit cut at two-qubit gates
@@ -2674,21 +2745,25 @@ def gate_cutting(
     :param sync: ``False`` returns the value as a future (PyCOMPSs).
     :param optimized: Run each fragment once per distinct setting of its cuts (5
         circuits per side of a cut gate instead of 6), see :func:`circuit_cutting`.
-    :param cache: A semantic circuit cache (see :func:`expectation_value`).
-    :param cache_mode: ``"expectation"`` or ``"counts"``.
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
+    :param cache: Reuse fragment circuits already run (see :func:`circuit_cutting`
+        and :func:`~Qdislib.use_cache`).
+    :param cache_key: ``"exact"`` (default) or ``"semantic"``.
+    :param cache_refresh: Run every circuit again and replace what is stored.
+    :param cache_mode: Deprecated and ignored (the cache keeps the whole result).
     :return: The reconstructed expectation value.
     """
+    custom = _cache_mode_option(cache_mode)
     if (
-        not _legacy_run(_legacy, cache)
+        not _legacy_run(_legacy, custom)
         or shots is None
         or optimized
         or num_samples is not None
     ):
         from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
 
-        _route_to_circuit_cutting(_legacy, cache)
+        _route_to_circuit_cutting(_legacy, custom)
         return circuit_cutting(
             circuit,
             {"gate": cuts},
@@ -2699,6 +2774,9 @@ def gate_cutting(
             sync=sync,
             optimized=optimized,
             num_samples=num_samples,
+            cache=cache,
+            cache_key=cache_key,
+            cache_refresh=cache_refresh,
         )
     legacy = _legacy or {}
     return _gate_cutting(
@@ -2714,8 +2792,8 @@ def gate_cutting(
         qpu_dict=legacy.get("qpu_dict"),
         qpu_config=legacy.get("qpu_config"),
         software=resolve_backend(backend, circuit),
-        cache=cache,
-        cache_mode=cache_mode,
+        cache=_legacy_store(cache),
+        cache_mode=cache_mode or "expectation",
         seed=seed,
     )
 
@@ -2731,6 +2809,9 @@ def gate_cutting_sampling(
     sync=True,
     optimized=False,
     num_samples=None,
+    cache=None,
+    cache_key=None,
+    cache_refresh=False,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
@@ -2760,6 +2841,9 @@ def gate_cutting_sampling(
             sync=sync,
             optimized=optimized,
             num_samples=num_samples,
+            cache=cache,
+            cache_key=cache_key,
+            cache_refresh=cache_refresh,
         )
     legacy = _legacy or {}
     return _gate_cutting_sampling(

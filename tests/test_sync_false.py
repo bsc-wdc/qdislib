@@ -126,6 +126,34 @@ _SCRIPT = textwrap.dedent("""
                 failures.append(f"{name}: differs from sync=True by {diff}")
         except Exception as e:
             failures.append(f"{name}: {type(e).__name__}: {e}")
+    # the engine's cache: a miss stores from inside the task, a hit is read on the
+    # master and mixed with the futures of the circuits still to run
+    store = qd.InMemoryCircuitCache()
+    for fn, qc, cuts, kw in (
+        (qd.circuit_cutting, mixed, mc, {"observable": ham(8)}),
+        (qd.gate_cutting, gate, gc["gate"], {"shots": 100, "seed": 3}),
+        (qd.wire_cutting_sampling, wire, wc["wire"], {"shots": None}),
+    ):
+        name = f"cached {fn.__name__}"
+        try:
+            kw = dict({"shots": None}, **kw)
+            first = fc.compss_wait_on(fn(qc, cuts, sync=False, cache=store, **kw))
+            second = fn(qc, cuts, sync=False, cache=store, **kw)
+            if not isinstance(second, fc.Future):
+                failures.append(f"{name}: returned {type(second).__name__}")
+                continue
+            second = fc.compss_wait_on(second)
+            if isinstance(first, dict):
+                diff = max(abs(first.get(b, 0) - second.get(b, 0))
+                           for b in set(first) | set(second))
+            else:
+                diff = abs(first - second)
+            if diff > 1e-9:
+                failures.append(f"{name}: a hit differs by {diff}")
+        except Exception as e:
+            failures.append(f"{name}: {type(e).__name__}: {e}")
+    if not store.stats()["hits"]:
+        failures.append("cached runs never hit")
     for make, qc, cuts in (
         (qd.gate_cutting_subcircuits, gate, gc["gate"]),
         (qd.gate_cutting_hadamard_subcircuits, had, hc["hadamard"]),

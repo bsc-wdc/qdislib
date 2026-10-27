@@ -3288,10 +3288,10 @@ def _wire_cutting_subcircuit_reconstruction(
 # --------------------------------------------------------------------------- #
 
 
-def _exact_or_legacy(legacy, cache=None):
+def _exact_or_legacy(legacy, custom_strategy=False):
     from Qdislib.core.cutting_algorithms.gate_cutting import _route_to_circuit_cutting
 
-    _route_to_circuit_cutting(legacy, cache)
+    _route_to_circuit_cutting(legacy, custom_strategy)
 
 
 @standard_arguments
@@ -3306,9 +3306,11 @@ def wire_cutting(
     sync=True,
     optimized=False,
     joint=True,
-    cache=None,
-    cache_mode="expectation",
     num_samples=None,
+    cache=None,
+    cache_key=None,
+    cache_refresh=False,
+    cache_mode=None,
     _legacy=None,
 ):
     """Reconstruct ``<observable>`` from a circuit cut at wires (8 terms per wire,
@@ -3326,18 +3328,26 @@ def wire_cutting(
         of its own wires (``3**i * 4**j`` per fragment instead of ``8**n`` overall).
     :param joint: With ``optimized``, measure the wires a fragment sends together
         (``2**k + 1`` circuits instead of ``3**k``).
-    :param cache: A semantic circuit cache (see :func:`expectation_value`).
-    :param cache_mode: ``"expectation"`` or ``"counts"``.
+    :param cache: Reuse fragment circuits already run (see :func:`circuit_cutting`
+        and :func:`~Qdislib.use_cache`).
+    :param cache_key: ``"exact"`` (default) or ``"semantic"``.
+    :param cache_refresh: Run every circuit again and replace what is stored.
+    :param cache_mode: Deprecated and ignored (the cache keeps the whole result).
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :return: The reconstructed expectation value.
     """
-    from Qdislib.core.cutting_algorithms.gate_cutting import _legacy_run
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _cache_mode_option,
+        _legacy_run,
+        _legacy_store,
+    )
 
-    if not _legacy_run(_legacy, cache) or shots is None or num_samples is not None:
+    custom = _cache_mode_option(cache_mode)
+    if not _legacy_run(_legacy, custom) or shots is None or num_samples is not None:
         from Qdislib.core.cutting_algorithms.mixed_cutting import circuit_cutting
 
-        _exact_or_legacy(_legacy, cache)
+        _exact_or_legacy(_legacy, custom)
         return circuit_cutting(
             circuit,
             {"wire": cuts},
@@ -3349,6 +3359,9 @@ def wire_cutting(
             optimized=optimized,
             joint=joint,
             num_samples=num_samples,
+            cache=cache,
+            cache_key=cache_key,
+            cache_refresh=cache_refresh,
         )
     legacy = _legacy or {}
     return _wire_cutting(
@@ -3360,8 +3373,8 @@ def wire_cutting(
         backend=legacy.get("platform", "numpy"),
         qpu=legacy.get("qpu"),
         software=resolve_backend(backend, circuit),
-        cache=cache,
-        cache_mode=cache_mode,
+        cache=_legacy_store(cache),
+        cache_mode=cache_mode or "expectation",
         optimized=optimized,
         joint=joint,
         seed=seed,
@@ -3380,6 +3393,9 @@ def wire_cutting_sampling(
     optimized=False,
     joint=True,
     num_samples=None,
+    cache=None,
+    cache_key=None,
+    cache_refresh=False,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
@@ -3407,6 +3423,9 @@ def wire_cutting_sampling(
             optimized=optimized,
             joint=joint,
             num_samples=num_samples,
+            cache=cache,
+            cache_key=cache_key,
+            cache_refresh=cache_refresh,
         )
     legacy = _legacy or {}
     return _wire_cutting_sampling(
