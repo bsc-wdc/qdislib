@@ -64,7 +64,6 @@ def _gate_costs(dag, node, cache):
     """``(log gamma measure-and-prepare, log gamma Hadamard, ||c||_1, ||c||_2**2)``."""
     from Qdislib.core.cutting_algorithms.hadamard_cut import (
         local_unitary_decomposition,
-        _two_qubit_matrix,
     )
 
     data = dag.nodes[node]
@@ -73,20 +72,14 @@ def _gate_costs(dag, node, cache):
     key = (name, params)
     if key in cache:
         return cache[key]
-    if name in ("CZ", "CX", "CNOT"):
-        n_cz = 1
-    elif name in ("RZZ", "CP", "CPHASE", "CU1", "CRZ"):
-        n_cz = 2
-    else:
-        try:
-            from Qdislib.core.cutting_algorithms.gate_cutting import (
-                _decompose_gate_to_cz,
-            )
+    # measure-and-prepare, as circuit_cutting runs it: CZ/CX at gamma 3, any other
+    # gate as its rzz rotations, each at its own angle (1 + 2|sin phi|)
+    try:
+        from Qdislib.core.cutting_algorithms.gate_cutting import _rotation_gamma
 
-            ops = _decompose_gate_to_cz(_two_qubit_matrix(name, params))
-            n_cz = sum(1 for op in ops if str(op[0]).upper() == "CZ")
-        except Exception:  # noqa: BLE001 -- unknown gate: assume the worst case
-            n_cz = 3
+        mp = math.log(_rotation_gamma(name, params))
+    except Exception:  # noqa: BLE001 -- unknown gate: assume the worst case
+        mp = 3 * math.log(3.0)
     try:
         terms = local_unitary_decomposition(name, params)
         l1 = sum(abs(c) for c, _, _ in terms)
@@ -94,7 +87,7 @@ def _gate_costs(dag, node, cache):
         had = math.log(max(1.0, 2 * l1**2 - l2))
     except Exception:  # noqa: BLE001 -- not cuttable with the Hadamard test
         l1, l2, had = _INF, _INF, _INF
-    cache[key] = (n_cz * math.log(3.0), had, l1, l2)
+    cache[key] = (mp, had, l1, l2)
     return cache[key]
 
 
@@ -335,7 +328,11 @@ class _Problem:
             b = fragment_of[f"SUBS2_{k}"]
             key = (min(a, b), max(a, b)) if self.joint else ("gate", k)
             groups.setdefault(key, [a, b, []])[2].append(by_id[gid])
-        log_gamma = sum(by_id[g].mp for g in plan.requested_gate_cuts if g in by_id)
+        # the measure-and-prepare cuts as the plan runs them (each rotation at its
+        # angle)
+        log_gamma = sum(
+            math.log(sum(abs(w) for w in table[2])) for table in plan.gate_tables
+        )
         # 4 per wire, 3 at a golden cut point (the plan finds them)
         log_gamma += sum(math.log(len(d) / 2) for d in plan.wire_digits)
         for a, b, members in groups.values():

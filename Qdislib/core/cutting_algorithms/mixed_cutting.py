@@ -251,6 +251,24 @@ _NO_Y_DIGITS = (0, 1, 2, 3, 6, 7)
 _MARKER_PREFIXES = ("O_", "PS_", "GATE", "SUBS")
 
 
+def _cz_table():
+    from Qdislib.core.cutting_algorithms.gate_cutting import _GATE_SIDE_OPS
+
+    weights = tuple((-1) ** (d in (3, 5)) / 2 for d in range(6))
+    return (_GATE_SIDE_OPS[1], _GATE_SIDE_OPS[2], weights)
+
+
+def _rzz_table(phi):
+    """The six terms of the angle-aware measure-and-prepare cut of ``rzz(phi)``."""
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _RZZ_SIDE_OPS,
+        _rzz_cut_weights,
+    )
+
+    weights = tuple(float(w) for w in _rzz_cut_weights(float(phi)))
+    return (_RZZ_SIDE_OPS[1], _RZZ_SIDE_OPS[2], weights)
+
+
 def _is_real_gate(data):
     """True if a DAG node's gate is a real matrix (so it keeps a real state real)."""
     from Qdislib.utils.statevector import gate_unitary
@@ -351,7 +369,7 @@ class _CutPlan:
         from Qdislib.utils.graph_qibo import _remove_red_edges
         from Qdislib.core.cutting_algorithms.gate_cutting import (
             _generate_cut,
-            _expand_general_gate_cuts,
+            _expand_rotation_cut,
         )
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
             _generate_cut_hadamard,
@@ -394,28 +412,42 @@ class _CutPlan:
             )
             for name in had_cuts
         ]
-        #: A measure-and-prepare cut of a gate other than CZ/CX -> ``(CZs it is cut
-        #: as, the Hadamard cut's gamma for it)``, to point out a cheaper cut.
+        #: A measure-and-prepare cut of a gate other than CZ/CX -> ``(its gamma, the
+        #: Hadamard cut's gamma for it)``, to point out a cheaper cut.
         self.general_gate_cuts = {}
+        #: Per measure-and-prepare cut: ``(side 1 ops, side 2 ops, weights)`` of its
+        #: six terms -- the CZ table (+-1/2), or an ``rzz`` rotation's, at its angle.
+        self.gate_tables = []
+        label = {}  # a cut node -> how a message names it (the gate the user cut)
         if gate_cuts:
             expanded = []
             for name in gate_cuts:
                 data = dag.nodes[name]
                 kind = (data.get("gate") or "").lower()
+                if kind in ("cz", "cx", "cnot"):
+                    expanded.append(name)
+                    self.gate_tables.append(_cz_table())
+                    continue
                 hadamard_gamma = None
-                if kind not in ("cz", "cx", "cnot"):
-                    try:
-                        hadamard_gamma = gamma_factor(
-                            local_unitary_decomposition(
-                                kind.upper(), data.get("parameters") or ()
-                            )
+                try:
+                    hadamard_gamma = gamma_factor(
+                        local_unitary_decomposition(
+                            kind.upper(), data.get("parameters") or ()
                         )
-                    except Exception:  # noqa: BLE001 -- no Hadamard form known
-                        pass
-                dag, new = _expand_general_gate_cuts(dag, [name])
-                expanded.extend(new)
-                if kind not in ("cz", "cx", "cnot"):
-                    self.general_gate_cuts[name] = (len(new), hadamard_gamma)
+                    )
+                except Exception:  # noqa: BLE001 -- no Hadamard form known
+                    pass
+                # Cut as its rzz rotations, each at its own angle (not as CZs).
+                rotations = _expand_rotation_cut(dag, name)
+                for i, r in enumerate(rotations, 1):
+                    label[r] = name if len(rotations) == 1 else f"{name} (rotation {i})"
+                tables = [_rzz_table(dag.nodes[r]["parameters"][0]) for r in rotations]
+                expanded.extend(rotations)
+                self.gate_tables.extend(tables)
+                self.general_gate_cuts[name] = (
+                    math.prod(float(np.abs(t[2]).sum()) for t in tables),
+                    hadamard_gamma,
+                )
             gate_cuts = expanded
         # Wires first, as gate_wire_cutting does: a wire cut right after a cut gate
         # still finds the gate in place.
@@ -425,7 +457,7 @@ class _CutPlan:
             placed, self.num_qubits
         )
         if gate_cuts:
-            dag = _generate_cut(dag, gate_cuts)
+            dag = _generate_cut(dag, gate_cuts, rotations=True)
             # Both gate cuts name their markers SUBS{side}_{k}; keep them apart.
             dag = nx.relabel_nodes(
                 dag,
@@ -444,7 +476,10 @@ class _CutPlan:
             check_cuts_separate,
         )
 
-        sides = {g: (f"GATE1_{k}", f"GATE2_{k}") for k, g in enumerate(gate_cuts, 1)}
+        sides = {
+            label.get(g, g): (f"GATE1_{k}", f"GATE2_{k}")
+            for k, g in enumerate(gate_cuts, 1)
+        }
         sides.update(
             {g: (f"SUBS1_{k}", f"SUBS2_{k}") for k, g in enumerate(had_cuts, 1)}
         )
@@ -525,7 +560,9 @@ class _CutPlan:
         mp = [
             (
                 digits,
-                (-1) ** sum(d in (3, 5) for d in digits) / 2 ** len(self.gate_cuts),
+                math.prod(
+                    float(table[2][d]) for table, d in zip(self.gate_tables, digits)
+                ),
             )
             for digits in itertools.product(range(6), repeat=len(self.gate_cuts))
         ]
@@ -565,11 +602,14 @@ class _CutPlan:
         ):
             for node in nodes:
                 fragment[node] = index
-        return [
-            cut
-            for cut, (a, b) in self.sides.items()
-            if a in fragment and fragment[a] == fragment.get(b)
-        ]
+        # A gate cut as several rotations is named once, as the user named it.
+        return list(
+            dict.fromkeys(
+                cut.split(" (rotation")[0] if isinstance(cut, str) else cut
+                for cut, (a, b) in self.sides.items()
+                if a in fragment and fragment[a] == fragment.get(b)
+            )
+        )
 
     @property
     def num_configurations(self):
@@ -616,7 +656,7 @@ class _CutPlan:
         """The sampling overhead: the product of every cut's 1-norm."""
         from Qdislib.core.cutting_algorithms.hadamard_cut import phi_factor
 
-        total = 3.0 ** len(self.gate_cuts)
+        total = math.prod(float(np.abs(t[2]).sum()) for t in self.gate_tables)
         total *= math.prod(len(digits) / 2 for digits in self.wire_digits)
         for _, terms in self.groups:
             total *= phi_factor(terms)
@@ -658,7 +698,7 @@ class _CutPlan:
         Hadamard: ``c_s c_t (-1)**g`` per setting)."""
         kind, index = bond
         if kind == "gate":
-            return np.array([(-1) ** (d in (3, 5)) / 2 for d in range(6)])
+            return np.asarray(self.gate_tables[index - 1][2], dtype=float)
         if kind == "wire":
             return np.array(
                 [(-1) ** (d in (3, 5, 7)) / 2 for d in self.wire_digits[index - 1]]
@@ -667,11 +707,12 @@ class _CutPlan:
 
     def gate_legs(self, f, digits, config):
         """Fragment ``f``'s part of a gate configuration."""
-        from Qdislib.core.cutting_algorithms.gate_cutting import _GATE_SIDE_OPS
-
         fragment = self.fragments[f]
         return (
-            tuple(_GATE_SIDE_OPS[s][digits[k - 1]] for k, s in fragment["gate_sides"]),
+            tuple(
+                self.gate_tables[k - 1][s - 1][digits[k - 1]]
+                for k, s in fragment["gate_sides"]
+            ),
             tuple(config[g] for g in fragment["had_groups"]),
         )
 
@@ -706,6 +747,10 @@ class _CutPlan:
         n = int(num_samples)
         gamma = self.gamma()
         digits = rng.integers(0, 6, size=(n, len(self.gate_cuts)))
+        gate_probs = [np.abs(t[2]) / np.abs(t[2]).sum() for t in self.gate_tables]
+        for k, q in enumerate(gate_probs):
+            if not np.allclose(q, q[0]):  # a rotation: its terms by weight
+                digits[:, k] = rng.choice(6, size=n, p=q)
         wires = rng.integers(0, 8, size=(n, len(self.wire_cuts)))
         for i, choices in enumerate(self.wire_digits):
             if len(choices) < 8:  # a golden wire: its six terms
@@ -736,6 +781,8 @@ class _CutPlan:
                 if kind == "group":
                     weights = np.abs(self._hadamard_settings[index][1])
                     probs.append(weights / weights.sum())
+                elif kind == "gate":
+                    probs.append(gate_probs[index])
                 else:
                     probs.append(np.full(count, 1.0 / count))
             # Every joint configuration of the chosen cuts, its probability, and
@@ -779,9 +826,9 @@ class _CutPlan:
                 else:
                     picked = np.array(self._hadamard_settings[index][0])[value]
                     fixed[index] = (picked[:, 0], picked[:, 1], picked[:, 2])
-        flips = np.isin(digits, (3, 5)).sum(axis=1) + np.isin(wires, (3, 5, 7)).sum(
-            axis=1
-        )
+        flips = np.isin(wires, (3, 5, 7)).sum(axis=1)
+        for k, table in enumerate(self.gate_tables):
+            flips = flips + (np.asarray(table[2])[digits[:, k]] < 0)
         settings = []
         for index, (_, terms) in enumerate(self.groups):
             if index in fixed:
@@ -960,6 +1007,7 @@ class _FragmentTemplate:
         self.fragment = plan.fragments[f]
         self.graph = plan.graph.subgraph(self.fragment["nodes"]).copy()
         self.groups = plan.groups
+        self.gate_tables = plan.gate_tables
         self.ancilla_base = plan.ancilla_base
         self.cut_source_index = plan.cut_source_index
         self.prepared_to_orig = plan.prepared_to_orig
@@ -972,7 +1020,6 @@ class _FragmentTemplate:
     def build(self, gate_config, states, setting):
         """The fragment's DAG for one set of legs, and its readout."""
         from Qdislib.core.cutting_algorithms.gate_cutting import (
-            _GATE_SIDE_OPS,
             _apply_gate_side,
         )
         from Qdislib.core.cutting_algorithms.hadamard_cut import _config_assignments
@@ -986,7 +1033,10 @@ class _FragmentTemplate:
         for k, side in fragment["gate_sides"]:
             node = f"GATE{side}_{k}"
             _apply_gate_side(
-                sub, node, _GATE_SIDE_OPS[side][digits[k - 1]], f"{node}_rz"
+                sub,
+                node,
+                self.gate_tables[k - 1][side - 1][digits[k - 1]],
+                f"{node}_rz",
             )
         for cut, state in zip(fragment["preps"], states):
             _prepare_wire_state(sub, cut, state)
@@ -1629,13 +1679,14 @@ def _prepare_cut(
 
 
 def _warn_cheaper_hadamard(plan):
-    """Warn when a measure-and-prepare cut of a rotation-like gate costs clearly
-    more than the Hadamard cut would (``3**n`` for its ``n`` CZs against the
-    Hadamard ``gamma``, which follows the gate's angle)."""
+    """Warn when a measure-and-prepare cut of a gate costs clearly more than the
+    Hadamard cut would. For a single rotation (``rzz``, ``cp``, ``crz``, ...) they
+    are the same; a gate with two or three interactions (``iswap``, ``swap``) is
+    cut as a product of rotations, which the Hadamard cut beats."""
     cheaper = [
-        (name, 3.0**n, gamma)
-        for name, (n, gamma) in plan.general_gate_cuts.items()
-        if gamma is not None and gamma < 0.9 * 3.0**n
+        (name, mp, gamma)
+        for name, (mp, gamma) in plan.general_gate_cuts.items()
+        if gamma is not None and gamma < 0.9 * mp
     ]
     if not cheaper:
         return
@@ -1650,8 +1701,21 @@ def _warn_cheaper_hadamard(plan):
         f"The Hadamard cut is cheaper for {names} ({detail}; the shots grow as "
         f"gamma**2). Cut them with {{'hadamard': {names}}} or hadamard=True.",
         UserWarning,
-        stacklevel=3,
+        stacklevel=_caller_stacklevel(),
     )
+
+
+def _caller_stacklevel():
+    """The ``stacklevel`` that points a warning at the first frame outside Qdislib
+    (the user's call), however deep inside the library it is raised."""
+    import os
+    import sys
+
+    package = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    frame, level = sys._getframe(1), 1
+    while frame is not None and frame.f_code.co_filename.startswith(package):
+        frame, level = frame.f_back, level + 1
+    return level
 
 
 def _run(circuits, shots, seed):

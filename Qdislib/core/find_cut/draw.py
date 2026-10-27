@@ -127,7 +127,7 @@ def draw_cut(circuit, cuts, filename=None, *, hadamard=False, ax=None, show=None
                     qubits[0]: fragment_of.get(f"{marker}1_{k}"),
                     qubits[1]: fragment_of.get(f"{marker}2_{k}"),
                 }
-    # A general gate cut by measure-and-prepare is cut as the CZs it decomposes
+    # A general gate cut by measure-and-prepare is cut as the rotations it decomposes
     # into, under other names: mark the gate the user named.
     for name in plan.requested_gate_cuts:
         gate_kind.setdefault(name, "gate")

@@ -35,6 +35,7 @@ __all__ = [
 ]
 
 import networkx as nx
+import cmath
 import math
 import numpy as np
 
@@ -433,7 +434,7 @@ def _gate_cutting(
 _CUTTABLE_GATES = {"cz", "cx", "cnot"}
 
 
-def _assert_cuttable_gate(dag, gate_name):
+def _assert_cuttable_gate(dag, gate_name, rotations=False):
     """Guard the direct-substitution path: the SUBS insertion below only handles a
     two-qubit ``CZ`` or ``CX``/``CNOT``. General two-qubit gates ARE supported -- the
     public entry points call :func:`_expand_general_gate_cuts` first, which decomposes
@@ -446,7 +447,8 @@ def _assert_cuttable_gate(dag, gate_name):
     """
     gate = dag.nodes[gate_name].get("gate") or ""
     qubits = dag.nodes[gate_name].get("qubits") or ()
-    if gate.lower() not in _CUTTABLE_GATES or len(qubits) != 2:
+    allowed = _CUTTABLE_GATES | ({"rzz"} if rotations else set())
+    if gate.lower() not in allowed or len(qubits) != 2:
         raise InvalidCutError(
             f"Gate cutting substitutes a two-qubit CZ or CX/CNOT (a CX is cut via "
             f"CX = H*CZ*H), but node {gate_name!r} is a {gate!r} on qubits "
@@ -456,11 +458,14 @@ def _assert_cuttable_gate(dag, gate_name):
         )
 
 
-def _generate_cut(dag, gates_cut):
+def _generate_cut(dag, gates_cut, rotations=False):
+    """Replace each cut gate by its two side markers ``SUBS1_k`` / ``SUBS2_k``.
+    ``rotations`` also accepts ``rzz`` (the angle-aware cut of ``circuit_cutting``,
+    whose terms the caller supplies)."""
     dag_copy = dag.copy()
     dag_copy = _remove_red_edges(dag_copy)
     for index, gate_name in enumerate(gates_cut, start=1):
-        _assert_cuttable_gate(dag_copy, gate_name)
+        _assert_cuttable_gate(dag_copy, gate_name, rotations)
         # A CX/CNOT is cut as H(t) CZ(c, t) H(t): the CZ measure-and-prepare below
         # is reused unchanged, and the target qubit (qubits[1]) is conjugated by a
         # Hadamard on each side of its cut node -- so it is effectively measured
@@ -791,6 +796,217 @@ _GATE_SIDE_OPS = {
     2: ("rz", "z", "rzpi", "remove", "measure", "measure"),
 }
 
+# The measure-and-prepare cut of RZZ(phi) = exp(-i phi/2 Z(x)Z) (Mitarai & Fujii):
+# with theta = -phi/2, c = cos(theta), s = sin(theta), the gate's channel is
+#   c**2 [I (x) I] + s**2 [Z (x) Z] + c s ([M (x) Rz+] - [M (x) Rz-]
+#                                         + [Rz+ (x) M] - [Rz- (x) M]),
+# M the signed Z measurement of a cut point (outcome 0 -> -1, as the engine reads
+# it), Rz+- = RZ(+-pi/2). gamma = 1 + 2|sin(phi)|: 3 for a CZ-like angle, -> 1 for
+# a weak one. Per side, the operation of each of the six terms:
+_RZZ_SIDE_OPS = {
+    1: ("remove", "pz", "pmeasure", "pmeasure", "rz+", "rz-"),
+    2: ("remove", "pz", "rz+", "rz-", "pmeasure", "pmeasure"),
+}
+
+
+def _rzz_cut_weights(phi):
+    """The six term weights of the measure-and-prepare cut of ``RZZ(phi)``."""
+    theta = -float(phi) / 2
+    c, s = math.cos(theta), math.sin(theta)
+    return np.array([c * c, s * s, c * s, -c * s, c * s, -c * s])
+
+
+def _u_angles(matrix):
+    """``(theta, phi, lam)`` of OpenQASM's ``u`` equal to a 2x2 unitary up to a
+    global phase."""
+    m = np.asarray(matrix, dtype=complex)
+    theta = 2 * math.atan2(abs(m[1, 0]), abs(m[0, 0]))
+    if abs(m[0, 0]) > 1e-9:
+        phase = cmath.phase(m[0, 0])
+        lam = cmath.phase(-m[0, 1]) - phase if abs(m[0, 1]) > 1e-9 else 0.0
+        if abs(m[1, 0]) > 1e-9:
+            phi = cmath.phase(m[1, 0]) - phase
+        else:  # theta = 0: only phi + lam is defined
+            phi = cmath.phase(m[1, 1]) - phase - lam
+    else:  # theta = pi: only phi - lam is defined
+        lam = 0.0
+        phase = cmath.phase(-m[0, 1])
+        phi = cmath.phase(m[1, 0]) - phase
+    return theta, phi, lam
+
+
+_H2 = np.array([[1, 1], [1, -1]], dtype=complex) / math.sqrt(2)
+_S2 = np.diag([1, 1j])
+#: V with V Z V^dag = P: exp(i t P(x)P) = (V(x)V) exp(i t Z(x)Z) (V(x)V)^dag.
+_TO_PAULI = {"X": _H2, "Y": _S2 @ _H2, "Z": np.eye(2, dtype=complex)}
+
+
+def _sequence_unitary(ops):
+    """The 4x4 unitary of ``[(name, local qubits, params)]`` on two qubits, the
+    first most significant."""
+    from Qdislib.utils.statevector import gate_unitary
+
+    total = np.eye(4, dtype=complex)
+    for name, qubits, params in ops:
+        m = gate_unitary(name, params)
+        if len(qubits) == 1:
+            m = np.kron(m, np.eye(2)) if qubits[0] == 0 else np.kron(np.eye(2), m)
+        elif tuple(qubits) == (1, 0):
+            swap = np.eye(4)[[0, 2, 1, 3]]
+            m = swap @ m @ swap
+        total = m @ total
+    return total
+
+
+def _same_up_to_phase(a, b):
+    return abs(np.trace(np.asarray(a).conj().T @ np.asarray(b))) / 4 > 1 - 1e-9
+
+
+def _rotation_decomposition(matrix):
+    """A two-qubit unitary as single-qubit gates and at most three ``rzz``
+    interactions, ``[(name, local qubits, params)]`` in time order, so a
+    measure-and-prepare cut can cut each ``rzz`` at its own angle instead of
+    paying ``gamma = 3`` per CZ of a CZ decomposition.
+
+    A diagonal gate (``cp``, ``crz``, ``rzz``, ...) is ``e^{i a}(RZ (x) RZ) RZZ``
+    in closed form; any other goes through the KAK (Weyl) decomposition, its
+    ``XX`` / ``YY`` / ``ZZ`` parts each an ``rzz`` between basis changes.
+    Checked against ``matrix`` (up to a global phase).
+
+    :raises RuntimeError: if no decomposition rebuilds the gate.
+    """
+    from Qdislib.core.cutting_algorithms.hadamard_cut import _diag_angles
+
+    matrix = np.asarray(matrix, dtype=complex)
+    if np.allclose(matrix, np.diag(np.diag(matrix)), atol=1e-12):
+        _, beta, gamma, delta = _diag_angles(np.diag(matrix))
+        ops = [
+            ("rz", (0,), [-2 * gamma]),
+            ("rz", (1,), [-2 * beta]),
+            ("rzz", (0, 1), [-2 * delta]),
+        ]
+        ops = [op for op in ops if op[0] == "rzz" or abs(op[2][0]) > 1e-12]
+        if _same_up_to_phase(_sequence_unitary(ops), matrix):
+            return ops
+    from qiskit.synthesis import TwoQubitWeylDecomposition
+
+    weyl = TwoQubitWeylDecomposition(matrix)
+    for k1a, k1b, k2a, k2b in (
+        (weyl.K1l, weyl.K1r, weyl.K2l, weyl.K2r),
+        (weyl.K1r, weyl.K1l, weyl.K2r, weyl.K2l),
+    ):
+        # time order: K2, then exp(i a XX), exp(i b YY), exp(i c ZZ), then K1
+        pending = {0: np.asarray(k2a), 1: np.asarray(k2b)}
+        ops = []
+        for coefficient, pauli in ((weyl.a, "X"), (weyl.b, "Y"), (weyl.c, "Z")):
+            if abs(coefficient) < 1e-12:
+                continue
+            v = _TO_PAULI[pauli]
+            for q in (0, 1):
+                ops.append(("u", (q,), list(_u_angles(v.conj().T @ pending[q]))))
+                pending[q] = v
+            ops.append(("rzz", (0, 1), [-2 * coefficient]))
+        for q, k1 in ((0, k1a), (1, k1b)):
+            ops.append(("u", (q,), list(_u_angles(np.asarray(k1) @ pending[q]))))
+        if _same_up_to_phase(_sequence_unitary(ops), matrix):
+            return ops
+    raise RuntimeError("could not decompose the two-qubit gate into rzz rotations")
+
+
+def _gate_matrix_4x4(name, params=()):
+    """A two-qubit gate's matrix (first qubit most significant): the OpenQASM
+    table, else qibo's (``fsim``, ``generalizedfsim``, ...); ``None`` if neither
+    knows it."""
+    from Qdislib.utils.statevector import gate_unitary
+
+    matrix = gate_unitary(name, params)
+    if matrix is None:
+        try:
+            from Qdislib.core.cutting_algorithms.hadamard_cut import _two_qubit_matrix
+
+            matrix = _two_qubit_matrix(name, params)
+        except Exception:  # noqa: BLE001
+            return None
+    return matrix if np.shape(matrix) == (4, 4) else None
+
+
+def _rotation_gamma(name, params=()):
+    """``gamma`` of the angle-aware measure-and-prepare cut of a two-qubit gate:
+    ``prod (1 + 2|sin phi|)`` over the ``rzz`` rotations it is cut as."""
+    kind = canonical(name, params)[0]
+    if kind in ("cz", "cx", "cnot"):
+        return 3.0
+    matrix = _gate_matrix_4x4(name, params)
+    if matrix is None:
+        raise ValueError(f"no matrix for the gate {name!r}")
+    ops = _rotation_decomposition(matrix)
+    return math.prod(1 + 2 * abs(math.sin(op[2][0])) for op in ops if op[0] == "rzz")
+
+
+def _replace_with_ops(dag, gate_name, ops, mark):
+    """Replace a two-qubit gate node with ``ops`` (``[(name, local qubits,
+    params)]``, in time order) in place; return the ids of the ops named ``mark``
+    (the cut targets)."""
+    node = dag.nodes[gate_name]
+    qubits = node["qubits"]
+    qmap = {0: qubits[0], 1: qubits[1]}
+    preds = {
+        q: _find_nodes_with_qubit(dag, gate_name, qubit=q, direction="predecessor")
+        for q in qubits
+    }
+    succs = {
+        q: _find_nodes_with_qubit(dag, gate_name, qubit=q, direction="successor")
+        for q in qubits
+    }
+    dag.remove_node(gate_name)
+
+    last = {q: (preds[q][0] if preds[q] else None) for q in qubits}
+    marked = []
+    for i, (name, local_qubits, op_params) in enumerate(ops):
+        node_qubits = tuple(qmap[lq] for lq in local_qubits)
+        # A symmetric cut gate still has a SUBS1 / SUBS2 side by qubit *position*
+        # (and the identity-observable sign recovery reads it), so pin the first
+        # side on the lower qubit -- a (1, 0) orientation otherwise mis-reconstructs.
+        if name.lower() == mark.lower():
+            node_qubits = tuple(sorted(node_qubits))
+        node_id = f"{name.upper()}_{gate_name}_{i}"
+        dag.add_node(
+            node_id,
+            gate=canonical(name)[0],
+            qubits=node_qubits,
+            parameters=list(op_params),
+        )
+        for q in node_qubits:
+            if last[q] is not None:
+                dag.add_edge(last[q], node_id, color="blue")
+            last[q] = node_id
+        if name.lower() == mark.lower():
+            marked.append(node_id)
+    for q in qubits:
+        if succs[q] and last[q] is not None:
+            dag.add_edge(last[q], succs[q][0], color="blue")
+    return marked
+
+
+def _expand_rotation_cut(dag, gate_name):
+    """Replace a gate other than CZ/CX by single-qubit gates and the ``rzz``
+    rotations of :func:`_rotation_decomposition` (mutating ``dag``); return the
+    ``rzz`` node ids, each cut on its own at its angle. An ``rzz`` is left as is."""
+    node = dag.nodes[gate_name]
+    if len(node.get("qubits") or ()) != 2:
+        raise InvalidCutError(
+            f"Gate cutting needs a two-qubit gate; {gate_name!r} is not one"
+        )
+    kind = canonical(str(node["gate"]), node.get("parameters") or ())[0]
+    if kind == "rzz":
+        return [gate_name]
+    matrix = _gate_matrix_4x4(str(node["gate"]), node.get("parameters") or ())
+    if matrix is None:
+        raise InvalidCutError(
+            f"Gate cutting needs a two-qubit gate; cannot build {gate_name!r}"
+        )
+    return _replace_with_ops(dag, gate_name, _rotation_decomposition(matrix), "rzz")
+
 
 def _apply_gate_side(dag, node, op, after):
     """Turn one side marker of a measure-and-prepare gate cut into its part of a term
@@ -805,6 +1021,12 @@ def _apply_gate_side(dag, node, op, after):
     elif op in ("rz", "rzpi"):
         data["gate"] = "rz"
         data["parameters"] = [-np.pi / 2 if op == "rz" else -np.pi]
+    elif op in ("rz+", "rz-"):  # the angle-aware cut's RZ(+-pi/2)
+        data["gate"] = "rz"
+        data["parameters"] = [np.pi / 2 if op == "rz+" else -np.pi / 2]
+    elif op in ("pz", "pmeasure"):  # ... and its plain Z / cut-point measurement
+        data["gate"] = op[1:]
+        data["parameters"] = ()
     elif op in ("z", "measure"):
         data["gate"] = op
         dag.add_node(
@@ -2433,11 +2655,13 @@ def gate_cutting(
     _legacy=None,
 ):
     """Reconstruct ``<observable>`` from a circuit cut at two-qubit gates
-    (measure-and-prepare gate cut, 6 terms per gate, ``gamma = 3`` per gate).
+    (measure-and-prepare gate cut, 6 terms per gate: ``gamma = 3`` for a CZ/CX,
+    ``1 + 2|sin(phi)|`` for a rotation such as ``rzz(phi)``).
 
     :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
     :param cuts: Gate names to cut (``["CZ_3", ...]``); a gate other than CZ/CX is
-        cut as the CZs it decomposes into.
+        cut as the ``rzz`` rotations it decomposes into, each at its own angle (one
+        for ``cp``, ``crz``, ``rxx``, ...; up to three for a general gate).
     :param observable: A Pauli string (``X``/``Y`` are rotated into ``Z``) or a
         weighted Pauli sum ``[(coefficient, string), ...]``; ``None`` is all ``Z``.
     :param backend: Where the subcircuits run: an SDK (``"qibo"``, ``"qiskit"``,

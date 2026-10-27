@@ -166,8 +166,9 @@ class CostAwareCutTest(BaseTimedTestCase):
 
         circuit = _qaoa(10)
         mixed = qd.find_cut(circuit, max_qubits=5, mixed=True, seed=0)
-        self.assertTrue(mixed["hadamard"])
-        # measure-and-prepare cuts an RZZ as 2 CZs (gamma 9 each)
+        self.assertTrue(mixed["gate"] or mixed["hadamard"])
+        # Both cuts follow an RZZ's angle (1 + 2|sin phi|); measure-and-prepare
+        # used to cut it as 2 CZs, gamma 9 each.
         self.assertLess(qd.cutting_overhead(circuit, mixed)["gamma"], 729 / 10)
 
     def test_time_limit(self):

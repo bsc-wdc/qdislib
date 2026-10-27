@@ -147,10 +147,14 @@ Algorithms
 
 Qdislib includes several circuit cutting strategies:
 
-- **Gate Cutting** (``gate_cutting``): Cuts selected two-qubit gates — a measure-and-prepare quasiprobability decomposition — to divide a circuit into smaller, independently executable subcircuits, then post-processes them to reconstruct the original expectation value. Cuts **any** two-qubit gate: ``CZ``/``CX`` natively, and other gates by automatically decomposing them into ``CZ`` + single-qubit gates. Cost is ``6`` terms per cut. For a rotation-like gate (``rzz``, ``cp``, ``crz``,
-  ...) the Hadamard cut below is usually far cheaper -- its ``gamma`` follows the
-  angle, measure-and-prepare pays ``3`` per CZ of the decomposition -- and Qdislib
-  warns when it is (e.g. ``gamma`` 9 against 1.2 for ``rzz(0.1)``).
+- **Gate Cutting** (``gate_cutting``): Cuts selected two-qubit gates — a measure-and-prepare quasiprobability decomposition — to divide a circuit into smaller, independently executable subcircuits, then post-processes them to reconstruct the original expectation value. Cuts **any** two-qubit gate: ``CZ``/``CX`` natively, and any other gate as the
+  ``rzz`` rotations it decomposes into (one for ``cp``, ``crz``, ``cry``, ``rxx``,
+  ``ryy``, ``rzz``; up to three for a general gate), each cut at its own angle
+  (Mitarai & Fujii). Each cut has ``6`` terms and ``gamma = 1 + 2|sin(phi)|`` for
+  ``rzz(phi)`` -- 3 for a CZ-like angle, 1.2 for ``rzz(0.1)`` -- the same as the
+  Hadamard cut below, without its ancilla, but with a mid-circuit measurement. For
+  a gate with several interactions (``iswap``, ``swap``) the rotations' gammas
+  multiply (9, 27) and the Hadamard cut is cheaper (7); Qdislib warns when it is.
 
 - **Hadamard-test Gate Cutting** (``gate_cutting_hadamard``): An alternative gate cut (Harrow & Lowe, `arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) that replaces the mid-circuit measurement with **one local ancilla** per fragment running a Hadamard test. It cuts **any** two-qubit gate as a *single* cut at the **optimal** overhead (``gamma(CZ) = 3``, tending to ``1`` for weak interactions), which makes it a good fit for superconducting hardware where mid-circuit measurement is costly. Like the other cuts, it has an all-in-one call and a three-step ``_subcircuits`` workflow for expectation values, and ``_sampling`` variants for the output distribution. ``num_samples=N`` draws the configurations at random instead of enumerating them all (the native Harrow–Lowe estimator), which bounds the cost for many cuts.
 
@@ -319,9 +323,9 @@ The result is a gate cut you feed to ``gate_cutting`` as usual; pass a ``layout`
 cut at once and prices it the way :func:`~Qdislib.circuit_cutting` runs it, minimising
 the sampling overhead ``gamma`` (shots grow as ``gamma**2``):
 
-- each gate cut takes the cheaper of measure-and-prepare (``gamma = 3`` per CZ the gate
-  decomposes into) and the Hadamard test, whose ``gamma`` follows the gate's angle —
-  ``1 + 2|sin θ|``-like for a rotation, so weak gates are nearly free;
+- each gate cut takes the cheaper of measure-and-prepare and the Hadamard test; both
+  follow the gate's angle (``1 + 2|sin θ|`` for a rotation, so weak gates are nearly
+  free), and on a tie measure-and-prepare wins, as it needs no ancilla;
 - the Hadamard cuts between two fragments are priced jointly (``2**(k+1) - 1`` for k
   CZ/CX, one shared ancilla per side);
 - a wire cut (``gamma = 4``, 3 at a golden cut point) splits a qubit's timeline

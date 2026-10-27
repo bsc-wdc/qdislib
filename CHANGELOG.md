@@ -13,11 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `optimized=True` no `Y` measurement and no `|+i>` preparation. Exact and automatic,
   in every wire and mixed cut. `cutting_overhead` reports it, and `find_cut` uses it
   to choose among its final candidates (its search still prices a wire at 4).
-- **A warning when the Hadamard cut is clearly cheaper.** A measure-and-prepare cut
-  of a gate other than CZ/CX pays `gamma` 3 per CZ of its decomposition, while the
-  Hadamard cut's follows the angle (`rzz(0.1)`: 9 against 1.2, 56x the shots).
-  `circuit_cutting`, `gate_cutting` and `cutting_overhead` now say so and how to
-  ask for it.
+- **The measure-and-prepare gate cut follows the gate's angle.** A gate other than
+  CZ/CX is no longer cut as the CZs of a CZ decomposition (`gamma` 3 each, so 9 for
+  any `rzz` or `cp`), but as the `rzz` rotations it decomposes into -- one for
+  `cp`, `crz`, `cry`, `rxx`, `ryy`, `rzz`, up to three for a general gate (KAK) --
+  each cut at its angle with Mitarai & Fujii's six terms (`c**2`, `s**2`, `+-c s`):
+  `gamma = 1 + 2|sin(phi)|`. `rzz(0.1)`: 1.2 instead of 9 (56x fewer shots);
+  `cp(0.3)`: 1.3; `crz(0.7)`: 1.7. The same `gamma` as the Hadamard cut for a
+  single rotation, with no ancilla. `num_samples` draws the terms by weight, and
+  `find_cut` prices it (preferring it to the Hadamard cut on a tie). The deprecated
+  `qpu=` path still cuts CZs.
+- **A warning when the Hadamard cut is clearly cheaper.** For a gate with several
+  interactions the measure-and-prepare rotations' `gamma`s multiply (`iswap` 9,
+  `swap` 27) while the Hadamard cut is 7; `circuit_cutting`, `gate_cutting` and
+  `cutting_overhead` say so, pointing at the user's line, and how to ask for it.
 - **IBM and IQM backends give joint final / cut-point counts**, so the gate cut's
   mid-circuit measurements run on them through `circuit_cutting` (each cut point in
   its own register, read per shot).
@@ -80,8 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`find_cut(mixed=True)` searches every kind of cut, priced as it runs.** It
   minimises the sampling overhead `gamma` (shots grow as `gamma**2`) over gate,
   Hadamard and wire cuts together:
-  - each gate cut takes the cheaper of measure-and-prepare (3 per CZ of the gate's
-    decomposition) and the Hadamard test, whose `gamma` follows the gate's angle;
+  - each gate cut takes the cheaper of measure-and-prepare and the Hadamard test,
+    both following the gate's angle;
   - the Hadamard cuts between two fragments are priced jointly;
   - wire cuts split a qubit's timeline where that is cheaper.
 
