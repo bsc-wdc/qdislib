@@ -100,5 +100,62 @@ class DescribeTest(BaseTimedTestCase):
         self.assertIn("shots, any correlator", repr(cached))
 
 
+@unittest.skipUnless(QISKIT, "qiskit required")
+class NativeCircuitsTest(BaseTimedTestCase):
+    """subs.circuits(software): the plain list of native circuits."""
+
+    def setUp(self):
+        super().setUp()
+        import Qdislib as qd
+        from tests.test_engine_cache import _circuit
+
+        self.qd, self.qc = qd, _circuit()
+
+    def test_one_circuit_per_subcircuit_in_any_sdk(self):
+        from qiskit import QuantumCircuit
+
+        subs = self.qd.circuit_cutting_subcircuits(
+            self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ"
+        )
+        circuits = subs.circuits()
+        self.assertEqual(len(circuits), len(subs))
+        self.assertTrue(all(isinstance(c, QuantumCircuit) for c in circuits))
+        self.assertEqual([c.num_qubits for c in circuits], [s.num_qubits for s in subs])
+        if importlib.util.find_spec("qibo"):
+            from qibo.models import Circuit
+
+            self.assertTrue(all(isinstance(c, Circuit) for c in subs.circuits("qibo")))
+        hamiltonian = [(0.5, "ZZZZZZ"), (0.2, "XXIIII")]
+        combined = self.qd.circuit_cutting_subcircuits(
+            self.qc, {"gate": ["CZ_9"]}, hamiltonian
+        )
+        self.assertEqual(len(combined.circuits()), len(combined))
+
+    def test_deferred_measurements(self):
+        subs = self.qd.circuit_cutting_subcircuits(
+            self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ"
+        )
+        plain = subs.circuits()
+        deferred = subs.circuits(defer_measurements=True)
+
+        def mid(c):
+            return sum(i.operation.name == "measure" for i in c.data)
+
+        measuring = [n for n, c in enumerate(plain) if mid(c)]
+        self.assertTrue(measuring)
+        for n in measuring:  # one more qubit, no measurement left inside
+            self.assertEqual(deferred[n].num_qubits, plain[n].num_qubits + 1)
+            self.assertEqual(mid(deferred[n]), 0)
+
+    @unittest.skipUnless(importlib.util.find_spec("qilisdk"), "qilisdk required")
+    def test_qilisdk_defers_by_itself(self):
+        subs = self.qd.circuit_cutting_subcircuits(
+            self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ"
+        )
+        circuits = subs.circuits("qilisdk")
+        self.assertEqual(len(circuits), len(subs))
+        self.assertIn(4, [c.nqubits for c in circuits])  # a measuring side, deferred
+
+
 if __name__ == "__main__":
     unittest.main()

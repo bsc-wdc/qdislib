@@ -1324,11 +1324,35 @@ class _FragmentCircuit(Subcircuit):
         state["_dag"] = None  # rebuilt where needed, not shipped
         return state
 
-    def to_circuit(self):
+    def to_circuit(self, software=None, defer_measurements=False):
+        """The native circuit in ``software`` (default: the list's), on qubits
+        ``0..n-1``. ``defer_measurements`` moves a gate cut's mid-circuit
+        measurement onto an extra qubit read at the end (a CNOT onto it: the same
+        channel), for hardware without mid-circuit measurement; it is done anyway
+        when ``software`` cannot express the measurement (QiliSDK)."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _defer_cut_measurements,
+            _measured_cut_qubits,
+        )
         from Qdislib.utils.backends import _materialize
 
+        software = software or self.software
         dag, width = self._renumbered()
-        return _materialize(dag, width, self.software)
+
+        def deferred():
+            prep = sorted(_measured_cut_qubits(dag))
+            moved = _defer_cut_measurements(dag, width, prep) if prep else None
+            return (dag, width) if moved is None else (moved, width + len(prep))
+
+        if defer_measurements:
+            return _materialize(*deferred(), software)
+        try:
+            return _materialize(dag, width, software)
+        except NotImplementedError:  # no mid-circuit measurement in this SDK
+            moved, wider = deferred()
+            if moved is dag:
+                raise
+            return _materialize(moved, wider, software)
 
     @property
     def observable(self):
@@ -2092,6 +2116,18 @@ class CutCircuits(list):
         from Qdislib.core.cutting_algorithms.describe import summary
 
         return summary(self)
+
+    def circuits(self, software=None, *, defer_measurements=False):
+        """The native circuits, one per subcircuit, in this list's order: a plain
+        list to run, draw or submit yourself. ``software`` builds them in another
+        SDK than the list's (``"qiskit"``, ``"qibo"``, ``"cudaq"``, ``"pennylane"``,
+        ``"qilisdk"``); ``defer_measurements`` moves a gate cut's mid-circuit
+        measurement to an extra qubit read at the end (see
+        :meth:`_FragmentCircuit.to_circuit`). Each circuit's qubits are the
+        subcircuit's, in order: :meth:`describe` names them."""
+        from Qdislib.utils.backends import _first
+
+        return [_first(s.to_circuit(software, defer_measurements)) for s in self]
 
     def describe(self, values=None):
         """A table of the subcircuits -- fragment, qubits, the cut terms each

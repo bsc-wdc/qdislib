@@ -424,6 +424,24 @@ SDK's simulator. Choosing it per subcircuit is how you route by size:
         for s in subcircuits
     ]
 
+**Only the subcircuits.** To get the circuits and nothing else -- to draw them,
+transpile them or submit them with your own tools -- ask the list for them, in any
+SDK:
+
+.. code-block:: python
+
+    subcircuits = qd.circuit_cutting_subcircuits(circuit, cuts, observable)
+    circuits = subcircuits.circuits("qiskit")      # or "qibo", "cudaq", "pennylane", "qilisdk"
+    circuits = subcircuits.circuits("qiskit", defer_measurements=True)
+
+One native circuit per subcircuit, in the list's order, on the subcircuit's qubits
+(``subcircuits.describe()`` names them). A gate cut's measuring side has a
+mid-circuit measurement; ``defer_measurements=True`` moves it onto an extra qubit
+read at the end (the same channel), for hardware without mid-circuit measurement --
+an SDK that cannot express it (QiliSDK) gets that circuit anyway. To have Qdislib
+recombine their results, run the items themselves (step 2 above), which return what
+``reconstruct`` reads.
+
 **Seeing what is passed between the steps.** The list, each item and each result
 print readably, and ``subcircuits.describe(values)`` is a table of every
 subcircuit -- its fragment, its qubits (``q2'`` is a wire cut's prepared line

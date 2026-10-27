@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`subs.circuits(software)`: just the subcircuits, in any SDK.** A plain list of
+  native circuits, one per subcircuit in order, built in the SDK asked for
+  (`"qiskit"`, `"qibo"`, `"cudaq"`, `"pennylane"`, `"qilisdk"`) without cutting
+  again. `defer_measurements=True` moves a gate cut's mid-circuit measurement onto
+  an extra qubit read at the end, for hardware without mid-circuit measurement; a
+  QiliSDK subcircuit gets it automatically (it failed before).
 - **Readable three-step objects.** A subcircuit list prints a summary (subcircuits,
   fragments, cuts, `gamma`, observable), each subcircuit its fragment, qubits and the
   cut terms it runs, and each result -- now a `FragmentResult` `(corr, qubits)`,
