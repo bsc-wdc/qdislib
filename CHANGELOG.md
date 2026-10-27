@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **A Pauli-sum observable runs once per commuting group, not once per term.** The
+  terms are grouped qubit-wise (on every qubit the same Pauli or `I`); each group
+  runs one set of fragment circuits in its basis and every term of the group is
+  read from it, in one reconstruction (the term index is shared by the fragment
+  tensors). Identity terms are constants and run nothing. A 7-term example (3
+  groups and an identity) runs 36 fragment circuits instead of 84; a Z-diagonal
+  Hamiltonian (QAOA) runs once whatever its number of terms. Every cut type, the
+  three-step lists (one part per group), `num_samples` and the cache.
 - **The cutting engine caches fragment results; turn it on per call or for a
   session.** `cache=` on every cutting function (`True`, `"memory"`,
   `"lmdb:<path>"`, `"redis[://host:port/db]"` or a store), or `qd.use_cache(...)`

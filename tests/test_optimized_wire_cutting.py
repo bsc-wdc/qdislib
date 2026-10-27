@@ -207,7 +207,8 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         self.assertEqual(optimized, [True])
 
     def test_weighted_sum_runs_each_term_optimized(self):
-        """A Pauli-sum observable takes the optimized path for every term."""
+        """A Pauli-sum observable takes the optimized path; its two Z terms commute,
+        so they are one group, run once."""
         import Qdislib.core.cutting_algorithms.mixed_cutting as mc
         from Qdislib.core.cutting_algorithms.wire_cutting import wire_cutting
         from Qdislib.utils.circuit import analytical_solution
@@ -237,7 +238,7 @@ class OptimizedWireCuttingTest(BaseTimedTestCase):
         finally:
             mc._prepare_cut = original
 
-        self.assertEqual(calls, [True] * len(hamiltonian))
+        self.assertEqual(calls, [True])
         self.assertLess(abs(value - exact), 0.2)
 
     def test_chain_topology_uses_fewer_than_8n_subcircuits(self):

@@ -455,6 +455,14 @@ mapping:
 The same forms work with every cut type (and its ``_subcircuits`` variant) and
 ``qd.analytical_solution``.
 
+The terms are not run one by one. They are put in **qubit-wise commuting groups**
+-- on every qubit the terms of a group have the same Pauli or ``I`` -- and each
+group runs one set of fragment circuits, in its basis, from which every term of the
+group is read: above, ``ZZ`` and ``IZ`` share one run, ``XI`` has its own. An
+identity term is a constant and runs nothing. With many commuting terms (a
+Z-diagonal Hamiltonian, e.g. QAOA) the whole sum is one run; the three-step lists
+have one part per group.
+
 
 Drawing configurations instead of running them all (``num_samples``)
 --------------------------------------------------------------------

@@ -1085,6 +1085,14 @@ class _FragmentTemplate:
 
 
 def _needed_masks(template, original, setting, mask):
+    if isinstance(mask, (tuple, list)):  # the terms of a commuting group
+        return sorted(
+            {m for one in mask for m in _needed_masks(template, original, setting, one)}
+        )
+    return _one_term_masks(template, original, setting, mask)
+
+
+def _one_term_masks(template, original, setting, mask):
     """The correlators an expectation value reads from one circuit: the
     observable's output bits, every ancilla bit, and each readout's cut-wire bits
     -- a few masks instead of ``2**width``, so a big fragment's task computes and
@@ -1446,11 +1454,17 @@ class _FragmentReads:
             entries.append((corr, roles, positions))
         self.out = sorted(outputs)
         where = {q: j for j, q in enumerate(self.out)}
+        #: True when ``mask`` is the masks of a group of terms: the local masks
+        #: are one per term, an index the fragments share (see :func:`_contract`).
+        self.shared = isinstance(mask, (tuple, list))
         if mask is None:
             local = np.arange(2 ** len(self.out), dtype=np.int64)
         else:
             local = np.array(
-                [sum(((mask >> q) & 1) << j for j, q in enumerate(self.out))],
+                [
+                    sum(((m >> q) & 1) << j for j, q in enumerate(self.out))
+                    for m in (mask if self.shared else [mask])
+                ],
                 dtype=np.int64,
             )
         self.local_masks = local
@@ -1534,7 +1548,8 @@ def _fragment_tensor(plan, f, reads):
             for i in fragment["measures"] + fragment["preps"]
         }
         tensor[index] = _fragment_value(plan, f, reads, digits, config, wire)
-    return tensor, bonds + [("out", f)], reads.out
+    out = ("term",) if reads.shared else ("out", f)
+    return tensor, bonds + [out], reads.out
 
 
 def _contract(plan, parts):
@@ -1552,7 +1567,8 @@ def _contract(plan, parts):
                 tensor = tensor * plan.bond_weights(label).reshape(shape)
                 placed.add(label)
         items.append((tensor, list(labels)))
-    open_labels = [labels[-1] for _, labels, _ in parts]
+    # one open index per fragment, or the terms' index they all share
+    open_labels = list(dict.fromkeys(labels[-1] for _, labels, _ in parts))
 
     def einsum(operands, out):
         ids = {}
@@ -1591,7 +1607,10 @@ def _draws_sum(plan, readers, draws):
         contribution = np.array(weight * count)
         for f, reads in enumerate(readers):
             value = _fragment_value(plan, f, reads, digits, config, wire)
-            contribution = np.multiply.outer(contribution, value)
+            if reads.shared:  # one entry per term, the same in every fragment
+                contribution = contribution * value
+            else:
+                contribution = np.multiply.outer(contribution, value)
         total = total + contribution
     return total
 
@@ -1660,6 +1679,11 @@ def _reconstruct_cut_task(plan, keys, readouts, results, mode, observable, draws
     """Expectation (``mode="expectation"``) or distribution from the fragment
     results, as one task fed straight by the fragment futures."""
     if mode == "expectation":
+        if isinstance(observable, list):  # a commuting group: [(coefficient, mask)]
+            masks = tuple(mask for _, mask in observable)
+            tensor, _ = _cut_tensor(plan, keys, readouts, results, masks, draws)
+            values = np.asarray(tensor).reshape(-1)
+            return float(sum(c * v for (c, _), v in zip(observable, values)))
         mask = _observable_mask(observable, plan.width)
         tensor, _ = _cut_tensor(plan, keys, readouts, results, mask, draws)
         return float(np.asarray(tensor).reshape(-1)[0])
@@ -1715,6 +1739,7 @@ def _prepare_cut(
     qpu_dict,
     num_samples=None,
     seed=None,
+    masks=None,
 ):
     """The plan, the drawn configurations (``None`` when all are run), and one
     :class:`_FragmentCircuit` per fragment circuit to run; ``software`` is what
@@ -1729,7 +1754,10 @@ def _prepare_cut(
         draws = plan.draw(num_samples, next_seed(seed, "draws"))
     templates = [_FragmentTemplate(plan, f) for f in range(len(plan.fragments))]
     # An expectation value reads one mask: its circuits return only that part.
-    mask = None if observable is None else _observable_mask(observable, plan.width)
+    if masks is not None:  # the terms of a commuting group, read from one run
+        mask = tuple(masks)
+    else:
+        mask = None if observable is None else _observable_mask(observable, plan.width)
     keys, readouts, circuits = [], [], []
     for key, f, gate_config, states, setting, count in plan.units(draws):
         keys.append(key)
@@ -1836,7 +1864,8 @@ def circuit_cutting(
         ``find_cut(..., mixed=True)`` returns one), or a list mixing gate names and
         ``(source, target)`` wire edges.
     :param observable: A Pauli string (``X``/``Y`` are rotated into ``Z``), or a
-        weighted Pauli sum ``[(coefficient, string), ...]``; ``None`` is all ``Z``.
+        weighted Pauli sum ``[(coefficient, string), ...]``, whose qubit-wise
+        commuting terms share one run; ``None`` is all ``Z``.
     :param backend: Where the fragments run (see :func:`gate_cutting`).
     :param shots: Shots per fragment circuit (per draw with ``num_samples``);
         ``None`` is exact (statevector).
@@ -1882,13 +1911,17 @@ def circuit_cutting(
     software = resolve_backend(backend, circuit)
     engine_cache = resolve(cache, cache_key, cache_refresh)
     terms = _observable_terms(default_observable(observable, circuit))
+    # identity terms are constants; the others run in qubit-wise commuting groups
+    constant = sum(c for c, term in terms if set(term) <= {"I"})
+    groups = _commuting_groups([(c, t) for c, t in terms if not set(t) <= {"I"}])
     values = []
-    for k, (coefficient, term) in enumerate(terms):
-        term_seed = None if seed is None else next_seed(seed, k)
+    for g, (basis, members) in enumerate(groups):
+        group_seed = None if seed is None else next_seed(seed, g)
+        masks = [_term_mask(term) for _, term in members]
         plan, draws, keys, readouts, circuits = _prepare_cut(
             circuit,
             cuts,
-            term,
+            basis,
             hadamard,
             optimized,
             joint,
@@ -1896,20 +1929,48 @@ def circuit_cutting(
             False,
             None,
             num_samples,
-            term_seed,
+            group_seed,
+            masks=masks,
         )
-        results = _run(circuits, shots, term_seed, engine_cache)
+        results = _run(circuits, shots, group_seed, engine_cache)
+        group = [(c, mask) for (c, _), mask in zip(members, masks)]
         values.append(
-            (
-                coefficient,
-                _reconstruct(plan, keys, readouts, results, "expectation", term, draws),
-            )
+            _reconstruct(plan, keys, readouts, results, "expectation", group, draws)
         )
-    if len(values) == 1 and values[0][0] == 1.0:
-        total = values[0][1]
+    if constant:
+        values.append(float(constant))
+    if not values:
+        total = 0.0
+    elif len(values) == 1:
+        total = values[0]
     else:
-        total = _weighted_sum([c for c, _ in values], [v for _, v in values])
+        total = _weighted_sum([1.0] * len(values), values)
     return total if not sync else compss_wait_on(total)
+
+
+def _term_mask(term):
+    """The Z mask of a Pauli string (after its basis change)."""
+    return sum(1 << q for q, pauli in enumerate(term) if pauli != "I")
+
+
+def _commuting_groups(terms):
+    """``[(basis, [(coefficient, term), ...]), ...]``: the terms of a Pauli sum in
+    qubit-wise commuting groups (on each qubit they have the same Pauli or ``I``),
+    each measured in one basis, so a group runs one set of fragment circuits and
+    every term is read from it. Greedy, the terms with most non-identity qubits
+    first."""
+    order = sorted(range(len(terms)), key=lambda k: -sum(p != "I" for p in terms[k][1]))
+    groups = []  # [basis letters, members]
+    for k in order:
+        coefficient, term = terms[k]
+        for basis, members in groups:
+            if all(a == "I" or b == "I" or a == b for a, b in zip(basis, term)):
+                basis[:] = [b if a == "I" else a for a, b in zip(basis, term)]
+                members.append((coefficient, term))
+                break
+        else:
+            groups.append([list(term), [(coefficient, term)]])
+    return [("".join(basis), members) for basis, members in groups]
 
 
 @standard_arguments
@@ -2033,7 +2094,8 @@ def circuit_cutting_subcircuits(
 
     Run each with :func:`~Qdislib.expectation_value` and pass the results to
     ``reconstruct``. A weighted Pauli sum gives a
-    :class:`~Qdislib.CombinedCutSubcircuits` of one list per term.
+    :class:`~Qdislib.CombinedCutSubcircuits` of one list per qubit-wise commuting
+    group of its terms (see :func:`circuit_cutting`).
 
     :param software: The SDK the subcircuits are written in (``None``: the
         circuit's own); where they run is chosen when you run them.
@@ -2047,12 +2109,17 @@ def circuit_cutting_subcircuits(
 
     software = resolve_software(software, circuit)
     terms = _observable_terms(default_observable(observable, circuit))
+    if len(terms) == 1 and terms[0][0] == 1.0:
+        groups = [(terms[0][1], None)]  # one term: its own list, as before
+    else:  # qubit-wise commuting groups, one list each (see circuit_cutting)
+        groups = _commuting_groups(terms)
     parts = []
-    for k, (_, term) in enumerate(terms):
+    for g, (basis, members) in enumerate(groups):
+        masks = None if members is None else [_term_mask(t) for _, t in members]
         plan, draws, keys, readouts, circuits = _prepare_cut(
             circuit,
             cuts,
-            term,
+            basis,
             hadamard,
             optimized,
             joint,
@@ -2060,7 +2127,8 @@ def circuit_cutting_subcircuits(
             False,
             None,
             num_samples,
-            None if seed is None else next_seed(seed, k),
+            None if seed is None else next_seed(seed, g),
+            masks=masks,
         )
         parts.append(
             CutCircuits(
@@ -2069,13 +2137,17 @@ def circuit_cutting_subcircuits(
                 keys=keys,
                 readouts=readouts,
                 mode="expectation",
-                observable=term,
+                observable=(
+                    basis
+                    if members is None
+                    else [(c, mask) for (c, _), mask in zip(members, masks)]
+                ),
                 draws=draws,
             )
         )
-    if len(parts) == 1 and terms[0][0] == 1.0:
+    if len(parts) == 1:
         return parts[0]
-    return CombinedCutSubcircuits(parts, [c for c, _ in terms])
+    return CombinedCutSubcircuits(parts, [1.0] * len(parts))
 
 
 @standard_arguments
