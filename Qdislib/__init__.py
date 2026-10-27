@@ -85,6 +85,7 @@ __all__ = [
     "cutting_overhead",
     "shots_for",
     "Estimate",
+    "Distribution",
     "find_cut",
     "draw_cut",
     "cut_cost",

@@ -106,6 +106,38 @@ class ErrorBarTest(BaseTimedTestCase):
 
 
 @unittest.skipUnless(QISKIT, "qiskit required")
+class DistributionErrorTest(BaseTimedTestCase):
+    def test_each_probability_has_an_error(self):
+        import Qdislib as qd
+        from qiskit.quantum_info import Statevector
+        from tests.test_engine_cache import _circuit
+
+        qc = _circuit()
+        exact = {k[::-1]: p for k, p in Statevector(qc).probabilities_dict().items()}
+        cuts = {"gate": ["CZ_9"]}
+        dist = qd.circuit_cutting_sampling(qc, cuts, shots=4000, seed=1, error=True)
+        self.assertIsInstance(dist, qd.Distribution)
+        self.assertIsInstance(dist, dict)
+        self.assertAlmostEqual(sum(dist.values()), 1.0, places=6)
+        self.assertEqual(set(dist.errors), set(dist))
+        runs = [
+            qd.circuit_cutting_sampling(qc, cuts, shots=4000, seed=s) for s in range(15)
+        ]
+        for outcome in sorted(exact, key=lambda k: -exact[k])[:3]:
+            spread = np.std([r.get(outcome, 0.0) for r in runs], ddof=1)
+            self.assertGreater(dist.errors[outcome], 0.5 * spread)
+            self.assertLess(dist.errors[outcome], 2.0 * spread)
+        again = pickle.loads(pickle.dumps(dist))
+        self.assertEqual((again.errors, again.shots), (dist.errors, dist.shots))
+        exact_run = qd.circuit_cutting_sampling(qc, cuts, shots=None, error=True)
+        self.assertEqual(max(exact_run.errors.values()), 0.0)
+        wire = qd.wire_cutting_sampling(
+            qc, [("CZ_7", "CZ_8")], shots=500, seed=2, error=30
+        )
+        self.assertGreater(max(wire.errors.values()), 0.0)
+
+
+@unittest.skipUnless(QISKIT, "qiskit required")
 class BudgetTest(BaseTimedTestCase):
     def test_the_budget_is_spent_and_beats_even_shots(self):
         import Qdislib as qd

@@ -164,6 +164,10 @@ _SCRIPT = textwrap.dedent("""
             gate, gc, "Z" * 6, total_shots=5000, seed=3, sync=False, error=20))
         if value.shots != 5000:
             failures.append(f"total_shots=: spent {value.shots}")
+        dist = fc.compss_wait_on(qd.circuit_cutting_sampling(
+            gate, gc, shots=100, seed=3, sync=False, error=20))
+        if not dist.errors or not max(dist.errors.values()) > 0:
+            failures.append("error= on a distribution: no error bars")
     except Exception as e:
         failures.append(f"error/total_shots: {type(e).__name__}: {e}")
     for make, qc, cuts in (

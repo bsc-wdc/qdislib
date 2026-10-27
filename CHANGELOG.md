@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `num_samples` draws, within their strata) are resampled and the cheap
   reconstruction repeated, so it costs no device time. It matches the spread of
   repeated runs; with `num_samples` and more configurations than draws it errs high.
+  The `_sampling` functions take it too: a `Distribution`, the same dict of
+  probabilities with `.errors` per outcome.
 - **`total_shots=`: one shot budget for a call.** A pilot round (20%) split by each
   fragment circuit's weight in the reconstruction (identical circuits share theirs),
   then the rest by weight x the spread the pilot measured (Neyman). In tests the

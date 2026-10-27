@@ -3410,6 +3410,7 @@ def wire_cutting_sampling(
     cache=None,
     cache_key=None,
     cache_refresh=False,
+    error=False,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
@@ -3440,6 +3441,12 @@ def wire_cutting_sampling(
             cache=cache,
             cache_key=cache_key,
             cache_refresh=cache_refresh,
+            error=error,
+        )
+    if error:
+        raise ValueError(
+            "error= runs through circuit_cutting: it is not available with the "
+            "deprecated qpu= / qpu_dict= options."
         )
     legacy = _legacy or {}
     return _wire_cutting_sampling(

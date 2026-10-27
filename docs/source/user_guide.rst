@@ -595,6 +595,10 @@ reconstruction time, not device time. The value is an :class:`~Qdislib.Estimate`
     value.error, value.shots
     qd.gate_cutting(circuit, cut, "ZZZZ", error=500)   # 500 resamples (default 200)
 
+The ``_sampling`` functions take it too: the distribution is then a
+:class:`~Qdislib.Distribution`, the same ``{bitstring: probability}`` dict with
+``.errors`` (``{bitstring: standard error}``) and ``.shots``.
+
 It matches the spread of repeated runs (in tests within a few percent). With
 ``num_samples`` and more configurations than draws it errs high (up to ~40% in
 tests), as it resamples the draws and their shots separately. An exact run

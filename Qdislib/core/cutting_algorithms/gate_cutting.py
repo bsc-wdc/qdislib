@@ -1477,6 +1477,23 @@ class _CountCorrelators(dict):
         dict.__setitem__(self, mask, value)
         return value
 
+    def values_at(self, masks):
+        """The correlators at ``masks`` (an array); when they are most of them,
+        all ``2**k`` at once by a Walsh-Hadamard transform (a distribution)."""
+        masks = np.asarray(masks, dtype=np.int64)
+        if self.k <= 22 and len(masks) * 16 >= 2**self.k:
+            if getattr(self, "_full", None) is None:
+                _, bits, sign, counts = self.counts.arrays()
+                total = counts.sum() or 1.0
+                outcome = bits.astype(np.int64) @ (
+                    1 << np.arange(self.k, dtype=np.int64)
+                )
+                histogram = np.zeros(2**self.k)
+                np.add.at(histogram, outcome, counts * sign / total)
+                self._full = _fast_walsh_hadamard(histogram)
+            return self._full[masks]
+        return np.array([self[int(m)] for m in masks])
+
     def __reduce__(self):
         return (_CountCorrelators, (self.joint, self.prep_sorted, self.k))
 
@@ -2916,6 +2933,7 @@ def gate_cutting_sampling(
     cache=None,
     cache_key=None,
     cache_refresh=False,
+    error=False,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
@@ -2948,6 +2966,12 @@ def gate_cutting_sampling(
             cache=cache,
             cache_key=cache_key,
             cache_refresh=cache_refresh,
+            error=error,
+        )
+    if error:
+        raise ValueError(
+            "error= runs through circuit_cutting: it is not available with the "
+            "deprecated qpu= / qpu_dict= options."
         )
     legacy = _legacy or {}
     return _gate_cutting_sampling(

@@ -30,7 +30,7 @@ import math
 
 import numpy as np
 
-__all__ = ["Estimate", "shots_for"]
+__all__ = ["Estimate", "Distribution", "shots_for"]
 
 #: Resamples when ``error=True``.
 DEFAULT_RESAMPLES = 200
@@ -57,6 +57,28 @@ class Estimate(float):
         return f"{float(self):.6g} ± {self.error:.2g}"
 
     __str__ = __repr__
+
+
+class Distribution(dict):
+    """A reconstructed output distribution, ``{bitstring: probability}``, that also
+    carries ``errors`` (``{bitstring: standard error}``, by bootstrap over the
+    shots) and the ``shots`` it took."""
+
+    def __init__(self, probabilities, errors=None, shots=0):
+        super().__init__(probabilities)
+        self.errors = dict(errors or {})
+        self.shots = int(shots)
+
+    def __reduce__(self):
+        return (Distribution, (dict(self), self.errors, self.shots))
+
+    def __repr__(self):
+        top = sorted(self.items(), key=lambda kv: -kv[1])[:4]
+        shown = ", ".join(
+            f"{k!r}: {p:.4g} ± {self.errors.get(k, 0.0):.2g}" for k, p in top
+        )
+        more = ", ..." if len(self) > 4 else ""
+        return f"Distribution({{{shown}{more}}}, shots={self.shots})"
 
 
 def resamples(error):
@@ -116,10 +138,11 @@ def bootstrap(evaluate, results, draws, count, seed=None):
     shots = total_shots(results)
     random = shots > 0 or (draws is not None and len(draws) > 0)
     if not count or not random:
-        return 0.0, shots
+        exact = evaluate(results, draws)
+        return ({k: 0.0 for k in exact} if isinstance(exact, dict) else 0.0), shots
     rng = np.random.default_rng(seed)
     values = []
-    for _ in range(count):
+    for _ in range(count):  # (a distribution: a dict per resample)
         sample = [
             (
                 (_resample_counts(corr, rng), original)
@@ -129,6 +152,11 @@ def bootstrap(evaluate, results, draws, count, seed=None):
             for corr, original in results
         ]
         values.append(evaluate(sample, _resample_draws(draws, rng)))
+    if isinstance(values[0], dict):  # a distribution: each outcome's spread
+        keys = set().union(*values)
+        return {
+            k: float(np.std([v.get(k, 0.0) for v in values], ddof=1)) for k in keys
+        }, shots
     return float(np.std(values, ddof=1)), shots
 
 

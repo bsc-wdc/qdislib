@@ -1606,7 +1606,9 @@ class _FragmentReads:
                 for pauli, sign, bits in self.readouts[n]:
                     if tuple(pauli) == letters:
                         at = index | sum(1 << positions[b] for b in bits)
-                        if isinstance(corr, dict):  # only the read correlators
+                        if hasattr(corr, "values_at"):  # a run's counts
+                            values.append(sign * corr.values_at(at))
+                        elif isinstance(corr, dict):  # only the read correlators
                             values.append(sign * np.array([corr[int(i)] for i in at]))
                         else:
                             values.append(sign * corr[at])
@@ -1832,8 +1834,19 @@ def _reconstruct_cut_task(
             seed,
         )
         return Estimate(value, error, shots)
-    tensor, outs = _cut_tensor(plan, keys, readouts, results, None, draws)
-    return _distribution(_global_correlators(tensor, outs, plan.width), plan.width)
+
+    def distribution(res, drs):
+        tensor, outs = _cut_tensor(plan, keys, readouts, res, None, drs)
+        return _distribution(_global_correlators(tensor, outs, plan.width), plan.width)
+
+    value = distribution(results, draws)
+    if not bootstrap:
+        return value
+    from Qdislib.core.cutting_algorithms.uncertainty import Distribution
+    from Qdislib.core.cutting_algorithms.uncertainty import bootstrap as resample
+
+    errors, shots = resample(distribution, results, draws, bootstrap, seed)
+    return Distribution(value, errors, shots)
 
 
 @task(returns=1, results=COLLECTION_IN)
@@ -1864,7 +1877,7 @@ def _reconstruct(
     """The reconstruction as a future. An expectation value is one task (the
     contraction is cheap); a distribution reduces each fragment's results in its own
     task first, then contracts the small tensors."""
-    if mode == "distribution" and draws is None:
+    if mode == "distribution" and draws is None and not bootstrap:
         parts = [
             _fragment_tensor_task(plan, f, k, r, res)
             for f, (k, r, res) in enumerate(
@@ -2238,11 +2251,16 @@ def circuit_cutting_sampling(
     cache=None,
     cache_key=None,
     cache_refresh=False,
+    error=False,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut by any
     combination of cuts, from the same fragment circuits as :func:`circuit_cutting`.
     Arguments as there.
 
+    :param error: ``True`` (or a number of resamples): return a
+        :class:`~Qdislib.Distribution` -- still the ``{bitstring: probability}``
+        dict -- with ``.errors``, each probability's standard error by bootstrap
+        over the shots, and ``.shots``.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings), the signed
         estimate abs-normalised like :func:`gate_cutting_sampling`.
     """
@@ -2262,8 +2280,27 @@ def circuit_cutting_sampling(
     )
     from Qdislib.core.cutting_algorithms.engine_cache import resolve
 
-    results = _run(circuits, shots, seed, resolve(cache, cache_key, cache_refresh))
-    future = _reconstruct(plan, keys, readouts, results, "distribution", None, draws)
+    from Qdislib.core.cutting_algorithms.uncertainty import resamples
+
+    count = resamples(error)
+    results = _run(
+        circuits,
+        shots,
+        seed,
+        resolve(cache, cache_key, cache_refresh),
+        keep_counts=count > 0,
+    )
+    future = _reconstruct(
+        plan,
+        keys,
+        readouts,
+        results,
+        "distribution",
+        None,
+        draws,
+        count,
+        None if seed is None else next_seed(seed, "bootstrap"),
+    )
     return compss_wait_on(future) if sync else future
 
 
