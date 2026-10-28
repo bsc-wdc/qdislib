@@ -217,6 +217,12 @@ class NativeCircuitsTest(BaseTimedTestCase):
         plain = [qd.expectation_value(s, shots=None) for s in subs]
         with self.assertRaisesRegex(ValueError, "only the correlators"):
             subs.reconstruct(plain, "ZIIIII")
+        # sample_subcircuit with shots keeps the counts: any Z string reads back
+        sampled = [qd.sample_subcircuit(s, shots=20000, seed=i) for i, s in enumerate(subs)]
+        for q in (0, 3, 5):
+            observable = "I" * q + "Z" + "I" * (5 - q)
+            exact = float(state.expectation_value(SparsePauliOp(observable[::-1])).real)
+            self.assertAlmostEqual(subs.reconstruct(sampled, observable), exact, delta=0.05)
 
     def test_counts_can_be_read_again(self):
         """Reading counts leaves the list as it was: a second reconstruct_counts

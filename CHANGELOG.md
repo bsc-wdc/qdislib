@@ -220,6 +220,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **`sample_subcircuit` results could not serve other observables.** The docs said
+  `subs.reconstruct(results, observable)` reads any observable in the list's basis
+  from `sample_subcircuit` runs, but they kept only the list's own correlators and
+  raised. With shots they now keep the counts (an exact run still keeps only what
+  the list's observable needs: all of a 30-qubit fragment's correlators would be
+  2**30 numbers); the error message says so.
 - **Reading counts twice from one subcircuit list gave a wrong result.**
   `subs.reconstruct_counts(...)` (and `qd.result_from_counts`) renumbered the
   subcircuit's qubits in place, so the next call on the same list -- other counts,

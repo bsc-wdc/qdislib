@@ -1834,7 +1834,9 @@ def sample_subcircuit(subcircuit, shots=1024, *, backend=None, seed=None):
     from Qdislib.utils.backends import Subcircuit
 
     if isinstance(subcircuit, Subcircuit):
-        return subcircuit._sample(shots, backend, seed)
+        # an engine subcircuit keeps its counts: any observable reads back from them
+        run = getattr(subcircuit, "_sample_counts", subcircuit._sample)
+        return run(shots, backend, seed)
     if hasattr(subcircuit, "sample"):
         return subcircuit.sample(shots, seed)
     return _sample_gate_subcircuit(  # a 1.x _SampleUnit
