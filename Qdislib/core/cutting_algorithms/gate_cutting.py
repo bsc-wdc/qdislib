@@ -1575,6 +1575,43 @@ def _defer_cut_measurements(dag, num_qubits, prep_sorted):
     return deferred
 
 
+def _defer_all_cut_measurements(dag, num_qubits):
+    """The DAG with every cut-point measurement deferred onto a fresh qubit of its
+    own, a qubit cut twice included: ``(dag, cut_qubits)``, fresh qubit
+    ``num_qubits + j`` holding a measurement of ``cut_qubits[j]`` (by qubit, then in
+    time order: the order of :func:`_cut_measurements`)."""
+    import networkx
+
+    measures = [
+        node
+        for node in networkx.topological_sort(dag)
+        if (dag.nodes[node].get("gate") or "").lower() == "measure"
+    ]
+    if not measures:
+        return dag, []
+    qubits = [dag.nodes[node]["qubits"][0] for node in measures]
+    ranked = sorted(range(len(measures)), key=lambda i: (qubits[i], i))
+    deferred = dag.copy()
+    for j, i in enumerate(ranked):
+        deferred.nodes[measures[i]].update(
+            gate="cx", qubits=(qubits[i], num_qubits + j), parameters=()
+        )
+    return deferred, [qubits[i] for i in ranked]
+
+
+def _fold_cut_bits(bits, cut_qubits, prep_sorted):
+    """One bit per cut qubit from one bit per cut measurement: the bit whose sign
+    ``-(-1)**bit`` is the product of its measurements' (as the engine keeps them)."""
+    folded = []
+    for q in prep_sorted:
+        sign = 1
+        for b, owner in zip(bits, cut_qubits):
+            if owner == q:
+                sign *= -((-1) ** int(b))
+        folded.append(0 if sign < 0 else 1)
+    return tuple(folded)
+
+
 def _deferred_joint_counts(backend, dag, num_qubits, num_cuts, shots, seed):
     """``{(final_bits, cut_point_bits): count}`` from one end-of-circuit sample of
     the deferred DAG (the cut-point bits are the fresh qubits)."""

@@ -1355,8 +1355,7 @@ class _FragmentCircuit(Subcircuit):
         channel), for hardware without mid-circuit measurement; it is done anyway
         when ``software`` cannot express the measurement (QiliSDK)."""
         from Qdislib.core.cutting_algorithms.gate_cutting import (
-            _defer_cut_measurements,
-            _measured_cut_qubits,
+            _defer_all_cut_measurements,
         )
         from Qdislib.utils.backends import _materialize
 
@@ -1367,10 +1366,9 @@ class _FragmentCircuit(Subcircuit):
         software = software or self.software
         dag, width = self._renumbered()
 
-        def deferred():
-            prep = sorted(_measured_cut_qubits(dag))
-            moved = _defer_cut_measurements(dag, width, prep) if prep else None
-            return (dag, width) if moved is None else (moved, width + len(prep))
+        def deferred():  # every cut measurement, a qubit cut twice included
+            moved, cut_qubits = _defer_all_cut_measurements(dag, width)
+            return moved, width + len(cut_qubits)
 
         if defer_measurements:
             return _materialize(*deferred(), software)
@@ -2425,6 +2423,8 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first"):
     from Qdislib.core.cutting_algorithms.describe import FragmentResult
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _JointCounts,
+        _cut_measurements,
+        _fold_cut_bits,
         _prepare_sampled_component,
     )
 
@@ -2433,7 +2433,8 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first"):
     dag, width, prep_sorted, original = _prepare_sampled_component(subcircuit.dag)
     if dag is None:  # an empty fragment
         return FragmentResult({0: 1.0}, [])
-    expected = width + len(prep_sorted)
+    cut_qubits = _cut_measurements(dag)  # one per cut measurement: the extra qubits
+    expected = width + len(cut_qubits)
     joint = {}
     for outcome, count in counts.items():
         if isinstance(outcome, str):
@@ -2455,7 +2456,7 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first"):
             )
         key = (
             tuple(int(b) for b in bits[:width]),
-            tuple(int(b) for b in bits[width:]),
+            _fold_cut_bits(bits[width:], cut_qubits, prep_sorted),
         )
         joint[key] = joint.get(key, 0) + count
     return FragmentResult(_JointCounts(joint, prep_sorted, width), original)

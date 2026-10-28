@@ -220,6 +220,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **`defer_measurements=True` left a wire cut twice measuring mid-circuit.** Two
+  gate cuts on one wire measure a qubit twice; `subs.circuits(..., defer_measurements=True)`
+  then silently returned the circuit with its mid-circuit measurements (hardware
+  without them, or a statevector, failed). Each cut measurement now gets its own
+  fresh qubit, and `result_from_counts` folds a qubit's measurements back into one
+  sign, as the engine does.
 - **`sample_subcircuit` results could not serve other observables.** The docs said
   `subs.reconstruct(results, observable)` reads any observable in the list's basis
   from `sample_subcircuit` runs, but they kept only the list's own correlators and

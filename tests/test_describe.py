@@ -251,6 +251,34 @@ class NativeCircuitsTest(BaseTimedTestCase):
                 with self.subTest(cuts=cuts, run=seed):
                     self.assertLess(tvd, 0.05)
 
+    def test_a_wire_cut_twice_defers_too(self):
+        """Two gate cuts on one wire measure a qubit twice: defer_measurements puts
+        each measurement on a fresh qubit of its own, and the counts read back."""
+        from qiskit import QuantumCircuit
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+
+        qc = QuantumCircuit(4)
+        for layer in range(2):
+            for q in range(4):
+                qc.ry(0.3 + 0.5 * q + layer, q)
+            qc.cz(0, 1)
+            qc.cz(2, 3)
+            qc.cz(1, 2)  # the gate between the halves, twice: cut both
+        cuts = [f"CZ_{i + 1}" for i, inst in enumerate(qc.data)
+                if inst.operation.name == "cz"
+                and [qc.find_bit(x).index for x in inst.qubits] == [1, 2]]
+        subs = self.qd.circuit_cutting_subcircuits(qc, {"gate": cuts}, "ZZZZ")
+        circuits = subs.circuits("qiskit", defer_measurements=True)
+        self.assertFalse(any("measure" in c.count_ops() for c in circuits))
+        results = [
+            self.qd.result_from_counts(s, Statevector(c).probabilities_dict(), "q0_last")
+            for s, c in zip(subs, circuits)
+        ]
+        state = Statevector(qc)
+        for observable in ("ZZZZ", "IZZI", "ZIII"):
+            exact = float(state.expectation_value(SparsePauliOp(observable[::-1])).real)
+            self.assertAlmostEqual(subs.reconstruct(results, observable), exact, places=9)
+
     def test_counts_need_the_deferred_circuit(self):
         qd = self.qd
         subs = qd.circuit_cutting_subcircuits(self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ")
