@@ -2428,7 +2428,6 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first", keep_counts=Tru
     from Qdislib.core.cutting_algorithms.describe import FragmentResult
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _JointCounts,
-        _z_correlators,
         _cut_measurements,
         _fold_cut_bits,
         _prepare_sampled_component,
@@ -2441,6 +2440,21 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first", keep_counts=Tru
         return FragmentResult({0: 1.0}, [])
     cut_qubits = _cut_measurements(dag)  # one per cut measurement: the extra qubits
     expected = width + len(cut_qubits)
+    mask = getattr(subcircuit, "mask", None)
+    if not keep_counts and mask is not None:  # vectorised: no per-outcome Python
+        needed = _needed_masks(subcircuit.template, original, subcircuit.spec[2], mask)
+        bits = _outcome_bits(counts, bit_order, expected, width, prep_sorted)
+        weights = np.fromiter(counts.values(), dtype=float, count=len(counts))
+        signed = weights / (weights.sum() or 1.0)
+        if bits.shape[1] > width:  # each cut measurement's sign, as the engine folds them
+            signed = signed * np.prod(1.0 - 2.0 * (1 - bits[:, width:]), axis=1)
+        finals = bits[:, :width].astype(np.int64)
+        corr = {}
+        for m in needed:
+            select = (int(m) >> np.arange(width)) & 1
+            parity = (finals @ select) & 1
+            corr[int(m)] = float(np.sum(signed * (1 - 2 * parity)))
+        return FragmentResult(corr, original)
     joint = {}
     for outcome, count in counts.items():
         if isinstance(outcome, str):
@@ -2465,11 +2479,34 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first", keep_counts=Tru
             _fold_cut_bits(bits[width:], cut_qubits, prep_sorted),
         )
         joint[key] = joint.get(key, 0) + count
-    mask = getattr(subcircuit, "mask", None)
-    if not keep_counts and mask is not None:
-        needed = _needed_masks(subcircuit.template, original, subcircuit.spec[2], mask)
-        return FragmentResult(_z_correlators(joint, prep_sorted, width, needed), original)
     return FragmentResult(_JointCounts(joint, prep_sorted, width), original)
+
+
+def _outcome_bits(counts, bit_order, expected, width, prep_sorted):
+    """The outcomes of ``counts`` as a ``(outcomes, bits)`` uint8 matrix, qubit 0
+    first (the first register of a Qiskit key, as :func:`result_from_counts`)."""
+    strings = []
+    for outcome in counts:
+        if isinstance(outcome, str):
+            text = outcome.strip()
+            strings.append(text.split()[0] if " " in text else text)
+        else:
+            strings.append("".join(str(int(b)) for b in outcome))
+    wrong = next((t for t in strings if len(t) != expected), None)
+    if wrong is not None:
+        hint = (
+            " Its gate cut measures mid-circuit: build it with "
+            "defer_measurements=True and measure every qubit at the end."
+            if prep_sorted and len(wrong) == width
+            else ""
+        )
+        raise ValueError(
+            f"an outcome of {len(wrong)} bits ({wrong!r}) for a circuit of "
+            f"{expected} qubits.{hint}"
+        )
+    bits = np.frombuffer("".join(strings).encode("ascii"), dtype=np.uint8)
+    bits = (bits - ord("0")).reshape(len(strings), expected)
+    return bits[:, ::-1] if bit_order == "q0_last" else bits
 
 
 @task(returns=1)
