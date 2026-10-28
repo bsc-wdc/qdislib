@@ -192,6 +192,32 @@ class NativeCircuitsTest(BaseTimedTestCase):
             with self.subTest(cuts=cuts):
                 self.assertLess(abs(value - ref), 0.03)
 
+    def test_one_run_serves_every_qubit(self):
+        """reconstruct(results, observable=...) reads another observable in the
+        same basis from runs that kept their counts."""
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+
+        qd = self.qd
+        state = Statevector(self.qc)
+        subs = qd.circuit_cutting_subcircuits(self.qc, {"gate": ["CZ_9"]}, "Z" * 6)
+        results = []
+        for s, c in zip(subs, subs.circuits("qibo", defer_measurements=True)):
+            probs = c().probabilities()  # exact: probabilities as "counts"
+            n = c.nqubits
+            counts = {format(i, f"0{n}b"): float(p) for i, p in enumerate(probs) if p}
+            results.append(qd.result_from_counts(s, counts))
+        for q in range(6):
+            observable = "I" * q + "Z" + "I" * (5 - q)
+            exact = float(state.expectation_value(SparsePauliOp(observable[::-1])).real)
+            self.assertAlmostEqual(
+                subs.reconstruct(results, observable), exact, places=9
+            )
+        with self.assertRaisesRegex(ValueError, "measured in Z"):
+            subs.reconstruct(results, "XIIIII")
+        plain = [qd.expectation_value(s, shots=None) for s in subs]
+        with self.assertRaisesRegex(ValueError, "only the correlators"):
+            subs.reconstruct(plain, "ZIIIII")
+
     def test_counts_need_the_deferred_circuit(self):
         qd = self.qd
         subs = qd.circuit_cutting_subcircuits(self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ")

@@ -2454,24 +2454,63 @@ class CutCircuits(list):
             )
         raise AttributeError(name)
 
-    def reconstruct(self, results):
-        """Recombine one result per subcircuit, in this order (values or futures)."""
+    def reconstruct(self, results, observable=None):
+        """Recombine one result per subcircuit, in this order (values or futures).
+
+        :param observable: Another Pauli string to reconstruct from the same
+            results, measured in the same basis as this list (a ``Z``/``I`` string
+            for a list made with a ``Z``/``I`` observable or for a distribution
+            list). The results must hold more than the list's own correlators: the
+            counts of :func:`result_from_counts` or of a cached run, or the full
+            correlators of :func:`~Qdislib.sample_subcircuit`. One set of runs then
+            serves many observables, e.g. ``<Z>`` of every qubit.
+        """
         results = list(results)
         if len(results) != len(self):
             raise ValueError(
                 f"expected {len(self)} results, one per subcircuit, got {len(results)}"
             )
+        mode, target = self.mode, self.observable
+        if observable is not None:
+            self._check_same_basis(observable)
+            for result in results:
+                corr = result[0] if isinstance(result, tuple) else None
+                if isinstance(corr, dict) and not hasattr(corr, "values_at"):
+                    raise ValueError(
+                        "these results hold only the correlators of the list's own "
+                        "observable; to read another one, keep the counts "
+                        "(result_from_counts, a cached run) or run the "
+                        "subcircuits with sample_subcircuit"
+                    )
+            mode, target = "expectation", observable
         return compss_wait_on(
             _reconstruct(
                 self.plan,
                 self.keys,
                 self.readouts,
                 results,
-                self.mode,
-                self.observable,
+                mode,
+                target,
                 self.draws,
             )
         )
+
+    def _check_same_basis(self, observable):
+        """Raise unless ``observable`` is measured in this list's basis."""
+        width = self.plan.width
+        if not isinstance(observable, str) or len(observable) != width:
+            raise ValueError(
+                f"observable must be a Pauli string of {width} letters, got "
+                f"{observable!r}"
+            )
+        basis = self.basis or "Z" * width
+        for q, letter in enumerate(observable.upper()):
+            measured = basis[q] if basis[q] in "XY" else "Z"
+            if letter not in ("I", measured):
+                raise ValueError(
+                    f"qubit {q} is measured in {measured} by these subcircuits; "
+                    f"{observable!r} asks for {letter} there. Make a list for it."
+                )
 
 
 @standard_arguments
