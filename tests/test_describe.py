@@ -218,6 +218,33 @@ class NativeCircuitsTest(BaseTimedTestCase):
         with self.assertRaisesRegex(ValueError, "only the correlators"):
             subs.reconstruct(plain, "ZIIIII")
 
+    def test_counts_can_be_read_again(self):
+        """Reading counts leaves the list as it was: a second reconstruct_counts
+        on the same list (here with other counts) is right too."""
+        from qiskit_aer import AerSimulator
+        from qiskit.quantum_info import Statevector
+
+        exact = {
+            k[::-1]: v for k, v in Statevector(self.qc).probabilities_dict().items()
+        }
+        for cuts in ({"gate": ["CZ_9"]}, {"hadamard": ["CZ_9"]}):
+            subs = self.qd.circuit_cutting_sampling_subcircuits(self.qc, cuts)
+            circuits = []
+            for circuit in subs.circuits("qiskit", defer_measurements=True):
+                circuit = circuit.copy()
+                circuit.measure_all()
+                circuits.append(circuit)
+            for seed in (1, 2):
+                result = AerSimulator().run(circuits, shots=20000, seed_simulator=seed)
+                counts = [result.result().get_counts(i) for i in range(len(circuits))]
+                distribution = subs.reconstruct_counts(counts, bit_order="q0_last")
+                tvd = 0.5 * sum(
+                    abs(distribution.get(k, 0.0) - exact.get(k, 0.0))
+                    for k in set(exact) | set(distribution)
+                )
+                with self.subTest(cuts=cuts, run=seed):
+                    self.assertLess(tvd, 0.05)
+
     def test_counts_need_the_deferred_circuit(self):
         qd = self.qd
         subs = qd.circuit_cutting_subcircuits(self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ")

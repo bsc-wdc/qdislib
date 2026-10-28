@@ -1503,7 +1503,9 @@ def _prepare_sampled_component(component):
     measure-and-prepare (cut-point) qubits: ``(dag, num_qubits, prep_sorted,
     original)``, ``dag`` ``None`` for an empty component."""
     original = _component_original_qubits(component)
-    s_new, highest_qubit = _update_qubits(component)
+    # _update_qubits renumbers in place: work on a copy, so a DAG the caller keeps
+    # (a subcircuit's, read again by the next result_from_counts) is left as it was
+    s_new, highest_qubit = _update_qubits(component.copy())
     if s_new is None:  # empty component (a qubit touched only by a removed cut node)
         return (None, 0, [], original)
     prep_sorted = sorted(_measured_cut_qubits(s_new))
