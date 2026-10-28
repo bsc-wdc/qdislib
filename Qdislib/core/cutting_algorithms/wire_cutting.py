@@ -3312,6 +3312,7 @@ def wire_cutting(
     cache_refresh=False,
     error=False,
     total_shots=None,
+    circuits_per_task=None,
     cache_mode=None,
     _legacy=None,
 ):
@@ -3338,6 +3339,8 @@ def wire_cutting(
         :class:`~Qdislib.Estimate` with its standard error (see
         :func:`circuit_cutting`).
     :param total_shots: One shot budget instead of ``shots`` per circuit (see
+        :func:`circuit_cutting`).
+    :param circuits_per_task: Fragment circuits per task instead of one each (see
         :func:`circuit_cutting`).
     :param cache_mode: Deprecated and ignored (the cache keeps the whole result).
     :param num_samples: Draw this many configurations by weight instead of running
@@ -3371,10 +3374,11 @@ def wire_cutting(
             cache_refresh=cache_refresh,
             error=error,
             total_shots=total_shots,
+            circuits_per_task=circuits_per_task,
         )
-    if error or total_shots is not None:
+    if error or total_shots is not None or circuits_per_task is not None:
         raise ValueError(
-            "error= and total_shots= run through circuit_cutting: they are not available with the "
+            "error=, total_shots= and circuits_per_task= run through circuit_cutting: they are not available with the "
             "deprecated qpu=/gpu=/method= options."
         )
     legacy = _legacy or {}
@@ -3411,6 +3415,7 @@ def wire_cutting_sampling(
     cache_key=None,
     cache_refresh=False,
     error=False,
+    circuits_per_task=None,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
@@ -3442,10 +3447,11 @@ def wire_cutting_sampling(
             cache_key=cache_key,
             cache_refresh=cache_refresh,
             error=error,
+            circuits_per_task=circuits_per_task,
         )
-    if error:
+    if error or circuits_per_task is not None:
         raise ValueError(
-            "error= runs through circuit_cutting: it is not available with the "
+            "error= and circuits_per_task= run through circuit_cutting: they are not available with the "
             "deprecated qpu= / qpu_dict= options."
         )
     legacy = _legacy or {}

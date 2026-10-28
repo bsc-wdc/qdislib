@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **`circuits_per_task=`: several fragment circuits per COMPSs task.** Every
+  cutting function (gate, wire, Hadamard, `circuit_cutting`, and their `_sampling`
+  forms) can run its fragment circuits in groups instead of one task each: fewer,
+  longer tasks when the circuits are small and many, where a task's overhead
+  outweighs the simulation (a 9-qubit subcircuit takes ~70 ms in Aer). Same seeds,
+  same results; not yet with `cache=` or `total_shots=`.
 - **Error bars: `error=True`.** Every expectation-value cutting function returns an
   `Estimate` -- a `float` (old code is unchanged) with `.error` and `.shots` -- the
   standard error by bootstrap over the shots: each fragment circuit's counts (and the
@@ -214,6 +220,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **Reading counts twice from one subcircuit list gave a wrong result.**
+  `subs.reconstruct_counts(...)` (and `qd.result_from_counts`) renumbered the
+  subcircuit's qubits in place, so the next call on the same list -- other counts,
+  another noise level -- mapped the outcomes to the wrong qubits (a distribution off
+  by a total variation distance of ~0.9). The list is no longer changed.
+- **Every Aer simulation started an `nvidia-smi` process** only to log whether a GPU
+  was there (~8 ms per fragment circuit). Removed.
 - **Building subcircuits in an SDK that is not installed** (e.g.
   `subs.circuits("cudaq")` without CUDA-Q) failed with `AttributeError: 'NoneType'
   object has no attribute 'make_kernel'` from inside the converter. It now raises an

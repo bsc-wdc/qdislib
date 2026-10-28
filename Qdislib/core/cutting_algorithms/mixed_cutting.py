@@ -1438,6 +1438,34 @@ def _run_fragment(
     :class:`~Qdislib.core.cutting_algorithms.describe.FragmentResult`
     ``(corr, original)`` (see :func:`_fragment_run`). ``merge``: an earlier run's
     counts of the same circuit, returned added to this run's (``total_shots``)."""
+    return _run_fragment_here(
+        template, spec, runner, shots, qpu, qpu_dict, seed, mask, cache, keep_counts, merge
+    )
+
+
+@task(returns="value_of(count)")
+def _run_fragments(units, count):
+    """``circuits_per_task=``: several fragment circuits in one task (``units``:
+    the arguments of :func:`_run_fragment` for each), one result -- one future --
+    per circuit."""
+    results = tuple(_run_fragment_here(*unit) for unit in units)
+    return results if count > 1 else results[0]
+
+
+def _run_fragment_here(
+    template,
+    spec,
+    runner,
+    shots,
+    qpu,
+    qpu_dict,
+    seed,
+    mask=None,
+    cache=None,
+    keep_counts=False,
+    merge=None,
+):
+    """:func:`_run_fragment`'s work, in the calling process."""
     from Qdislib.core.cutting_algorithms.describe import FragmentResult
 
     corr, original = _fragment_run(
@@ -1982,12 +2010,37 @@ def _caller_stacklevel():
     return level
 
 
-def _run(circuits, shots, seed, cache=None, keep_counts=False):
-    """Run every circuit, one task each; with drawn configurations a circuit gets
-    ``shots`` per draw that uses it (the shots follow the weights). With a
-    ``cache`` (:func:`~Qdislib.core.cutting_algorithms.engine_cache.resolve`), a
-    circuit already run is read back instead. ``keep_counts`` returns each run's
-    counts (for the error bars; a cached run keeps them anyway)."""
+def _run(circuits, shots, seed, cache=None, keep_counts=False, batch=None):
+    """Run every circuit, one task each (``batch``: that many per task); with drawn
+    configurations a circuit gets ``shots`` per draw that uses it (the shots follow
+    the weights). With a ``cache``
+    (:func:`~Qdislib.core.cutting_algorithms.engine_cache.resolve`), a circuit
+    already run is read back instead. ``keep_counts`` returns each run's counts
+    (for the error bars; a cached run keeps them anyway)."""
+    if batch is not None:
+        if cache is not None:
+            raise ValueError("circuits_per_task= does not combine with cache= yet")
+        units = [
+            (
+                circuit.template,
+                circuit.spec,
+                circuit.software,
+                None if shots is None else shots * circuit.draws,
+                circuit.qpu,
+                circuit.qpu_dict,
+                next_seed(seed, n),
+                None if keep_counts else circuit.mask,
+                None,
+                keep_counts,
+            )
+            for n, circuit in enumerate(circuits)
+        ]
+        results = []
+        for start in range(0, len(units), batch):
+            chunk = units[start : start + batch]
+            futures = _run_fragments(chunk, len(chunk))
+            results.extend(futures if len(chunk) > 1 else [futures])
+        return results
     results = []
     for n, circuit in enumerate(circuits):
         unit_shots = None if shots is None else shots * circuit.draws
@@ -2011,6 +2064,15 @@ def _run(circuits, shots, seed, cache=None, keep_counts=False):
         else:
             results.append(cache.run(circuit, unit_shots, next_seed(seed, n)))
     return results
+
+
+def _check_batch(batch):
+    if batch is None:
+        return
+    if isinstance(batch, bool) or not isinstance(batch, int) or batch < 1:
+        raise ValueError(
+            f"circuits_per_task= takes a number >= 1, got {batch!r}"
+        )
 
 
 def _check_exact(shots, backend):
@@ -2040,6 +2102,7 @@ def circuit_cutting(
     cache_refresh=False,
     error=False,
     total_shots=None,
+    circuits_per_task=None,
 ):
     """Reconstruct ``<observable>`` from a circuit cut by any combination of cuts.
 
@@ -2103,6 +2166,9 @@ def circuit_cutting(
         (the master waits for the pilot). With ``num_samples``, ``shots`` per draw
         and fragment is ``total_shots // (num_samples * fragments)``, so at most
         the budget is spent.
+    :param circuits_per_task: Run this many fragment circuits per task instead of
+        one each: fewer, longer tasks when the circuits are small and many (a
+        task's overhead outweighs a fast simulation). The results are the same.
     :return: The reconstructed expectation value.
     """
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms
@@ -2126,8 +2192,13 @@ def circuit_cutting(
                     "total_shots= splits the shots between two rounds; it does not "
                     "combine with cache= yet"
                 )
+            if circuits_per_task is not None:
+                raise ValueError(
+                    "total_shots= does not combine with circuits_per_task= yet"
+                )
             budget, shots = int(total_shots), 1
     _check_exact(shots, backend)
+    _check_batch(circuits_per_task)
     terms = _observable_terms(default_observable(observable, circuit))
     # identity terms are constants; the others run in qubit-wise commuting groups
     constant = sum(c for c, term in terms if set(term) <= {"I"})
@@ -2174,6 +2245,7 @@ def circuit_cutting(
                 None if seed is None else next_seed(seed, g),
                 engine_cache,
                 keep_counts=count > 0,
+                batch=circuits_per_task,
             )
             for g, (_, _, _, _, circuits, _, _) in enumerate(prepared)
         ]
@@ -2252,6 +2324,7 @@ def circuit_cutting_sampling(
     cache_key=None,
     cache_refresh=False,
     error=False,
+    circuits_per_task=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut by any
     combination of cuts, from the same fragment circuits as :func:`circuit_cutting`.
@@ -2261,10 +2334,12 @@ def circuit_cutting_sampling(
         :class:`~Qdislib.Distribution` -- still the ``{bitstring: probability}``
         dict -- with ``.errors``, each probability's standard error by bootstrap
         over the shots, and ``.shots``.
+    :param circuits_per_task: Fragment circuits per task, as in :func:`circuit_cutting`.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings), the signed
         estimate abs-normalised like :func:`gate_cutting_sampling`.
     """
     _check_exact(shots, backend)
+    _check_batch(circuits_per_task)
     plan, draws, keys, readouts, circuits = _prepare_cut(
         circuit,
         cuts,
@@ -2289,6 +2364,7 @@ def circuit_cutting_sampling(
         seed,
         resolve(cache, cache_key, cache_refresh),
         keep_counts=count > 0,
+        batch=circuits_per_task,
     )
     future = _reconstruct(
         plan,

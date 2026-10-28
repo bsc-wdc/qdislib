@@ -99,7 +99,11 @@ def task(**options):
                 value = func(*bound.args, **bound.kwargs)
             finally:
                 _depth[0] -= 1
-            if isinstance(returns, int) and returns > 1:
+            count = returns
+            if isinstance(returns, str) and returns.startswith("value_of("):
+                # PyCOMPSs: the number of returns read from a parameter at call time
+                count = int(bound.arguments[returns[len("value_of("):-1].strip()])
+            if isinstance(count, int) and count > 1:
                 return tuple(Future(v) for v in value)
             return Future(value)
 

@@ -170,6 +170,44 @@ _SCRIPT = textwrap.dedent("""
             failures.append("error= on a distribution: no error bars")
     except Exception as e:
         failures.append(f"error/total_shots: {type(e).__name__}: {e}")
+    # circuits_per_task=: the same values from fewer tasks, every cut type, and a
+    # last batch of a single circuit (PyCOMPSs returns it as one future, not a list)
+    for fn, qc, cuts, kw in (
+        (qd.circuit_cutting, mixed, mc, {"observable": ham(8), "shots": None}),
+        (qd.circuit_cutting_sampling, mixed, mc, {"shots": 100, "seed": 3}),
+        (qd.gate_cutting, gate, gc["gate"], {"shots": 100, "seed": 3}),
+        (qd.gate_cutting_hadamard_sampling, had, hc["hadamard"], {"shots": None}),
+        (qd.wire_cutting, wire, wc["wire"], {"shots": 100, "seed": 3, "error": 20}),
+    ):
+        name = f"circuits_per_task {fn.__name__}"
+        try:
+            before = fc.calls["tasks"]
+            reference = fc.compss_wait_on(fn(qc, cuts, sync=False, **kw))
+            plain = fc.calls["tasks"] - before
+            for per_task in (1, 3, 1000):
+                before = fc.calls["tasks"]
+                value = fc.compss_wait_on(
+                    fn(qc, cuts, sync=False, circuits_per_task=per_task, **kw))
+                used = fc.calls["tasks"] - before
+                if isinstance(value, dict):
+                    diff = max(abs(value.get(b, 0) - reference.get(b, 0))
+                               for b in set(value) | set(reference))
+                else:
+                    diff = abs(value - reference)
+                    if getattr(reference, "error", 0) and abs(value.error - reference.error) > 1e-12:
+                        failures.append(f"{name}({per_task}): other error bar")
+                if diff > 1e-9:
+                    failures.append(f"{name}({per_task}): differs by {diff}")
+                if per_task > 1 and not used < plain:
+                    failures.append(f"{name}({per_task}): {used} tasks, unbatched {plain}")
+        except Exception as e:
+            failures.append(f"{name}: {type(e).__name__}: {e}")
+    for bad in (0, True, 2.5):
+        try:
+            qd.circuit_cutting(mixed, mc, shots=None, circuits_per_task=bad)
+            failures.append(f"circuits_per_task={bad!r} accepted")
+        except ValueError:
+            pass
     for make, qc, cuts in (
         (qd.gate_cutting_subcircuits, gate, gc["gate"]),
         (qd.gate_cutting_hadamard_subcircuits, had, hc["hadamard"]),
