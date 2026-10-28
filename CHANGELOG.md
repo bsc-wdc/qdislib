@@ -214,6 +214,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **Building subcircuits in an SDK that is not installed** (e.g.
+  `subs.circuits("cudaq")` without CUDA-Q) failed with `AttributeError: 'NoneType'
+  object has no attribute 'make_kernel'` from inside the converter. It now raises an
+  `ImportError` naming the package and the `pip install qdislib[...]` extra.
 - **A gate cut on the BSC QPU whose cut qubit keeps evolving** read the
   mid-circuit outcome as the final bit, which only holds when nothing acts on the
   qubit after the cut (the device returns final counts only), so the value was

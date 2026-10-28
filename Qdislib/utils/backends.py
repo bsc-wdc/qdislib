@@ -274,6 +274,13 @@ def _materialize(dag, num_qubits, software):
             f"Unsupported software backend: '{software}'. "
             f"Expected one of {list(sdk_names())}."
         )
+    if not entry.installed():
+        # say so here, not as an AttributeError deep inside the converter
+        raise ImportError(
+            f"Building {software} circuits needs {entry.package}, which is not "
+            f"installed in this Python. Install it with:  pip install "
+            f"qdislib[{entry.name}]"
+        )
     return entry.call("from_dag", dag, num_qubits)
 
 

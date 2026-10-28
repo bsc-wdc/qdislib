@@ -131,6 +131,18 @@ class NativeCircuitsTest(BaseTimedTestCase):
         )
         self.assertEqual(len(combined.circuits()), len(combined))
 
+    def test_an_sdk_not_installed_says_so(self):
+        from unittest import mock
+
+        from Qdislib.utils.sdks import SDK
+
+        subs = self.qd.circuit_cutting_subcircuits(
+            self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ"
+        )
+        with mock.patch.object(SDK, "installed", lambda self: False):
+            with self.assertRaisesRegex(ImportError, r"pip install qdislib\[cudaq\]"):
+                subs.circuits("cudaq")
+
     def test_deferred_measurements(self):
         subs = self.qd.circuit_cutting_subcircuits(
             self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ"
