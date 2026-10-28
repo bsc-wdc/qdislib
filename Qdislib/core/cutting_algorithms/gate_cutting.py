@@ -2165,14 +2165,6 @@ def _counts_qiskit(qc, shots=1024, method="automatic", seed=None):
     qc = qc.copy()
     qc.measure_all()
 
-    import subprocess
-
-    try:
-        subprocess.check_output("nvidia-smi")
-        logger.debug("Nvidia GPU detected!")
-    except Exception:
-        logger.debug("No Nvidia GPU in system!")
-
     logger.debug("Simulation using CPUs; method: %s", method)
     simulator = AerSimulator(
         device="CPU",
@@ -2410,14 +2402,6 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
     ]
     qc = qc.copy()  # don't append measure_all to the caller's subcircuit
     qc.measure_all()
-
-    import subprocess
-
-    try:
-        subprocess.check_output("nvidia-smi")
-        logger.info("Nvidia GPU detected!")
-    except Exception:
-        logger.info("No Nvidia GPU in system!")
 
     simulator = AerSimulator(device="GPU", method=method, cuStateVec_enable=True)
 
