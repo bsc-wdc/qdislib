@@ -77,7 +77,16 @@ class SDK:
 
     def call(self, field, *args, **kwargs):
         module, attribute = getattr(self, field).split(":")
-        return getattr(importlib.import_module(module), attribute)(*args, **kwargs)
+        function = getattr(importlib.import_module(module), attribute)
+        if field == "from_dag":
+            # some converters are COMPSs tasks; a native circuit is built where it
+            # is used (a CUDA-Q kernel cannot cross a task boundary), so call the
+            # function itself: subs.circuits() on the master returns circuits, not
+            # futures
+            import inspect
+
+            function = inspect.unwrap(function)
+        return function(*args, **kwargs)
 
     def owns(self, circuit):
         """True if ``circuit`` is one of this SDK's circuits (without importing an

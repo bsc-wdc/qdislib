@@ -220,6 +220,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
 
 ### Fixed
+- **Under PyCOMPSs, `subs.circuits()` returned futures, not circuits.** The SDK
+  converters are COMPSs tasks, so building circuits on the master submitted one task
+  each (and a CUDA-Q kernel cannot cross a task boundary at all). They are now called
+  directly; `reconstruct_counts` instead converts each subcircuit's counts in its own
+  task (seconds each for a 30-qubit circuit at 400k shots), in parallel.
 - **`defer_measurements=True` left a wire cut twice measuring mid-circuit.** Two
   gate cuts on one wire measure a qubit twice; `subs.circuits(..., defer_measurements=True)`
   then silently returned the circuit with its mid-circuit measurements (hardware

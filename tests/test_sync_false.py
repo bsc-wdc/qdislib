@@ -222,6 +222,23 @@ _SCRIPT = textwrap.dedent("""
                 failures.append(f"{make.__name__}: wrong value")
         except Exception as e:
             failures.append(f"{make.__name__}: {type(e).__name__}: {e}")
+    try:  # counts from your own runs: one conversion task per subcircuit
+        from qiskit_aer import AerSimulator
+        subs = qd.circuit_cutting_subcircuits(gate, gc)
+        circuits = []
+        for c in subs.circuits("qiskit", defer_measurements=True):
+            c = c.copy(); c.measure_all(); circuits.append(c)
+        result = AerSimulator().run(circuits, shots=20000, seed_simulator=1).result()
+        before = fc.calls["tasks"]
+        value = subs.reconstruct_counts(
+            [result.get_counts(i) for i in range(len(circuits))], bit_order="q0_last")
+        if fc.calls["tasks"] - before < len(subs):
+            failures.append("reconstruct_counts: conversions not run as tasks")
+        value = fc.compss_wait_on(value)
+        if abs(value - qd.analytical_solution(gate, "Z" * gate.num_qubits)) > 0.05:
+            failures.append(f"reconstruct_counts: wrong value {value}")
+    except Exception as e:
+        failures.append(f"reconstruct_counts: {type(e).__name__}: {e}")
     print("\\n".join(failures) or "ALL OK")
     """)
 

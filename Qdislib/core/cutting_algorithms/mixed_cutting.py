@@ -2462,6 +2462,12 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first"):
     return FragmentResult(_JointCounts(joint, prep_sorted, width), original)
 
 
+@task(returns=1)
+def _result_from_counts_task(subcircuit, counts, bit_order):
+    """:func:`result_from_counts` as a task (for :meth:`CutCircuits.reconstruct_counts`)."""
+    return result_from_counts(subcircuit, counts, bit_order)
+
+
 class CutCircuits(list):
     """The fragment circuits of a :func:`circuit_cutting` cut, plus what recombines
     them::
@@ -2522,8 +2528,10 @@ class CutCircuits(list):
             raise ValueError(
                 f"expected {len(self)} counts, one per subcircuit, got {len(counts)}"
             )
+        # one task per subcircuit: converting large counts (a 30-qubit circuit at
+        # 400k shots) takes seconds each, in parallel under PyCOMPSs
         return self.reconstruct(
-            [result_from_counts(s, c, bit_order) for s, c in zip(self, counts)]
+            [_result_from_counts_task(s, c, bit_order) for s, c in zip(self, counts)]
         )
 
     def circuits(self, software=None, *, defer_measurements=False):
