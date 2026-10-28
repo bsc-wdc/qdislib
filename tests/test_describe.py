@@ -251,6 +251,29 @@ class NativeCircuitsTest(BaseTimedTestCase):
                 with self.subTest(cuts=cuts, run=seed):
                     self.assertLess(tvd, 0.05)
 
+    def test_reduced_results_reconstruct_the_same(self):
+        """keep_counts=False keeps only what the list's observable reads (as Qdislib's
+        own runs do): the same value as from the full counts."""
+        from qiskit_aer import AerSimulator
+
+        subs = self.qd.circuit_cutting_subcircuits(self.qc, {"gate": ["CZ_9"]}, "ZIIIIZ")
+        circuits = []
+        for circuit in subs.circuits("qiskit", defer_measurements=True):
+            circuit = circuit.copy()
+            circuit.measure_all()
+            circuits.append(circuit)
+        result = AerSimulator().run(circuits, shots=5000, seed_simulator=3).result()
+        counts = [result.get_counts(i) for i in range(len(circuits))]
+        full = [self.qd.result_from_counts(s, c, "q0_last") for s, c in zip(subs, counts)]
+        small = [
+            self.qd.result_from_counts(s, c, "q0_last", keep_counts=False)
+            for s, c in zip(subs, counts)
+        ]
+        self.assertAlmostEqual(subs.reconstruct(full), subs.reconstruct(small), places=12)
+        # reduced: a few correlators; full: the counts (any observable reads back)
+        self.assertTrue(all(isinstance(r[0], dict) and len(r[0]) <= 8 for r in small))
+        self.assertTrue(all(hasattr(r[0], "joint") for r in full))
+
     def test_a_wire_cut_twice_defers_too(self):
         """Two gate cuts on one wire measure a qubit twice: defer_measurements puts
         each measurement on a fresh qubit of its own, and the counts read back."""

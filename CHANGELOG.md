@@ -225,6 +225,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each (and a CUDA-Q kernel cannot cross a task boundary at all). They are now called
   directly; `reconstruct_counts` instead converts each subcircuit's counts in its own
   task (seconds each for a 30-qubit circuit at 400k shots), in parallel.
+- **Results from your own counts reconstruct as fast as Qdislib's own.**
+  `qd.result_from_counts(s, counts, keep_counts=False)` keeps only the correlators the
+  list's observable reads, as Qdislib's fragment tasks do (`reconstruct_counts` uses
+  it); with the counts kept, the reconstruction computed them all at once (172 s for
+  57 subcircuits of 30-31 qubits at 400k shots). The default still keeps the counts,
+  so other observables read back from the same runs.
 - **`defer_measurements=True` left a wire cut twice measuring mid-circuit.** Two
   gate cuts on one wire measure a qubit twice; `subs.circuits(..., defer_measurements=True)`
   then silently returned the circuit with its mid-circuit measurements (hardware

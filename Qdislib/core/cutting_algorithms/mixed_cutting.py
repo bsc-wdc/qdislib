@@ -2405,7 +2405,7 @@ def circuit_cutting_sampling(
 _BIT_ORDERS = ("q0_first", "q0_last")
 
 
-def result_from_counts(subcircuit, counts, bit_order="q0_first"):
+def result_from_counts(subcircuit, counts, bit_order="q0_first", keep_counts=True):
     """What :func:`~Qdislib.expectation_value` would return for ``subcircuit``,
     from measurement counts of its circuit run with your own tools.
 
@@ -2417,12 +2417,18 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first"):
     ``get_counts()``; of a key with several registers, the first is read -- the
     one ``measure_all()`` adds). Outcomes may also be tuples of bits.
 
+    :param keep_counts: Keep the counts (default), so ``subs.reconstruct(results,
+        observable)`` can read any observable in the list's basis. ``False`` keeps
+        only the correlators the list's own observable reads, as Qdislib's own runs
+        do: a few numbers instead of the counts, so the reconstruction is quick
+        (for a 30-qubit circuit at 400k shots, seconds instead of minutes).
     :return: A :class:`~Qdislib.core.cutting_algorithms.describe.FragmentResult`
         for ``subs.reconstruct``.
     """
     from Qdislib.core.cutting_algorithms.describe import FragmentResult
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _JointCounts,
+        _z_correlators,
         _cut_measurements,
         _fold_cut_bits,
         _prepare_sampled_component,
@@ -2459,13 +2465,18 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first"):
             _fold_cut_bits(bits[width:], cut_qubits, prep_sorted),
         )
         joint[key] = joint.get(key, 0) + count
+    mask = getattr(subcircuit, "mask", None)
+    if not keep_counts and mask is not None:
+        needed = _needed_masks(subcircuit.template, original, subcircuit.spec[2], mask)
+        return FragmentResult(_z_correlators(joint, prep_sorted, width, needed), original)
     return FragmentResult(_JointCounts(joint, prep_sorted, width), original)
 
 
 @task(returns=1)
 def _result_from_counts_task(subcircuit, counts, bit_order):
-    """:func:`result_from_counts` as a task (for :meth:`CutCircuits.reconstruct_counts`)."""
-    return result_from_counts(subcircuit, counts, bit_order)
+    """:func:`result_from_counts` as a task (for :meth:`CutCircuits.reconstruct_counts`),
+    keeping only what the list's observable reads."""
+    return result_from_counts(subcircuit, counts, bit_order, keep_counts=False)
 
 
 class CutCircuits(list):
