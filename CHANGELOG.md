@@ -351,7 +351,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **`software=` on the three-step generators is deprecated**: a subcircuit list is
   SDK-neutral, and the language of its circuits is chosen when they are built
-  (`subs.circuits(software)`, `s.to_circuit(software)`; default: the input circuit's
+  (`subs.circuits(software)`; default: the input circuit's
   SDK) and where they run with `backend=`. For one release `software=` still sets
   the list's default language, with a `DeprecationWarning`.
 - **`cache=` runs through the engine** in `gate_cutting` and `wire_cutting` too (it

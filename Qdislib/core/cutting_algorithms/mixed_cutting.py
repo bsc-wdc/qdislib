@@ -1348,8 +1348,9 @@ class _FragmentCircuit(Subcircuit):
         return state
 
     def to_circuit(self, software=None, defer_measurements=False):
-        """The native circuit in ``software`` (default: the list's), on qubits
-        ``0..n-1``. ``defer_measurements`` moves a gate cut's mid-circuit
+        """``[circuit, observable]`` in ``software`` (default: the list's), on qubits
+        ``0..n-1``, like every subcircuit's ``to_circuit`` (the 1.x pairs; for just
+        the native circuits use the list's :meth:`CutCircuits.circuits`). ``defer_measurements`` moves a gate cut's mid-circuit
         measurement onto an extra qubit read at the end (a CNOT onto it: the same
         channel), for hardware without mid-circuit measurement; it is done anyway
         when ``software`` cannot express the measurement (QiliSDK)."""

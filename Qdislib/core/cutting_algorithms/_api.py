@@ -31,8 +31,7 @@ Three-step::
 
 ``backend`` is where the subcircuits run. A subcircuit list is SDK-neutral: the SDK
 its circuits are written in is chosen when they are built --
-``subs.circuits(software)`` or ``s.to_circuit(software)``, the input circuit's SDK
-by default. The pre-2.0 names keep working for one release with a
+``subs.circuits(software)``, the input circuit's SDK by default. The pre-2.0 names keep working for one release with a
 :class:`DeprecationWarning` (:func:`standard_arguments`).
 """
 
@@ -141,8 +140,7 @@ def standard_arguments(func):
             _deprecated(
                 func,
                 "software= is deprecated: a subcircuit list is SDK-neutral; build "
-                "its circuits in an SDK with subs.circuits(software) or "
-                "s.to_circuit(software)",
+                "its circuits in an SDK with subs.circuits(software)",
             )
             kwargs["_software"] = kwargs.pop("software")
         if "software" in kwargs and "software" not in params:
