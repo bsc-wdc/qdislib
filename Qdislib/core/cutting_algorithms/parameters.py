@@ -112,6 +112,10 @@ def normalise_values(values, parameters):
 def _bound(value, values):
     if not is_symbolic(value):
         return value
+    from qiskit.circuit import Parameter
+
+    if isinstance(value, Parameter):  # a plain parameter: no expression to bind
+        return values[value.name]
     result = value.bind({p: values[p.name] for p in value.parameters})
     return float(result)
 
