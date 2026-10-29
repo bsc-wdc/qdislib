@@ -11,7 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forms) can run its fragment circuits in groups instead of one task each: fewer,
   longer tasks when the circuits are small and many, where a task's overhead
   outweighs the simulation (a 9-qubit subcircuit takes ~70 ms in Aer). Same seeds,
-  same results; not yet with `cache=` or `total_shots=`.
+  same results; not yet with `cache=` or `total_shots=`. A group returns one future,
+  and the reconstruction takes the groups' futures (a group stays inside one
+  fragment): PyCOMPSs handles every element of a task's collection on the master,
+  so 240 subcircuits per tile cost 240 serialised parameters instead of 6.
 - **Error bars: `error=True`.** Every expectation-value cutting function returns an
   `Estimate` -- a `float` (old code is unchanged) with `.error` and `.shots` -- the
   standard error by bootstrap over the shots: each fragment circuit's counts (and the

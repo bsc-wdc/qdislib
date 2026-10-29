@@ -1467,13 +1467,38 @@ def _run_fragment(
     )
 
 
-@task(returns="value_of(count)")
-def _run_fragments(units, count):
+@task(returns=1)
+def _run_fragments(units):
     """``circuits_per_task=``: several fragment circuits in one task (``units``:
-    the arguments of :func:`_run_fragment` for each), one result -- one future --
-    per circuit."""
-    results = tuple(_run_fragment_here(*unit) for unit in units)
-    return results if count > 1 else results[0]
+    the arguments of :func:`_run_fragment` for each), their results as one tuple --
+    one future for the group, so a reconstruction task takes a few group futures
+    instead of one per circuit (PyCOMPSs handles each element of a collection
+    separately)."""
+    return tuple(_run_fragment_here(*unit) for unit in units)
+
+
+class _Batches:
+    """What :func:`_run` returns with ``circuits_per_task=``: one future per group of
+    circuits (each resolving to a tuple of their results), the fragment of each
+    group (a group never spans two fragments) and the positions of its circuits in
+    the circuit list (a fragment's groups come in the order of its circuits)."""
+
+    def __init__(self, futures, fragments, positions):
+        self.futures = futures
+        self.fragments = fragments
+        self.positions = positions
+
+
+def _flatten(groups, positions=None):
+    """The per-circuit results of the groups of a :class:`_Batches`: in the
+    circuits' order with their ``positions``, else the groups one after another."""
+    if positions is None:
+        return [result for group in groups for result in group]
+    results = [None] * sum(len(p) for p in positions)
+    for group, where in zip(groups, positions):
+        for result, n in zip(group, where):
+            results[n] = result
+    return results
 
 
 def _run_fragment_here(
@@ -1865,12 +1890,16 @@ def _reconstruct_cut_task(
     draws=None,
     bootstrap=0,
     seed=None,
+    positions=None,
 ):
     """Expectation (``mode="expectation"``) or distribution from the fragment
-    results, as one task fed straight by the fragment futures. With ``bootstrap``
+    results, as one task fed straight by the fragment futures (or by the group
+    futures of a :class:`_Batches`, with their ``positions``). With ``bootstrap``
     resamples, an expectation value is an
     :class:`~Qdislib.core.cutting_algorithms.uncertainty.Estimate` with its
     standard error."""
+    if positions is not None:
+        results = _flatten(results, positions)
     if mode == "expectation":
         value = _expectation(plan, keys, readouts, results, observable, draws)
         if not bootstrap:
@@ -1902,9 +1931,12 @@ def _reconstruct_cut_task(
 
 
 @task(returns=1, results=COLLECTION_IN)
-def _fragment_tensor_task(plan, f, keys, readouts, results):
+def _fragment_tensor_task(plan, f, keys, readouts, results, batched=False):
     """One fragment's tensor over its bonds and all its local masks, reduced where
-    its results are (a distribution's fragment results are ``2**width`` each)."""
+    its results are (a distribution's fragment results are ``2**width`` each;
+    ``batched``: the fragment's group futures of a :class:`_Batches`)."""
+    if batched:
+        results = _flatten(results)
     return _fragment_tensor(plan, f, _FragmentReads(plan, f, keys, readouts, results))
 
 
@@ -1929,14 +1961,42 @@ def _reconstruct(
     """The reconstruction as a future. An expectation value is one task (the
     contraction is cheap); a distribution reduces each fragment's results in its own
     task first, then contracts the small tensors."""
+    batched = isinstance(results, _Batches)
     if mode == "distribution" and draws is None and not bootstrap:
-        parts = [
-            _fragment_tensor_task(plan, f, k, r, res)
-            for f, (k, r, res) in enumerate(
-                _split_by_fragment(plan, keys, readouts, results)
-            )
-        ]
+        if batched:
+            split = _split_by_fragment(plan, keys, readouts, [None] * len(keys))
+            parts = [
+                _fragment_tensor_task(
+                    plan,
+                    f,
+                    k,
+                    r,
+                    [g for g, gf in zip(results.futures, results.fragments) if gf == f],
+                    True,
+                )
+                for f, (k, r, _) in enumerate(split)
+            ]
+        else:
+            parts = [
+                _fragment_tensor_task(plan, f, k, r, res)
+                for f, (k, r, res) in enumerate(
+                    _split_by_fragment(plan, keys, readouts, results)
+                )
+            ]
         return _contract_distribution_task(plan, parts)
+    if batched:
+        return _reconstruct_cut_task(
+            plan,
+            keys,
+            readouts,
+            results.futures,
+            mode,
+            observable,
+            draws,
+            bootstrap,
+            seed,
+            results.positions,
+        )
     return _reconstruct_cut_task(
         plan, keys, readouts, results, mode, observable, draws, bootstrap, seed
     )
@@ -2059,12 +2119,19 @@ def _run(circuits, shots, seed, cache=None, keep_counts=False, batch=None):
             )
             for n, circuit in enumerate(circuits)
         ]
-        results = []
-        for start in range(0, len(units), batch):
-            chunk = units[start : start + batch]
-            futures = _run_fragments(chunk, len(chunk))
-            results.extend(futures if len(chunk) > 1 else [futures])
-        return results
+        # a group stays inside one fragment (the distribution's per-fragment
+        # reduction takes only its own fragment's groups)
+        by_fragment = {}
+        for n, circuit in enumerate(circuits):
+            by_fragment.setdefault(circuit.template.f, []).append(n)
+        futures, fragments, positions = [], [], []
+        for f, members in by_fragment.items():
+            for start in range(0, len(members), batch):
+                where = members[start : start + batch]
+                futures.append(_run_fragments([units[n] for n in where]))
+                fragments.append(f)
+                positions.append(where)
+        return _Batches(futures, fragments, positions)
     results = []
     for n, circuit in enumerate(circuits):
         unit_shots = None if shots is None else shots * circuit.draws
