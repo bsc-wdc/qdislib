@@ -980,6 +980,18 @@ class CombinedCutSubcircuits(CutSubcircuits):
         #: Number of parts recombined.
         self.number_components = len(self.parts)
 
+    @property
+    def parameters(self):
+        """The circuit's free parameters (names), as each part's."""
+        return self.parts[0].parameters
+
+    def bind(self, values):
+        """Every part with the circuit's free parameters bound (see
+        ``CutCircuits.bind``)."""
+        return CombinedCutSubcircuits(
+            [part.bind(values) for part in self.parts], self.coefficients
+        )
+
     def reconstruct_counts(self, counts, bit_order="q0_first"):
         """``reconstruct`` from the counts of :meth:`circuits` run with your own
         tools (see ``CutCircuits.reconstruct_counts``)."""

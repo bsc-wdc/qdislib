@@ -286,6 +286,7 @@ def template_fingerprint(template):
                 template.ancilla_base,
                 template.cut_source_index,
                 template.prepared_to_orig,
+                sorted((getattr(template, "values", None) or {}).items()),
             )
         ),
         protocol=4,

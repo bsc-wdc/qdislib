@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Circuits with free parameters: cut once, run for many values.** A circuit with
+  Qiskit `Parameter`s (anywhere but in a cut gate) is cut with its angles symbolic;
+  `subs.bind(values)` gives the same subcircuit list with values bound, and
+  `parameter_values=[...]` on every cutting function returns one result per set of
+  values (a list; one future each with `sync=False`). The cut is planned once and
+  the values are bound where each circuit is built. For many circuits of one
+  structure (image tiles, variational steps) this removes the per-circuit planning
+  that dominated the master in the QHED retina run on MareNostrum 5.
 - **`circuits_per_task=`: several fragment circuits per COMPSs task.** Every
   cutting function (gate, wire, Hadamard, `circuit_cutting`, and their `_sampling`
   forms) can run its fragment circuits in groups instead of one task each: fewer,

@@ -272,14 +272,24 @@ def _rzz_table(phi):
     return (_RZZ_SIDE_OPS[1], _RZZ_SIDE_OPS[2], weights)
 
 
+#: Gates real whatever their angle (a free parameter keeps them golden-eligible).
+_REAL_AT_ANY_ANGLE = {"ry", "cry"}
+
+
 def _is_real_gate(data):
     """True if a DAG node's gate is a real matrix (so it keeps a real state real)."""
     from Qdislib.utils.statevector import gate_unitary
 
+    from Qdislib.core.cutting_algorithms.parameters import is_symbolic
+
     name = str(data.get("gate") or "")
     if name.upper() == "OBSERVABLE I":
         return True
-    matrix = gate_unitary(name, data.get("parameters") or ())
+    params = data.get("parameters") or ()
+    if any(is_symbolic(p) for p in params):
+        # a free angle: real only for the gates that are real at every angle
+        return name.lower() in _REAL_AT_ANY_ANGLE
+    matrix = gate_unitary(name, params)
     return matrix is not None and not np.any(np.abs(np.imag(matrix)) > 1e-12)
 
 
@@ -425,6 +435,15 @@ class _CutPlan:
         self.joint_wires = joint_gates = bool(joint)
 
         dag = convert_to_dag(circuit)
+        from Qdislib.core.cutting_algorithms.parameters import (
+            check_numeric,
+            circuit_parameters,
+        )
+
+        #: The free parameters (names), in the order a list of values follows.
+        self.parameters = circuit_parameters(circuit, dag)
+        if self.parameters:
+            check_numeric(dag, list(gate_cuts) + list(had_cuts))
         if observable and set(observable) & {"X", "Y"}:
             dag = change_basis_dag(dag, observable)
         self.num_qubits = 1 + max(
@@ -1056,11 +1075,25 @@ class _FragmentTemplate:
         self.ancilla_base = plan.ancilla_base
         self.cut_source_index = plan.cut_source_index
         self.prepared_to_orig = plan.prepared_to_orig
+        self.parameters = plan.parameters
         qubits = {
             q for _, d in self.graph.nodes(data=True) for q in d.get("qubits") or ()
         }
         #: The width of its circuits: its qubits and its Hadamard ancillas.
         self.num_qubits = len(qubits) + len(self.fragment["ancilla_of"])
+
+    #: ``{name: float}`` bound into its circuits (:meth:`bound`); ``None``: as cut.
+    values = None
+
+    def bound(self, values):
+        """This template with ``values`` bound into the circuits it builds (the
+        graph is shared, not copied)."""
+        import copy
+
+        template = copy.copy(self)
+        template.__dict__.pop("_fingerprint", None)
+        template.values = values
+        return template
 
     def leg(self, gate_config):
         """This fragment's own part of a gate configuration (as
@@ -1087,6 +1120,10 @@ class _FragmentTemplate:
         fragment = self.fragment
         digits, config = gate_config
         sub = self.graph.copy()
+        if self.values:
+            from Qdislib.core.cutting_algorithms.parameters import bind_dag
+
+            bind_dag(sub, self.values)
         for k, side in fragment["gate_sides"]:
             node = f"GATE{side}_{k}"
             _apply_gate_side(
@@ -1477,6 +1514,38 @@ def _run_fragments(units):
     return tuple(_run_fragment_here(*unit) for unit in units)
 
 
+def _bind_circuits(circuits, values):
+    """The fragment circuits with ``values`` (``{name: float}``) bound: one bound
+    template per fragment, shared by its circuits as the unbound one is."""
+    import copy
+
+    templates = {}
+    bound = []
+    for circuit in circuits:
+        key = id(circuit.template)
+        if key not in templates:
+            templates[key] = circuit.template.bound(values)
+        new = copy.copy(circuit)
+        new.template = templates[key]
+        new._dag = None
+        bound.append(new)
+    return bound
+
+
+def _parameter_sets(parameter_values, plans):
+    """``parameter_values`` as a list of ``{name: float}``, checked against the
+    parameters of the planned circuit."""
+    from Qdislib.core.cutting_algorithms.parameters import normalise_values
+
+    parameters = plans[0].parameters if plans else ()
+    if hasattr(parameter_values, "items"):
+        raise ValueError(
+            "parameter_values takes a list of value sets (one result each); for one "
+            "set pass [values]"
+        )
+    return [normalise_values(values, parameters) for values in parameter_values]
+
+
 class _Batches:
     """What :func:`_run` returns with ``circuits_per_task=``: one future per group of
     circuits (each resolving to a tuple of their results), the fragment of each
@@ -1557,6 +1626,10 @@ def _fragment_run(
     )
 
     dag, _ = template.build(*spec)
+    if template.values is None and getattr(template, "parameters", ()):
+        from Qdislib.core.cutting_algorithms.parameters import require_bound
+
+        require_bound(dag)
     if cache is not None:
         from Qdislib.core.cutting_algorithms.engine_cache import from_payload
 
@@ -2194,6 +2267,7 @@ def circuit_cutting(
     error=False,
     total_shots=None,
     circuits_per_task=None,
+    parameter_values=None,
 ):
     """Reconstruct ``<observable>`` from a circuit cut by any combination of cuts.
 
@@ -2260,7 +2334,14 @@ def circuit_cutting(
     :param circuits_per_task: Run this many fragment circuits per task instead of
         one each: fewer, longer tasks when the circuits are small and many (a
         task's overhead outweighs a fast simulation). The results are the same.
-    :return: The reconstructed expectation value.
+    :param parameter_values: For a circuit with free parameters (Qiskit
+        ``Parameter`` objects, anywhere but in a cut gate): a list of value sets --
+        each ``{Parameter or name: value}`` or a list in ``circuit.parameters``
+        order -- with one result for each, in a list. The cut is planned once
+        and every set runs its own circuits (each its own seed stream; with
+        ``num_samples`` they share the draws).
+    :return: The reconstructed expectation value (a list of them with
+        ``parameter_values``).
     """
     from Qdislib.core.cutting_algorithms.hadamard_cut import _observable_terms
 
@@ -2317,60 +2398,87 @@ def circuit_cutting(
         # a draw runs one circuit per fragment, in every group
         per_draw = int(num_samples) * sum(len(p[0].fragments) for p in prepared)
         shots = max(1, int(total_shots) // max(1, per_draw))
-    if budget is not None:
-        from Qdislib.core.cutting_algorithms.budget import run_with_budget
 
-        all_results = run_with_budget(
+    def evaluate(prepared, seed):
+        if budget is not None:
+            from Qdislib.core.cutting_algorithms.budget import run_with_budget
+
+            all_results = run_with_budget(
+                [
+                    (plan, circuits, keys, sum(abs(c) for c, _ in members))
+                    for plan, _, keys, _, circuits, members, _ in prepared
+                ],
+                budget,
+                seed,
+            )
+        else:
+            all_results = [
+                _run(
+                    circuits,
+                    shots,
+                    None if seed is None else next_seed(seed, g),
+                    engine_cache,
+                    keep_counts=count > 0,
+                    batch=circuits_per_task,
+                )
+                for g, (_, _, _, _, circuits, _, _) in enumerate(prepared)
+            ]
+        values = []
+        for g, ((plan, draws, keys, readouts, _, members, masks), results) in enumerate(
+            zip(prepared, all_results)
+        ):
+            group = [(c, mask) for (c, _), mask in zip(members, masks)]
+            values.append(
+                _reconstruct(
+                    plan,
+                    keys,
+                    readouts,
+                    results,
+                    "expectation",
+                    group,
+                    draws,
+                    count,
+                    None if seed is None else next_seed(seed, "bootstrap", g),
+                )
+            )
+        if constant:
+            values.append(float(constant))
+        if not values:
+            total = 0.0
+        elif len(values) == 1:
+            total = values[0]
+        else:
+            total = _weighted_sum([1.0] * len(values), values)
+        if count and not values:
+            from Qdislib.core.cutting_algorithms.uncertainty import Estimate
+
+            total = Estimate(total)
+        return total
+
+    if parameter_values is None:
+        total = evaluate(prepared, seed)
+        return total if not sync else compss_wait_on(total)
+    totals = [
+        evaluate(
             [
-                (plan, circuits, keys, sum(abs(c) for c, _ in members))
-                for plan, _, keys, _, circuits, members, _ in prepared
+                (
+                    plan,
+                    draws,
+                    keys,
+                    readouts,
+                    _bind_circuits(circuits, values),
+                    members,
+                    masks,
+                )
+                for plan, draws, keys, readouts, circuits, members, masks in prepared
             ],
-            budget,
-            seed,
+            None if seed is None else next_seed(seed, "parameter_values", i),
         )
-    else:
-        all_results = [
-            _run(
-                circuits,
-                shots,
-                None if seed is None else next_seed(seed, g),
-                engine_cache,
-                keep_counts=count > 0,
-                batch=circuits_per_task,
-            )
-            for g, (_, _, _, _, circuits, _, _) in enumerate(prepared)
-        ]
-    values = []
-    for g, ((plan, draws, keys, readouts, _, members, masks), results) in enumerate(
-        zip(prepared, all_results)
-    ):
-        group = [(c, mask) for (c, _), mask in zip(members, masks)]
-        values.append(
-            _reconstruct(
-                plan,
-                keys,
-                readouts,
-                results,
-                "expectation",
-                group,
-                draws,
-                count,
-                None if seed is None else next_seed(seed, "bootstrap", g),
-            )
+        for i, values in enumerate(
+            _parameter_sets(parameter_values, [p[0] for p in prepared])
         )
-    if constant:
-        values.append(float(constant))
-    if not values:
-        total = 0.0
-    elif len(values) == 1:
-        total = values[0]
-    else:
-        total = _weighted_sum([1.0] * len(values), values)
-    if count and not values:
-        from Qdislib.core.cutting_algorithms.uncertainty import Estimate
-
-        total = Estimate(total)
-    return total if not sync else compss_wait_on(total)
+    ]
+    return totals if not sync else compss_wait_on(totals)
 
 
 def _term_mask(term):
@@ -2416,6 +2524,7 @@ def circuit_cutting_sampling(
     cache_refresh=False,
     error=False,
     circuits_per_task=None,
+    parameter_values=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut by any
     combination of cuts, from the same fragment circuits as :func:`circuit_cutting`.
@@ -2426,8 +2535,11 @@ def circuit_cutting_sampling(
         dict -- with ``.errors``, each probability's standard error by bootstrap
         over the shots, and ``.shots``.
     :param circuits_per_task: Fragment circuits per task, as in :func:`circuit_cutting`.
+    :param parameter_values: A list of value sets for the circuit's free
+        parameters, one distribution each, as in :func:`circuit_cutting`.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings), the signed
-        estimate abs-normalised like :func:`gate_cutting_sampling`.
+        estimate abs-normalised like :func:`gate_cutting_sampling` (a list of them
+        with ``parameter_values``).
     """
     _check_exact(shots, backend)
     _check_batch(circuits_per_task)
@@ -2449,26 +2561,40 @@ def circuit_cutting_sampling(
     from Qdislib.core.cutting_algorithms.uncertainty import resamples
 
     count = resamples(error)
-    results = _run(
-        circuits,
-        shots,
-        seed,
-        resolve(cache, cache_key, cache_refresh),
-        keep_counts=count > 0,
-        batch=circuits_per_task,
-    )
-    future = _reconstruct(
-        plan,
-        keys,
-        readouts,
-        results,
-        "distribution",
-        None,
-        draws,
-        count,
-        None if seed is None else next_seed(seed, "bootstrap"),
-    )
-    return compss_wait_on(future) if sync else future
+    engine_cache = resolve(cache, cache_key, cache_refresh)
+
+    def evaluate(circuits, seed):
+        results = _run(
+            circuits,
+            shots,
+            seed,
+            engine_cache,
+            keep_counts=count > 0,
+            batch=circuits_per_task,
+        )
+        return _reconstruct(
+            plan,
+            keys,
+            readouts,
+            results,
+            "distribution",
+            None,
+            draws,
+            count,
+            None if seed is None else next_seed(seed, "bootstrap"),
+        )
+
+    if parameter_values is None:
+        future = evaluate(circuits, seed)
+        return compss_wait_on(future) if sync else future
+    futures = [
+        evaluate(
+            _bind_circuits(circuits, values),
+            None if seed is None else next_seed(seed, "parameter_values", i),
+        )
+        for i, values in enumerate(_parameter_sets(parameter_values, [plan]))
+    ]
+    return compss_wait_on(futures) if sync else futures
 
 
 _BIT_ORDERS = ("q0_first", "q0_last")
@@ -2634,6 +2760,31 @@ class CutCircuits(list):
         from Qdislib.core.cutting_algorithms.describe import summary
 
         return summary(self)
+
+    @property
+    def parameters(self):
+        """The circuit's free parameters (names), in the order :meth:`bind`
+        takes a list of values."""
+        return self.plan.parameters
+
+    def bind(self, values):
+        """The same subcircuits with the circuit's free parameters bound: a new
+        list with the same plan, so the cut is planned once for any number of
+        values. ``values``: ``{Parameter or name: value}``, or a list in
+        :attr:`parameters` order. Run and reconstruct it as usual."""
+        from Qdislib.core.cutting_algorithms.parameters import normalise_values
+
+        bound = CutCircuits(
+            _bind_circuits(self, normalise_values(values, self.parameters)),
+            plan=self.plan,
+            keys=self.keys,
+            readouts=self.readouts,
+            mode=self.mode,
+            observable=self.observable,
+            draws=self.draws,
+            basis=self.basis,
+        )
+        return bound
 
     def reconstruct_counts(self, counts, bit_order="q0_first"):
         """:meth:`reconstruct` from the measurement counts of :meth:`circuits`

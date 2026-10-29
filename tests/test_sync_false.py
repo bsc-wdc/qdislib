@@ -170,6 +170,26 @@ _SCRIPT = textwrap.dedent("""
             failures.append("error= on a distribution: no error bars")
     except Exception as e:
         failures.append(f"error/total_shots: {type(e).__name__}: {e}")
+    # parameter_values=: one future per set of values, the cut planned once
+    try:
+        from qiskit.circuit import Parameter
+
+        t = Parameter("t")
+        pq = QuantumCircuit(4)
+        pq.ry(t, 0); pq.cx(0, 1); pq.cz(1, 2); pq.ry(0.4, 2); pq.cx(2, 3)
+        sets = [[0.3], [1.2], [2.5]]
+        for per_task in (None, 3):
+            futures = qd.circuit_cutting(
+                pq, {"gate": ["CZ_3"]}, "ZIII", shots=None, sync=False,
+                parameter_values=sets, circuits_per_task=per_task)
+            if not isinstance(futures, list) or len(futures) != len(sets):
+                failures.append("parameter_values: not one future per set")
+            for future, v in zip(futures, sets):
+                exact = qd.analytical_solution(pq.assign_parameters(v), "ZIII")
+                if abs(fc.compss_wait_on(future) - exact) > 1e-9:
+                    failures.append(f"parameter_values({per_task}): wrong value")
+    except Exception as e:
+        failures.append(f"parameter_values: {type(e).__name__}: {e}")
     # circuits_per_task=: the same values from fewer tasks, every cut type, and a
     # last batch of a single circuit (PyCOMPSs returns it as one future, not a list)
     for fn, qc, cuts, kw in (

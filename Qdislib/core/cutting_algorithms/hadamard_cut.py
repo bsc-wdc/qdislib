@@ -1791,6 +1791,7 @@ def gate_cutting_hadamard(
     error=False,
     total_shots=None,
     circuits_per_task=None,
+    parameter_values=None,
     reduce_chunk=None,
     _legacy=None,
 ):
@@ -1821,6 +1822,9 @@ def gate_cutting_hadamard(
     :param total_shots: One shot budget instead of ``shots`` per circuit (see
         :func:`circuit_cutting`).
     :param circuits_per_task: Fragment circuits per task instead of one each (see
+        :func:`circuit_cutting`).
+    :param parameter_values: A list of value sets for the circuit's free
+        parameters, one result each, the cut planned once (see
         :func:`circuit_cutting`).
     :param reduce_chunk: Deprecated and ignored, removed in the next release: the
         reconstruction is one cheap task.
@@ -1863,10 +1867,16 @@ def gate_cutting_hadamard(
             error=error,
             total_shots=total_shots,
             circuits_per_task=circuits_per_task,
+            parameter_values=parameter_values,
         )
-    if error or total_shots is not None or circuits_per_task is not None:
+    if (
+        error
+        or total_shots is not None
+        or circuits_per_task is not None
+        or parameter_values is not None
+    ):
         raise ValueError(
-            "error=, total_shots= and circuits_per_task= run through circuit_cutting: they are not available with the "
+            "error=, total_shots=, circuits_per_task= and parameter_values= run through circuit_cutting: they are not available with the "
             "deprecated qpu=/gpu=/method= options."
         )
     legacy = _legacy or {}
@@ -1902,6 +1912,7 @@ def gate_cutting_hadamard_sampling(
     cache_refresh=False,
     error=False,
     circuits_per_task=None,
+    parameter_values=None,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** with the Hadamard cut.
@@ -1934,10 +1945,11 @@ def gate_cutting_hadamard_sampling(
             cache_refresh=cache_refresh,
             error=error,
             circuits_per_task=circuits_per_task,
+            parameter_values=parameter_values,
         )
-    if error or circuits_per_task is not None:
+    if error or circuits_per_task is not None or parameter_values is not None:
         raise ValueError(
-            "error= and circuits_per_task= run through circuit_cutting: they are not available with the "
+            "error=, circuits_per_task= and parameter_values= run through circuit_cutting: they are not available with the "
             "deprecated qpu= / qpu_dict= options."
         )
     legacy = _legacy or {}

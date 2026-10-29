@@ -661,6 +661,38 @@ distribution:
     dist = qd.gate_cutting_sampling(circuit, cut, shots=200_000, seed=0)
 
 
+Circuits with free parameters
+-----------------------------
+
+When the same circuit runs for many sets of angles -- the tiles of an image, the
+steps of a variational loop -- cut it **once** with symbolic Qiskit ``Parameter``\ s
+and give the values afterwards. Planning the cut (its fragments, terms and
+subcircuits) is done once, and each set of values runs its own circuits:
+
+.. code-block:: python
+
+    from qiskit.circuit import Parameter
+
+    theta, phi = Parameter("theta"), Parameter("phi")
+    circuit.ry(theta, 0)   # ... a circuit with free angles anywhere but in a cut gate
+
+    # all-in-one: one result per set of values, in a list
+    values = qd.circuit_cutting(circuit, cuts, "ZZZZ", shots=4096,
+                                parameter_values=[[0.1, 0.2], [0.3, 0.4]])
+
+    # three-step: bind the list, then run and reconstruct as usual
+    subs = qd.circuit_cutting_subcircuits(circuit, cuts, "ZZZZ")
+    bound = subs.bind({theta: 0.1, phi: 0.2})     # or [0.1, 0.2], in subs.parameters order
+    value = bound.reconstruct([qd.expectation_value(s, shots=4096) for s in bound])
+
+``parameter_values=`` works on every cutting function (gate, wire, Hadamard,
+``circuit_cutting`` and their ``_sampling`` forms) and combines with ``sync=False``
+(one future per set), ``circuits_per_task=`` and ``error=``. Each set gets its own
+seed stream from ``seed``. The values are bound where each circuit is built, so a
+fragment's template still travels to a worker once. A **cut gate's** angle must be
+a number: it sets the cut's terms and weights. An unbound list still gives its
+circuits (``subs.circuits("qiskit")``), with their parameters, to bind yourself.
+
 Caching repeated subcircuits
 ----------------------------
 
