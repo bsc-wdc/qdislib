@@ -1516,7 +1516,17 @@ def _run_fragment(
     ``(corr, original)`` (see :func:`_fragment_run`). ``merge``: an earlier run's
     counts of the same circuit, returned added to this run's (``total_shots``)."""
     return _run_fragment_here(
-        template, spec, runner, shots, qpu, qpu_dict, seed, mask, cache, keep_counts, merge
+        template,
+        spec,
+        runner,
+        shots,
+        qpu,
+        qpu_dict,
+        seed,
+        mask,
+        cache,
+        keep_counts,
+        merge,
     )
 
 
@@ -2250,9 +2260,7 @@ def _check_batch(batch):
     if batch is None:
         return
     if isinstance(batch, bool) or not isinstance(batch, int) or batch < 1:
-        raise ValueError(
-            f"circuits_per_task= takes a number >= 1, got {batch!r}"
-        )
+        raise ValueError(f"circuits_per_task= takes a number >= 1, got {batch!r}")
 
 
 def _check_exact(shots, backend):
@@ -2657,7 +2665,9 @@ def result_from_counts(subcircuit, counts, bit_order="q0_first", keep_counts=Tru
         bits = _outcome_bits(counts, bit_order, expected, width, prep_sorted)
         weights = np.fromiter(counts.values(), dtype=float, count=len(counts))
         signed = weights / (weights.sum() or 1.0)
-        if bits.shape[1] > width:  # each cut measurement's sign, as the engine folds them
+        if (
+            bits.shape[1] > width
+        ):  # each cut measurement's sign, as the engine folds them
             signed = signed * np.prod(1.0 - 2.0 * (1 - bits[:, width:]), axis=1)
         finals = bits[:, :width].astype(np.int64)
         corr = {}

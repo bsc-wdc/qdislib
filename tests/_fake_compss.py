@@ -102,7 +102,7 @@ def task(**options):
             count = returns
             if isinstance(returns, str) and returns.startswith("value_of("):
                 # PyCOMPSs: the number of returns read from a parameter at call time
-                count = int(bound.arguments[returns[len("value_of("):-1].strip()])
+                count = int(bound.arguments[returns[len("value_of(") : -1].strip()])
             if isinstance(count, int) and count > 1:
                 return tuple(Future(v) for v in value)
             return Future(value)

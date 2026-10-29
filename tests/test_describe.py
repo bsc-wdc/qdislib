@@ -218,11 +218,15 @@ class NativeCircuitsTest(BaseTimedTestCase):
         with self.assertRaisesRegex(ValueError, "only the correlators"):
             subs.reconstruct(plain, "ZIIIII")
         # sample_subcircuit with shots keeps the counts: any Z string reads back
-        sampled = [qd.sample_subcircuit(s, shots=20000, seed=i) for i, s in enumerate(subs)]
+        sampled = [
+            qd.sample_subcircuit(s, shots=20000, seed=i) for i, s in enumerate(subs)
+        ]
         for q in (0, 3, 5):
             observable = "I" * q + "Z" + "I" * (5 - q)
             exact = float(state.expectation_value(SparsePauliOp(observable[::-1])).real)
-            self.assertAlmostEqual(subs.reconstruct(sampled, observable), exact, delta=0.05)
+            self.assertAlmostEqual(
+                subs.reconstruct(sampled, observable), exact, delta=0.05
+            )
 
     def test_counts_can_be_read_again(self):
         """Reading counts leaves the list as it was: a second reconstruct_counts
@@ -256,7 +260,9 @@ class NativeCircuitsTest(BaseTimedTestCase):
         own runs do): the same value as from the full counts."""
         from qiskit_aer import AerSimulator
 
-        subs = self.qd.circuit_cutting_subcircuits(self.qc, {"gate": ["CZ_9"]}, "ZIIIIZ")
+        subs = self.qd.circuit_cutting_subcircuits(
+            self.qc, {"gate": ["CZ_9"]}, "ZIIIIZ"
+        )
         circuits = []
         for circuit in subs.circuits("qiskit", defer_measurements=True):
             circuit = circuit.copy()
@@ -264,12 +270,16 @@ class NativeCircuitsTest(BaseTimedTestCase):
             circuits.append(circuit)
         result = AerSimulator().run(circuits, shots=5000, seed_simulator=3).result()
         counts = [result.get_counts(i) for i in range(len(circuits))]
-        full = [self.qd.result_from_counts(s, c, "q0_last") for s, c in zip(subs, counts)]
+        full = [
+            self.qd.result_from_counts(s, c, "q0_last") for s, c in zip(subs, counts)
+        ]
         small = [
             self.qd.result_from_counts(s, c, "q0_last", keep_counts=False)
             for s, c in zip(subs, counts)
         ]
-        self.assertAlmostEqual(subs.reconstruct(full), subs.reconstruct(small), places=12)
+        self.assertAlmostEqual(
+            subs.reconstruct(full), subs.reconstruct(small), places=12
+        )
         # reduced: a few correlators; full: the counts (any observable reads back)
         self.assertTrue(all(isinstance(r[0], dict) and len(r[0]) <= 8 for r in small))
         self.assertTrue(all(hasattr(r[0], "joint") for r in full))
@@ -287,20 +297,27 @@ class NativeCircuitsTest(BaseTimedTestCase):
             qc.cz(0, 1)
             qc.cz(2, 3)
             qc.cz(1, 2)  # the gate between the halves, twice: cut both
-        cuts = [f"CZ_{i + 1}" for i, inst in enumerate(qc.data)
-                if inst.operation.name == "cz"
-                and [qc.find_bit(x).index for x in inst.qubits] == [1, 2]]
+        cuts = [
+            f"CZ_{i + 1}"
+            for i, inst in enumerate(qc.data)
+            if inst.operation.name == "cz"
+            and [qc.find_bit(x).index for x in inst.qubits] == [1, 2]
+        ]
         subs = self.qd.circuit_cutting_subcircuits(qc, {"gate": cuts}, "ZZZZ")
         circuits = subs.circuits("qiskit", defer_measurements=True)
         self.assertFalse(any("measure" in c.count_ops() for c in circuits))
         results = [
-            self.qd.result_from_counts(s, Statevector(c).probabilities_dict(), "q0_last")
+            self.qd.result_from_counts(
+                s, Statevector(c).probabilities_dict(), "q0_last"
+            )
             for s, c in zip(subs, circuits)
         ]
         state = Statevector(qc)
         for observable in ("ZZZZ", "IZZI", "ZIII"):
             exact = float(state.expectation_value(SparsePauliOp(observable[::-1])).real)
-            self.assertAlmostEqual(subs.reconstruct(results, observable), exact, places=9)
+            self.assertAlmostEqual(
+                subs.reconstruct(results, observable), exact, places=9
+            )
 
     def test_counts_need_the_deferred_circuit(self):
         qd = self.qd
