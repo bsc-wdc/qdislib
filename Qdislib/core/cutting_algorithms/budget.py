@@ -142,7 +142,7 @@ def run_with_budget(groups, total_shots, seed):
         ``|coefficient|``.
     """
     from Qdislib.core.cutting_algorithms._reconstruction import next_seed
-    from Qdislib.core.cutting_algorithms.mixed_cutting import _run_fragment
+    from Qdislib.core.cutting_algorithms.mixed_cutting import _run_fragment, _ship
     from Qdislib.utils.runtime import compss_wait_on
 
     units = [
@@ -173,8 +173,9 @@ def run_with_budget(groups, total_shots, seed):
     pilot_shots = _split(pilot_budget, weights, floor)
 
     def run(g, n, circuit, shots, key, merge=None):
+        template, values = _ship(circuit.template)
         return _run_fragment(
-            circuit.template,
+            template,
             circuit.spec,
             circuit.software,
             int(shots),
@@ -185,6 +186,7 @@ def run_with_budget(groups, total_shots, seed):
             None,
             True,
             merge,
+            values=values,
         )
 
     pilot = compss_wait_on(

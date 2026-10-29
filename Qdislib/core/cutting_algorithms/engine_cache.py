@@ -344,7 +344,7 @@ class EngineCache:
         """The result of one fragment circuit: from the store or an earlier
         submission when it has one, else run (in a task that stores it).
         ``runner`` is where it runs (default: the circuit's own backend)."""
-        from Qdislib.core.cutting_algorithms.mixed_cutting import _run_fragment
+        from Qdislib.core.cutting_algorithms.mixed_cutting import _run_fragment, _ship
 
         runner = circuit.software if runner is None else runner
         key = circuit_key(circuit.template, circuit.spec, runner, shots)
@@ -362,8 +362,9 @@ class EngineCache:
         request = CacheRequest(
             self.store, key if self.key == "exact" else None, self.refresh, shots
         )
+        template, values = _ship(circuit.template)
         future = _run_fragment(
-            circuit.template,
+            template,
             circuit.spec,
             runner,
             shots,
@@ -372,6 +373,7 @@ class EngineCache:
             seed,
             None,
             request,
+            values=values,
         )
         self._inflight[key] = future
         return future

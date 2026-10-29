@@ -1094,6 +1094,9 @@ class _FragmentTemplate:
         template.__dict__.pop("_fingerprint", None)
         template.__dict__.pop("_bound_graph", None)
         template.values = values
+        #: the unbound template, what PyCOMPSs ships (once, being the same object
+        #: for every set of values); the values travel apart (:func:`_ship`)
+        template._unbound = getattr(self, "_unbound", self)
         return template
 
     def _graph(self):
@@ -1450,9 +1453,10 @@ class _FragmentCircuit(Subcircuit):
         runner = self.software if backend is None else backend
         if shots is None and not is_simulator(runner):
             raise ValueError("shots=None (exact) needs a simulator backend")
+        template, values = _ship(self.template)
         if keep_counts and shots is not None:
             return _run_fragment(
-                self.template,
+                template,
                 self.spec,
                 runner,
                 shots,
@@ -1462,9 +1466,10 @@ class _FragmentCircuit(Subcircuit):
                 None,
                 None,
                 True,
+                values=values,
             )
         return _run_fragment(
-            self.template,
+            template,
             self.spec,
             runner,
             shots,
@@ -1472,6 +1477,7 @@ class _FragmentCircuit(Subcircuit):
             self.qpu_dict,
             seed,
             self.mask,
+            values=values,
         )
 
     def _sample_counts(self, shots, backend, seed):
@@ -1510,13 +1516,15 @@ def _run_fragment(
     cache=None,
     keep_counts=False,
     merge=None,
+    values=None,
 ):
     """Build one fragment circuit from its template and run it: a
     :class:`~Qdislib.core.cutting_algorithms.describe.FragmentResult`
     ``(corr, original)`` (see :func:`_fragment_run`). ``merge``: an earlier run's
-    counts of the same circuit, returned added to this run's (``total_shots``)."""
+    counts of the same circuit, returned added to this run's (``total_shots``).
+    ``values``: the free parameters' values (:func:`_ship`), bound here."""
     return _run_fragment_here(
-        template,
+        _unship(template, values),
         spec,
         runner,
         shots,
@@ -1531,13 +1539,37 @@ def _run_fragment(
 
 
 @task(returns=1)
-def _run_fragments(units):
-    """``circuits_per_task=``: several fragment circuits in one task (``units``:
-    the arguments of :func:`_run_fragment` for each), their results as one tuple --
-    one future for the group, so a reconstruction task takes a few group futures
-    instead of one per circuit (PyCOMPSs handles each element of a collection
-    separately)."""
-    return tuple(_run_fragment_here(*unit) for unit in units)
+def _run_fragments(template, values, units):
+    """``circuits_per_task=``: several circuits of one fragment in one task
+    (``units``: the arguments of :func:`_run_fragment` after the template, for
+    each), their results as one tuple -- one future for the group, so a
+    reconstruction task takes a few group futures instead of one per circuit
+    (PyCOMPSs handles each element of a collection separately). The template is
+    its own argument so PyCOMPSs ships it once (see :func:`_ship`)."""
+    template = _unship(template, values)
+    return tuple(_run_fragment_here(template, *unit) for unit in units)
+
+
+def _ship(template):
+    """``(template, values)`` to send to a task: a template with values bound is
+    sent as its unbound template -- the same object for every set of values, so
+    PyCOMPSs serialises it once -- and the values as a float array (in the
+    template's parameter order); otherwise the template as it is and ``None``."""
+    unbound = getattr(template, "_unbound", None)
+    if unbound is None:
+        return template, None
+    array = template.__dict__.get("_values_array")
+    if array is None:
+        array = np.array([template.values[p] for p in unbound.parameters])
+        template._values_array = array
+    return unbound, array
+
+
+def _unship(template, values):
+    """The template a task runs: :func:`_ship`'s values bound back."""
+    if values is None:
+        return template
+    return template.bound(dict(zip(template.parameters, map(float, values))))
 
 
 def _bind_circuits(circuits, values):
@@ -2205,7 +2237,6 @@ def _run(circuits, shots, seed, cache=None, keep_counts=False, batch=None):
             raise ValueError("circuits_per_task= does not combine with cache= yet")
         units = [
             (
-                circuit.template,
                 circuit.spec,
                 circuit.software,
                 None if shots is None else shots * circuit.draws,
@@ -2222,12 +2253,17 @@ def _run(circuits, shots, seed, cache=None, keep_counts=False, batch=None):
         # reduction takes only its own fragment's groups)
         by_fragment = {}
         for n, circuit in enumerate(circuits):
-            by_fragment.setdefault(circuit.template.f, []).append(n)
+            by_fragment.setdefault(id(circuit.template), []).append(n)
         futures, fragments, positions = [], [], []
-        for f, members in by_fragment.items():
+        for members in by_fragment.values():
+            f = circuits[members[0]].template.f
             for start in range(0, len(members), batch):
                 where = members[start : start + batch]
-                futures.append(_run_fragments([units[n] for n in where]))
+                futures.append(
+                    _run_fragments(
+                        *_ship(circuits[where[0]].template), [units[n] for n in where]
+                    )
+                )
                 fragments.append(f)
                 positions.append(where)
         return _Batches(futures, fragments, positions)
@@ -2237,7 +2273,7 @@ def _run(circuits, shots, seed, cache=None, keep_counts=False, batch=None):
         if cache is None and keep_counts:
             results.append(
                 _run_fragment(
-                    circuit.template,
+                    _ship(circuit.template)[0],
                     circuit.spec,
                     circuit.software,
                     unit_shots,
@@ -2247,6 +2283,7 @@ def _run(circuits, shots, seed, cache=None, keep_counts=False, batch=None):
                     None,
                     None,
                     True,
+                    values=_ship(circuit.template)[1],
                 )
             )
         elif cache is None:

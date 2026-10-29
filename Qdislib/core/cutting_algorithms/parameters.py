@@ -92,8 +92,9 @@ def normalise_values(values, parameters):
                 f"{list(parameters)}, got {len(values)}"
             )
         bound = {name: float(v) for name, v in zip(parameters, values)}
+    known = set(parameters)
     missing = [p for p in parameters if p not in bound]
-    unknown = [p for p in bound if p not in parameters]
+    unknown = [p for p in bound if p not in known]
     if missing or unknown:
         raise ValueError(
             "values must bind every free parameter and nothing else: "
