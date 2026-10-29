@@ -170,6 +170,34 @@ class ParametersTest(BaseTimedTestCase):
             for value, reference in zip(values, exact):
                 self.assertAlmostEqual(value, reference, places=9)
 
+    def test_values_are_bound_once_per_fragment_and_set(self):
+        import Qdislib.core.cutting_algorithms.parameters as parameters
+
+        calls = []
+        original = parameters.bind_dag
+
+        def counting(dag, values):
+            calls.append(1)
+            return original(dag, values)
+
+        parameters.bind_dag = counting
+        try:
+            for per_task in (None, 3):
+                calls.clear()
+                self.qd.circuit_cutting(
+                    self.qc,
+                    CUTS["gate"],
+                    "ZIZZ",
+                    shots=100,
+                    seed=1,
+                    parameter_values=VALUES,
+                    circuits_per_task=per_task,
+                )
+                # 2 fragments x 3 sets, not once per circuit (12 of them per set)
+                self.assertEqual(len(calls), 2 * len(VALUES), per_task)
+        finally:
+            parameters.bind_dag = original
+
     def test_errors(self):
         from qiskit import QuantumCircuit
         from qiskit.circuit import Parameter

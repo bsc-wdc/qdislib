@@ -1565,11 +1565,26 @@ def _ship(template):
     return unbound, array
 
 
+#: The last few templates :func:`_unship` bound, by the objects they came from
+#: (kept alive here, so their ids cannot be reused): without PyCOMPSs every
+#: circuit of a set of values gets the same objects, and the values are bound
+#: once, not once per circuit. Under PyCOMPSs each task has its own copies.
+_UNSHIPPED = {}
+
+
 def _unship(template, values):
     """The template a task runs: :func:`_ship`'s values bound back."""
     if values is None:
         return template
-    return template.bound(dict(zip(template.parameters, map(float, values))))
+    key = (id(template), id(values))
+    hit = _UNSHIPPED.get(key)
+    if hit is not None and hit[0] is template and hit[1] is values:
+        return hit[2]
+    bound = template.bound(dict(zip(template.parameters, map(float, values))))
+    if len(_UNSHIPPED) >= 16:
+        _UNSHIPPED.pop(next(iter(_UNSHIPPED)))
+    _UNSHIPPED[key] = (template, values, bound)
+    return bound
 
 
 def _bind_circuits(circuits, values):
