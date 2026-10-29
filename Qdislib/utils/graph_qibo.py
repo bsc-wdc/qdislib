@@ -442,16 +442,27 @@ def _remove_red_edges(graph: networkx.DiGraph) -> networkx.DiGraph:
     :param graph: Graph to process.
     :return: Updated input graph without red edges.
     """
-    copy_dag = graph.copy()
-    red_edges = []
-
-    for ed in copy_dag.edges:
-        # A few reconnection edges are added without a colour attribute; treat a
-        # missing colour as "not red" (keep it) rather than raising.
-        if copy_dag.get_edge_data(ed[0], ed[1]).get("color") == "red":
-            red_edges.append(ed)
-
-    copy_dag.remove_edges_from(red_edges)
+    if graph.is_multigraph():
+        copy_dag = graph.copy()
+        copy_dag.remove_edges_from(
+            [
+                (u, v, k)
+                for u, v, k, d in graph.edges(keys=True, data=True)
+                if d.get("color") == "red"
+            ]
+        )
+        return copy_dag
+    # One pass: the copy is built without the red edges (what graph.copy() and
+    # removing them gives, in the same order). A few reconnection edges are added
+    # without a colour attribute; a missing colour counts as "not red" (kept).
+    copy_dag = graph.__class__()
+    copy_dag.graph.update(graph.graph)
+    copy_dag.add_nodes_from((n, d.copy()) for n, d in graph.nodes(data=True))
+    copy_dag.add_edges_from(
+        (u, v, d.copy())
+        for u, v, d in graph.edges(data=True)
+        if d.get("color") != "red"
+    )
     return copy_dag
 
 

@@ -392,7 +392,7 @@ def _generate_cut_hadamard(dag, gates_cut):
     from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
     from Qdislib.utils.graph_qibo import _remove_red_edges
 
-    dag_copy = _remove_red_edges(dag.copy())
+    dag_copy = _remove_red_edges(dag)
     for index, gate_name in enumerate(gates_cut, start=1):
         is_cx = (dag_copy.nodes[gate_name].get("gate") or "").lower() in ("cx", "cnot")
         q = dag_copy.nodes[gate_name]["qubits"]
@@ -666,7 +666,7 @@ def _hadamard_setup(circuit, gates_cut, observable=None):
     # The fragment partition (connected components) is fixed by the cut graph; only the
     # per-node gadget assignment changes per configuration, so compute it once.
     cut_graph = _remove_red_free(cut_dag)
-    components = list(nx.connected_components(cut_graph.to_undirected()))
+    components = list(nx.connected_components(cut_graph.to_undirected(as_view=True)))
     _validate_hadamard_cuts_partition(gates_cut, cut_graph)
     return cut_dag, components, decomps
 
@@ -1403,7 +1403,7 @@ def _remove_red_free(dag):
     define the independent fragments (mirrors ``_remove_red_edges``)."""
     from Qdislib.utils.graph_qibo import _remove_red_edges
 
-    return _remove_red_edges(dag.copy())
+    return _remove_red_edges(dag)
 
 
 # --------------------------------------------------------------------------- #

@@ -167,7 +167,7 @@ def gate_wire_cutting(
     if wire_cuts:
         _insert_wire_cut_markers(dag, wire_cuts, num_qubits)
     # Gate surgery: insert the SUBS1/SUBS2 markers (also strips red edges internally).
-    dag = _generate_cut(dag, gates_cut) if gates_cut else _remove_red_edges(dag.copy())
+    dag = _generate_cut(dag, gates_cut) if gates_cut else _remove_red_edges(dag)
 
     # Every cut, gate or wire, has to separate its two sides.
     from Qdislib.core.cutting_algorithms._reconstruction import check_cuts_separate
@@ -185,7 +185,7 @@ def gate_wire_cutting(
     results = []
     for gate_idx in range(6**n_gate):
         for wire_idx in range(8**n_wire):
-            config_dag = _remove_red_edges(dag.copy())
+            config_dag = _remove_red_edges(dag)
             if n_gate:
                 _apply_gate_substitution(config_dag, gates_cut, gate_idx)
             if n_wire:
@@ -206,7 +206,9 @@ def gate_wire_cutting(
                     None,  # batch
                     None,  # ibm_backend
                 )
-                for component in nx.connected_components(config_dag.to_undirected())
+                for component in nx.connected_components(
+                    config_dag.to_undirected(as_view=True)
+                )
             ]
             sign = _config_sign(gate_idx, 6, {3, 5}) * _config_sign(
                 wire_idx, 8, {3, 5, 7}
@@ -521,7 +523,7 @@ class _CutPlan:
         self.gate_cuts, self.had_cuts, self.wire_cuts = gate_cuts, had_cuts, wire_cuts
         self.ancilla_base = self.num_qubits + len(wire_cuts) + 1
 
-        components = list(nx.connected_components(graph.to_undirected()))
+        components = list(nx.connected_components(graph.to_undirected(as_view=True)))
         self.groups = (
             _cut_groups(graph, components, decomps, joint_gates) if had_cuts else []
         )
@@ -627,7 +629,7 @@ class _CutPlan:
 
         fragment = {}
         for index, nodes in enumerate(
-            nx.connected_components(self.graph.to_undirected())
+            nx.connected_components(self.graph.to_undirected(as_view=True))
         ):
             for node in nodes:
                 fragment[node] = index

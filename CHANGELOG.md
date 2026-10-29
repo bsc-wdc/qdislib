@@ -197,6 +197,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (chain) fragments too. Some of these circuits add CZ gates between the cut qubits;
   `joint=False` keeps the previous per-wire measurement, whose results are unchanged.
 ### Fixed
+- **Cutting copied the circuit graph several times per call.** Counting fragments
+  went through `DiGraph.to_undirected()`, which deep-copies every node and edge
+  attribute, and several callers copied a graph only to hand it to a function that
+  copies it again. Fragments are now counted on an undirected view and each graph is
+  copied once (red edges left out in the same pass). On MareNostrum 5, preparing
+  578 QHED tile circuits spent ~45 of its 141 s on the master in these copies.
 - **Under PyCOMPSs, `subs.circuits()` returned futures, not circuits.** The SDK
   converters are COMPSs tasks, so building circuits on the master submitted one task
   each (and a CUDA-Q kernel cannot cross a task boundary at all). They are now called

@@ -337,9 +337,10 @@ def _gate_cutting(
     dag, gates_cut = _expand_general_gate_cuts(dag, gates_cut)
     _validate_gate_cuts_partition(dag, gates_cut)
 
-    if nx.number_connected_components(dag.to_undirected()) > 1:
+    if nx.number_connected_components(dag.to_undirected(as_view=True)) > 1:
         S = [
-            dag.subgraph(c).copy() for c in nx.connected_components(dag.to_undirected())
+            dag.subgraph(c).copy()
+            for c in nx.connected_components(dag.to_undirected(as_view=True))
         ]
         results = []
         for piece, s in enumerate(S):
@@ -1065,7 +1066,9 @@ def _apply_gate_substitution(updated_dag, gates_cut, index):
 
 def _generate_gate_cutting(updated_dag, gates_cut, index, graph_components):
     _apply_gate_substitution(updated_dag, gates_cut, index)
-    for i, c in enumerate(nx.connected_components(updated_dag.to_undirected())):
+    for i, c in enumerate(
+        nx.connected_components(updated_dag.to_undirected(as_view=True))
+    ):
         new_subgraph = updated_dag.subgraph(c).copy()
         graph_components[i].add_nodes_from(new_subgraph.nodes(data=True))
         graph_components[i].add_edges_from(new_subgraph.edges(data=True), color="blue")
@@ -1691,8 +1694,10 @@ def _gate_cut_sampling_components(dag, gates_cut):
     components = []
     number_components = 1
     for index in range(6 ** len(gates_cut)):
-        copy_graph = _remove_red_edges(new_dag.copy())
-        number_components = nx.number_connected_components(copy_graph.to_undirected())
+        copy_graph = _remove_red_edges(new_dag)
+        number_components = nx.number_connected_components(
+            copy_graph.to_undirected(as_view=True)
+        )
         graph_components = [nx.DiGraph() for _ in range(number_components)]
         _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
         components.extend(graph_components)
@@ -2107,7 +2112,7 @@ def _execute_gate_cutting(
 
     S = [
         new_dag.subgraph(c).copy()
-        for c in nx.connected_components(new_dag.to_undirected())
+        for c in nx.connected_components(new_dag.to_undirected(as_view=True))
     ]
 
     max_qubit_list = []
@@ -2120,7 +2125,9 @@ def _execute_gate_cutting(
         copy_graph = new_dag.copy()
         copy_graph = _remove_red_edges(copy_graph)
 
-        num_components = nx.number_connected_components(copy_graph.to_undirected())
+        num_components = nx.number_connected_components(
+            copy_graph.to_undirected(as_view=True)
+        )
 
         graph_components = []
         for i in range(num_components):
@@ -2612,11 +2619,12 @@ def _gate_cutting_subcircuits(
 
     number_cuts = len(gates_cut)
 
-    if nx.number_connected_components(dag.to_undirected()) > 1:
+    if nx.number_connected_components(dag.to_undirected(as_view=True)) > 1:
         # Disconnected pieces are cut (or not) independently and multiply: keep each
         # piece's subcircuits as its own part so reconstruct() can't mix them up.
         S = [
-            dag.subgraph(c).copy() for c in nx.connected_components(dag.to_undirected())
+            dag.subgraph(c).copy()
+            for c in nx.connected_components(dag.to_undirected(as_view=True))
         ]
         parts = []
         for s in S:
@@ -2685,8 +2693,10 @@ def _execute_gate_cutting_subcircuits(dag, gates_cut, software):
     # Subcircuit futures fed straight into expectation_value's eval task (task -> task).
     subcircuits = []
     for index in range(6 ** len(gates_cut)):
-        copy_graph = _remove_red_edges(new_dag.copy())
-        num_components = nx.number_connected_components(copy_graph.to_undirected())
+        copy_graph = _remove_red_edges(new_dag)
+        num_components = nx.number_connected_components(
+            copy_graph.to_undirected(as_view=True)
+        )
         graph_components = [nx.DiGraph() for _ in range(num_components)]
 
         # Populates graph_components in place (one DiGraph per component).

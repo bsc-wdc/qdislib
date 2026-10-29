@@ -92,7 +92,9 @@ def check_cuts_separate(cut_graph, sides):
     from Qdislib.utils.exceptions import InvalidCutError
 
     fragment = {}
-    for index, nodes in enumerate(nx.connected_components(cut_graph.to_undirected())):
+    for index, nodes in enumerate(
+        nx.connected_components(cut_graph.to_undirected(as_view=True))
+    ):
         for node in nodes:
             fragment[node] = index
     invalid = [

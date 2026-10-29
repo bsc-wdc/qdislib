@@ -294,10 +294,10 @@ def _wire_cutting(
             reason = f"failed ({exc})"
         logger.info("Optimized wire cutting %s; using the standard method.", reason)
 
-    if networkx.number_connected_components(dag.to_undirected()) > 1:
+    if networkx.number_connected_components(dag.to_undirected(as_view=True)) > 1:
         S = [
             dag.subgraph(c).copy()
-            for c in networkx.connected_components(dag.to_undirected())
+            for c in networkx.connected_components(dag.to_undirected(as_view=True))
         ]
         results = []
         total_wire_cuts = 0
@@ -389,9 +389,9 @@ def _wire_cut_sampling_components(dag, wire_cuts, num_qubits):
     components = []
     per_config_counts = []
     for index in range(8 ** len(wire_cuts)):
-        copy_graph = _remove_red_edges(dag.copy())
+        copy_graph = _remove_red_edges(dag)
         num_components = networkx.number_connected_components(
-            copy_graph.to_undirected()
+            copy_graph.to_undirected(as_view=True)
         )
         graph_components = [networkx.DiGraph() for _ in range(num_components)]
         _generate_subcircuits_wire_cutting(
@@ -1165,10 +1165,10 @@ def _generate_wire_cutting(
 
     reconstruction = []
     for index in range(8 ** len(wire_cuts)):
-        copy_graph = _remove_red_edges(dag.copy())
+        copy_graph = _remove_red_edges(dag)
 
         num_components = networkx.number_connected_components(
-            copy_graph.to_undirected()
+            copy_graph.to_undirected(as_view=True)
         )
         graph_components = [networkx.DiGraph().copy() for _ in range(num_components)]
 
@@ -1318,7 +1318,9 @@ def _generate_subcircuits_wire_cutting(
     """
     _apply_wire_substitution(updated_dag, num_qubits, idx, edges_to_replace)
     updated_dag = _remove_red_edges(updated_dag)
-    for i, c in enumerate(networkx.connected_components(updated_dag.to_undirected())):
+    for i, c in enumerate(
+        networkx.connected_components(updated_dag.to_undirected(as_view=True))
+    ):
         new_subgraph = updated_dag.subgraph(c).copy()
         graph_components[i].add_nodes_from(new_subgraph.nodes(data=True))
         graph_components[i].add_edges_from(new_subgraph.edges(data=True), color="blue")
@@ -1974,7 +1976,7 @@ def _optimized_wire_fragments(dag, wire_cuts, num_qubits):
 
     measure_frags, prepare_frags, mixed_frags, plain_frags = [], [], [], []
     measured, prepared = set(), set()
-    for component in networkx.connected_components(graph.to_undirected()):
+    for component in networkx.connected_components(graph.to_undirected(as_view=True)):
         sub = graph.subgraph(component).copy()
         measures = sorted(i for i in range(1, n_cuts + 1) if f"O_{i}" in sub.nodes)
         preps = sorted(i for i in range(1, n_cuts + 1) if f"PS_{i}" in sub.nodes)
@@ -3110,12 +3112,12 @@ def _wire_cutting_subcircuits(
         "pennylane": lambda d, n: make_subcircuit(d, n, "pennylane"),
     }
 
-    if networkx.number_connected_components(dag.to_undirected()) > 1:
+    if networkx.number_connected_components(dag.to_undirected(as_view=True)) > 1:
         # Disconnected pieces are cut (or not) independently and multiply: keep each
         # piece's subcircuits as its own part so reconstruct() can't mix them up.
         S = [
             dag.subgraph(c).copy()
-            for c in networkx.connected_components(dag.to_undirected())
+            for c in networkx.connected_components(dag.to_undirected(as_view=True))
         ]
         parts = []
         for s in S:
@@ -3205,10 +3207,10 @@ def _generate_wire_cutting_subcircuits(
     # Subcircuit futures fed straight into expectation_value's eval task (task -> task).
     subcircuits = []
     for index in range(8 ** len(wire_cuts)):
-        copy_graph = _remove_red_edges(dag.copy())
+        copy_graph = _remove_red_edges(dag)
 
         num_components = networkx.number_connected_components(
-            copy_graph.to_undirected()
+            copy_graph.to_undirected(as_view=True)
         )
         graph_components = [networkx.DiGraph() for _ in range(num_components)]
 
