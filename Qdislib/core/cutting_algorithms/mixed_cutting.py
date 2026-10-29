@@ -1092,8 +1092,28 @@ class _FragmentTemplate:
 
         template = copy.copy(self)
         template.__dict__.pop("_fingerprint", None)
+        template.__dict__.pop("_bound_graph", None)
         template.values = values
         return template
+
+    def _graph(self):
+        """Its graph with :attr:`values` bound, bound once per process (every
+        circuit of the fragment starts from it)."""
+        if not self.values:
+            return self.graph
+        graph = self.__dict__.get("_bound_graph")
+        if graph is None:
+            from Qdislib.core.cutting_algorithms.parameters import bind_dag
+
+            graph = self.graph.copy()
+            bind_dag(graph, self.values)
+            self._bound_graph = graph
+        return graph
+
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state.pop("_bound_graph", None)  # rebuilt where it is needed, not shipped
+        return state
 
     def leg(self, gate_config):
         """This fragment's own part of a gate configuration (as
@@ -1119,11 +1139,7 @@ class _FragmentTemplate:
 
         fragment = self.fragment
         digits, config = gate_config
-        sub = self.graph.copy()
-        if self.values:
-            from Qdislib.core.cutting_algorithms.parameters import bind_dag
-
-            bind_dag(sub, self.values)
+        sub = self._graph().copy()
         for k, side in fragment["gate_sides"]:
             node = f"GATE{side}_{k}"
             _apply_gate_side(
