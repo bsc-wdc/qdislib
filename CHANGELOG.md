@@ -196,29 +196,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `wire_cutting`, `wire_cutting_subcircuits` and `wire_cutting_sampling`, for mixed
   (chain) fragments too. Some of these circuits add CZ gates between the cut qubits;
   `joint=False` keeps the previous per-wire measurement, whose results are unchanged.
-- **`CombinedCutSubcircuits`**: the subcircuit container `*_subcircuits` return
-  when a circuit has several independent pieces or the observable is a weighted
-  Pauli sum. It is still one flat list to evaluate; `reconstruct` multiplies the
-  pieces' results or sums the terms with their coefficients.
-- **The IQM backend can run a cut circuit on IQM hardware.** `IQMBackend` now
-  implements the cutting hooks (`evaluate_expectation` for the all-in-one path,
-  `evaluate_subcircuit` for the three-step one), reconstructing each subcircuit's
-  expectation with the same Z/I + cut-point-sign rule the simulators use, so a cut
-  evaluated on the device recombines exactly as it does on Aer. Step 2 of the
-  three-step workflow takes the backend directly::
-
-      iqm = build_backend("IQM_BACKEND", BackendConfig(quantum_computer="garnet"))
-      subs = qd.gate_cutting_subcircuits(circuit, ["CZ_3"], "ZZZZ")
-      values = [qd.expectation_value(s, shots=2000, backend=iqm) for s in subs]
-      result = subs.reconstruct(values)
-
-  Verified end to end on IQM Resonance (Garnet, 20 qubits): a 4-qubit circuit cut
-  into 12 subcircuits reconstructed `<ZZZZ> = 0.852` against an exact 1.0, the gap
-  being hardware noise. Garnet accepts the mid-circuit measurement the gate-cut
-  decomposition needs, so no fallback is required. Expectations remain Z/I-only
-  (an X or Y term raises), and `gate_cutting(qpu=True, ...)` still routes only to
-  `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
-
 ### Fixed
 - **Under PyCOMPSs, `subs.circuits()` returned futures, not circuits.** The SDK
   converters are COMPSs tasks, so building circuits on the master submitted one task
@@ -296,81 +273,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`cutting_overhead` took minutes for about a dozen cuts**: it listed every
   configuration (6**g * 8**w). Its counts now come from closed forms (0.04 s for 12
   CZ cuts, against minutes).
-- **Gate cutting on IBM Quantum hardware returned about 0 for any measured cut.**
-  The IBM reader looked only at the final measurements, so it dropped every
-  cut's decomposition sign, and it ran the sampler with its default shot count
-  while dividing by `shots`. It now reads the cut-point registers like the
-  simulators and passes `shots`; checked through SamplerV2 in local testing mode.
-- **Several gate cuts on one qubit lost all but one sign.** Two cuts on the same
-  qubit pair, or a general gate decomposed into several CZs (SWAP, RXX, ...),
-  kept only the last cut-point outcome on the Qiskit path (two CZ cuts: +0.07
-  instead of -0.95), and on the sampling paths of every backend. Each cut now
-  keeps its own outcome. Reported by David Ryan (bsc-wdc/qdislib#3).
-- **A circuit's final measurements broke gate cutting.** Qiskit's `measure_all()`
-  was read as the gate cut's own cut-point measurement (ZZ gave 1.0 instead of
-  -0.009), and a final Qibo `M(0, 1)` joined all its qubits so a valid cut was
-  rejected. Final measurements are now left out of the DAG; measurements followed
-  by more gates are kept. Reported by David Ryan (bsc-wdc/qdislib#4).
-- **The three-step workflow ignored a weighted Pauli sum** and gave the all-Z
-  value; `gate_cutting_hadamard` silently read a list, or an X/Y, as identity. It
-  now measures X/Y (rotating them into Z) and splits a Pauli sum into terms.
-  Reported by David Ryan (bsc-wdc/qdislib#6).
-- **Two wire cuts in series on one wire gave a wrong value** (0.000 instead of
-  -0.226): the second cut used the qubit index from before the first one moved
-  the wire. Reported by David Ryan (bsc-wdc/qdislib#7).
-- **`*_subcircuits` and `cache=` were wrong when part of the circuit was not
-  cut**, or when several pieces were cut (+0.75 instead of +0.17): the pieces'
-  subcircuits were grouped by guessing from the list length. Reported by David
-  Ryan (bsc-wdc/qdislib#9).
-- **`find_cut` wire mode ignored `max_qubits` and `forbidden_qubits`.** It
-  counted gates instead of qubits, and never matched a protected wire. Every wire
-  candidate is now checked as `wire_cutting` will apply it. Reported by David Ryan
-  (bsc-wdc/qdislib#10).
-- **The circuit cache served one circuit's result for the same circuit on other
-  qubits** (X on qubit 0 vs qubit 1): the ZX key now tells qubits apart. Entries
-  stored under the old keys are no longer hit. Reported by David Ryan
-  (bsc-wdc/qdislib#11).
-- **A Qibo CU3 changed meaning on the Aer backend** (0.999 instead of 0.696), and
-  Qibo circuits with SWAP, SX, CRX, RXX, iSWAP, CCZ and similar gates could not be
-  converted for Aer at all. Reported by David Ryan (bsc-wdc/qdislib#13).
-- **`find_cut` could return a cut on a Qiskit barrier**, which `wire_cutting` then
-  rejected with `KeyError`. Reported by David Ryan (bsc-wdc/qdislib#16).
-- **Qiskit circuits with more than one quantum register were cut on the wrong
-  qubits.** `circuit_qiskit_to_dag` and `iter_gates` (which `find_cut` reads) used
-  each qubit's index within its own register, so a gate between `a[0]` and `b[0]`
-  landed on `(0, 0)` and cutting returned a wrong value with no error. They now use
-  the global index (`circuit.find_bit(q).index`). Contributed by David Ryan
-  (bsc-wdc/qdislib#5, fixes bsc-wdc/qdislib#2).
-- **Sampling on `QIBO_BACKEND` changed the caller's circuit.** `sample_circuit`
-  added an `M` gate to the Qibo circuit it was given, so every later run of that
-  circuit read the wrong result. It now samples a copy. Reported by David Ryan
-  (bsc-wdc/qdislib#12).
-- **`find_cut(max_cuts=0)` still returned a cut.** The budget checks treated `0` as
-  "no limit". `max_cuts=0` now allows no cut in every mode, including `mixed=True`
-  (which otherwise still returns an over-budget cut with a warning), and
-  `max_qubits < 1` or `max_cuts < 0` raise `ValueError`. Reported by David Ryan
-  (bsc-wdc/qdislib#15).
-- **`wire_cutting(optimized=True)` was ignored for a weighted sum of Paulis.** Each
-  term of the Hamiltonian ran the standard 8**n reconstruction instead of the
-  optimized one.
-- **A Qiskit subcircuit could only be evaluated once.** `_counts_qiskit` (and the
-  GPU/QPU evaluators) appended `measure_all` **in place**, so evaluating the same
-  cut twice -- simulate first, then submit to hardware -- silently read the wrong
-  classical register and returned a plausible but wrong number. They now measure a
-  copy. The IQM path additionally refuses a subcircuit that already carries a
-  `meas` register rather than paying for the shots to get a wrong answer.
-- **The IQM backend could not authenticate against IQM Resonance.** It required a
-  Cortex-CLI tokens *file* (`tokens_path` -> `IQM_TOKENS_FILE`) and hardcoded
-  `quantum_computer="default"`, so a plain cloud token raised
-  `KeyError: 'tokens_path'`. `token`, `tokens_path`, `url` and `quantum_computer`
-  are now all configurable, each falling back to its `IQM_*` env var. The URL is
-  the server base URL -- the current client rejects one with the device name in it.
-- **`QdBackEnd` assumed a simulator-sized width for hardware.** A `qpu_dict` entry
-  without `num_qubits` was recorded as `DEFAULT_NUM_QUBITS` (30), so a 20-qubit
-  device would accept 25-qubit circuits. `num_qubits` is now optional everywhere: a
-  backend that talks to a device reports the device's own width, and only a
-  backend that can resolve nothing falls back to the default.
-
 ### Changed
 - **`software=` on the three-step generators is deprecated**: a subcircuit list is
   SDK-neutral, and the language of its circuits is chosen when they are built
@@ -514,10 +416,146 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says so.
 - **`optimized=True` wire cutting runs fewer measurement circuits by default** (see
   Added: joint measurement). Pass `joint=False` for the previous circuits.
+
+## [1.0.2] - 2026-10-19
+### Added
+- **Optimized wire cutting handles chain topologies.** When a fragment owns both
+  a measure-side and a prepare-side cut (e.g. two wires cut in series), it runs
+  `3**i * 4**j` circuits instead of sending the whole circuit back to the standard
+  `8**n` method -- for `wire_cutting`, `wire_cutting_sampling` and
+  `wire_cutting_subcircuits` with `optimized=True`.
+- **`find_cut` checks whether a cut is needed at all.** A circuit whose qubits
+  already split into independent groups gets no cut (`[]`); the groups are packed
+  into fragments within `max_qubits` (`separable_components`). Before, it proposed
+  a cut that cost overhead for nothing.
+- **`CombinedCutSubcircuits`**: the subcircuit container `*_subcircuits` return
+  when a circuit has several independent pieces or the observable is a weighted
+  Pauli sum. It is still one flat list to evaluate; `reconstruct` multiplies the
+  pieces' results or sums the terms with their coefficients.
+- **The IQM backend can run a cut circuit on IQM hardware.** `IQMBackend` now
+  implements the cutting hooks (`evaluate_expectation` for the all-in-one path,
+  `evaluate_subcircuit` for the three-step one), reconstructing each subcircuit's
+  expectation with the same Z/I + cut-point-sign rule the simulators use, so a cut
+  evaluated on the device recombines exactly as it does on Aer. Step 2 of the
+  three-step workflow takes the backend directly::
+
+      iqm = build_backend("IQM_BACKEND", BackendConfig(quantum_computer="garnet"))
+      subs = qd.gate_cutting_subcircuits(circuit, ["CZ_3"], observables="ZZZZ")
+      values = [qd.expectation_value(s, shots=2000, backend=iqm) for s in subs]
+      result = subs.reconstruct(values)
+
+  Verified end to end on IQM Resonance (Garnet, 20 qubits): a 4-qubit circuit cut
+  into 12 subcircuits reconstructed `<ZZZZ> = 0.852` against an exact 1.0, the gap
+  being hardware noise. Garnet accepts the mid-circuit measurement the gate-cut
+  decomposition needs, so no fallback is required. Expectations remain Z/I-only
+  (an X or Y term raises), and `gate_cutting(qpu=True, ...)` still routes only to
+  `MN_Ona` / `IBM_Quantum` -- the three-step workflow is the IQM route.
+
+### Fixed
+- **`find_cut` crashed when scikit-learn's OpenMP runtime could not load**
+  (`cannot allocate memory in static TLS block`, seen with glibc < 2.32). It now
+  skips the spectral strategy with a warning and uses the other three; preloading
+  `scikit_learn.libs/libgomp*.so` with `LD_PRELOAD` restores it.
+- **An identity observable on a wire-cut qubit gave a wrong value**, on the
+  standard and optimized paths, and an identity on a regular qubit broke the
+  optimized path. The same wire-relabelling bug made `gate_wire_cutting` wrong when
+  a general gate cut followed a wire cut on the same qubit. Reported by David Ryan
+  (bsc-wdc/qdislib#8, bsc-wdc/qdislib#17).
+- **The circuit cache never cached a CUDA-Q kernel with a rotation**: its QASM
+  prints floats in scientific notation, which PyZX could not parse.
+- **Two silent failures at the QASM boundary.** Qibo's QASM export drops a
+  mid-circuit measurement, so gate-cut fragments could share a cache key, and
+  converting such a fragment to Qiskit lost the measurement. The cache now skips
+  such circuits, and the conversion raises `InvalidCutError`.
+- **Gate cutting on IBM Quantum hardware returned about 0 for any measured cut.**
+  The IBM reader looked only at the final measurements, so it dropped every
+  cut's decomposition sign, and it ran the sampler with its default shot count
+  while dividing by `shots`. It now reads the cut-point registers like the
+  simulators and passes `shots`; checked through SamplerV2 in local testing mode.
+- **Several gate cuts on one qubit lost all but one sign.** Two cuts on the same
+  qubit pair, or a general gate decomposed into several CZs (SWAP, RXX, ...),
+  kept only the last cut-point outcome on the Qiskit path (two CZ cuts: +0.07
+  instead of -0.95), and on the sampling paths of every backend. Each cut now
+  keeps its own outcome. Reported by David Ryan (bsc-wdc/qdislib#3).
+- **A circuit's final measurements broke gate cutting.** Qiskit's `measure_all()`
+  was read as the gate cut's own cut-point measurement (ZZ gave 1.0 instead of
+  -0.009), and a final Qibo `M(0, 1)` joined all its qubits so a valid cut was
+  rejected. Final measurements are now left out of the DAG; measurements followed
+  by more gates are kept. Reported by David Ryan (bsc-wdc/qdislib#4).
+- **The three-step workflow ignored a weighted Pauli sum** and gave the all-Z
+  value; `gate_cutting_hadamard` silently read a list, or an X/Y, as identity and
+  now raises `ValueError`. Reported by David Ryan (bsc-wdc/qdislib#6).
+- **Two wire cuts in series on one wire gave a wrong value** (0.000 instead of
+  -0.226): the second cut used the qubit index from before the first one moved
+  the wire. Reported by David Ryan (bsc-wdc/qdislib#7).
+- **`*_subcircuits` and `cache=` were wrong when part of the circuit was not
+  cut**, or when several pieces were cut (+0.75 instead of +0.17): the pieces'
+  subcircuits were grouped by guessing from the list length. Reported by David
+  Ryan (bsc-wdc/qdislib#9).
+- **`find_cut` wire mode ignored `max_qubits` and `forbidden_qubits`.** It
+  counted gates instead of qubits, and never matched a protected wire. Every wire
+  candidate is now checked as `wire_cutting` will apply it. Reported by David Ryan
+  (bsc-wdc/qdislib#10).
+- **The circuit cache served one circuit's result for the same circuit on other
+  qubits** (X on qubit 0 vs qubit 1): the ZX key now tells qubits apart. Entries
+  stored under the old keys are no longer hit. Reported by David Ryan
+  (bsc-wdc/qdislib#11).
+- **A Qibo CU3 changed meaning on the Aer backend** (0.999 instead of 0.696), and
+  Qibo circuits with SWAP, SX, CRX, RXX, iSWAP, CCZ and similar gates could not be
+  converted for Aer at all. Reported by David Ryan (bsc-wdc/qdislib#13).
+- **`find_cut` could return a cut on a Qiskit barrier**, which `wire_cutting` then
+  rejected with `KeyError`. Reported by David Ryan (bsc-wdc/qdislib#16).
+- **Qiskit circuits with more than one quantum register were cut on the wrong
+  qubits.** `circuit_qiskit_to_dag` and `iter_gates` (which `find_cut` reads) used
+  each qubit's index within its own register, so a gate between `a[0]` and `b[0]`
+  landed on `(0, 0)` and cutting returned a wrong value with no error. They now use
+  the global index (`circuit.find_bit(q).index`). Contributed by David Ryan
+  (bsc-wdc/qdislib#5, fixes bsc-wdc/qdislib#2).
+- **Sampling on `QIBO_BACKEND` changed the caller's circuit.** `sample_circuit`
+  added an `M` gate to the Qibo circuit it was given, so every later run of that
+  circuit read the wrong result. It now samples a copy. Reported by David Ryan
+  (bsc-wdc/qdislib#12).
+- **`find_cut(max_cuts=0)` still returned a cut.** The budget checks treated `0` as
+  "no limit". `max_cuts=0` now allows no cut in every mode, including `mixed=True`
+  (which otherwise still returns an over-budget cut with a warning), and
+  `max_qubits < 1` or `max_cuts < 0` raise `ValueError`. Reported by David Ryan
+  (bsc-wdc/qdislib#15).
+- **`wire_cutting(optimized=True)` was ignored for a weighted sum of Paulis.** Each
+  term of the Hamiltonian ran the standard 8**n reconstruction instead of the
+  optimized one.
+- **A Qiskit subcircuit could only be evaluated once.** `_counts_qiskit` (and the
+  GPU/QPU evaluators) appended `measure_all` **in place**, so evaluating the same
+  cut twice -- simulate first, then submit to hardware -- silently read the wrong
+  classical register and returned a plausible but wrong number. They now measure a
+  copy. The IQM path additionally refuses a subcircuit that already carries a
+  `meas` register rather than paying for the shots to get a wrong answer.
+- **The IQM backend could not authenticate against IQM Resonance.** It required a
+  Cortex-CLI tokens *file* (`tokens_path` -> `IQM_TOKENS_FILE`) and hardcoded
+  `quantum_computer="default"`, so a plain cloud token raised
+  `KeyError: 'tokens_path'`. `token`, `tokens_path`, `url` and `quantum_computer`
+  are now all configurable, each falling back to its `IQM_*` env var. The URL is
+  the server base URL -- the current client rejects one with the device name in it.
+- **`QdBackEnd` assumed a simulator-sized width for hardware.** A `qpu_dict` entry
+  without `num_qubits` was recorded as `DEFAULT_NUM_QUBITS` (30), so a 20-qubit
+  device would accept 25-qubit circuits. `num_qubits` is now optional everywhere: a
+  backend that talks to a device reports the device's own width, and only a
+  backend that can resolve nothing falls back to the default.
+
+### Changed
+- **A cut that doesn't split the circuit raises `ValueError`**, in gate, wire,
+  Hadamard and mixed cutting. Such a cut paid the reconstruction overhead for no
+  width reduction (and could cost more than no cut). An empty cut list still runs
+  the circuit as-is.
+- **Dependencies: numpy 2 is supported, and the `qibo` extra needs
+  `qibo>=0.3.5`**, the first release with the numpy >= 2.4 fix
+  (qiboteam/qibo#1871). The `numpy<2.0` cap is gone.
+- **igraph is no longer a dependency.** It was only used to draw random test
+  circuits; networkx does the same. Its bundled OpenMP library also failed to
+  load on some Linux machines, breaking `import Qdislib`.
 - **`wire_cutting` runs the subcircuits in the circuit's own SDK by default.**
   `software` defaulted to `"qibo"` whatever the input, so a Qiskit circuit
   containing `cx` failed unless `software="qiskit"` was passed. The default is now
-  taken from the circuit (Qiskit Aer for a DAG). Reported by David Ryan
+  taken from the circuit (`"qibo"` for a DAG, as before). Reported by David Ryan
   (bsc-wdc/qdislib#14).
 - **Backend options are named directly on `BackendConfig`** --
   `BackendConfig(quantum_computer="garnet")` rather than

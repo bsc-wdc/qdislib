@@ -311,6 +311,14 @@ The returned list contains candidate gate names or gate pairs that are suitable 
     cut = qd.find_cut(circuit, forbidden_gates=["CZ_3"])  # never cut these gates
     cut = qd.find_cut(circuit, forbidden_qubits=[0, 1])   # never cut on these qubits
 
+The limits are checked as each cut will be applied: every fragment of a wire cut
+must fit in ``max_qubits`` qubits, and no cut touches a ``forbidden_qubits`` wire.
+``max_cuts=0`` allows no cut at all (the result is ``[]``), and ``max_qubits`` must be
+at least 1. A circuit whose qubits already split into independent groups needs no
+cut, so ``find_cut`` returns ``[]`` and the groups simply run separately. The other
+way round, the cutting functions raise ``ValueError`` for a cut that does not split
+the circuit, since it would cost the cutting overhead for no smaller fragments.
+
 **Hardware-aware cut selection (SparseCut).** When you pass the target QPU's
 ``coupling_map``, ``find_cut`` switches to a hardware-aware mode: it cuts only gates
 whose two qubits are not adjacent on the device, preferring the **longest-routing**
@@ -789,3 +797,7 @@ Every subcircuit then runs on that device. To send only the subcircuits that fit
 (see above). A real device returns only aggregated counts, so an identity
 observable on a cut qubit that keeps evolving *after* the cut is not supported on a
 QPU (it is on a simulator).
+
+Device noise is amplified by the cutting overhead, and more so with every extra
+cut, so expect hardware results to drift further from the exact value as cuts are
+added.
