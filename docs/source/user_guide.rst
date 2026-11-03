@@ -660,6 +660,18 @@ distribution:
 
     dist = qd.gate_cutting_sampling(circuit, cut, shots=200_000, seed=0)
 
+When only some qubits matter, ask for their **marginal** with ``qubits=``. Bit ``j``
+of each key is qubit ``qubits[j]``. Each fragment circuit then returns only what the
+marginal needs, so the cost and the result grow with the kept qubits, not with the
+circuit -- a full distribution has ``2**n`` outcomes, too many to rebuild beyond
+about 25 qubits:
+
+.. code-block:: python
+
+    # 28-qubit circuit, read on the ancilla and four qubits of each register
+    dist = qd.circuit_cutting_sampling(circuit, cuts, shots=200_000,
+                                       qubits=[27, 0, 1, 2, 3, 9, 10, 11, 12])
+
 
 Circuits with free parameters
 -----------------------------

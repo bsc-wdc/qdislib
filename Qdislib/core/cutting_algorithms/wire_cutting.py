@@ -3429,6 +3429,7 @@ def wire_cutting_sampling(
     error=False,
     circuits_per_task=None,
     parameter_values=None,
+    qubits=None,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
@@ -3436,6 +3437,8 @@ def wire_cutting_sampling(
 
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
+    :param qubits: The distribution over only these qubits, as in
+        :func:`circuit_cutting_sampling`.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import _legacy_run
@@ -3462,10 +3465,16 @@ def wire_cutting_sampling(
             error=error,
             circuits_per_task=circuits_per_task,
             parameter_values=parameter_values,
+            qubits=qubits,
         )
-    if error or circuits_per_task is not None or parameter_values is not None:
+    if (
+        error
+        or circuits_per_task is not None
+        or parameter_values is not None
+        or qubits is not None
+    ):
         raise ValueError(
-            "error=, circuits_per_task= and parameter_values= run through circuit_cutting: they are not available with the "
+            "error=, circuits_per_task=, parameter_values= and qubits= run through circuit_cutting: they are not available with the "
             "deprecated qpu= / qpu_dict= options."
         )
     legacy = _legacy or {}

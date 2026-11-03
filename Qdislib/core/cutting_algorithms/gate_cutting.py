@@ -1358,6 +1358,25 @@ def _z_correlators(joint, prep_sorted, k, masks=None):
         cuts = np.array([[int(cut[i]) for i in prep_index] for (_, cut), _ in items])
         signed = signed * np.prod(-((-1.0) ** cuts), axis=1)
     if masks is not None:
+        masks = [int(m) for m in masks]
+        union = 0
+        for mask in masks:
+            union |= mask
+        bits = [q for q in range(k) if (union >> q) & 1]
+        if len(masks) > 2 * len(bits) and len(bits) <= 22:
+            # many masks (a marginal distribution): one histogram over the bits
+            # they use, one transform, instead of a pass per mask
+            packed = np.zeros(len(outcome), dtype=np.int64)
+            for j, q in enumerate(bits):
+                packed |= ((outcome >> q) & 1) << j
+            histogram = np.zeros(2 ** len(bits))
+            np.add.at(histogram, packed, signed)
+            full = _fast_walsh_hadamard(histogram)
+
+            def pack(mask):
+                return sum(((mask >> q) & 1) << j for j, q in enumerate(bits))
+
+            return {mask: float(full[pack(mask)]) for mask in masks}
         corr = {}
         for mask in masks:
             parity = np.zeros(len(outcome), dtype=np.int64)
@@ -2985,6 +3004,7 @@ def gate_cutting_sampling(
     error=False,
     circuits_per_task=None,
     parameter_values=None,
+    qubits=None,
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
@@ -2992,6 +3012,8 @@ def gate_cutting_sampling(
 
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
+    :param qubits: The distribution over only these qubits, as in
+        :func:`circuit_cutting_sampling`.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     if (
@@ -3020,10 +3042,16 @@ def gate_cutting_sampling(
             error=error,
             circuits_per_task=circuits_per_task,
             parameter_values=parameter_values,
+            qubits=qubits,
         )
-    if error or circuits_per_task is not None or parameter_values is not None:
+    if (
+        error
+        or circuits_per_task is not None
+        or parameter_values is not None
+        or qubits is not None
+    ):
         raise ValueError(
-            "error=, circuits_per_task= and parameter_values= run through circuit_cutting: they are not available with the "
+            "error=, circuits_per_task=, parameter_values= and qubits= run through circuit_cutting: they are not available with the "
             "deprecated qpu= / qpu_dict= options."
         )
     legacy = _legacy or {}

@@ -1171,12 +1171,61 @@ class _FragmentTemplate:
         return sub, readout
 
 
+class _Marginal:
+    """The qubits a distribution keeps (``qubits=``): its circuits return, and its
+    reconstruction reads, only the correlators of masks inside them, so the work
+    and the result grow with the kept qubits, not with the circuit."""
+
+    def __init__(self, qubits, width):
+        qubits = tuple(int(q) for q in qubits)
+        if not qubits:
+            raise ValueError("qubits= needs at least one qubit")
+        if len(set(qubits)) != len(qubits):
+            raise ValueError(f"qubits= repeats a qubit: {list(qubits)}")
+        outside = [q for q in qubits if not 0 <= q < width]
+        if outside:
+            raise ValueError(f"qubits= {outside} not in the circuit's {width} qubits")
+        self.qubits = qubits
+        self.kept = frozenset(qubits)
+
+    def __repr__(self):
+        return f"_Marginal({list(self.qubits)})"
+
+
 def _needed_masks(template, original, setting, mask):
+    if isinstance(mask, _Marginal):
+        return _marginal_masks(template, original, setting, mask)
     if isinstance(mask, (tuple, list)):  # the terms of a commuting group
         return sorted(
             {m for one in mask for m in _needed_masks(template, original, setting, one)}
         )
     return _one_term_masks(template, original, setting, mask)
+
+
+def _marginal_masks(template, original, setting, marginal):
+    """The correlators a marginal distribution reads from one circuit: every
+    combination of its kept output bits, with every ancilla bit and each readout's
+    cut-wire bits."""
+    fragment = template.fragment
+    base, kept = 0, []
+    for i, qubit in enumerate(original):
+        if qubit >= template.ancilla_base:
+            base |= 1 << i
+        elif template.cut_source_index.get(qubit) not in fragment["measures"]:
+            if template.prepared_to_orig.get(qubit, qubit) in marginal.kept:
+                kept.append(i)
+    positions = [
+        original.index(fragment["cut_qubits"][c]) for c in fragment["measures"]
+    ]
+    readouts = {
+        sum(1 << positions[b] for b in bits)
+        for _, _, bits in _setting_readout(len(fragment["measures"]), setting)
+    }
+    masks = set()
+    for sub in range(2 ** len(kept)):
+        local = sum(((sub >> j) & 1) << i for j, i in enumerate(kept))
+        masks.update(base | local | readout for readout in readouts)
+    return sorted(masks)
 
 
 def _one_term_masks(template, original, setting, mask):
@@ -1756,7 +1805,8 @@ class _FragmentReads:
 
     The fragment's own output qubits are ``out``; a read returns one value per
     local mask over them (``local_masks``: all ``2**len(out)``, or the one mask of
-    an expectation value). A value is the circuit's correlator at the mask whose
+    an expectation value). With a :class:`_Marginal`, ``out`` is only the kept
+    output qubits. A value is the circuit's correlator at the mask whose
     output bits come from the local mask, whose cut-wire bits are the Pauli's
     readout bits, and whose ancilla bits are always set.
     """
@@ -1788,12 +1838,15 @@ class _FragmentReads:
             if not isinstance(corr, dict):
                 corr = np.asarray(corr)
             entries.append((corr, roles, positions))
+        marginal = isinstance(mask, _Marginal)
+        if marginal:
+            outputs &= mask.kept
         self.out = sorted(outputs)
         where = {q: j for j, q in enumerate(self.out)}
         #: True when ``mask`` is the masks of a group of terms: the local masks
         #: are one per term, an index the fragments share (see :func:`_contract`).
         self.shared = isinstance(mask, (tuple, list))
-        if mask is None:
+        if mask is None or marginal:
             local = np.arange(2 ** len(self.out), dtype=np.int64)
         else:
             local = np.array(
@@ -1810,7 +1863,7 @@ class _FragmentReads:
             for i, (role, output) in enumerate(roles):
                 if role == "ancilla":
                     index |= 1 << i
-                elif role == "output":
+                elif role == "output" and output in where:
                     index |= ((local >> where[output]) & 1) << i
             self.prepared.append((corr, index, positions))
         self.by_key = {}
@@ -2002,6 +2055,17 @@ def _observable_mask(observable, width):
     return sum(1 << q for q, pauli in enumerate(observable) if pauli != "I")
 
 
+def _output_distribution(plan, tensor, outs, marginal=None):
+    """The distribution from the contracted tensor: over every qubit, or over a
+    :class:`_Marginal`'s qubits, bit ``j`` of a key being ``marginal.qubits[j]``."""
+    if marginal is None:
+        return _distribution(_global_correlators(tensor, outs, plan.width), plan.width)
+    where = {q: j for j, q in enumerate(marginal.qubits)}
+    width = len(marginal.qubits)
+    outs = [[where[q] for q in out] for out in outs]
+    return _distribution(_global_correlators(tensor, outs, width), width)
+
+
 def _distribution(z_correlators, width):
     from Qdislib.core.cutting_algorithms.gate_cutting import _fast_walsh_hadamard
 
@@ -2063,8 +2127,9 @@ def _reconstruct_cut_task(
         return Estimate(value, error, shots)
 
     def distribution(res, drs):
-        tensor, outs = _cut_tensor(plan, keys, readouts, res, None, drs)
-        return _distribution(_global_correlators(tensor, outs, plan.width), plan.width)
+        marginal = observable if isinstance(observable, _Marginal) else None
+        tensor, outs = _cut_tensor(plan, keys, readouts, res, marginal, drs)
+        return _output_distribution(plan, tensor, outs, marginal)
 
     value = distribution(results, draws)
     if not bootstrap:
@@ -2077,20 +2142,24 @@ def _reconstruct_cut_task(
 
 
 @task(returns=1, results=COLLECTION_IN)
-def _fragment_tensor_task(plan, f, keys, readouts, results, batched=False):
+def _fragment_tensor_task(
+    plan, f, keys, readouts, results, batched=False, marginal=None
+):
     """One fragment's tensor over its bonds and all its local masks, reduced where
     its results are (a distribution's fragment results are ``2**width`` each;
     ``batched``: the fragment's group futures of a :class:`_Batches`)."""
     if batched:
         results = _flatten(results)
-    return _fragment_tensor(plan, f, _FragmentReads(plan, f, keys, readouts, results))
+    return _fragment_tensor(
+        plan, f, _FragmentReads(plan, f, keys, readouts, results, marginal)
+    )
 
 
 @task(returns=1, parts=COLLECTION_IN)
-def _contract_distribution_task(plan, parts):
+def _contract_distribution_task(plan, parts, marginal=None):
     tensor = _contract(plan, parts)
     outs = [out for _, _, out in parts]
-    return _distribution(_global_correlators(tensor, outs, plan.width), plan.width)
+    return _output_distribution(plan, tensor, outs, marginal)
 
 
 def _reconstruct(
@@ -2106,7 +2175,8 @@ def _reconstruct(
 ):
     """The reconstruction as a future. An expectation value is one task (the
     contraction is cheap); a distribution reduces each fragment's results in its own
-    task first, then contracts the small tensors."""
+    task first, then contracts the small tensors. A distribution's ``observable``
+    is ``None`` or a :class:`_Marginal`."""
     batched = isinstance(results, _Batches)
     if mode == "distribution" and draws is None and not bootstrap:
         if batched:
@@ -2119,17 +2189,18 @@ def _reconstruct(
                     r,
                     [g for g, gf in zip(results.futures, results.fragments) if gf == f],
                     True,
+                    observable,
                 )
                 for f, (k, r, _) in enumerate(split)
             ]
         else:
             parts = [
-                _fragment_tensor_task(plan, f, k, r, res)
+                _fragment_tensor_task(plan, f, k, r, res, False, observable)
                 for f, (k, r, res) in enumerate(
                     _split_by_fragment(plan, keys, readouts, results)
                 )
             ]
-        return _contract_distribution_task(plan, parts)
+        return _contract_distribution_task(plan, parts, observable)
     if batched:
         return _reconstruct_cut_task(
             plan,
@@ -2170,11 +2241,13 @@ def _prepare_cut(
     num_samples=None,
     seed=None,
     masks=None,
+    qubits=None,
 ):
     """The plan, the drawn configurations (``None`` when all are run), and one
     :class:`_FragmentCircuit` per fragment circuit to run; ``software`` is what
     runs them (an SDK, registered backend or backend object). No circuit is built
-    here: each is built where it runs."""
+    here: each is built where it runs. ``qubits``: a distribution over only these
+    qubits (its circuits return only the correlators it reads)."""
     plan = _CutPlan(circuit, cuts, observable, hadamard, optimized, joint)
     _warn_cheaper_hadamard(plan)
     draws = None
@@ -2186,6 +2259,8 @@ def _prepare_cut(
     # An expectation value reads one mask: its circuits return only that part.
     if masks is not None:  # the terms of a commuting group, read from one run
         mask = tuple(masks)
+    elif qubits is not None:
+        mask = _Marginal(qubits, plan.width)
     else:
         mask = None if observable is None else _observable_mask(observable, plan.width)
     keys, readouts, circuits = [], [], []
@@ -2601,6 +2676,7 @@ def circuit_cutting_sampling(
     error=False,
     circuits_per_task=None,
     parameter_values=None,
+    qubits=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut by any
     combination of cuts, from the same fragment circuits as :func:`circuit_cutting`.
@@ -2613,6 +2689,12 @@ def circuit_cutting_sampling(
     :param circuits_per_task: Fragment circuits per task, as in :func:`circuit_cutting`.
     :param parameter_values: A list of value sets for the circuit's free
         parameters, one distribution each, as in :func:`circuit_cutting`.
+    :param qubits: The distribution over only these qubits (the marginal), bit
+        ``j`` of each key being qubit ``qubits[j]``. Each fragment circuit returns
+        only the correlators the marginal reads, so the work and the result grow
+        with the kept qubits, not with the circuit: a 28-qubit circuit's marginal
+        over 13 qubits has ``2**13`` outcomes instead of ``2**28``. ``None``
+        (default): every qubit.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings), the signed
         estimate abs-normalised like :func:`gate_cutting_sampling` (a list of them
         with ``parameter_values``).
@@ -2631,7 +2713,9 @@ def circuit_cutting_sampling(
         None,
         num_samples,
         seed,
+        qubits=qubits,
     )
+    marginal = None if qubits is None else _Marginal(qubits, plan.width)
     from Qdislib.core.cutting_algorithms.engine_cache import resolve
 
     from Qdislib.core.cutting_algorithms.uncertainty import resamples
@@ -2654,7 +2738,7 @@ def circuit_cutting_sampling(
             readouts,
             results,
             "distribution",
-            None,
+            marginal,
             draws,
             count,
             None if seed is None else next_seed(seed, "bootstrap"),

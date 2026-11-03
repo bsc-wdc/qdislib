@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Marginal distributions: `qubits=` on every `_sampling` function.** The
+  distribution over only the listed qubits (bit `j` of a key is `qubits[j]`). Each
+  fragment circuit returns only the correlators the marginal reads, and the
+  reconstruction works over the kept qubits, so a 28-qubit circuit read on 13
+  qubits returns `2**13` outcomes instead of `2**28` and no fragment ships its
+  `2**n` correlators. A fragment computes many correlators from one histogram over
+  the bits they use and one Walsh-Hadamard transform, instead of a pass per mask.
 - **Circuits with free parameters: cut once, run for many values.** A circuit with
   Qiskit `Parameter`s (anywhere but in a cut gate) is cut with its angles symbolic;
   `subs.bind(values)` gives the same subcircuit list with values bound, and
