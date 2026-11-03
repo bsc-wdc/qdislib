@@ -99,6 +99,8 @@ def gate_unitary(name, params=()):
     name, params = canonical(name, params)
     if name in _FIXED:
         return _FIXED[name]
+    if name == "unitary":  # a dense gate: its matrix, first qubit most significant
+        return np.asarray(params[0], dtype=complex)
     p = [float(v) for v in params]
     if name == "rx":
         return _u(p[0], -math.pi / 2, math.pi / 2)

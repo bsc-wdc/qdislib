@@ -58,7 +58,25 @@ def _emit_qiskit_gate(circuit, gate_name, params, qubits):
     from Qdislib.utils.gates import canonical
 
     name, params = canonical(gate_name, list(params or []))
+    if name == "unitary":  # a dense gate, back to Qiskit's qubit order
+        from qiskit.circuit.library import UnitaryGate
+
+        from Qdislib.utils.gates import reverse_qubit_order
+
+        matrix = reverse_qubit_order(params[0])
+        circuit.append(UnitaryGate(matrix, check_input=False), list(qubits))
+        return
     getattr(circuit, name)(*params, *qubits)
+
+
+def _dag_params(operation):
+    """A Qiskit operation's parameters as the DAG keeps them: a dense ``unitary``
+    gate's matrix in the DAG's qubit order (first qubit most significant)."""
+    if operation.name == "unitary":
+        from Qdislib.utils.gates import reverse_qubit_order
+
+        return [reverse_qubit_order(operation.to_matrix())]
+    return operation.params
 
 
 def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGraph:
@@ -123,7 +141,7 @@ def circuit_qiskit_to_dag(circuit: QuantumCircuit, obs_I=None) -> networkx.DiGra
             gate.operation.name,
             # the global index, so qubits of different registers do not collide
             tuple(circuit.find_bit(q).index for q in gate.qubits),
-            gate.operation.params,
+            _dag_params(gate.operation),
         )
         for index, gate in enumerate(circuit.data, start=1)
         if gate.operation.name != "barrier" and index - 1 not in final

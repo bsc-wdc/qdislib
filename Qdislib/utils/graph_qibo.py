@@ -60,6 +60,8 @@ def qibo_gates(name, qubits, params=()):
     control (see :func:`Qdislib.utils.gates.lowered`)."""
     from Qdislib.utils.gates import lowered
 
+    if str(name).lower() == "unitary":  # a dense gate (first qubit most significant)
+        return [gates.Unitary(np.asarray(params[0], dtype=complex), *qubits)]
     out = []
     for gate, positions, values in lowered(name, _unpack_parameters(params)):
         on = qubits if positions is None else [qubits[i] for i in positions]

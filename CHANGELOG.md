@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Dense `unitary` gates** (Qiskit's `UnitaryGate`) in a cut circuit. They run on
+  Qiskit/Aer, qibo and Qdislib's exact simulator; CUDA-Q and PennyLane refuse them
+  with a clear error. A circuit loaded with multi-qubit isometries (an MPS-loaded
+  volume) is simulated with its dense gates instead of their CNOT decomposition:
+  hundreds of gates instead of hundreds of thousands.
 - **Marginal distributions: `qubits=` on every `_sampling` function.** The
   distribution over only the listed qubits (bit `j` of a key is `qubits[j]`). Each
   fragment circuit returns only the correlators the marginal reads, and the

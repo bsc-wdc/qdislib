@@ -111,6 +111,20 @@ _RENAMES = {
 }
 
 
+def reverse_qubit_order(matrix):
+    """A gate's matrix with its qubits' significance reversed: Qiskit's (first
+    qubit least significant) to Qdislib's DAG convention (first qubit most
+    significant), and back. A dense ``unitary`` gate keeps its matrix in the DAG's
+    convention, so every SDK can read it."""
+    import numpy as np
+
+    matrix = np.asarray(matrix)
+    n = int(round(math.log2(matrix.shape[0])))
+    axes = list(range(n))[::-1]
+    tensor = matrix.reshape((2,) * (2 * n))
+    return tensor.transpose(axes + [n + a for a in axes]).reshape(matrix.shape)
+
+
 def canonical(name, params=(), sdk=None):
     """``(name, params)`` of a gate in the canonical vocabulary.
 
@@ -163,6 +177,11 @@ def lowered(name, params=()):
     name, params = canonical(name, params)
     if name.upper() in _NOT_GATES:
         return [(name, None, params)]
+    if name == "unitary":
+        raise NotImplementedError(
+            "a dense unitary gate runs on Qiskit (Aer), qibo and Qdislib's exact "
+            "simulator, not on this SDK yet: decompose it first"
+        )
     if name == "cu":
         theta, phi, lam, gamma = (float(p) for p in params)
         ops = [("CU3", None, (theta, phi, lam))]
