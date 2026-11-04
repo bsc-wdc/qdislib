@@ -164,6 +164,26 @@ class PackingTest(BaseTimedTestCase):
         got = packed.unpack(_run(packed.circuits, 50, method="stabilizer"))
         self.assertEqual(got, [alone, alone])
 
+    def test_given_regions(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(2)
+        qc.x(1)
+        first = self.qd.pack([qc] * 4, self.device)
+        group = first.regions[2]
+        alone = self.qd.pack([qc], self.device, regions=[group])
+        self.assertEqual(alone.slots[0][2], group)
+        used = {
+            alone.circuits[0].find_bit(q).index
+            for inst in alone.circuits[0].data
+            for q in inst.qubits
+        }
+        self.assertTrue(used <= set(group))
+        counts = alone.unpack(_run(alone.circuits, 10, method="stabilizer"))
+        self.assertEqual(counts, [{"10": 10}])
+        with self.assertRaises(ValueError):
+            self.qd.pack([QuantumCircuit(3)], self.device, regions=[group])
+
     def test_bad_input(self):
         from qiskit import QuantumCircuit
 

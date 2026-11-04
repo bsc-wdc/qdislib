@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   several of them go in one device-wide circuit, so one job and one set of shots
   runs all of them. `PackedCircuits.unpack(results)` takes SamplerV2 pub results or
   counts dicts and returns each circuit's counts keyed as if it had run alone, ready
-  for `reconstruct_counts`.
+  for `reconstruct_counts`. `regions=` reuses given groups of qubits (e.g. to run a
+  circuit alone on the qubits it had when packed).
 - **Dense `unitary` gates** (Qiskit's `UnitaryGate`) in a cut circuit. They run on
   Qiskit/Aer, qibo and Qdislib's exact simulator; CUDA-Q and PennyLane refuse them
   with a clear error. A circuit loaded with multi-qubit isometries (an MPS-loaded

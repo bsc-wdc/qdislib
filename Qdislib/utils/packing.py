@@ -269,6 +269,7 @@ def pack(
     optimization_level=3,
     seeds=8,
     per_circuit=None,
+    regions=None,
 ):
     """Pack small Qiskit circuits side by side into device-wide circuits.
 
@@ -290,6 +291,10 @@ def pack(
     :param seeds: Transpiler seeds tried per circuit (the fewest two-qubit gates win).
     :param per_circuit: At most this many circuits per packed circuit (default: one
         per group).
+    :param regions: The groups of device qubits to use, in order, instead of
+        choosing them (e.g. another run's ``packed.regions``, to run a circuit
+        alone on the qubits it had when packed). Each must be connected and hold
+        the widest circuit.
     :return: A :class:`PackedCircuits`; run its ``circuits`` (one job each) and
         pass the results to its ``unpack``.
     """
@@ -307,12 +312,19 @@ def pack(
             f"size={size} is smaller than the widest circuit ({width} qubits)"
         )
     edges, readout = _calibration(target)
-    regions = _regions(edges, readout, size, int(buffer), max_error, max_readout_error)
-    if not regions:
-        raise ValueError(
-            f"no group of {size} connected qubits passes max_error={max_error} and "
-            f"max_readout_error={max_readout_error} on this device"
+    if regions is None:
+        regions = _regions(
+            edges, readout, size, int(buffer), max_error, max_readout_error
         )
+        if not regions:
+            raise ValueError(
+                f"no group of {size} connected qubits passes max_error={max_error} and "
+                f"max_readout_error={max_readout_error} on this device"
+            )
+    else:
+        regions = [tuple(int(q) for q in group) for group in regions]
+        if not regions or any(len(group) < width for group in regions):
+            raise ValueError(f"regions= must hold groups of at least {width} qubits")
     slots_per = (
         len(regions) if per_circuit is None else min(int(per_circuit), len(regions))
     )
