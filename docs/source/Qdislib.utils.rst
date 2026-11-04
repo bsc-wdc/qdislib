@@ -36,6 +36,14 @@ Qdislib.utils.logging\_config module
    :undoc-members:
    :show-inheritance:
 
+Qdislib.utils.packing module
+----------------------------
+
+.. automodule:: Qdislib.utils.packing
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Qdislib.utils.qpu\_bridge module
 --------------------------------
 
