@@ -194,6 +194,8 @@ class PackingTest(BaseTimedTestCase):
         packed = self.qd.pack([QuantumCircuit(2)], self.device)
         with self.assertRaises(ValueError):
             packed.unpack([])
+        with self.assertRaises(ValueError):  # classical bits, no measurement
+            self.qd.pack([QuantumCircuit(2, 2)], self.device)
 
 
 if __name__ == "__main__":

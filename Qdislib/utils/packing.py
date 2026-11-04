@@ -337,6 +337,11 @@ def pack(
         if circuit.num_clbits == 0:
             circuit = circuit.copy()
             circuit.measure_all(add_bits=True)
+        elif not any(i.operation.name == "measure" for i in circuit.data):
+            raise ValueError(
+                f"circuit {k} has classical bits but measures nothing: remove them "
+                "(it is then measured on all its qubits) or add its measurements"
+            )
         registers.append([r.size for r in circuit.cregs])
         group = regions[k % slots_per]
         local, two = _place(
