@@ -580,6 +580,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backend that can resolve nothing falls back to the default.
 
 ### Changed
+- **The IBM backend submits plain jobs by default.** `IBMBackend` used to open a
+  runtime `Batch` for every connection, which plans without Batch or Session access
+  reject. Each subcircuit is now its own job (`SamplerV2(mode=backend)`);
+  `mode="batch"` or `mode="session"` (or `IBM_QUANTUM_MODE`) in the IBM config
+  opens one when wanted, with `max_time` as before.
 - **A cut that doesn't split the circuit raises `ValueError`**, in gate, wire,
   Hadamard and mixed cutting. Such a cut paid the reconstruction overhead for no
   width reduction (and could cost more than no cut). An empty cut list still runs

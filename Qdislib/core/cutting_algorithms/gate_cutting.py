@@ -69,11 +69,10 @@ from Qdislib.utils.graph_pennylane import _apply_pennylane_gate, _build_pennylan
 try:
     from qiskit_ibm_runtime import (
         QiskitRuntimeService,
-        Batch,
         SamplerV2 as Sampler,
     )
 except ImportError:  # qiskit-ibm-runtime optional (only used for IBM QPU)
-    QiskitRuntimeService = Batch = Sampler = None
+    QiskitRuntimeService = Sampler = None
 
 
 try:
@@ -201,8 +200,10 @@ def _gate_cutting(
         Explicit IBM Quantum configuration (preferred over `IBM_QUANTUM_*`
         environment variables, which remain the fallback). Keys: ``token``,
         ``channel`` (``"ibm_cloud"``/``"ibm_quantum"``), ``instance``,
-        ``backend_name`` (omit for the least-busy backend), ``max_time``,
-        ``proxies``, or a pre-built ``service`` (``QiskitRuntimeService``). The
+        ``backend_name`` (omit for the least-busy backend), ``mode``
+        (``"job"``, the default: plain jobs; ``"batch"`` / ``"session"``),
+        ``max_time`` (batch / session only), ``proxies``, or a pre-built
+        ``service`` (``QiskitRuntimeService``). The
         connection and backend selection run once (see
         :class:`~Qdislib.core.backend.qpu_backends.IBMBackend`).
     software : str, default="qiskit"
@@ -2486,16 +2487,18 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
 
 
 def _check_ibm_qc(qpu_config=None):
-    """Open the IBM Quantum runtime session and select a backend.
+    """Connect to IBM Quantum and select a backend.
 
     Thin wrapper over :class:`~Qdislib.core.backend.qpu_backends.IBMBackend`,
     which is the single place that authenticates and selects the backend. Pass
     ``qpu_config`` (a dict of ``token`` / ``channel`` / ``instance`` /
-    ``backend_name`` / ``max_time`` / ``proxies`` / ``service``) for explicit
-    configuration; each key falls back to its ``IBM_QUANTUM_*`` env var, so
-    env-var setups keep working.
+    ``backend_name`` / ``mode`` / ``max_time`` / ``proxies`` / ``service``) for
+    explicit configuration; each key falls back to its ``IBM_QUANTUM_*`` env var,
+    so env-var setups keep working.
 
-    :return: ``(batch, backend)`` -- the open runtime Batch and the selected backend.
+    :return: ``(mode, backend)`` -- what the jobs run in (the backend itself for
+        plain jobs, the default; or an opened Batch / Session with ``mode=``) and
+        the selected backend.
     """
     from Qdislib.core.backend.registry import build_backend
     from Qdislib.core.backend.base_backend import BackendConfig

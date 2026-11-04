@@ -158,14 +158,20 @@ class IBMBackend(_QpuBackendBase):
             "channel": "ibm_cloud",      # or "ibm_quantum"
             "instance": "<instance>",    # ibm_cloud only
             "backend_name": "ibm_marrakesh",  # omit -> least-busy real backend
-            "max_time": 60,
+            "mode": "job",               # "batch" / "session" only if your plan allows
+            "max_time": 60,              # batch / session only
         }})
+
+    By default every subcircuit is its own plain job (``SamplerV2(mode=backend)``):
+    some plans allow no Batch or Session. ``mode="batch"`` or ``mode="session"``
+    groups the jobs in a runtime Batch or Session instead.
 
     Each ``BackendConfig.extra`` key falls back to its ``IBM_QUANTUM_*`` env var
     if omitted, so existing env-var-based setups keep working. You may also hand
     in an already-authenticated runtime object via ``extra["service"]`` (a
     ``QiskitRuntimeService``) or a live ``extra["batch"]`` + ``extra["backend"]``
-    (the pair the cutting code threads to its per-subcircuit tasks).
+    (the pair the cutting code threads to its per-subcircuit tasks; in job mode
+    ``batch`` is the backend itself).
 
     The runtime connection and backend selection (the "check") run **once**, in
     the constructor -- not per subcircuit.
@@ -183,9 +189,11 @@ class IBMBackend(_QpuBackendBase):
 
     @staticmethod
     def _connect(extra: dict):
-        """Authenticate, select the backend (named or least-busy), open a Batch."""
+        """Authenticate and select the backend (named or least-busy): ``(mode,
+        backend)``, where ``mode`` is what the jobs run in -- the backend itself
+        (plain jobs, the default) or an opened Batch / Session."""
         try:
-            from qiskit_ibm_runtime import QiskitRuntimeService, Batch
+            from qiskit_ibm_runtime import QiskitRuntimeService
         except ImportError as exc:
             raise ImportError(
                 "IBMBackend requires qiskit-ibm-runtime (the `qiskit` extra)."
@@ -214,12 +222,23 @@ class IBMBackend(_QpuBackendBase):
             if backend_name
             else service.least_busy(operational=True, simulator=False)
         )
+        mode = str(_ibm_setting(extra, "mode", "IBM_QUANTUM_MODE", "job")).lower()
+        if mode == "job":
+            return backend, backend
+        if mode not in ("batch", "session"):
+            raise ValueError(f"IBM mode is 'job', 'batch' or 'session', got {mode!r}")
+        from qiskit_ibm_runtime import Batch, Session
+
         max_time = int(_ibm_setting(extra, "max_time", "IBM_QUANTUM_MAX_TIME", 60))
-        return Batch(backend=backend, max_time=max_time), backend
+        opened = (Batch if mode == "batch" else Session)(
+            backend=backend, max_time=max_time
+        )
+        return opened, backend
 
     @property
     def session(self):
-        """The open runtime Batch/Session (the cutting code threads this to its tasks)."""
+        """What the jobs run in: the backend (plain jobs) or the opened Batch /
+        Session (the cutting code threads this to its tasks)."""
         return self._session
 
     @property
