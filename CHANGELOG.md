@@ -312,6 +312,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration (6**g * 8**w). Its counts now come from closed forms (0.04 s for 12
   CZ cuts, against minutes).
 ### Changed
+- **A run that does something other than what was asked now says so**, once per
+  process, with a `UserWarning` (these were debug or info logs, or nothing):
+  CUDA-Q running on `qpp-cpu` because its GPU target cannot be used, with the reason
+  (pass `target=` to choose); a Hadamard cut of a general gate using the Pauli basis
+  because KAK is not available (a larger gamma); `optimized=True` on the 1.x wire
+  cutting path running the standard method; and `shots=None` with a registered
+  backend or backend object, which is an exact Qiskit simulation, not a run on it.
 - **`software=` on the three-step generators is deprecated**: a subcircuit list is
   SDK-neutral, and the language of its circuits is chosen when they are built
   (`subs.circuits(software)`; default: the input circuit's

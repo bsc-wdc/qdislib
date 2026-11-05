@@ -240,10 +240,12 @@ def _general_local_terms(u):
     try:
         return _kak_local_terms(u)
     except Exception as exc:  # noqa: BLE001 -- any failure => use the robust fallback
-        import logging
+        from Qdislib.utils.logging_config import warn_once
 
-        logging.getLogger(__name__).debug(
-            "KAK unavailable (%s); using Pauli basis", exc
+        warn_once(
+            f"Hadamard cut of a general two-qubit gate: the KAK decomposition is not "
+            f"available ({exc}), so it uses the Pauli basis: correct, but with a larger "
+            "gamma, more subcircuits and more shots for the same precision."
         )
         return _pauli_local_terms(u)
 

@@ -101,6 +101,17 @@ from Qdislib.core.cutting_algorithms._api import (
 )
 
 
+def _warn_not_optimized(what, reason):
+    """``optimized=True`` was asked for and the standard method runs instead: the
+    same result, but ``8**n`` configurations per fragment set."""
+    from Qdislib.utils.logging_config import warn_once
+
+    warn_once(
+        f"optimized=True: optimized wire {what} {reason}, so this runs the standard "
+        "method (the same result, at up to 8**n configurations for n cuts)."
+    )
+
+
 def _wire_cutting(
     rand_qc: typing.Any,
     cut: typing.List[typing.Any],
@@ -292,7 +303,7 @@ def _wire_cutting(
             reason = "not applicable to this cut topology"
         except Exception as exc:  # never let the optimization break the computation
             reason = f"failed ({exc})"
-        logger.info("Optimized wire cutting %s; using the standard method.", reason)
+        _warn_not_optimized("cutting", reason)
 
     if networkx.number_connected_components(dag.to_undirected(as_view=True)) > 1:
         S = [
@@ -783,9 +794,7 @@ def _wire_cutting_sampling(
             reason = "not applicable to this cut topology"
         except Exception as exc:  # never let the optimization break the computation
             reason = f"failed ({exc})"
-        logger.info(
-            "Optimized wire-cut sampling %s; using the standard method.", reason
-        )
+        _warn_not_optimized("sampling", reason)
 
     components, per_config_counts, cut_source_index, prepared_to_orig = (
         _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
@@ -2376,20 +2385,15 @@ def _expec_value_qibo(
 def _counts_cudaq(kernel, shots=1024):
     """Sample a CUDA-Q kernel and return its measurement counts.
 
-    Selects the GPU (``nvidia``) target when available, falling back to CPU
-    (``qpp-cpu``).
+    On the GPU (``nvidia``) target, or the CPU (``qpp-cpu``) with a warning.
 
     :param kernel: A built CUDA-Q kernel.
     :param shots: Number of measurement shots.
     :return: A ``{bitstring: count}`` dict.
     """
-    try:
-        cudaq.set_target("nvidia")
-        logger.info("Using GPU backend.")
-    except Exception:
-        cudaq.set_target("qpp-cpu")
-        logger.info("GPU unavailable. Falling back to CPU backend.")
+    from Qdislib.core.backend.cudaq_backend import select_cudaq_target
 
+    select_cudaq_target()
     freq = cudaq.sample(kernel, shots_count=shots)
     return {str(key): int(value) for key, value in freq.items()}
 
@@ -3100,9 +3104,7 @@ def _wire_cutting_subcircuits(
             Exception
         ) as exc:  # never let the optimization break subcircuit generation
             reason = f"failed ({exc})"
-        logger.info(
-            "Optimized wire-cut subcircuits %s; using the standard generator.", reason
-        )
+        _warn_not_optimized("subcircuits", reason)
 
     # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
     dispatch_map = {

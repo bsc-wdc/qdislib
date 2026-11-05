@@ -1342,8 +1342,21 @@ def _insert_hadamard_gadgets(dag, assignments, ancilla_of):
 
 def _exact_runner(runner):
     """The SDK an exact (statevector) run uses for ``runner``: the SDK itself when
-    it is one, Qiskit for a registered backend or backend object."""
-    return runner if isinstance(runner, str) else "qiskit"
+    it is one; Qiskit for a backend object or registered backend, with a warning,
+    because that backend (a QPU, say) does not run anything."""
+    from Qdislib.utils.logging_config import warn_once
+    from Qdislib.utils.sdks import sdk
+
+    if runner is None:
+        return "qiskit"
+    if isinstance(runner, str) and sdk(runner) is not None:
+        return runner
+    name = runner if isinstance(runner, str) else getattr(runner, "name", repr(runner))
+    warn_once(
+        f"shots=None is an exact simulation with Qiskit: backend {name!r} does not run "
+        "the circuits. Pass shots= to run on it."
+    )
+    return "qiskit"
 
 
 def _sdk_probabilities(software, dag, num_qubits):

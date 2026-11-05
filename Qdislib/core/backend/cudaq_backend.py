@@ -38,13 +38,36 @@ from Qdislib.core.backend.base_backend import (
 logger = logging.getLogger(__name__)
 
 
+def select_cudaq_target(target=None):
+    """Set CUDA-Q's target: ``target`` when given (an error if it cannot be set),
+    else the ``nvidia`` GPU, or ``qpp-cpu`` with a warning saying why not."""
+    import cudaq
+
+    if target is not None:
+        cudaq.set_target(target)
+        return
+    try:
+        cudaq.set_target("nvidia")
+        logger.debug("CUDA-Q using GPU target 'nvidia'")
+    except Exception as exc:
+        from Qdislib.utils.logging_config import warn_once
+
+        cudaq.set_target("qpp-cpu")
+        warn_once(
+            f"CUDA-Q cannot use its GPU target 'nvidia' ({exc}): running on the CPU "
+            "target 'qpp-cpu'. To choose it yourself, pass target='qpp-cpu' to the "
+            "backend."
+        )
+
+
 class CudaqBackend(BaseBackend):
     """Backend wrapping CUDA-Q sampling / observation.
 
     Configuration keys (``BackendConfig.extra``)
     ---------------------------------------------
     target : str, optional
-        CUDA-Q target (default: try ``"nvidia"`` GPU, fall back to ``"qpp-cpu"``).
+        CUDA-Q target (default: the ``"nvidia"`` GPU, or ``"qpp-cpu"`` with a warning
+        when it cannot be used).
     """
 
     def __init__(self, config: BackendConfig) -> None:
@@ -58,17 +81,7 @@ class CudaqBackend(BaseBackend):
         self._target: str | None = config.extra.get("target")
 
     def _set_target(self) -> None:
-        import cudaq
-
-        if self._target is not None:
-            cudaq.set_target(self._target)
-            return
-        try:
-            cudaq.set_target("nvidia")
-            logger.debug("CUDA-Q using GPU target 'nvidia'")
-        except Exception:
-            cudaq.set_target("qpp-cpu")
-            logger.debug("CUDA-Q GPU unavailable; using 'qpp-cpu'")
+        select_cudaq_target(self._target)
 
     def _to_kernel(self, circuit: SupportedCircuit):
         """Return a built CUDA-Q kernel from a kernel or a ``(dag, num_qubits)`` payload."""

@@ -38,12 +38,25 @@ Or set the ``QDISLIB_LOG_LEVEL`` environment variable before import (e.g.
 
 import logging
 import os
+import warnings
 
 #: The package-root logger; every module logger (``Qdislib.<...>``) is a child of
 #: it, so setting its level and handler governs the whole library.
 _PACKAGE_LOGGER = "Qdislib"
 
 __all__ = ["set_log_level"]
+
+#: The messages :func:`warn_once` has given in this process.
+_WARNED = set()
+
+
+def warn_once(message):
+    """A :class:`UserWarning`, once per process and message: for something the run
+    silently did differently from what was asked, seen once in a run of thousands
+    of tasks (each task's process says it once)."""
+    if message not in _WARNED:
+        _WARNED.add(message)
+        warnings.warn(message, UserWarning, stacklevel=2)
 
 
 def set_log_level(level):

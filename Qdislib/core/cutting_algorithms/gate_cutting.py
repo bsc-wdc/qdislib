@@ -1241,10 +1241,9 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None):
     from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
     from Qdislib.core.cutting_algorithms.wire_cutting import _counts_cudaq
 
-    try:
-        cudaq.set_target("nvidia")
-    except Exception:
-        cudaq.set_target("qpp-cpu")
+    from Qdislib.core.backend.cudaq_backend import select_cudaq_target
+
+    select_cudaq_target()
     if seed is not None:
         cudaq.set_random_seed(seed)
 
