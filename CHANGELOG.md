@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Packing built into the IBM backend and the engine.** With `pack=True` in its
+  config, the IBM backend runs each group of `circuits_per_task` subcircuits side by
+  side, in plain jobs, with no code of yours: `circuit_cutting(qc, cuts, backend=ibm,
+  circuits_per_task=15)`. Backends gained `evaluate_joint_counts_many` (a list of
+  circuits; by default one after another) and `packs`.
+- **The IBM backend can go to a PyCOMPSs task**: as its device's name and settings, not
+  a connection or a token. Each worker connects again, reading `IBM_QUANTUM_TOKEN`.
 - **Distributions over more than 24 qubits.** `circuit_cutting_sampling` used to build
   every outcome, which a Python dict cannot hold soon after 25 qubits. Above 24 output
   qubits it now returns a `qd.FactoredDistribution`: it keeps one small tensor per

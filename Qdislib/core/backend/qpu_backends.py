@@ -70,6 +70,10 @@ class BSCQpuBackend(BaseBackend):
         return submit_and_wait(subcirc).counts()
 
 
+#: IBM connections of this process, by device (a task's backend reconnects once).
+_CONNECTIONS = {}
+
+
 def _ibm_setting(extra: dict, key: str, env: str, default=""):
     """Read an IBM setting from explicit config, falling back to the env var."""
     import os
@@ -94,12 +98,23 @@ class IBMBackend(BaseBackend):
             "backend_name": "ibm_marrakesh",  # omit -> least-busy real backend
             "mode": "job",               # "batch" / "session" only if your plan allows
             "options": {"twirling": {"enable_gates": True}},  # SamplerV2's options
+            "pack": True,                # several circuits in each job: see below
             "max_time": 60,              # batch / session only
         }})
 
     By default every subcircuit is its own plain job (``SamplerV2(mode=backend)``):
     some plans allow no Batch or Session. ``mode="batch"`` or ``mode="session"``
     groups the jobs in a runtime Batch or Session instead.
+
+    With ``pack=True`` (or a dict of :func:`~Qdislib.pack` options) the circuits of a
+    group run side by side in one device-wide circuit, so ``circuits_per_task=`` many
+    subcircuits take one job. Choose ``circuits_per_task`` near the number of groups of
+    qubits the device has for them (``qd.pack(...).regions``).
+
+    Under PyCOMPSs this backend goes to a task as its device's name and settings, not
+    as a connection or a token (task arguments are files in the job's directory):
+    each worker connects again, reading ``IBM_QUANTUM_TOKEN`` from its environment. An
+    opened Batch or Session cannot go to a task.
 
     Each ``BackendConfig.extra`` key falls back to its ``IBM_QUANTUM_*`` env var
     if omitted, so existing env-var-based setups keep working. You may also hand
@@ -116,6 +131,7 @@ class IBMBackend(BaseBackend):
         super().__init__("IBM_BACKEND", config)
         extra = config.extra
         self._options = extra.get("options")
+        self._pack = extra.get("pack")
         # Task side: a session + backend were established upstream and threaded in.
         if extra.get("batch") is not None and extra.get("backend") is not None:
             self._session = extra["batch"]
@@ -150,7 +166,11 @@ class IBMBackend(BaseBackend):
                     channel=channel, token=token, instance=instance
                 )
             else:
-                raise ValueError(f"Unsupported IBM Runtime channel: {channel!r}")
+                raise ValueError(
+                    f"Unsupported IBM Runtime channel: {channel!r}. Set channel= and "
+                    "token= (on a PyCOMPSs worker: IBM_QUANTUM_CHANNEL and "
+                    "IBM_QUANTUM_TOKEN in its environment, e.g. with --env_script)"
+                )
 
         backend_name = _ibm_setting(extra, "backend_name", "IBM_QUANTUM_QPU_NAME")
         backend = (
@@ -171,16 +191,51 @@ class IBMBackend(BaseBackend):
         )
         return opened, backend
 
+    def __getstate__(self):
+        if self._session is not self._ibm_backend:
+            raise TypeError(
+                "IBMBackend: an opened Batch or Session cannot go to a PyCOMPSs task; "
+                "use plain jobs (the default)"
+            )
+        state = super().__getstate__()
+        extra = {
+            key: value
+            for key, value in self.config.extra.items()
+            if key not in ("service", "batch", "backend", "token")
+        }
+        if self._ibm_backend is not None:
+            extra["backend_name"] = self._ibm_backend.name
+        state["config"] = BackendConfig(self.config.num_qubits, extra=extra)
+        state["_session"] = state["_ibm_backend"] = None
+        return state
+
+    def _connected(self):
+        """Connect, if this copy reached a task without a connection (once per
+        device in a worker's process)."""
+        if self._ibm_backend is None:
+            extra = self.config.extra
+            key = tuple(
+                str(extra.get(k)) for k in ("backend_name", "channel", "instance")
+            )
+            if key not in _CONNECTIONS:
+                _CONNECTIONS[key] = self._connect(extra)
+            self._session, self._ibm_backend = _CONNECTIONS[key]
+        return self._session, self._ibm_backend
+
+    @property
+    def packs(self):
+        return bool(self._pack)
+
     @property
     def session(self):
         """What the jobs run in: the backend (plain jobs) or the opened Batch /
         Session (the cutting code threads this to its tasks)."""
-        return self._session
+        return self._connected()[0]
 
     @property
     def ibm_backend(self):
         """The selected IBM backend."""
-        return self._ibm_backend
+        return self._connected()[1]
 
     def evaluate_joint_counts(
         self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
@@ -196,10 +251,43 @@ class IBMBackend(BaseBackend):
             num_qubits,
             sorted(cut_point_qubits),
             shots,
-            self._session,
-            self._ibm_backend,
+            self.session,
+            self.ibm_backend,
             self._options,
         )
+
+    def evaluate_joint_counts_many(self, requests):
+        """With ``pack``: every circuit of the same shots side by side, in as few
+        plain jobs as the device's groups of qubits allow; submitted, then read."""
+        if not self._pack or len(requests) < 2:
+            return super().evaluate_joint_counts_many(requests)
+        from Qdislib.core.cutting_algorithms import gate_cutting as gc
+        from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+        from Qdislib.utils.packing import pack
+
+        options = self._pack if isinstance(self._pack, dict) else {}
+        out = [None] * len(requests)
+        by_shots = {}
+        for n, (dag, num_qubits, cuts, shots, _) in enumerate(requests):
+            built = dag_to_circuit_qiskit(dag, num_qubits)
+            if built is not None:
+                base = built[0] if isinstance(built, (list, tuple)) else built
+                by_shots.setdefault(shots, []).append((n, base, num_qubits, cuts))
+        for shots, group in by_shots.items():
+            circuits = []
+            for _, base, _, _ in group:
+                measured = base.copy()
+                measured.measure_all()
+                circuits.append(measured)
+            packed = pack(circuits, self.ibm_backend, **options)
+            sampler = gc.Sampler(mode=self.session, options=self._options)
+            jobs = [sampler.run([c], shots=shots) for c in packed.circuits]
+            counts = packed.unpack([job.result()[0] for job in jobs])
+            for (n, base, num_qubits, cuts), one in zip(group, counts):
+                out[n] = gc._joint_from_qiskit_counts(
+                    one, base, num_qubits, sorted(cuts)
+                )
+        return out
 
     def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
         """Final counts on the IBM device (qubit-0-first). ``seed`` is ignored."""
@@ -220,8 +308,8 @@ class IBMBackend(BaseBackend):
         return _expec_value_qiskit_qpu(
             subcirc,
             shots=shots,
-            batch=self._session,
-            backend=self._ibm_backend,
+            batch=self.session,
+            backend=self.ibm_backend,
             prep_qubits=list(prep_qubits) or None,
             options=self._options,
         )

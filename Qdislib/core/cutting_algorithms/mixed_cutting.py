@@ -1648,7 +1648,55 @@ def _run_fragments(template, values, units):
     (PyCOMPSs handles each element of a collection separately). The template is
     its own argument so PyCOMPSs ships it once (see :func:`_ship`)."""
     template = _unship(template, values)
+    if getattr(units[0][1], "packs", False):
+        return _run_fragments_together(template, units)
     return tuple(_run_fragment_here(template, *unit) for unit in units)
+
+
+def _run_fragments_together(template, units):
+    """A group of circuits on a backend that runs them together: built here, run at
+    once (:meth:`~Qdislib.BaseBackend.evaluate_joint_counts_many`), each read as
+    :func:`_fragment_run` reads it."""
+    from Qdislib.core.cutting_algorithms.describe import FragmentResult
+    from Qdislib.core.cutting_algorithms.gate_cutting import (
+        _JointCounts,
+        _component_original_qubits,
+        _prepare_sampled_component,
+        _z_correlators,
+    )
+
+    runner = units[0][1]
+    built = []
+    for spec, _, shots, _, _, seed, mask, _, keep_counts, *_ in units:
+        dag, _ = template.build(*spec)
+        original = _component_original_qubits(dag)
+        needed = None
+        if mask is not None and not keep_counts:
+            needed = _needed_masks(template, original, spec[2], mask)
+        built.append(
+            (_prepare_sampled_component(dag), shots, seed, needed, keep_counts)
+        )
+    present = [item for item in built if item[0][0] is not None]
+    joints = iter(
+        runner.evaluate_joint_counts_many(
+            [
+                (prepared[0], prepared[1], prepared[2], shots, seed)
+                for prepared, shots, seed, _, _ in present
+            ]
+        )
+    )
+    results = []
+    for (dag, width, cuts, original), _, _, needed, keep_counts in built:
+        if dag is None:  # empty component
+            results.append(FragmentResult({0: 1.0}, []))
+        elif keep_counts:
+            joint = next(joints)
+            results.append(FragmentResult(_JointCounts(joint, cuts, width), original))
+        else:
+            joint = next(joints)
+            corr = _z_correlators(joint, cuts, width, needed)
+            results.append(FragmentResult(corr, original))
+    return tuple(results)
 
 
 @constraint(processors=_GPU_PROCESSORS)
@@ -1661,6 +1709,14 @@ def _run_fragments_gpu(template, values, units):
 
 def _fragment_task(runner):
     """The task that runs one circuit on ``runner``: with a GPU if it uses one."""
+    if getattr(runner, "packs", False):
+        from Qdislib.utils.logging_config import warn_once
+
+        warn_once(
+            f"{runner.name}: pack= runs the circuits of a group together, and these run "
+            "one by one: pass circuits_per_task= (about as many as the device's groups "
+            "of qubits hold)."
+        )
     return _run_fragment_gpu if getattr(runner, "uses_gpu", False) else _run_fragment
 
 

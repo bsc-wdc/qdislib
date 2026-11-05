@@ -220,6 +220,13 @@ class BaseBackend:
     # ------------------------------------------------------------------
 
     @property
+    def packs(self) -> bool:
+        """True when this backend runs several circuits together
+        (:meth:`evaluate_joint_counts_many`): the cutting engine then hands it each
+        group of ``circuits_per_task`` circuits at once."""
+        return False
+
+    @property
     def uses_gpu(self) -> bool:
         """True when this backend runs on a GPU, explicitly: under PyCOMPSs its
         circuits then run in tasks that ask for one. Never true for a backend that
@@ -395,6 +402,17 @@ class BaseBackend:
             cut = tuple(final[q] for q in cut_points)  # terminal: cut point == final
             joint[(final, cut)] = joint.get((final, cut), 0) + count
         return joint
+
+    def evaluate_joint_counts_many(self, requests: list) -> list:
+        """:meth:`evaluate_joint_counts` of several circuits: ``requests`` are its
+        arguments ``(dag, num_qubits, cut_point_qubits, shots, seed)``, the result one
+        joint-count dict each, in order. By default one after another; a backend able
+        to run them together overrides this (and :attr:`packs`).
+        """
+        return [
+            self.evaluate_joint_counts(dag, num_qubits, cuts, shots, seed)
+            for dag, num_qubits, cuts, shots, seed in requests
+        ]
 
     # ------------------------------------------------------------------
     # Hooks of run_samples / run_estimator (QdBackEnd's queue; cutting does not use

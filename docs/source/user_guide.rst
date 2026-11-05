@@ -512,6 +512,20 @@ checked on one device (ibm_kobe) with shallow 3--5-qubit circuits: packed and al
 gave the same fidelity there, but deeper circuits may show more crosstalk, so compare
 a few circuits alone first (``qd.pack([c], backend, regions=[group])``).
 
+The IBM backend does all of this itself: with ``pack=True`` each group of
+``circuits_per_task`` subcircuits runs side by side, in plain jobs:
+
+.. code-block:: python
+
+    ibm = qd.build_backend("IBM_BACKEND", qd.BackendConfig(
+        extra={"backend_name": "ibm_kobe", "pack": True}))
+    dist = qd.circuit_cutting_sampling(
+        qc, cuts, backend=ibm, shots=4096, circuits_per_task=15)
+
+A group holds one fragment's circuits. Under PyCOMPSs each worker connects to IBM
+again, reading ``IBM_QUANTUM_TOKEN`` from its environment: a token passed in ``extra``
+stays on the master, because task arguments are written to files.
+
 **Seeing what is passed between the steps.** The list, each item and each result
 print readably, and ``subcircuits.describe(values)`` is a table of every
 subcircuit -- its fragment, its qubits (``q2'`` is a wire cut's prepared line
