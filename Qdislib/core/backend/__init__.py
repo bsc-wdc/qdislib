@@ -36,6 +36,7 @@ are required.
 from Qdislib.core.backend.base_backend import (
     BaseBackend,
     BackendConfig,
+    sample_with_qiskit,
     Job,
     SampleJobResult,
     ExpectationJobResult,
@@ -56,6 +57,7 @@ __all__ = [
     "QdBackEnd",
     "BaseBackend",
     "BackendConfig",
+    "sample_with_qiskit",
     "Job",
     "SampleJobResult",
     "ExpectationJobResult",

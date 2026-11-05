@@ -102,6 +102,7 @@ __all__ = [
     "QdBackEnd",
     "BaseBackend",
     "BackendConfig",
+    "sample_with_qiskit",
     # Semantic circuit cache.
     "default_circuit_cache",
     "semantic_key",

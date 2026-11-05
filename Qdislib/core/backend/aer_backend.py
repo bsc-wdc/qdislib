@@ -113,25 +113,16 @@ class AerBackend(BaseBackend):
         )
 
     def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
-        """Sample a subcircuit; return qubit-0-first counts (reversed from Qiskit's little-endian)."""
-        from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
-        from Qdislib.core.backend.base_backend import marginalize_identity_qubits
+        """Sample a subcircuit; return qubit-0-first counts."""
+        from Qdislib.core.backend.base_backend import sample_with_qiskit
 
-        built = dag_to_circuit_qiskit(dag, num_qubits)
-        qc, observables = built if isinstance(built, (list, tuple)) else (built, None)
-        qc = qc.copy()
-        qc.measure_all()
-        counts = (
-            self._simulator.run([qc], shots=shots, seed_simulator=seed)
+        return sample_with_qiskit(
+            dag,
+            num_qubits,
+            lambda qc: self._simulator.run([qc], shots=shots, seed_simulator=seed)
             .result()
-            .get_counts()
+            .get_counts(),
         )
-        out: dict[str, int] = {}
-        for key, value in counts.items():
-            # keep the measure_all register (first) and reverse to qubit-0-first
-            bitstring = key.split()[0][::-1]
-            out[bitstring] = out.get(bitstring, 0) + value
-        return marginalize_identity_qubits(out, observables)
 
     def evaluate_joint_counts(
         self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None

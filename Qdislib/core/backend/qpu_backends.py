@@ -21,28 +21,15 @@ These wrap the existing execution paths (``_expec_value_qibo_qpu`` for the BSC
 Blue/Red QPUs via the shared-filesystem bridge, ``_expec_value_qiskit_qpu`` for
 IBM Quantum via qiskit-ibm-runtime) behind the :class:`BaseBackend` interface, so
 the cutting algorithms select them uniformly instead of branching on ``qpu``.
-The cutting code uses :meth:`evaluate_expectation` (both backends) and, for the
-sampling reconstruction, :meth:`evaluate_joint_counts` (BSC, for terminal cuts);
-the generic sample/estimator hooks are left unimplemented.
+The cutting code uses :meth:`evaluate_expectation` on the 1.x paths and
+:meth:`evaluate_joint_counts` (from final counts on BSC, which has no mid-circuit
+read-out; mid-circuit on IBM).
 """
 
 from Qdislib.core.backend.base_backend import BaseBackend, BackendConfig
 
 
-class _QpuBackendBase(BaseBackend):
-    """Shared boilerplate: the generic hooks are not used on the cut QPU path."""
-
-    def transpile(self, circuit):
-        raise NotImplementedError(f"{self.name}: use evaluate_expectation")
-
-    def _execute_samples(self, *args, **kwargs):
-        raise NotImplementedError(f"{self.name}: use evaluate_expectation")
-
-    def _execute_estimator(self, *args, **kwargs):
-        raise NotImplementedError(f"{self.name}: use evaluate_expectation")
-
-
-class BSCQpuBackend(_QpuBackendBase):
+class BSCQpuBackend(BaseBackend):
     """A BSC QPU (Blue or Red) reached through the shared-filesystem bridge.
 
     Delegates to :func:`~Qdislib.core.cutting_algorithms.gate_cutting._expec_value_qibo_qpu`
@@ -63,46 +50,10 @@ class BSCQpuBackend(_QpuBackendBase):
         subcirc = dag_to_circuit_qibo(dag, num_qubits)
         return _expec_value_qibo_qpu(subcirc, shots=shots, method=method)
 
-    def evaluate_joint_counts(
-        self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
-    ):
-        """Joint final/cut-point counts from a BSC QPU.
-
-        Ships the subcircuit through the shared-filesystem bridge and reads back the
-        hardware counts (``result.counts()``, qubit-0-first). The device reports
-        only *final* counts, not the mid-circuit cut-point outcomes. A cut qubit
-        with no gate after its cut point (a **terminal** cut) is read from its final
-        bit. Otherwise its cut-point measurement is deferred: a CNOT onto a fresh
-        qubit, read at the end (one more qubit per such cut; the same channel), so
-        the counts stay exact. ``seed`` is accepted for interface parity but
-        ignored (hardware sampling is not seedable).
-        """
-        from Qdislib.core.cutting_algorithms.gate_cutting import (
-            _defer_cut_measurements,
-        )
-
-        cut_points = sorted(cut_point_qubits)
-        if cut_points and not _terminal_cut_points(dag):
-            deferred = _defer_cut_measurements(dag, num_qubits, cut_points)
-            if deferred is None:
-                raise NotImplementedError(
-                    "BSC QPU: a qubit measured twice mid-circuit cannot be deferred; "
-                    "use the Hadamard cut (no mid-circuit measurement)."
-                )
-            freq = self._final_counts(deferred, num_qubits + len(cut_points))
-            joint = {}
-            for key, count in freq.items():
-                final = tuple(int(key[q]) for q in range(num_qubits))
-                cut = tuple(int(key[num_qubits + j]) for j in range(len(cut_points)))
-                joint[(final, cut)] = joint.get((final, cut), 0) + count
-            return joint
-        freq = self._final_counts(dag, num_qubits)
-        joint = {}
-        for key, count in freq.items():
-            final = tuple(int(key[q]) for q in range(num_qubits))
-            cut = tuple(final[q] for q in cut_points)  # terminal: cut point == final
-            joint[(final, cut)] = joint.get((final, cut), 0) + count
-        return joint
+    def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
+        """Final counts from a BSC QPU, through the shared-filesystem bridge
+        (qubit-0-first). ``seed`` is ignored (hardware)."""
+        return self._final_counts(dag, num_qubits)
 
     @staticmethod
     def _final_counts(dag, num_qubits):
@@ -119,23 +70,6 @@ class BSCQpuBackend(_QpuBackendBase):
         return submit_and_wait(subcirc).counts()
 
 
-def _terminal_cut_points(dag):
-    """True if no gate acts on a measured cut qubit after its measurement."""
-    import networkx as nx
-
-    for node, data in dag.nodes(data=True):
-        if (data.get("gate") or "").lower() != "measure":
-            continue
-        qubit = data["qubits"][0]
-        for later in nx.descendants(dag, node):
-            other = dag.nodes[later]
-            if (other.get("gate") or "").upper() == "OBSERVABLE I":
-                continue
-            if qubit in (other.get("qubits") or ()):
-                return False
-    return True
-
-
 def _ibm_setting(extra: dict, key: str, env: str, default=""):
     """Read an IBM setting from explicit config, falling back to the env var."""
     import os
@@ -146,7 +80,7 @@ def _ibm_setting(extra: dict, key: str, env: str, default=""):
     return os.environ.get(env, default)
 
 
-class IBMBackend(_QpuBackendBase):
+class IBMBackend(BaseBackend):
     """IBM Quantum hardware via qiskit-ibm-runtime.
 
     Preferred setup is **explicit configuration** -- no environment variables
@@ -159,6 +93,7 @@ class IBMBackend(_QpuBackendBase):
             "instance": "<instance>",    # ibm_cloud only
             "backend_name": "ibm_marrakesh",  # omit -> least-busy real backend
             "mode": "job",               # "batch" / "session" only if your plan allows
+            "options": {"twirling": {"enable_gates": True}},  # SamplerV2's options
             "max_time": 60,              # batch / session only
         }})
 
@@ -180,6 +115,7 @@ class IBMBackend(_QpuBackendBase):
     def __init__(self, config: BackendConfig) -> None:
         super().__init__("IBM_BACKEND", config)
         extra = config.extra
+        self._options = extra.get("options")
         # Task side: a session + backend were established upstream and threaded in.
         if extra.get("batch") is not None and extra.get("backend") is not None:
             self._session = extra["batch"]
@@ -262,7 +198,17 @@ class IBMBackend(_QpuBackendBase):
             shots,
             self._session,
             self._ibm_backend,
+            self._options,
         )
+
+    def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
+        """Final counts on the IBM device (qubit-0-first). ``seed`` is ignored."""
+        return {
+            "".join(str(b) for b in final): count
+            for (final, _), count in self.evaluate_joint_counts(
+                dag, num_qubits, (), shots
+            ).items()
+        }
 
     def evaluate_expectation(
         self, dag, num_qubits, prep_qubits=(), shots=1024, method="automatic", seed=None
@@ -277,4 +223,5 @@ class IBMBackend(_QpuBackendBase):
             batch=self._session,
             backend=self._ibm_backend,
             prep_qubits=list(prep_qubits) or None,
+            options=self._options,
         )

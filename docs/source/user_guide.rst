@@ -874,3 +874,31 @@ QPU (it is on a simulator).
 Device noise is amplified by the cutting overhead, and more so with every extra
 cut, so expect hardware results to drift further from the exact value as cuts are
 added.
+
+A backend of your own
+---------------------
+
+A new backend needs one method, ``evaluate_samples``: the final counts of a
+subcircuit, keyed qubit 0 first. Cutting derives the rest; a mid-circuit cut point
+is deferred onto an extra qubit read at the end. For a device that runs Qiskit
+circuits, ``qd.sample_with_qiskit`` builds the circuit and reads the counts:
+
+.. code-block:: python
+
+    class MyDevice(qd.BaseBackend):
+        def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
+            return qd.sample_with_qiskit(
+                dag, num_qubits, lambda circuit: run_on_my_device(circuit, shots)
+            )
+
+    device = MyDevice("MY_DEVICE", qd.BackendConfig(num_qubits=20))
+    value = qd.gate_cutting(circuit, cut, backend=device)
+
+Optional, when they apply: ``evaluate_joint_counts`` if the device reports
+mid-circuit outcomes; ``uses_gpu`` if it runs on a GPU (see above);
+``evaluate_expectation`` for ``qd.expectation_value``; and ``transpile`` with
+``_execute_samples`` / ``_execute_estimator`` for ``QdBackEnd``'s queue.
+``qd.register_backend(name, module, class_name)`` makes it available by name.
+
+IBM's ``extra={"options": {...}}`` is passed to ``SamplerV2``, for twirling or
+dynamical decoupling.

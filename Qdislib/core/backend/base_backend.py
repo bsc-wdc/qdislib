@@ -28,7 +28,6 @@ without touching the algorithms.
 import threading
 import uuid
 import logging
-from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -144,8 +143,52 @@ class ExpectationJobResult:
     metadata: dict = field(default_factory=dict)
 
 
-class BaseBackend(ABC):
+def sample_with_qiskit(dag: Any, num_qubits: int, run) -> dict[str, int]:
+    """:meth:`BaseBackend.evaluate_samples` for a backend that runs Qiskit circuits:
+    the subcircuit as a measured Qiskit circuit, ``run(circuit)`` for its
+    ``get_counts()``-style counts, and those as ``{qubit-0-first bitstring: count}``
+    (only the final measurement, identity-observed qubits marginalized).
+    """
+    from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
+
+    built = dag_to_circuit_qiskit(dag, num_qubits)
+    circuit, observables = built if isinstance(built, (list, tuple)) else (built, None)
+    circuit = circuit.copy()
+    circuit.measure_all()
+    out: dict[str, int] = {}
+    for key, count in run(circuit).items():
+        # keep the measure_all register (first) and reverse to qubit-0-first
+        bits = key.split()[0][::-1]
+        out[bits] = out.get(bits, 0) + count
+    return marginalize_identity_qubits(out, observables)
+
+
+def terminal_cut_points(dag) -> bool:
+    """True if no gate acts on a measured cut qubit after its measurement."""
+    import networkx as nx
+
+    for node, data in dag.nodes(data=True):
+        if (data.get("gate") or "").lower() != "measure":
+            continue
+        qubit = data["qubits"][0]
+        for later in nx.descendants(dag, node):
+            other = dag.nodes[later]
+            if (other.get("gate") or "").upper() == "OBSERVABLE I":
+                continue
+            if qubit in (other.get("qubits") or ()):
+                return False
+    return True
+
+
+class BaseBackend:
     """Common interface for all Qdislib backends.
+
+    A new backend needs one method, :meth:`evaluate_samples`: the final counts of a
+    subcircuit (:func:`sample_with_qiskit` writes it for a backend that runs Qiskit
+    circuits). Cutting derives everything else from it (mid-circuit cut points are
+    deferred onto extra qubits). Override :meth:`evaluate_joint_counts` if the device
+    reports mid-circuit outcomes, and :meth:`evaluate_expectation` for the 1.x paths
+    (``qpu=``, ``gpu=``, ``method=``) and :func:`~Qdislib.expectation_value`.
 
     FIFO queue management is centralised here via the Template Method pattern:
     subclasses implement ``_execute_samples`` / ``_execute_estimator`` / ``transpile``
@@ -318,8 +361,11 @@ class BaseBackend(ABC):
         ``final_bits`` qubit-0-first over the component and ``cut_point_bits`` over
         ``cut_point_qubits`` in order.
 
-        Backends whose execution yields only aggregated *final* counts (most real
-        QPUs) cannot report the mid-circuit outcome and leave this unimplemented.
+        By default this comes from :meth:`evaluate_samples`, for a device that only
+        reports final counts: a cut qubit with no gate after its cut point (a
+        **terminal** cut) is read from its final bit, any other cut point is deferred
+        (a CNOT onto a fresh qubit, read at the end: one more qubit per such cut, the
+        same channel). A device that reports mid-circuit outcomes overrides this.
 
         :param dag: A renumbered connected-component DAG of the cut circuit.
         :param num_qubits: Qubit count of the component.
@@ -327,19 +373,38 @@ class BaseBackend(ABC):
         :param shots: Number of measurement shots.
         :return: ``{(final_bits, cut_point_bits): count}``.
         """
-        raise NotImplementedError(
-            f"{self.name} does not implement evaluate_joint_counts (sampling reconstruction)"
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _defer_cut_measurements,
+            _deferred_joint_counts,
         )
 
+        cut_points = sorted(cut_point_qubits)
+        if cut_points and not terminal_cut_points(dag):
+            deferred = _defer_cut_measurements(dag, num_qubits, cut_points)
+            if deferred is None:
+                raise NotImplementedError(
+                    f"{self.name}: a qubit measured twice mid-circuit cannot be "
+                    "deferred; use the Hadamard cut (no mid-circuit measurement)."
+                )
+            return _deferred_joint_counts(
+                self, deferred, num_qubits, len(cut_points), shots, seed
+            )
+        joint = {}
+        for key, count in self.evaluate_samples(dag, num_qubits, shots, seed).items():
+            final = tuple(int(key[q]) for q in range(num_qubits))
+            cut = tuple(final[q] for q in cut_points)  # terminal: cut point == final
+            joint[(final, cut)] = joint.get((final, cut), 0) + count
+        return joint
+
     # ------------------------------------------------------------------
-    # Abstract hooks -- to be implemented by subclasses
+    # Hooks of run_samples / run_estimator (QdBackEnd's queue; cutting does not use
+    # them), optional
     # ------------------------------------------------------------------
 
-    @abstractmethod
     def transpile(self, circuit: SupportedCircuit) -> Any:
-        """Transpile the circuit into the backend's native format."""
+        """The circuit in the backend's native format (by default, as it is)."""
+        return circuit
 
-    @abstractmethod
     def _execute_samples(
         self,
         circuit: SupportedCircuit,
@@ -347,9 +412,12 @@ class BaseBackend(ABC):
         shots: int,
         job: Job,
     ) -> SampleJobResult:
-        """Backend-specific sampling logic. Queue management is handled by the base class."""
+        """Backend-specific sampling logic. Queue management is handled by the base."""
+        raise NotImplementedError(
+            f"{self.name} does not implement run_samples (QdBackEnd); "
+            "cutting uses evaluate_samples"
+        )
 
-    @abstractmethod
     def _execute_estimator(
         self,
         circuit: SupportedCircuit,
@@ -358,7 +426,8 @@ class BaseBackend(ABC):
         observable: Any,
         job: Job,
     ) -> ExpectationJobResult:
-        """Backend-specific estimator logic. Raise ``NotImplementedError`` if unsupported."""
+        """Backend-specific estimator logic."""
+        raise NotImplementedError(f"{self.name} does not implement run_estimator")
 
     # ------------------------------------------------------------------
     # Internal queue management

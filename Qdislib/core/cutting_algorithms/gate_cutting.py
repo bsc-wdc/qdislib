@@ -2385,7 +2385,9 @@ def _counts_from_sampler(pub_result, circuit):
     return counts
 
 
-def _joint_counts_qiskit_qpu(dag, num_qubits, prep_sorted, shots, batch, backend):
+def _joint_counts_qiskit_qpu(
+    dag, num_qubits, prep_sorted, shots, batch, backend, options=None
+):
     """Joint final/cut-point counts of a fragment on IBM hardware (SamplerV2):
     the cut-point measurements stay mid-circuit, each in its own register."""
     from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
@@ -2397,7 +2399,7 @@ def _joint_counts_qiskit_qpu(dag, num_qubits, prep_sorted, shots, batch, backend
     qc = base.copy()
     qc.measure_all()
     pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
-    job = Sampler(mode=batch).run([pm.run(qc)], shots=shots)
+    job = Sampler(mode=batch, options=options).run([pm.run(qc)], shots=shots)
     logger.info(f"job id: {job.job_id()}")
     counts = _counts_from_sampler(job.result()[0], qc)
     return _joint_from_qiskit_counts(counts, base, num_qubits, prep_sorted)
@@ -2405,7 +2407,13 @@ def _joint_counts_qiskit_qpu(dag, num_qubits, prep_sorted, shots, batch, backend
 
 # Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
 def _expec_value_qiskit_qpu(
-    qc, shots=1024, method="automatic", batch=None, backend=None, prep_qubits=None
+    qc,
+    shots=1024,
+    method="automatic",
+    batch=None,
+    backend=None,
+    prep_qubits=None,
+    options=None,
 ):
     """Expectation value of a Qiskit subcircuit on IBM hardware (SamplerV2).
 
@@ -2434,7 +2442,7 @@ def _expec_value_qiskit_qpu(
     qc.measure_all()
     pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
     isa_circuit = pm.run(qc)
-    sampler = Sampler(mode=batch)
+    sampler = Sampler(mode=batch, options=options)
     # Pass shots: without it the sampler used its own default while the value
     # was still divided by ``shots``.
     job = sampler.run([isa_circuit], shots=shots)

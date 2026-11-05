@@ -156,6 +156,15 @@ class IQMBackend(BaseBackend):
             counts, base, num_qubits, sorted(cut_point_qubits)
         )
 
+    def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
+        """Final counts on the IQM device (qubit-0-first). ``seed`` is ignored."""
+        return {
+            "".join(str(b) for b in final): count
+            for (final, _), count in self.evaluate_joint_counts(
+                dag, num_qubits, (), shots
+            ).items()
+        }
+
     def evaluate_subcircuit(self, subcircuit, shots: int = 1024, prep_qubits=None):
         """Evaluate one already-built cut subcircuit on the device (3-step workflow).
 

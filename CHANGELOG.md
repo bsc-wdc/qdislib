@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **A backend needs one method now.** A subclass of `BaseBackend` only implements
+  `evaluate_samples` (final counts; `qd.sample_with_qiskit` writes it for a device
+  that runs Qiskit circuits); cutting derives the joint counts from it, reading a
+  terminal cut from its final bit and deferring any other cut point onto an extra
+  qubit. `transpile`, `_execute_samples` and `_execute_estimator` are no longer
+  abstract (only `QdBackEnd`'s queue uses them). Existing subclasses keep working.
+  IBM and IQM gained `evaluate_samples`, and IBM takes `extra={"options": {...}}`
+  for `SamplerV2` (twirling, dynamical decoupling).
 - **GPU tasks under PyCOMPSs.** A backend explicitly on a GPU (`use_gpu` for Aer,
   `target="nvidia"` for CUDA-Q, or a custom one overriding `uses_gpu`) runs its
   circuits in tasks that ask COMPSs for one GPU and one CPU core. COMPSs assigns a
