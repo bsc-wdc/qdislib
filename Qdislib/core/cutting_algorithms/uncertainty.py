@@ -130,6 +130,19 @@ def total_shots(results):
     )
 
 
+def spread(samples, value):
+    """The standard error from resampled values: a float, or per outcome for
+    distributions (``value`` gives the outcomes when there are no samples: exact)."""
+    if isinstance(value, dict):
+        keys = set(value).union(*samples) if samples else set(value)
+        if not samples:
+            return {k: 0.0 for k in keys}
+        return {
+            k: float(np.std([s.get(k, 0.0) for s in samples], ddof=1)) for k in keys
+        }
+    return float(np.std(samples, ddof=1)) if samples else 0.0
+
+
 def bootstrap(evaluate, results, draws, count, seed=None):
     """``(standard error, shots)`` of ``evaluate(results, draws)`` by ``count``
     resamples of the counts (and the draws); 0 when nothing is random."""
@@ -152,12 +165,7 @@ def bootstrap(evaluate, results, draws, count, seed=None):
             for corr, original in results
         ]
         values.append(evaluate(sample, _resample_draws(draws, rng)))
-    if isinstance(values[0], dict):  # a distribution: each outcome's spread
-        keys = set().union(*values)
-        return {
-            k: float(np.std([v.get(k, 0.0) for v in values], ddof=1)) for k in keys
-        }, shots
-    return float(np.std(values, ddof=1)), shots
+    return spread(values, values[0]), shots
 
 
 def combine(coefficients, values):

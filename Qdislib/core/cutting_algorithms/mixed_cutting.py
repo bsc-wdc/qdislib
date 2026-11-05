@@ -2213,16 +2213,44 @@ def _reconstruct_cut_task(
 
 @task(returns=1, results=COLLECTION_IN)
 def _fragment_tensor_task(
-    plan, f, keys, readouts, results, batched=False, marginal=None
+    plan, f, keys, readouts, results, batched=False, mask=None, bootstrap=0, seed=None
 ):
-    """One fragment's tensor over its bonds and all its local masks, reduced where
-    its results are (a distribution's fragment results are ``2**width`` each;
-    ``batched``: the fragment's group futures of a :class:`_Batches`)."""
+    """One fragment's tensor, reduced where its results are (a distribution's are
+    ``2**width`` each, and counts are read outcome by outcome): over its bonds and the
+    local masks of ``mask`` (see :class:`_FragmentReads`). ``batched``: the fragment's
+    group futures of a :class:`_Batches`. With ``bootstrap`` resamples of its counts:
+    also those tensors, and the shots behind them (a resample's value multiplies
+    every fragment's, each resampled on its own, so this is the same bootstrap)."""
     if batched:
         results = _flatten(results)
-    return _fragment_tensor(
-        plan, f, _FragmentReads(plan, f, keys, readouts, results, marginal)
+    tensor, labels, out = _fragment_tensor(
+        plan, f, _FragmentReads(plan, f, keys, readouts, results, mask)
     )
+    if not bootstrap:
+        return tensor, labels, out
+    from Qdislib.core.cutting_algorithms.uncertainty import (
+        _resample_counts,
+        total_shots,
+    )
+
+    shots = total_shots(results)
+    rng = np.random.default_rng(seed)
+    resampled = [
+        _fragment_tensor(
+            plan,
+            f,
+            _FragmentReads(
+                plan,
+                f,
+                keys,
+                readouts,
+                [(_resample_counts(corr, rng), qubits) for corr, qubits in results],
+                mask,
+            ),
+        )[0]
+        for _ in range(bootstrap if shots else 0)
+    ]
+    return tensor, labels, out, resampled, shots
 
 
 def _check_dense_width(plan, marginal, draws, error):
@@ -2239,19 +2267,70 @@ def _check_dense_width(plan, marginal, draws, error):
         )
 
 
-@task(returns=1, parts=COLLECTION_IN)
-def _contract_distribution_task(plan, parts, marginal=None):
-    from Qdislib.core.cutting_algorithms.factored import (
-        MAX_DENSE_WIDTH,
-        factored_distribution,
+def _holds_counts(results):
+    """True if these results are at hand and hold counts (under PyCOMPSs they are
+    usually futures: then this is unknown, and they go the one-task way)."""
+    from Qdislib.core.cutting_algorithms.gate_cutting import _JointCounts
+
+    return any(
+        isinstance(result, tuple) and isinstance(result[0], _JointCounts)
+        for result in results
     )
 
-    width = plan.width if marginal is None else len(marginal.qubits)
-    if width > MAX_DENSE_WIDTH:
-        return factored_distribution(plan, parts, marginal)
-    tensor = _contract(plan, parts)
-    outs = [out for _, _, out in parts]
-    return _output_distribution(plan, tensor, outs, marginal)
+
+def _value_from_tensor(plan, tensor, outs, mode, observable):
+    """The expectation value or the distribution from the contracted tensor."""
+    if mode == "distribution":
+        return _output_distribution(plan, tensor, outs, observable)
+    values = np.asarray(tensor).reshape(-1)
+    if isinstance(observable, list):
+        return float(sum(c * v for (c, _), v in zip(observable, values)))
+    return float(values[0])
+
+
+@task(returns=1, parts=COLLECTION_IN)
+def _contract_task(plan, parts, mode="distribution", observable=None):
+    """The fragment tensors of :func:`_fragment_tensor_task` contracted into the value,
+    with its standard error when they carry resamples (a contraction is cheap: the
+    work of a resample is in its fragment tensors, each in its fragment's task)."""
+    if mode == "distribution":
+        from Qdislib.core.cutting_algorithms.factored import (
+            MAX_DENSE_WIDTH,
+            factored_distribution,
+        )
+
+        width = plan.width if observable is None else len(observable.qubits)
+        if width > MAX_DENSE_WIDTH:
+            return factored_distribution(plan, parts, observable)
+    fixed = [tuple(part[:3]) for part in parts]
+    outs = [out for _, _, out in fixed]
+
+    def evaluate(tensors):
+        contracted = _contract(
+            plan,
+            [(tensor, labels, out) for tensor, (_, labels, out) in zip(tensors, fixed)],
+        )
+        return _value_from_tensor(plan, contracted, outs, mode, observable)
+
+    value = evaluate([tensor for tensor, _, _ in fixed])
+    if len(parts[0]) == 3:
+        return value
+    from Qdislib.core.cutting_algorithms.uncertainty import (
+        Distribution,
+        Estimate,
+        spread,
+    )
+
+    shots = sum(part[4] for part in parts)
+    counts = {len(part[3]) for part in parts if part[3]}
+    samples = [
+        evaluate([part[3][n] if part[3] else part[0] for part in parts])
+        for n in range(max(counts, default=0))
+    ]
+    error = spread(samples, value)
+    if mode == "distribution":
+        return Distribution(value, error, shots)
+    return Estimate(value, error, shots)
 
 
 def _reconstruct(
@@ -2264,13 +2343,22 @@ def _reconstruct(
     draws=None,
     bootstrap=0,
     seed=None,
+    counts=False,
 ):
-    """The reconstruction as a future. An expectation value is one task (the
-    contraction is cheap); a distribution reduces each fragment's results in its own
-    task first, then contracts the small tensors. A distribution's ``observable``
-    is ``None`` or a :class:`_Marginal`."""
+    """The reconstruction as a future. Each fragment's results are reduced in its own
+    task, then the small tensors contracted, when reading them is the work: a
+    distribution's, and any with counts (``counts``, or ``bootstrap`` resamples of
+    them). An expectation value from a few correlators is one task: it is cheap. So
+    are ``draws``. A distribution's ``observable`` is ``None`` or a
+    :class:`_Marginal`."""
     batched = isinstance(results, _Batches)
-    if mode == "distribution" and draws is None and not bootstrap:
+    if draws is None and (mode == "distribution" or counts or bootstrap):
+        if mode == "distribution":
+            mask = observable
+        elif isinstance(observable, list):
+            mask = tuple(group_mask for _, group_mask in observable)
+        else:
+            mask = _observable_mask(observable, plan.width)
         if batched:
             split = _split_by_fragment(plan, keys, readouts, [None] * len(keys))
             parts = [
@@ -2281,18 +2369,30 @@ def _reconstruct(
                     r,
                     [g for g, gf in zip(results.futures, results.fragments) if gf == f],
                     True,
-                    observable,
+                    mask,
+                    bootstrap,
+                    None if seed is None else next_seed(seed, "fragment", f),
                 )
                 for f, (k, r, _) in enumerate(split)
             ]
         else:
             parts = [
-                _fragment_tensor_task(plan, f, k, r, res, False, observable)
+                _fragment_tensor_task(
+                    plan,
+                    f,
+                    k,
+                    r,
+                    res,
+                    False,
+                    mask,
+                    bootstrap,
+                    None if seed is None else next_seed(seed, "fragment", f),
+                )
                 for f, (k, r, res) in enumerate(
                     _split_by_fragment(plan, keys, readouts, results)
                 )
             ]
-        return _contract_distribution_task(plan, parts, observable)
+        return _contract_task(plan, parts, mode, observable)
     if batched:
         return _reconstruct_cut_task(
             plan,
@@ -2682,6 +2782,7 @@ def circuit_cutting(
                     draws,
                     count,
                     None if seed is None else next_seed(seed, "bootstrap", g),
+                    counts=budget is not None,
                 )
             )
         if constant:
@@ -3125,6 +3226,7 @@ class CutCircuits(list):
                 mode,
                 target,
                 self.draws,
+                counts=_holds_counts(results),
             )
         )
 

@@ -1485,10 +1485,10 @@ class _CountCorrelators(dict):
 
     def __missing__(self, mask):
         mask = int(mask)
-        if self.k <= self.FULL_TRANSFORM_QUBITS:
-            self.update(_z_correlators(self.joint, self.prep_sorted, self.k))
-            if mask in self:
-                return dict.__getitem__(self, mask)
+        if self.k <= self.FULL_TRANSFORM_QUBITS and 0 <= mask < 2**self.k:
+            value = float(self._transform()[mask])
+            dict.__setitem__(self, mask, value)
+            return value
         _, bits, sign, counts = self.counts.arrays()
         total = counts.sum() or 1.0
         picked = [q for q in range(self.k) if (mask >> q) & 1]
@@ -1504,17 +1504,20 @@ class _CountCorrelators(dict):
         all ``2**k`` at once by a Walsh-Hadamard transform (a distribution)."""
         masks = np.asarray(masks, dtype=np.int64)
         if self.k <= 22 and len(masks) * 16 >= 2**self.k:
-            if getattr(self, "_full", None) is None:
-                _, bits, sign, counts = self.counts.arrays()
-                total = counts.sum() or 1.0
-                outcome = bits.astype(np.int64) @ (
-                    1 << np.arange(self.k, dtype=np.int64)
-                )
-                histogram = np.zeros(2**self.k)
-                np.add.at(histogram, outcome, counts * sign / total)
-                self._full = _fast_walsh_hadamard(histogram)
-            return self._full[masks]
+            return self._transform()[masks]
         return np.array([self[int(m)] for m in masks])
+
+    def _transform(self):
+        """Every correlator, by a Walsh-Hadamard transform of the signed histogram
+        (once): from the count arrays, so a bootstrap resample builds no dict."""
+        if getattr(self, "_full", None) is None:
+            _, bits, sign, counts = self.counts.arrays()
+            total = counts.sum() or 1.0
+            outcome = bits.astype(np.int64) @ (1 << np.arange(self.k, dtype=np.int64))
+            histogram = np.zeros(2**self.k)
+            np.add.at(histogram, outcome, counts * sign / total)
+            self._full = _fast_walsh_hadamard(histogram)
+        return self._full
 
     def __reduce__(self):
         return (_CountCorrelators, (self.joint, self.prep_sorted, self.k))

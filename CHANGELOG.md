@@ -339,6 +339,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration (6**g * 8**w). Its counts now come from closed forms (0.04 s for 12
   CZ cuts, against minutes).
 ### Changed
+- **Error bars and counts are read fragment by fragment under PyCOMPSs.** An
+  expectation value from counts (`error=`, `total_shots=`, `result_from_counts`) read
+  every fragment's counts in one task, as a distribution with `error=` did. Now each
+  fragment has its own task, bootstrap resamples included, and a last task contracts the
+  small tensors. An expectation value from a few correlators stays one task.
 - **A run that does something other than what was asked now says so**, once per
   process, with a `UserWarning` (these were debug or info logs, or nothing):
   CUDA-Q running on `qpp-cpu` because its GPU target cannot be used, with the reason
