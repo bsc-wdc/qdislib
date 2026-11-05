@@ -43,6 +43,7 @@ from Qdislib.utils.backends import *
 from Qdislib.utils.circuit_cache import *
 from Qdislib.utils.logging_config import *
 from Qdislib.utils.qpu_bridge import *
+from Qdislib.utils.packing import *
 from Qdislib.utils.exceptions import (
     QdislibException,
     UnsupportedBackendError,

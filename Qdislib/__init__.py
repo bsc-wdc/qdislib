@@ -81,6 +81,9 @@ __all__ = [
     "sample_subcircuit",
     "analytical_solution",
     "exact_statevector",
+    # Packing many small circuits side by side on one QPU.
+    "pack",
+    "PackedCircuits",
     # Finding and inspecting cuts.
     "cutting_overhead",
     "shots_for",

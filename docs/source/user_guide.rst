@@ -472,6 +472,24 @@ subcircuit's counts into the result ``reconstruct`` reads, to mix your own runs 
 Qdislib's. Counts of a circuit whose gate cut still measures mid-circuit are
 refused: build it with ``defer_measurements=True``.
 
+**Many subcircuits at once on one QPU.** A device usually has many more qubits than
+one subcircuit uses. ``qd.pack(circuits, backend)`` compiles each circuit onto its
+own group of well calibrated, connected qubits (groups at least ``buffer`` idle
+qubits apart, chosen from the backend's calibrated errors) and puts several of them
+in one device-wide circuit; ``unpack`` splits the results back, keyed as if each
+circuit had run alone:
+
+.. code-block:: python
+
+    packed = qd.pack(circuits, backend)   # circuits measured as above; a BackendV2
+    results = [SamplerV2(mode=backend).run([c], shots=8192).result()[0]
+               for c in packed.circuits]  # one plain job per packed circuit
+    value = subcircuits.reconstruct_counts(packed.unpack(results), bit_order="q0_last")
+
+``packed.circuits`` are already compiled for the device: run them as they are.
+``unpack`` also takes counts dicts (``result.get_counts(i)``). ``packed.slots`` says
+where each circuit went and ``packed.two_qubit_gates`` what it cost once compiled.
+
 **Seeing what is passed between the steps.** The list, each item and each result
 print readably, and ``subcircuits.describe(values)`` is a table of every
 subcircuit -- its fragment, its qubits (``q2'`` is a wire cut's prepared line
