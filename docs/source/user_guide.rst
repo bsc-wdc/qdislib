@@ -489,6 +489,11 @@ circuit had run alone:
 ``packed.circuits`` are already compiled for the device: run them as they are.
 ``unpack`` also takes counts dicts (``result.get_counts(i)``). ``packed.slots`` says
 where each circuit went and ``packed.two_qubit_gates`` what it cost once compiled.
+How the groups of qubits are chosen may still change between versions, so the same
+call can place circuits differently; ``regions=`` fixes them. So far packing has been
+checked on one device (ibm_kobe) with shallow 3--5-qubit circuits: packed and alone
+gave the same fidelity there, but deeper circuits may show more crosstalk, so compare
+a few circuits alone first (``qd.pack([c], backend, regions=[group])``).
 
 **Seeing what is passed between the steps.** The list, each item and each result
 print readably, and ``subcircuits.describe(values)`` is a table of every

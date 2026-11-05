@@ -38,6 +38,9 @@ counts, keyed as if the circuit had run alone::
 Groups of qubits are kept apart by at least ``buffer`` idle qubits, which limits
 crosstalk between neighbouring circuits; the circuits themselves are compiled to
 the device's gates on their own group only.
+
+How the groups are chosen may still change between versions; ``regions=`` fixes
+them.
 """
 
 from __future__ import annotations
