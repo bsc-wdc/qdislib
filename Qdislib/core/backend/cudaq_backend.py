@@ -67,7 +67,8 @@ class CudaqBackend(BaseBackend):
     ---------------------------------------------
     target : str, optional
         CUDA-Q target (default: the ``"nvidia"`` GPU, or ``"qpp-cpu"`` with a warning
-        when it cannot be used).
+        when it cannot be used). Under PyCOMPSs, name ``"nvidia"`` here to run in tasks
+        that ask for a GPU: COMPSs assigns a GPU only to those.
     """
 
     def __init__(self, config: BackendConfig) -> None:
@@ -79,6 +80,10 @@ class CudaqBackend(BaseBackend):
                 "CudaqBackend requires CUDA-Q. Install with:  pip install qdislib[cudaq]"
             )
         self._target: str | None = config.extra.get("target")
+
+    @property
+    def uses_gpu(self) -> bool:
+        return str(self._target or "").startswith("nvidia")
 
     def _set_target(self) -> None:
         select_cudaq_target(self._target)

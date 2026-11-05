@@ -840,6 +840,12 @@ GPU usage is transparent: backend selection and memory transfers are handled
 internally. The GPU path supports the same cases as the CPU path, including an
 identity observable on a cut qubit.
 
+Under PyCOMPSs, a backend explicitly on a GPU (``use_gpu`` for Aer,
+``target="nvidia"`` for CUDA-Q) runs its circuits in tasks that ask COMPSs for one
+GPU and one CPU core, since COMPSs assigns a GPU only to such tasks. Run these on
+GPU nodes: on a cluster without GPUs those tasks never start. A custom backend asks
+for the same by overriding ``uses_gpu``.
+
 Running on real QPUs
 --------------------
 

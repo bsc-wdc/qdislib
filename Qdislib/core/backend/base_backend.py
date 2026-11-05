@@ -160,9 +160,29 @@ class BaseBackend(ABC):
         self._queue: deque[Job] = deque()
         self._lock = threading.Lock()  # guards queue access in multi-threaded contexts
 
+    def __getstate__(self):
+        """A backend goes to a PyCOMPSs task without its lock and queue, which belong
+        to this process (a lock cannot be pickled)."""
+        state = self.__dict__.copy()
+        del state["_lock"], state["_queue"]
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self._queue = deque()
+        self._lock = threading.Lock()
+
     # ------------------------------------------------------------------
     # Public properties
     # ------------------------------------------------------------------
+
+    @property
+    def uses_gpu(self) -> bool:
+        """True when this backend runs on a GPU, explicitly: under PyCOMPSs its
+        circuits then run in tasks that ask for one. Never true for a backend that
+        only *may* use one, since those tasks wait forever on a cluster without any.
+        """
+        return False
 
     @property
     def num_qubits(self) -> int:

@@ -38,7 +38,7 @@ import math
 
 import numpy as np
 
-from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
+from Qdislib.utils.runtime import task, compss_wait_on, constraint, COLLECTION_IN
 from Qdislib.utils.backends import Subcircuit
 from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
@@ -1517,7 +1517,7 @@ class _FragmentCircuit(Subcircuit):
             raise ValueError("shots=None (exact) needs a simulator backend")
         template, values = _ship(self.template)
         if keep_counts and shots is not None:
-            return _run_fragment(
+            return _fragment_task(runner)(
                 template,
                 self.spec,
                 runner,
@@ -1530,7 +1530,7 @@ class _FragmentCircuit(Subcircuit):
                 True,
                 values=values,
             )
-        return _run_fragment(
+        return _fragment_task(runner)(
             template,
             self.spec,
             runner,
@@ -1563,6 +1563,13 @@ class _FragmentCircuit(Subcircuit):
         measured in the list's basis from the same runs; an exact run
         (``shots=None``) keeps only what the list's own observable needs."""
         return self._sample(shots, None, seed, keep_counts=True)
+
+
+#: What a task that runs circuits on a GPU asks COMPSs for: only such tasks get one.
+_GPU_PROCESSORS = [
+    {"processorType": "CPU", "computingUnits": "1"},
+    {"processorType": "GPU", "computingUnits": "1"},
+]
 
 
 @task(returns=1)
@@ -1600,6 +1607,38 @@ def _run_fragment(
     )
 
 
+@constraint(processors=_GPU_PROCESSORS)
+@task(returns=1)
+def _run_fragment_gpu(
+    template,
+    spec,
+    runner,
+    shots,
+    qpu,
+    qpu_dict,
+    seed,
+    mask=None,
+    cache=None,
+    keep_counts=False,
+    merge=None,
+    values=None,
+):
+    """:func:`_run_fragment` in a task that asks COMPSs for a GPU."""
+    return _run_fragment_here(
+        _unship(template, values),
+        spec,
+        runner,
+        shots,
+        qpu,
+        qpu_dict,
+        seed,
+        mask,
+        cache,
+        keep_counts,
+        merge,
+    )
+
+
 @task(returns=1)
 def _run_fragments(template, values, units):
     """``circuits_per_task=``: several circuits of one fragment in one task
@@ -1610,6 +1649,24 @@ def _run_fragments(template, values, units):
     its own argument so PyCOMPSs ships it once (see :func:`_ship`)."""
     template = _unship(template, values)
     return tuple(_run_fragment_here(template, *unit) for unit in units)
+
+
+@constraint(processors=_GPU_PROCESSORS)
+@task(returns=1)
+def _run_fragments_gpu(template, values, units):
+    """:func:`_run_fragments` in a task that asks COMPSs for a GPU."""
+    template = _unship(template, values)
+    return tuple(_run_fragment_here(template, *unit) for unit in units)
+
+
+def _fragment_task(runner):
+    """The task that runs one circuit on ``runner``: with a GPU if it uses one."""
+    return _run_fragment_gpu if getattr(runner, "uses_gpu", False) else _run_fragment
+
+
+def _fragments_task(runner):
+    """The task that runs a group of circuits on ``runner``."""
+    return _run_fragments_gpu if getattr(runner, "uses_gpu", False) else _run_fragments
 
 
 def _ship(template):
@@ -2363,7 +2420,7 @@ def _run(circuits, shots, seed, cache=None, keep_counts=False, batch=None):
             for start in range(0, len(members), batch):
                 where = members[start : start + batch]
                 futures.append(
-                    _run_fragments(
+                    _fragments_task(circuits[where[0]].software)(
                         *_ship(circuits[where[0]].template), [units[n] for n in where]
                     )
                 )
@@ -2375,7 +2432,7 @@ def _run(circuits, shots, seed, cache=None, keep_counts=False, batch=None):
         unit_shots = None if shots is None else shots * circuit.draws
         if cache is None and keep_counts:
             results.append(
-                _run_fragment(
+                _fragment_task(circuit.software)(
                     _ship(circuit.template)[0],
                     circuit.spec,
                     circuit.software,

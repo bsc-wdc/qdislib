@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **GPU tasks under PyCOMPSs.** A backend explicitly on a GPU (`use_gpu` for Aer,
+  `target="nvidia"` for CUDA-Q, or a custom one overriding `uses_gpu`) runs its
+  circuits in tasks that ask COMPSs for one GPU and one CPU core. COMPSs assigns a
+  GPU only to such tasks, so these runs used to reach the GPU unmanaged, if at all.
 - **`qd.pack(circuits, backend)`: many small circuits side by side on one QPU.**
   Each circuit (e.g. a cut circuit's subcircuits) is compiled onto its own group of
   connected, well calibrated device qubits -- groups at least `buffer` idle qubits

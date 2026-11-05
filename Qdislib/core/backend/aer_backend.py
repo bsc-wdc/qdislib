@@ -57,6 +57,10 @@ class AerBackend(BaseBackend):
         Statevector precision (default ``"double"``).
     """
 
+    @property
+    def uses_gpu(self) -> bool:
+        return self._use_gpu
+
     def __init__(self, config: BackendConfig) -> None:
         super().__init__("AER_BACKEND", config)
         self._use_gpu: bool = config.extra.get("use_gpu", False)
