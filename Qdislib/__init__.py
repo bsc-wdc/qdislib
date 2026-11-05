@@ -89,6 +89,7 @@ __all__ = [
     "shots_for",
     "Estimate",
     "Distribution",
+    "FactoredDistribution",
     "find_cut",
     "draw_cut",
     "cut_cost",

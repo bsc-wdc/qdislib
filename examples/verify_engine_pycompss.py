@@ -20,8 +20,8 @@
 """The cutting engine's options under real PyCOMPSs, against the exact answer.
 
 What the serial tests cannot see: a backend object reaching a task, groups of
-circuits in one task, the per-fragment reconstruction tasks, free parameters and
-error bars. Prints ``RESULT: PASS`` or ``RESULT: FAIL``.
+circuits in one task, the per-fragment reconstruction tasks, free parameters, error
+bars and a distribution kept by fragment. Prints ``RESULT: PASS`` or ``RESULT: FAIL``.
 
     runcompss --pythonpath=. examples/verify_engine_pycompss.py
 """
@@ -123,6 +123,26 @@ def main():
     print(f"expectation: {float(got):+.4f} (exact {want:+.4f})", flush=True)
     if abs(float(got) - want) > 2 * TOL:
         failures.append("expectation")
+
+    # wider than a dict can hold: kept by fragment, and it has to reach the master
+    n = 26
+    wide = QuantumCircuit(n)
+    wide.h(0)
+    for q in range(n - 1):
+        wide.cx(q, q + 1)
+    got = compss_wait_on(
+        qd.circuit_cutting_sampling(
+            wide, {"hadamard": [f"CX_{n // 2 + 1}"]}, shots=SHOTS, seed=3, sync=False
+        )
+    )
+    values = [got["0" * n], got["1" * n], got["01" * (n // 2)]]
+    print(f"{n} qubits: {type(got).__name__} {values}", flush=True)
+    if not (
+        abs(values[0] - 0.5) < TOL
+        and abs(values[1] - 0.5) < TOL
+        and abs(values[2]) < TOL
+    ):
+        failures.append("wide distribution")
 
     print("RESULT:", "FAIL " + ", ".join(failures) if failures else "PASS", flush=True)
     return 1 if failures else 0

@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Distributions over more than 24 qubits.** `circuit_cutting_sampling` used to build
+  every outcome, which a Python dict cannot hold soon after 25 qubits. Above 24 output
+  qubits it now returns a `qd.FactoredDistribution`: it keeps one small tensor per
+  fragment and contracts them when read, `d[bits]`, `d.marginal(qubits)`,
+  `d.most_likely(k)`, `d.sample(shots)`. Up to 24 qubits the output is the same dict.
+  `error=` and `num_samples=` build every outcome, so above 24 they refuse before
+  anything runs, and point to `qubits=`.
 - **Real COMPSs checks.** `examples/verify_engine_pycompss.py` runs the engine's
   options (backend objects, groups of circuits, marginals, error bars, free parameters)
   under `runcompss` against the exact answer, in `scripts/run_compss_tests.sh` and the

@@ -2225,8 +2225,30 @@ def _fragment_tensor_task(
     )
 
 
+def _check_dense_width(plan, marginal, draws, error):
+    """``error=`` and ``num_samples=`` rebuild the whole distribution, so they cannot
+    use a :class:`~Qdislib.FactoredDistribution`: said before anything runs."""
+    from Qdislib.core.cutting_algorithms.factored import MAX_DENSE_WIDTH
+
+    width = plan.width if marginal is None else len(marginal.qubits)
+    if width > MAX_DENSE_WIDTH and (error or draws is not None):
+        raise ValueError(
+            f"error= and num_samples= build every outcome, and {width} qubits have "
+            f"2**{width}: read at most {MAX_DENSE_WIDTH} qubits with qubits=, or run "
+            "without them and use the FactoredDistribution returned"
+        )
+
+
 @task(returns=1, parts=COLLECTION_IN)
 def _contract_distribution_task(plan, parts, marginal=None):
+    from Qdislib.core.cutting_algorithms.factored import (
+        MAX_DENSE_WIDTH,
+        factored_distribution,
+    )
+
+    width = plan.width if marginal is None else len(marginal.qubits)
+    if width > MAX_DENSE_WIDTH:
+        return factored_distribution(plan, parts, marginal)
     tensor = _contract(plan, parts)
     outs = [out for _, _, out in parts]
     return _output_distribution(plan, tensor, outs, marginal)
@@ -2786,6 +2808,7 @@ def circuit_cutting_sampling(
         qubits=qubits,
     )
     marginal = None if qubits is None else _Marginal(qubits, plan.width)
+    _check_dense_width(plan, marginal, draws, error)
     from Qdislib.core.cutting_algorithms.engine_cache import resolve
 
     from Qdislib.core.cutting_algorithms.uncertainty import resamples

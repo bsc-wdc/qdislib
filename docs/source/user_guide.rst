@@ -472,6 +472,23 @@ subcircuit's counts into the result ``reconstruct`` reads, to mix your own runs 
 Qdislib's. Counts of a circuit whose gate cut still measures mid-circuit are
 refused: build it with ``defer_measurements=True``.
 
+**More than 24 output qubits.** A distribution has ``2**n`` outcomes, but a cut
+circuit's is a contraction of one small tensor per fragment. Over more than 24 qubits
+``circuit_cutting_sampling`` returns a ``qd.FactoredDistribution``, which keeps those
+tensors and contracts them when read (no circuit runs again):
+
+.. code-block:: python
+
+    d = qd.circuit_cutting_sampling(qc, cuts, shots=100000)   # 40 qubits
+    d["0" * 40]              # one outcome (with shots, a quasi-probability)
+    d.marginal([3, 17])      # a marginal, as a dict
+    d.most_likely(10)        # the ten likeliest outcomes (a beam search)
+    d.sample(1000, seed=1)   # {bitstring: count}
+
+When you know which qubits you read, ``qubits=`` is cheaper still: each fragment circuit
+keeps only those. Error bars and ``num_samples=`` build every outcome, so above 24 qubits
+they need ``qubits=``.
+
 **Many subcircuits at once on one QPU.** A device usually has many more qubits than
 one subcircuit uses. ``qd.pack(circuits, backend)`` compiles each circuit onto its
 own group of well calibrated, connected qubits (groups at least ``buffer`` idle

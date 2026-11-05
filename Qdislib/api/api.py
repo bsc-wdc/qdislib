@@ -23,6 +23,7 @@ from Qdislib.core.cutting_algorithms.wire_cutting import *
 from Qdislib.core.cutting_algorithms.gate_cutting import *
 from Qdislib.core.cutting_algorithms.hadamard_cut import *
 from Qdislib.core.cutting_algorithms.mixed_cutting import *
+from Qdislib.core.cutting_algorithms.factored import FactoredDistribution
 from Qdislib.core.cutting_algorithms.engine_cache import use_cache
 from Qdislib.core.cutting_algorithms.uncertainty import (
     Distribution,
