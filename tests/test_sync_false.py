@@ -45,6 +45,9 @@ _SCRIPT = textwrap.dedent("""
     from qiskit import QuantumCircuit
     import Qdislib as qd
 
+    def the_store():
+        return store
+
     def chain(blocks, kinds):
         # blocks of two qubits in a line; kinds[j] joins block j and j + 1
         rng = np.random.default_rng(1)
@@ -128,7 +131,12 @@ _SCRIPT = textwrap.dedent("""
             failures.append(f"{name}: {type(e).__name__}: {e}")
     # the engine's cache: a miss stores from inside the task, a hit is read on the
     # master and mixed with the futures of the circuits still to run
-    store = qd.InMemoryCircuitCache()
+    # a store every worker shares, as LMDB or Redis are on a cluster (an in-memory one
+    # reaches a task as a copy)
+    class SharedStore(qd.InMemoryCircuitCache):
+        def __reduce__(self):
+            return (the_store, ())
+    store = SharedStore()
     for fn, qc, cuts, kw in (
         (qd.circuit_cutting, mixed, mc, {"observable": ham(8)}),
         (qd.gate_cutting, gate, gc["gate"], {"shots": 100, "seed": 3}),

@@ -60,6 +60,17 @@ grep -q "RESULT: PASS" "${SAMPLE_LOG}" || {
     status=1
 }
 
+echo "==> Engine options under runcompss (backend objects, groups, marginals, ...)"
+ENGINE_LOG="$(mktemp)"
+QDISLIB_SHOTS="${QDISLIB_SHOTS:-20000}" runcompss \
+    --pythonpath="${REPO_ROOT}" \
+    --python_interpreter=python3 \
+    "${REPO_ROOT}/examples/verify_engine_pycompss.py" 2>&1 | tee "${ENGINE_LOG}"
+grep -q "RESULT: PASS" "${ENGINE_LOG}" || {
+    echo "Engine verification did not report PASS"
+    status=1
+}
+
 # The full suite under runcompss is the slow part; set COMPSS_SKIP_SUITE=1 to run
 # only the fast example + sampling checks (e.g. when iterating on a backend fix).
 if [ "${COMPSS_SKIP_SUITE:-0}" = "1" ]; then

@@ -27,12 +27,15 @@ master from futures (``sum(results)``) goes unnoticed. Here a task returns an op
 - a task's arguments are resolved when they are futures; futures *inside* a list
   only when that parameter is ``COLLECTION_IN``;
 - a task called from inside a task runs inline (a worker has no nested tasks).
+- what reaches a task, and what it returns, goes through pickle, as it does to and
+  from a worker: something that cannot be pickled fails here, not first on a cluster.
 
 Call :func:`install` before importing Qdislib.
 """
 
 import functools
 import inspect
+import pickle
 import sys
 import types
 
@@ -73,6 +76,11 @@ def _open(value, deep=False):
     return value
 
 
+def _ship(value):
+    """``value`` after the trip to or from a worker."""
+    return pickle.loads(pickle.dumps(value))
+
+
 def compss_wait_on(obj):
     if isinstance(obj, list):
         return [compss_wait_on(v) for v in obj]
@@ -92,13 +100,14 @@ def task(**options):
                 return func(*args, **kwargs)
             bound = signature.bind(*args, **kwargs)
             for name, value in bound.arguments.items():
-                bound.arguments[name] = _open(value, deep=name in collections)
+                bound.arguments[name] = _ship(_open(value, deep=name in collections))
             calls["tasks"] += 1
             _depth[0] += 1
             try:
                 value = func(*bound.args, **bound.kwargs)
             finally:
                 _depth[0] -= 1
+            value = _ship(value)
             count = returns
             if isinstance(returns, str) and returns.startswith("value_of("):
                 # PyCOMPSs: the number of returns read from a parameter at call time

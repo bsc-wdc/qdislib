@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- **Real COMPSs checks.** `examples/verify_engine_pycompss.py` runs the engine's
+  options (backend objects, groups of circuits, marginals, error bars, free parameters)
+  under `runcompss` against the exact answer, in `scripts/run_compss_tests.sh` and the
+  new CI job `test:compss` (a visible skip where the runner has no Docker).
+  `scripts/mn5/check.sh` runs it on MareNostrum 5, with `verify_gpu_pycompss.py` on GPU
+  nodes. The strict fake PyCOMPSs of the unit tests now sends what reaches a task
+  through pickle, as a worker does, so every pipeline catches an object that cannot
+  go to a task.
 - **A backend needs one method now.** A subclass of `BaseBackend` only implements
   `evaluate_samples` (final counts; `qd.sample_with_qiskit` writes it for a device
   that runs Qiskit circuits); cutting derives the joint counts from it, reading a

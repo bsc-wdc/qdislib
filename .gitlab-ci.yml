@@ -7,8 +7,10 @@
 # downloads a standalone CPython and manages the virtualenv (no ensurepip, no
 # sudo). Override the version with UV_PYTHON.
 #
-# PyCOMPSs is intentionally NOT installed: the tests run in the serial fallback
-# (see Qdislib/utils/runtime.py). The quantum SDKs are optional extras.
+# PyCOMPSs is not installed for the unit tests: they run in the serial fallback (see
+# Qdislib/utils/runtime.py), and tests/_fake_compss.py checks what reaches a task goes
+# through pickle. test:compss below runs real COMPSs, in a container. The quantum SDKs
+# are optional extras.
 
 stages:
   - lint
@@ -116,6 +118,27 @@ import-smoke:cudaq:
   script:
     - uv pip install ".[cudaq]"
     - python -c "import Qdislib; print('cudaq-only import OK')"
+
+# ---------------------------------------------------------------------------
+# Real COMPSs (runcompss, in the image of Dockerfile.compss): the example application,
+# sampling and the engine's options, against the exact answers. Where the runner has
+# no usable Docker this is a visible skip (exit 77), not a pass and not a failure;
+# then scripts/mn5/check.sh is the check before a release. Not on every branch: the
+# image takes a while to build.
+# ---------------------------------------------------------------------------
+test:compss:
+  stage: test
+  before_script: []
+  allow_failure:
+    exit_codes: 77
+  rules:
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_COMMIT_BRANCH =~ /^(main|release-.*)$/'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+  script:
+    - docker info >/dev/null 2>&1 || { echo "SKIPPED - no usable Docker on this runner"; exit 77; }
+    - docker build -f Dockerfile.compss -t "qdislib-compss:$CI_COMMIT_SHORT_SHA" .
+    - docker run --rm -e COMPSS_SKIP_SUITE=1 -e QDISLIB_SOFTWARE=qiskit "qdislib-compss:$CI_COMMIT_SHORT_SHA"
 
 # ---------------------------------------------------------------------------
 # CUDA-Q (CPU backend). The wheel may be unavailable on the node, so this job
