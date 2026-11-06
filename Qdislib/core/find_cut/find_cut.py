@@ -33,8 +33,6 @@ import typing
 
 from Qdislib.utils.runtime import task, compss_wait_on
 
-import pymetis
-
 from Qdislib.utils.backends import convert_to_dag, iter_gates, num_qubits
 
 
@@ -333,6 +331,17 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
     if num_clusters < 2:
         return [], []
 
+    try:
+        import pymetis  # lazy: it has no wheel for every platform (see requirements.txt)
+    except ImportError:
+        from Qdislib.utils.logging_config import warn_once
+
+        warn_once(
+            "find_cut: METIS skipped, pymetis is not installed; the other strategies "
+            "still run, though a wire cut can come out larger. pip install "
+            '"qdislib[metis]" adds it (it needs a C compiler on this platform).'
+        )
+        return [], []
     nodes = list(graph.nodes())
     index = {node: i for i, node in enumerate(nodes)}
     weights = {}

@@ -499,5 +499,60 @@ class DeprecatedQpuPathTest(BaseTimedTestCase):
             self.assertEqual(call.args[0], config)
 
 
+class GeneralGateAfterWireCutTest(BaseTimedTestCase):
+    """A general gate cut that follows a wire cut on the same qubit
+    (bsc-wdc/qdislib#17): the CY decomposes into a CZ on the wire the cut moved."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(3)
+        qc.ry(0.6, 0)
+        qc.ry(0.4, 1)
+        qc.ry(0.5, 2)
+        qc.cz(0, 1)
+        qc.cy(1, 2)
+        qc.ry(0.3, 2)
+        qc.rx(0.9, 1)
+        return qc
+
+    def _exact(self, qc):
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+
+        return float(Statevector(qc).expectation_value(SparsePauliOp("ZZZ")).real)
+
+    def test_each_cut_and_both_give_the_circuits_value(self):
+        import Qdislib as qd
+
+        qc = self._circuit()
+        exact = self._exact(qc)
+        self.assertAlmostEqual(exact, 0.1386, places=3)  # as the report has it
+        wire = [("RY_2", "CZ_4")]
+        for backend in ("qiskit", "qibo"):
+            for cuts in (
+                {"gate": ["CY_5"], "wire": wire},
+                {"wire": wire},
+                {"gate": ["CY_5"]},
+                {"gate": ["CZ_4"], "wire": wire},
+            ):
+                value = qd.circuit_cutting(qc, cuts, "ZZZ", backend=backend, shots=None)
+                self.assertAlmostEqual(value, exact, places=8, msg=f"{backend} {cuts}")
+
+    def test_with_shots_and_the_deprecated_call(self):
+        import Qdislib as qd
+
+        qc = self._circuit()
+        with self.assertWarns(DeprecationWarning):
+            value = qd.gate_wire_cutting(
+                qc,
+                ["CY_5"],
+                [("RY_2", "CZ_4")],
+                observable="ZZZ",
+                software="qiskit",
+                shots=20000,
+            )
+        self.assertAlmostEqual(value, self._exact(qc), delta=0.1)
+
+
 if __name__ == "__main__":
     unittest.main()
