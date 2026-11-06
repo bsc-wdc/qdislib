@@ -130,6 +130,22 @@ def standard_arguments(func):
                 f"{func.__name__}(): the third positional argument is the observable "
                 "since 2.0.0; pass sync= by keyword."
             )
+        if (
+            "_software" in params
+            and "observable" in positional
+            and len(args) > positional.index("observable")
+            and isinstance(args[positional.index("observable")], str)
+            and args[positional.index("observable")] in SDKS
+        ):
+            # An SDK's name is no Pauli string: what was meant is not in doubt.
+            at = positional.index("observable")
+            _deprecated(
+                func,
+                f'the SDK as third argument ("{args[at]}") is deprecated: a subcircuit '
+                "list is SDK-neutral; build its circuits with subs.circuits(software)",
+            )
+            kwargs["_software"] = args[at]
+            args = args[:at] + args[at + 1 :]
         for old, new in _RENAMED.items():
             if old in kwargs:
                 if new in kwargs:

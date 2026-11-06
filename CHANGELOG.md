@@ -549,6 +549,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HadamardCutSubcircuits`, `HadamardSampledCutSubcircuits`, `SampledCutSubcircuits` and
   `WireSampledCutSubcircuits`: no function returns them since 2.0.0 (the lists are
   `CutCircuits`). `qd.<name>` warns, and they left `__all__`. They will be removed.
+- An SDK's name as third positional argument of a subcircuit generator
+  (`qd.wire_cutting_subcircuits(circuit, cut, "qiskit")`) warns and is read as the list's
+  default SDK. The third argument is the observable.
 
 ## [1.0.2] - 2026-10-19
 ### Added
