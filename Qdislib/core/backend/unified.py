@@ -59,6 +59,13 @@ class QdBackEnd:
             })
 
         With no argument, a single default Aer backend is used.
+
+    Raises
+    ------
+    ValueError
+        For a name that is not registered.
+    ImportError
+        If a backend's SDK is not installed.
     """
 
     def __init__(self, qpu_dict: dict | None = None) -> None:
@@ -81,6 +88,7 @@ class QdBackEnd:
 
     @property
     def backends(self) -> list[BaseBackend]:
+        """The backends it routes to."""
         return list(self._backends)
 
     @task(returns=1)
@@ -91,7 +99,18 @@ class QdBackEnd:
         transpile: bool = True,
         backend_name: str | None = None,
     ) -> SampleJobResult:
-        """Sample the circuit on the most suitable backend (or a named one)."""
+        """Sample the circuit on the most suitable backend (or a named one).
+
+        :param circuit: A circuit the backends take (see
+            :class:`~Qdislib.core.backend.circuit_converter.CircuitConverter`).
+        :param shots: Measurement shots.
+        :param transpile: Compile it for the backend first.
+        :param backend_name: Run on this one; by default the shortest queue that is
+            wide enough, then the next if one fails.
+        :raises ValueError: For an unknown ``backend_name``, or none wide enough.
+        :raises RuntimeError: If every candidate failed (from the last failure).
+        :return: A :class:`~Qdislib.core.backend.base_backend.SampleJobResult`.
+        """
         last_exc: Exception | None = None
         for backend in self._select_backends(circuit, backend_name):
             try:
@@ -113,7 +132,18 @@ class QdBackEnd:
         transpile: bool = True,
         backend_name: str | None = None,
     ) -> ExpectationJobResult:
-        """Estimate ``<observable>``; falls back past backends without estimator support."""
+        """Estimate ``<observable>``; falls back past backends without estimator support.
+
+        :param circuit: A circuit the backends take.
+        :param observable: A Pauli string, qubit 0 first.
+        :param shots: Measurement shots.
+        :param transpile: Compile it for the backend first.
+        :param backend_name: Run on this one; by default the shortest queue that is
+            wide enough, then the next if one fails.
+        :raises ValueError: For an unknown ``backend_name``, or none wide enough.
+        :raises RuntimeError: If every candidate failed or has no estimator.
+        :return: A :class:`~Qdislib.core.backend.base_backend.ExpectationJobResult`.
+        """
         last_exc: Exception | None = None
         for backend in self._select_backends(circuit, backend_name):
             try:

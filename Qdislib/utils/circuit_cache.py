@@ -351,10 +351,13 @@ def semantic_key(circuit, software=None):
 
 
 class CircuitCache:
-    """Abstract semantic-cache store: a string key to a JSON-serialisable value.
+    """Abstract cache store: a string key to a JSON-serialisable value.
 
-    The value is a measurement-counts ``dict`` (counts mode) or an expectation
-    ``float`` (expectation mode); the store treats it as opaque.
+    The value is what the cutting engine keeps of a fragment circuit (its counts or
+    exact correlators), or for the 1.x paths an expectation ``float`` or counts; the
+    store treats it as opaque. Subclass it, with :meth:`get`, :meth:`put` and
+    :meth:`delete`, for another store; pass it as ``cache=``. A store goes to the
+    PyCOMPSs tasks that use it, so it has to pickle, and to be shared by them.
     """
 
     def get(self, key):
@@ -467,6 +470,12 @@ class LMDBCircuitCache(CircuitCache):
     cleanly and a PyCOMPSs worker reopens the path on first use. Note that many
     concurrent writers contend on a shared filesystem; prefer
     :class:`RedisPSCOCircuitCache` for heavy distributed writing under PyCOMPSs.
+
+    :param path: The directory of the store (created if missing).
+    :param map_size: The largest size of the store, in bytes (a write beyond it
+        fails; the cutting engine then only logs it and runs on).
+    :param max_readers: The most readers at once, over all processes.
+    :raises ImportError: If ``lmdb`` is not installed.
     """
 
     def __init__(self, path, map_size=1 << 30, max_readers=500):
@@ -532,6 +541,13 @@ class RedisCircuitCache(CircuitCache):
     :class:`RedisPSCOCircuitCache`, which uses the COMPSs storage layer. The
     client is created lazily and not pickled, so the store ships to a worker by
     its connection settings.
+
+    :param host: The Redis host.
+    :param port: Its port.
+    :param db: The database number.
+    :param prefix: Put in front of every key.
+    :param kwargs: For ``redis.Redis`` (``username``, ``password``, ``ssl``...).
+    :raises ImportError: If ``redis`` is not installed.
     """
 
     def __init__(self, host="localhost", port=6379, db=0, prefix="qdislib:", **kwargs):

@@ -73,6 +73,8 @@ class FactoredDistribution(collections.abc.Mapping):
     With shots these are the estimator's quasi-probabilities: a small one can be
     negative, and they are not rescaled. :meth:`marginal` and :meth:`to_dict` give what
     a dict output gives: absolute values, normalised over the outcomes they return.
+
+    The cutting functions build it, not you. ``width`` is the number of bits of a key.
     """
 
     def __init__(self, parts, outs, weights, width):
@@ -139,7 +141,10 @@ class FactoredDistribution(collections.abc.Mapping):
 
     def marginal(self, qubits):
         """The distribution over ``qubits`` (positions in this distribution's keys), as
-        a dict over them, bit ``j`` of a key being ``qubits[j]``: nothing runs again."""
+        a dict over them, bit ``j`` of a key being ``qubits[j]``: nothing runs again.
+
+        :raises ValueError: For repeated or unknown positions, or more than 24.
+        """
         from Qdislib.core.cutting_algorithms.mixed_cutting import (
             _contract,
             _global_correlators,
@@ -178,7 +183,10 @@ class FactoredDistribution(collections.abc.Mapping):
         return sum(1 << j for j, q in enumerate(qubits) if q not in self._owner)
 
     def to_dict(self):
-        """Every outcome as a dict, as a smaller circuit's output (2**width entries)."""
+        """Every outcome as a dict, as a smaller circuit's output (2**width entries).
+
+        :raises ValueError: Over more than 24 qubits.
+        """
         if self.width > MAX_DENSE_WIDTH:
             raise ValueError(
                 f"{self.width} qubits have 2**{self.width} outcomes: read outcomes by "
@@ -192,6 +200,8 @@ class FactoredDistribution(collections.abc.Mapping):
         A beam search over the qubits, keeping the ``beam`` likeliest prefixes (default
         ``4 * k``, at least 16). It is a search: with enough probability spread thinly
         across prefixes it can miss one.
+
+        :raises ValueError: For ``k`` below 1.
         """
         if k < 1:
             raise ValueError(f"k must be at least 1, got {k}")
@@ -214,7 +224,12 @@ class FactoredDistribution(collections.abc.Mapping):
     def sample(self, shots, seed=None):
         """``shots`` bitstrings drawn from the distribution, as ``{bitstring: count}``:
         qubit by qubit, each conditioned on the ones before (a negative quasi-probability
-        counts as zero). About ``width`` contractions per distinct prefix."""
+        counts as zero). About ``width`` contractions per distinct prefix.
+
+        :param shots: How many (not negative).
+        :param seed: Seed for the draws.
+        :raises ValueError: For negative ``shots``.
+        """
         if shots < 0:
             raise ValueError(f"shots must not be negative, got {shots}")
         rng = np.random.default_rng(seed)

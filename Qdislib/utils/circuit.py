@@ -68,8 +68,8 @@ def from_qasm(qasm, software="qibo"):
         ``"pennylane"``, ``"qilisdk"``); pick whichever you will run on.
     :raises ImportError: If the requested backend SDK is not installed.
     :raises ValueError: For an unknown ``software``.
-    :return: A Qibo ``Circuit``, a Qiskit ``QuantumCircuit`` or a PennyLane
-        ``QuantumTape``.
+    :return: A circuit of ``software``: a Qibo ``Circuit``, a Qiskit
+        ``QuantumCircuit``, a PennyLane ``QuantumTape``, ...
 
     Example:
         .. code-block:: python
@@ -156,24 +156,30 @@ _PAULI_MATRIX = {
 def exact_statevector(circuit: typing.Any) -> np.ndarray:
     """Exact statevector of ``circuit`` as a flat numpy array, qubit-0-first.
 
-    Backend-agnostic oracle building block: accepts a Qibo ``Circuit``, a Qiskit
-    ``QuantumCircuit``, a CUDA-Q kernel, or a PennyLane ``QuantumTape`` / ``QNode``,
-    and returns the state in a single convention -- amplitude-index bit ``n-1-q`` is
+    Backend-agnostic oracle building block: accepts a circuit of any SDK (a Qibo
+    ``Circuit``, a Qiskit ``QuantumCircuit``, a CUDA-Q kernel, a PennyLane
+    ``QuantumTape`` / ``QNode``, a QiliSDK ``Circuit``), and returns the state in a single convention -- amplitude-index bit ``n-1-q`` is
     qubit ``q`` (qubit 0 is the most-significant bit) -- so it lines up with an
     ``observables`` string indexed qubit-0-first regardless of each SDK's native
     endianness (Qibo and PennyLane are already qubit-0-first; Qiskit and CUDA-Q are
     qubit-0-last and get reversed here).
 
-    :param circuit: A Qibo/Qiskit/CUDA-Q/PennyLane circuit.
+    :param circuit: A circuit, without mid-circuit measurements.
     :raises TypeError: If ``circuit`` is not a supported circuit type.
     :return: The statevector as a length-``2**n`` complex numpy array.
+
+    Example::
+
+        qc = QuantumCircuit(2)
+        qc.x(0)
+        qd.exact_statevector(qc)  # amplitude 1 at index 0b10: qubit 0 is the first bit
     """
     from Qdislib.utils.sdks import sdk_names, sdk_of
 
     entry = sdk_of(circuit)
     if entry is None or not entry.statevector:
         raise TypeError(
-            f"analytical_solution: unsupported circuit type {type(circuit)!r}; "
+            f"Unsupported circuit type {type(circuit)!r}; "
             f"expected a circuit of {list(sdk_names())}."
         )
     return np.asarray(entry.call("statevector", circuit), dtype=complex).reshape(-1)
@@ -204,51 +210,36 @@ def analytical_solution(circuit: typing.Any, observables: str) -> float:
 
     This function evaluates the exact (statevector) expectation value of a quantum
     circuit with respect to a set of observables. It is backend-agnostic: the circuit
-    may be a Qibo ``Circuit``, a Qiskit ``QuantumCircuit``, a CUDA-Q kernel, or a
-    PennyLane ``QuantumTape`` / ``QNode`` -- each SDK's native endianness is handled so
-    ``observables`` is always indexed qubit-0-first (see :func:`exact_statevector`).
+    may be of any SDK -- each one's native endianness is handled so ``observables`` is
+    always indexed qubit-0-first (see :func:`exact_statevector`).
 
-    :param observables:
-        A string representing the sequence of observables to apply (e.g., "XZI"), or a
-        weighted sum of them. Each character is a Pauli operator ("X", "Y", "Z", "I")
-        on successive qubits (qubit 0 = first character).
     :param circuit:
-        A Qibo, Qiskit, CUDA-Q or PennyLane circuit.
+        A circuit of any SDK, without mid-circuit measurements.
+    :param observables:
+        A Pauli string (e.g. ``"XZI"``), one letter per qubit, qubit 0 first; or a
+        weighted sum of them (anything
+        :func:`~Qdislib.utils.backends.normalize_observables` takes).
+    :raises TypeError: If ``circuit`` is not a supported circuit type.
+    :raises ValueError: For a letter other than I, X, Y, Z, or a string without one
+        letter per qubit.
     :return:
         The computed expectation value as a floating-point number.
 
     Per-term expectation values are logged at DEBUG level; enable them with
     ``qd.set_log_level("DEBUG")``.
 
-    :example:
-
-    Suppose we have a simple quantum circuit and wish to calculate the expectation value of the Pauli operators "XZI".
-
-    Example usage:
+    Example:
 
     .. code-block:: python
 
         from qibo import models, gates
         import Qdislib as qd
 
-        # Create a quantum circuit
         circuit = models.Circuit(3)
-        circuit.add(gates.H(0))         # Apply Hadamard on qubit 0
-        circuit.add(gates.CNOT(0, 1))    # Apply CNOT between qubit 0 and 1
+        circuit.add(gates.H(0))
+        circuit.add(gates.CNOT(0, 1))
 
-        # Define the observables
-        observables = "XZI"  # Apply Pauli-X to qubit 0, Z to qubit 1, Identity to qubit 2
-
-        # Compute the analytical expectation value
-        result = qd.analytical_solution(circuit, observables)
-
-        print(f"Expectation value: {result}")
-
-    In this example:
-    - The `observables` string `"XZI"` indicates that we are applying the Pauli X operator on qubit 0, Z operator on qubit 1, and the identity operator on qubit 2.
-    - The `circuit` is a simple 3-qubit quantum circuit, with a Hadamard gate on the first qubit followed by a CNOT gate.
-
-    The function will compute the expectation value of the given observables for the state produced by the circuit and return the result as a floating-point number.
+        qd.analytical_solution(circuit, "ZZI")  # 1.0: the two qubits always agree
     """
 
     # Backend-agnostic exact reference: get the statevector in a single qubit-0-first
@@ -478,6 +469,10 @@ def draw_to_circuit(
 
 def parse_qsim(fname: str, depth: int = 22):
     """Produces a Qibo :class:`Circuit` based on a .qsim description of a circuit.
+
+    The result has the circuit's *structure*, for cut-finding benchmarks: it is not
+    the same unitary. ``hz_1_2`` becomes ``H``, ``fs`` a ``CZ``, and an ``rz`` angle is
+    divided by pi.
 
     This function parses a .qsim file to create a quantum circuit based on the gate instructions
     provided in the file. The .qsim file should contain gate operations for the quantum circuit.

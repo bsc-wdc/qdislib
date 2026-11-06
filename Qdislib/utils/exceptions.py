@@ -38,7 +38,8 @@ _PREFIX = "Qdislib Exception: "
 
 
 class QdislibException(Exception):
-    """Base class for all Qdislib-specific exceptions."""
+    """Base class for all Qdislib-specific exceptions (also of a task's failure
+    under PyCOMPSs: they pickle, keeping their message)."""
 
     def __init__(self, message: str) -> None:
         """Create a new QdislibException instance.

@@ -158,8 +158,12 @@ class use_cache:  # noqa: N801 -- used as a function and as a context manager
     that call).
 
     :param store: ``True``, ``"memory"``, ``"lmdb:<path>"``, ``"redis"``,
-        ``"redis://host:port/db"``, a ``CircuitCache`` object, or ``None`` (off).
+        ``"redis://[user:password@]host:port/db"``, a ``CircuitCache`` object, or
+        ``None`` (off). ``"memory"`` is one process's memory, refused under PyCOMPSs.
     :param key: ``"exact"`` (default) or ``"semantic"`` (see the module).
+    :raises ValueError: For an unknown ``key`` or store.
+    :raises TypeError: For a ``store`` of another type.
+    :return: Used as a context manager, ``with`` gives the store.
     """
 
     def __init__(self, store=True, *, key="exact"):

@@ -208,6 +208,8 @@ class PackedCircuits:
     :ivar regions: The groups of device qubits used, best first.
     :ivar two_qubit_gates: For each input circuit, its two-qubit gates once
         compiled onto its group.
+
+    :func:`pack` builds it.
     """
 
     def __init__(self, circuits, slots, regions, two_qubit_gates, registers):
@@ -231,7 +233,11 @@ class PackedCircuits:
         order, one per packed circuit): SamplerV2 pub results (``job.result()[0]``)
         or counts dicts (``result.get_counts(i)`` of ``backend.run`` / Aer). The
         counts are keyed as Qiskit keys the circuit run alone (classical bit 0
-        rightmost; several registers separated by spaces, the last one first)."""
+        rightmost; several registers separated by spaces, the last one first).
+
+        :raises ValueError: Without one result per packed circuit.
+        :return: A list of counts dicts, one per input circuit.
+        """
         results = list(results)
         if len(results) != len(self.circuits):
             raise ValueError(

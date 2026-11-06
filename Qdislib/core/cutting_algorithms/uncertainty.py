@@ -38,10 +38,16 @@ DEFAULT_RESAMPLES = 200
 
 class Estimate(float):
     """A reconstructed value with its standard error: a ``float`` (it is used as
-    one everywhere) that also carries ``error`` and the ``shots`` it took.
+    one everywhere) that also carries ``error`` and the ``shots`` it took. What the
+    cutting functions return with ``error=``.
 
     ``error`` is the bootstrap standard error over the shots (and the drawn
-    configurations with ``num_samples``); 0 for an exact run.
+    configurations with ``num_samples``); 0 for an exact run. Arithmetic on it gives
+    a plain ``float``, without the error.
+
+    :param value: The value.
+    :param error: Its standard error.
+    :param shots: The shots behind it.
     """
 
     def __new__(cls, value, error=0.0, shots=0):
@@ -62,7 +68,13 @@ class Estimate(float):
 class Distribution(dict):
     """A reconstructed output distribution, ``{bitstring: probability}``, that also
     carries ``errors`` (``{bitstring: standard error}``, by bootstrap over the
-    shots) and the ``shots`` it took."""
+    shots) and the ``shots`` it took. What the ``_sampling`` functions return with
+    ``error=``.
+
+    :param probabilities: ``{bitstring: probability}``.
+    :param errors: ``{bitstring: standard error}``.
+    :param shots: The shots behind it.
+    """
 
     def __init__(self, probabilities, errors=None, shots=0):
         super().__init__(probabilities)
@@ -188,8 +200,20 @@ def shots_for(circuit, cuts, epsilon, delta=0.05, **options):
 
     A worst-case number: with drawn configurations the actual factor over the uncut
     circuit is at least ``gamma**2`` (``(gamma**2 - <O>**2) / (1 - <O>**2)``), while
-    running every term with its share of the shots can need fewer. ``options`` go to
-    :func:`~Qdislib.cutting_overhead` (``hadamard``, ``optimized``, ``joint``).
+    running every term with its share of the shots can need fewer.
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: As in :func:`~Qdislib.circuit_cutting`.
+    :param epsilon: The largest error allowed, with probability ``1 - delta``.
+    :param delta: The probability of a larger one.
+    :param options: For :func:`~Qdislib.cutting_overhead` (``hadamard``, ``optimized``,
+        ``joint``).
+    :raises ValueError: Unless ``epsilon > 0`` and ``0 < delta < 1``.
+    :return: The total shots.
+
+    Example::
+
+        shots = qd.shots_for(circuit, ["CZ_3"], epsilon=0.01)
     """
     from Qdislib.core.cutting_algorithms.mixed_cutting import cutting_overhead
 
