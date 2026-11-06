@@ -338,6 +338,35 @@ class CudaqMeasurementsTest(BaseTimedTestCase):
 
 @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq not installed")
 class CudaqRegistersTest(BaseTimedTestCase):
+    def test_a_bare_kernel_runs_with_shots(self):
+        import cudaq
+
+        import Qdislib as qd
+
+        @cudaq.kernel
+        def bell():
+            q = cudaq.qvector(2)
+            h(q[0])
+            x.ctrl(q[0], q[1])
+
+        self.assertAlmostEqual(qd.expectation_value(bell, shots=None), 1.0)
+        self.assertEqual(qd.expectation_value(bell, shots=100), 1.0)
+
+    def test_a_register_with_an_initial_state_is_refused(self):
+        # qvector([0.0, 1.0]) starts in |1>: reading only its gates answers for |0>
+        import cudaq
+
+        import Qdislib as qd
+
+        @cudaq.kernel
+        def from_a_state():
+            q = cudaq.qvector([0.0, 1.0])
+            h(q[0])
+            h(q[0])
+
+        with self.assertRaisesRegex(ValueError, "initial state"):
+            qd.gate_cutting(from_a_state, [], "Z", shots=None)
+
     def test_qubits_of_each_register_are_told_apart(self):
         import Qdislib as qd
         from Qdislib.utils.backends import convert_to_dag

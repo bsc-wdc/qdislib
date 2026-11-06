@@ -2493,6 +2493,8 @@ def _expec_value_cudaq(
         subcirc = payload
 
     freq = _counts_cudaq(subcirc, shots, target)
+    if observables is None:  # a bare kernel: Z on every qubit, as its exact run reads
+        observables = "Z" * len(next(iter(freq)))
     return _expectation_from_counts_cudaq(freq, observables, shots)
 
 

@@ -134,7 +134,11 @@ def _cudaq_allocation(statement):
     if kind == "qubit":
         return name, 1
     size = _eval_cudaq_param(call.args[0]) if call.args else None
-    return name, int(size) if size is not None and size == int(size) else None
+    if call.args and (size is None or size != int(size)):
+        # qvector(state) starts elsewhere than |0...0>, which the gates do not say; a
+        # name could hold either a size or a state
+        raise _unreadable(call, "a register whose size is no number: an initial state")
+    return name, int(size) if size is not None else None
 
 
 def _cudaq_qubit(call, arg, registers):
