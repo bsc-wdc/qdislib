@@ -520,6 +520,79 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
             pending.resolve()
         self.assertIsNone(cache.get("k"))  # the next run computes it
 
+    def _pending_with_a_clock(self, finishes_at):
+        """A PendingResult whose owner stores its value at ``finishes_at`` seconds
+        (``None``: never), and a patched clock so no test really waits."""
+        from Qdislib.utils import circuit_cache as cc
+
+        store = cc.InMemoryCircuitCache()
+        store.put("k", cc._PENDING)
+        clock = {"now": 0.0}
+
+        def sleep(seconds):
+            clock["now"] += seconds
+            if finishes_at is not None and clock["now"] >= finishes_at:
+                store.put("k", 0.5)
+
+        patches = (
+            unittest.mock.patch.object(cc.time, "sleep", sleep),
+            unittest.mock.patch.object(cc.time, "monotonic", lambda: clock["now"]),
+        )
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        return (
+            cc.PendingResult(store, "k", cc.ExpectationStrategy(), "ZZ", "qibo", 1024),
+            store,
+            clock,
+        )
+
+    def test_pending_waits_for_a_slow_owner(self):
+        # a long fragment takes hours; the owner is working, the run must not abort
+        for seconds in (20, 1800, 4 * 3600):
+            with self.subTest(owner_takes=seconds):
+                pending, _, clock = self._pending_with_a_clock(seconds)
+                self.assertEqual(pending.resolve(), 0.5)
+                self.assertGreaterEqual(clock["now"], seconds)
+
+    def test_pending_wait_is_configurable_and_a_lost_placeholder_raises(self):
+        from Qdislib.utils.exceptions import QdislibException
+
+        with unittest.mock.patch.dict(os.environ, {"QDISLIB_PENDING_TIMEOUT": "60"}):
+            pending, store, clock = self._pending_with_a_clock(None)
+            with self.assertRaisesRegex(QdislibException, "QDISLIB_PENDING_TIMEOUT"):
+                pending.resolve()
+            self.assertGreaterEqual(clock["now"], 60)
+            self.assertLess(clock["now"], 90)
+            self.assertIsNone(store.get("k"))  # the next run computes it
+
+            pending, _, _ = self._pending_with_a_clock(30)
+            self.assertEqual(pending.resolve(), 0.5)
+
+    def test_pending_default_still_ends(self):
+        from Qdislib.utils.exceptions import QdislibException
+
+        pending, _, clock = self._pending_with_a_clock(None)
+        with self.assertRaises(QdislibException):
+            pending.resolve()
+        self.assertLess(clock["now"], 7 * 3600)
+
+    def test_pending_a_bad_setting_keeps_the_default(self):
+        for bad in ("soon", "-1", "nan"):
+            with self.subTest(value=bad):
+                with unittest.mock.patch.dict(
+                    os.environ, {"QDISLIB_PENDING_TIMEOUT": bad}
+                ):
+                    pending, _, _ = self._pending_with_a_clock(1800)
+                    self.assertEqual(pending.resolve(), 0.5)
+
+    def test_pending_says_what_it_waits_for(self):
+        pending, _, _ = self._pending_with_a_clock(600)
+        with self.assertLogs("Qdislib.utils.circuit_cache", "WARNING") as logs:
+            pending.resolve()
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("QDISLIB_PENDING_TIMEOUT", logs.output[0])
+
     @unittest.skipUnless(QIBO_AVAILABLE and PYZX_AVAILABLE, "qibo and pyzx required")
     def test_concurrent_placeholder_defers_then_refreshes(self):
         # Simulate a concurrent task: plant the placeholder another task would

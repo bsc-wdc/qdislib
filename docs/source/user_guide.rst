@@ -791,6 +791,13 @@ or ``$QDISLIB_CACHE_DIR``, so every worker shares it), ``"memory"``,
 (``qd.default_circuit_cache(...)``; ``store.stats()`` gives hits, misses and size).
 ``cache=False`` turns a session cache off for one call.
 
+Under PyCOMPSs, on the paths that take ``cache_mode`` (``expectation_value`` on a native
+circuit or a list's subcircuit, and the deprecated cut options), a task that finds a
+circuit reserved by another waits for its result. ``$QDISLIB_PENDING_TIMEOUT`` on the
+workers is how long, in seconds (default 21600, six hours): past it the run raises and
+the reservation is removed, so one left by a killed run costs at most that wait. Raise
+it for fragments that take longer.
+
 What counts as the same circuit (``cache_key=``):
 
 - ``"exact"`` (the default): the same fragment circuit -- gates, qubits and the

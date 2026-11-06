@@ -53,6 +53,7 @@ is simply simulated as usual.
 import json
 import logging
 import math
+import os
 import re
 import time
 from fractions import Fraction
@@ -801,15 +802,48 @@ def is_pending(value):
     return isinstance(value, dict) and value.get("__qdislib_pending__") is True
 
 
+#: How long a reader waits, by default, for the task that reserved a key: a fragment
+#: can take hours. Set ``QDISLIB_PENDING_TIMEOUT`` (seconds) for another limit.
+_PENDING_TIMEOUT = 6 * 3600.0
+#: Past this many seconds, a reader says what it is waiting for (once).
+_PENDING_NOTICE = 60.0
+#: The longest pause between two looks at the store.
+_PENDING_MAX_DELAY = 10.0
+
+
+def _pending_timeout():
+    """The seconds to wait for a reserved key, read where the wait happens."""
+    value = os.environ.get("QDISLIB_PENDING_TIMEOUT")
+    if value is None:
+        return _PENDING_TIMEOUT
+    try:
+        seconds = float(value)
+    except ValueError:
+        seconds = -1.0
+    if not 0 <= seconds < math.inf:  # nan included: a typo must not stop a long run
+        logger.warning(
+            "QDISLIB_PENDING_TIMEOUT=%r is not a number of seconds: using %d.",
+            value,
+            _PENDING_TIMEOUT,
+        )
+        return _PENDING_TIMEOUT
+    return seconds
+
+
 class PendingResult:
     """A deferred subcircuit result whose key another task is still computing.
 
-    Returned by the cache path when a lookup finds the placeholder. It is
-    resolved at reconstruction time -- after the owning task has stored the real
-    value, which COMPSs task dependencies guarantee has happened by then -- by
-    re-reading the cache and applying the strategy. Resolution retries briefly to
-    tolerate write lag and returns ``None`` (logged) if the value never appears
-    (e.g. the owning task failed).
+    Returned by the cache path when a lookup finds the placeholder. It is resolved at
+    reconstruction time by re-reading the cache and applying the strategy. COMPSs
+    dependencies do not guarantee the owning task has finished by then: the reading
+    task depends on its own configuration's tasks, not on the owner, which may be a
+    long fragment still running. So it waits: for ``$QDISLIB_PENDING_TIMEOUT`` seconds
+    (six hours by default), looking at the store less and less often. A value that
+    never appears (the owning task failed, or a killed run left the placeholder)
+    raises, and the placeholder is removed so the next run computes it.
+
+    :param retries: Look this many times instead of until the time limit.
+    :param delay: Seconds before the second look; it grows up to ten.
     """
 
     def __init__(
@@ -820,7 +854,7 @@ class PendingResult:
         observables,
         software,
         shots,
-        retries=30,
+        retries=None,
         delay=0.5,
     ):
         self.cache = cache
@@ -841,19 +875,41 @@ class PendingResult:
         from Qdislib.utils.exceptions import QdislibException
 
         sim = _SimContext(None, None, self.observables, self.software, self.shots)
-        for attempt in range(self.retries):
+        timeout = _pending_timeout()
+        start = time.monotonic()
+        delay = self.delay
+        attempt = 0
+        told = False
+        while True:
             value = self.cache.get(self.cache_key)
             if value is not None and not is_pending(value):
                 return self.strategy.load(value, sim)
-            if attempt < self.retries - 1:
-                time.sleep(self.delay)
+            attempt += 1
+            waited = time.monotonic() - start
+            if self.retries is not None:
+                if attempt >= self.retries:
+                    break
+            elif waited >= timeout:
+                break
+            if not told and waited >= _PENDING_NOTICE:
+                told = True
+                logger.warning(
+                    "Waiting for cache key %s, which another task reserved: if none "
+                    "is running it, a killed run left it behind, and this raises "
+                    "after QDISLIB_PENDING_TIMEOUT=%d seconds.",
+                    self.cache_key,
+                    timeout,
+                )
+            time.sleep(delay)
+            delay = min(delay * 2, _PENDING_MAX_DELAY)
         try:
             self.cache.delete(self.cache_key)
         except Exception as exc:  # the error below is the one to report
             logger.warning("Could not remove the placeholder (%s).", exc)
         raise QdislibException(
             f"Cache key {self.cache_key} was never computed: the task that reserved "
-            "it failed, or a killed run left it in the store. Run again."
+            "it failed, or a killed run left it in the store, or it takes longer than "
+            f"QDISLIB_PENDING_TIMEOUT ({timeout:.0f} seconds; set it higher). Run again."
         )
 
 
