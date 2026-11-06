@@ -981,8 +981,9 @@ def find_cut(
     - Without ``mixed`` or ``coupling_map``, circuits are transformed into graphs and
       evaluated through multiple graph partitioning strategies; the best partition is
       chosen based on a custom loss function.
-    - A circuit that already splits into independent parts within ``max_qubits`` needs
-      no cut, and gets none.
+    - A circuit that already fits ``max_qubits``, or splits into independent parts that
+      do, needs no cut, and gets none. Without ``max_qubits`` the search still returns
+      the best cut.
 
     Example
     -------
@@ -1096,6 +1097,16 @@ def find_cut(
 
     if not (gate_cut or wire_cut):
         raise ValueError("Enable at least one of wire_cut or gate_cut.")
+
+    # A cut costs shots: one that fits max_qubits as it is does not need any. (On a
+    # coupling map, above, a cut also saves routing, so it can be worth one anyway.)
+    if max_qubits is not None and num_qubits(circuit) <= max_qubits:
+        logger.info(
+            "find_cut: the circuit's %d qubits fit max_qubits=%d; returning no cut.",
+            num_qubits(circuit),
+            max_qubits,
+        )
+        return [] if top_n is None else [{"cut": [], "kind": "none", "score": 0.0}]
 
     # Ranked mode: return the top_n candidate cuts (best score first) across
     # the enabled strategies, each as {"cut", "kind", "score"}, instead of the
