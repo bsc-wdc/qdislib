@@ -889,7 +889,7 @@
       label1.textContent = "Cuts: " + k;
       label2.textContent = "Target error: " + (epsilon < 0.01 ? epsilon.toFixed(4) : epsilon.toFixed(3));
       var scale = Math.pow(data.epsilon / epsilon, 2);
-      var html = "<thead><tr><th>Cut</th><th>Circuits</th><th>gamma</th><th>Shots, worst case</th></tr></thead><tbody>";
+      var html = "<thead><tr><th>Cut</th><th>Subcircuits</th><th>gamma</th><th>Shots, worst case</th></tr></thead><tbody>";
       Object.keys(data.kinds).forEach(function (key) {
         var kind = data.kinds[key], r = kind.rows[k - 1];
         html += "<tr><td>" + esc(kind.label) + "</td><td>" + count(r.subcircuits) + "</td><td>" + gammaText(r.gamma) + "</td><td>" + count(r.shots * scale) + "</td></tr>";
