@@ -903,5 +903,92 @@ class WireCutRightAfterACutGateTest(BaseTimedTestCase):
             self.assertAlmostEqual(value, expected, places=8, msg=bits)
 
 
+class CutsOnARepeatedPairTest(BaseTimedTestCase):
+    """Two gates on one pair with a gate between them on one line: the earlier one is a
+    neighbour of the later one through the other line too. Cutting the later one first
+    has to find each line's own neighbour, or a line is lost and the value is wrong."""
+
+    def _one_gate_between(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(3)
+        qc.ry(0.4, 1)
+        qc.ry(0.3, 0)
+        qc.ry(0.6, 2)
+        qc.cz(0, 1)
+        qc.cz(1, 2)  # CZ_5
+        qc.ry(0.7, 1)
+        qc.cz(1, 2)  # CZ_7
+        qc.ry(0.2, 2)
+        return qc
+
+    def _exact(self, qc, observable):
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+
+        operator = SparsePauliOp(observable[::-1])
+        return float(Statevector(qc).expectation_value(operator).real)
+
+    def test_every_kind_in_any_order_gives_the_circuits_value(self):
+        import Qdislib as qd
+
+        qc = self._one_gate_between()
+        exact = self._exact(qc, "ZZZ")
+        for cuts in (
+            {"hadamard": ["CZ_5"], "gate": ["CZ_7"]},
+            {"gate": ["CZ_5"], "hadamard": ["CZ_7"]},
+            {"gate": ["CZ_5", "CZ_7"]},
+            {"gate": ["CZ_7", "CZ_5"]},
+            {"hadamard": ["CZ_5", "CZ_7"]},
+            {"hadamard": ["CZ_7", "CZ_5"]},
+        ):
+            for joint in (True, False):
+                value = qd.circuit_cutting(qc, cuts, "ZZZ", shots=None, joint=joint)
+                self.assertAlmostEqual(value, exact, places=8, msg=f"{cuts} {joint}")
+
+    def test_no_line_is_lost(self):
+        import networkx as nx
+
+        import Qdislib as qd
+
+        qc = self._one_gate_between()
+        subs = qd.circuit_cutting_subcircuits(
+            qc, {"hadamard": ["CZ_5"], "gate": ["CZ_7"]}, "ZZZ", joint=False
+        )
+        graph = subs.plan.graph
+        self.assertTrue(graph.has_edge("RY_6", "GATE1_1"))
+        self.assertEqual(list(nx.selfloop_edges(graph)), [])
+        self.assertEqual(
+            qd.cutting_overhead(qc, {"gate": ["CZ_7", "CZ_5"]})["fragments"], 2
+        )
+
+    def test_a_distribution(self):
+        from qiskit.quantum_info import Statevector
+
+        import Qdislib as qd
+
+        qc = self._one_gate_between()
+        exact = {k[::-1]: p for k, p in Statevector(qc).probabilities_dict().items()}
+        got = qd.circuit_cutting_sampling(qc, {"gate": ["CZ_7", "CZ_5"]}, shots=None)
+        for key, probability in exact.items():
+            self.assertAlmostEqual(got.get(key, 0.0), probability, places=8, msg=key)
+
+    def test_a_hadamard_cut_then_two_gate_cuts(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(2)
+        qc.cz(1, 0)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.ry(1.358, 0)
+        qc.ry(0.5, 1)
+        qc.cz(0, 1)
+        value = qd.circuit_cutting(
+            qc, {"hadamard": ["CZ_1"], "gate": ["CZ_3", "CZ_6"]}, "ZZ", shots=None
+        )
+        self.assertAlmostEqual(value, self._exact(qc, "ZZ"), places=8)
+
+
 if __name__ == "__main__":
     unittest.main()

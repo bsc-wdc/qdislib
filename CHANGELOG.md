@@ -275,6 +275,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (chain) fragments too. Some of these circuits add CZ gates between the cut qubits;
   `joint=False` keeps the previous per-wire measurement, whose results are unchanged.
 ### Fixed
+- **Cuts on a repeated qubit pair could give a wrong value, with no error.** With two gates
+  on one pair and a gate between them on one line, cutting the later gate first took the
+  earlier one as that line's neighbour, and the line was lost: gate or Hadamard cuts not
+  listed in time order, and any Hadamard cut followed by a gate cut. On random circuits
+  with repeated pairs this was about 3% of cases. Earlier releases have the same code, so
+  check results with such cuts.
 - **A cut ignored what its backend object was configured with.** Aer's `noise_model`,
   `use_gpu` and `precision`, Qibo's `platform` and CUDA-Q's `target` did not reach the
   circuits a cut ran: a noisy run returned the noiseless value and a GPU run ran on the
