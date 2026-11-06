@@ -20,3 +20,6 @@
 """Quantum Distributed Library API."""
 
 from Qdislib.api.api import *
+from Qdislib.api.api import _deprecated_names
+
+__getattr__ = _deprecated_names(__name__)
