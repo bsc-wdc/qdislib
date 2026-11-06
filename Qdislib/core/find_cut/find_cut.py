@@ -49,7 +49,7 @@ def _find_nodes_with_qubit(
     :param qubit: Qubit.
     :param direction: Direction, defaults to "predecessor".
     :raises ValueError: Unexpected direction error. Must be "predecessor" or "successor".
-    :return: List of nodes with qubit.
+    :return: List of nodes with qubit, the node's own neighbour on that qubit's line first.
     """
     if direction == "predecessor":
         neighbors = graph.predecessors(node)
@@ -60,7 +60,20 @@ def _find_nodes_with_qubit(
 
     # Filter neighbors based on the qubit data
     nodes_with_qubit = [n for n in neighbors if qubit in graph.nodes[n]["qubits"]]
-    return nodes_with_qubit
+    if len(nodes_with_qubit) < 2:
+        return nodes_with_qubit
+
+    # A two-qubit gate can be a neighbour through its other qubit while touching this one
+    # too (CZ(1, 2), RY(1), CZ(1, 2): both are before the last gate). They are in line
+    # on this qubit, so the node's own neighbour is the nearest one in time.
+    def further(candidate, other):
+        ends = (candidate, other) if direction == "predecessor" else (other, candidate)
+        return other != candidate and networkx.has_path(graph, *ends)
+
+    nearest = [
+        n for n in nodes_with_qubit if not any(further(n, m) for m in nodes_with_qubit)
+    ]
+    return nearest + [n for n in nodes_with_qubit if n not in nearest]
 
 
 def _circuit_to_qubit_graph(circuit):
