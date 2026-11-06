@@ -1225,6 +1225,17 @@ class _FragmentTemplate:
         readout = _apply_measurement_setting(
             sub, fragment["measures"], fragment["cut_qubits"], setting
         )
+        # A term of a gate cut can leave a cut wire's qubit with no gate. Its reading is
+        # still part of the readout, so it stays in the circuit (in |0>, reading +1).
+        gated = {q for _, d in sub.nodes(data=True) for q in d.get("qubits") or ()}
+        for cut in fragment["measures"]:
+            if fragment["cut_qubits"][cut] not in gated:
+                sub.add_node(
+                    f"KEEP_{cut}",
+                    gate="rz",
+                    qubits=(fragment["cut_qubits"][cut],),
+                    parameters=(0.0,),
+                )
         if fragment["had_groups"]:
             assignments = {}
             for g in fragment["had_groups"]:
