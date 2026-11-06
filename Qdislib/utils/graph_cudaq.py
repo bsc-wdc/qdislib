@@ -107,6 +107,48 @@ def _eval_cudaq_param(node):
         return None
 
 
+def _cudaq_allocation(statement):
+    """``(register name, its size)`` for ``a = cudaq.qvector(n)`` / ``cudaq.qubit()``,
+    else ``None``. The name is ``None`` for a bare allocation; the size is ``None``
+    where the source does not state it as a number."""
+    target = None
+    if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+        target = statement.targets[0]
+    elif isinstance(statement, ast.AnnAssign):
+        target = statement.target
+    elif not isinstance(statement, ast.Expr):
+        return None
+    call = statement.value
+    if not isinstance(call, ast.Call):
+        return None
+    func = call.func
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        kind = func.attr if func.value.id == "cudaq" else None
+    else:
+        kind = func.id if isinstance(func, ast.Name) else None
+    if kind not in ("qvector", "qubit"):
+        return None
+    name = target.id if isinstance(target, ast.Name) else None
+    if kind == "qubit":
+        return name, 1
+    size = _eval_cudaq_param(call.args[0]) if call.args else None
+    return name, int(size) if size is not None and size == int(size) else None
+
+
+def _cudaq_qubit(call, arg, registers):
+    """The global qubit of ``arg``, a register's ``q[i]``: registers are numbered in
+    the order they are allocated, as the kernel's state is."""
+    index = arg.slice.value if isinstance(arg.slice, ast.Constant) else None
+    if not isinstance(index, int):
+        raise _unreadable(call, "a qubit that is not a literal index")
+    if not isinstance(arg.value, ast.Name) or arg.value.id not in registers:
+        raise _unreadable(call, "a qubit of a register the kernel does not allocate")
+    first, size = registers[arg.value.id]
+    if size is not None and not 0 <= index < size:
+        raise _unreadable(call, "a qubit outside its register")
+    return first + index
+
+
 def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
     """Convert a CUDA-Q kernel into a Qdislib DAG.
 
@@ -120,8 +162,9 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
     :param obs_I: Optional observable string; each ``"I"`` appends an identity
         observable sink node on that qubit (internal use when cutting).
     :raises ValueError: For what the source does not say gate by gate: a loop or a
-        branch, a gate on a whole register or on a computed qubit, an angle that is
-        not a number there (a kernel argument, a variable).
+        branch, a gate on a whole register or on a computed qubit, a register after
+        one of no stated size, an angle that is not a number there (a kernel argument,
+        a variable).
     :return: A :class:`networkx.DiGraph` whose nodes carry ``gate`` (upper-cased
         name), ``qubits`` (tuple of ints) and ``parameters`` (list of floats),
         with blue (nearest-predecessor) and red (other-predecessor) edges.
@@ -142,9 +185,20 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
         return dag
 
     ops = []
+    registers = {}  # name -> (its first qubit, its size or None)
+    next_qubit = 0  # None after a register of no stated size
     for statement in func.body:
         if isinstance(statement, _CUDAQ_CONTROL_FLOW):
             raise _unreadable(statement, "a loop or a branch")
+        allocation = _cudaq_allocation(statement)
+        if allocation is not None:
+            if next_qubit is None:
+                raise _unreadable(statement, "a register after one of no stated size")
+            name, size = allocation
+            if name is not None:
+                registers[name] = (next_qubit, size)
+            next_qubit = None if size is None else next_qubit + size
+            continue
         # Gate operations are bare calls (``h(q[0])``) or measurement
         # assignments (``m = mz(q[0])``); everything else is skipped.
         if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
@@ -164,10 +218,7 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
         qubits, parameters = [], []
         for arg in call.args:
             if isinstance(arg, ast.Subscript):
-                index = arg.slice.value if isinstance(arg.slice, ast.Constant) else None
-                if not isinstance(index, int):
-                    raise _unreadable(call, "a qubit that is not a literal index")
-                qubits.append(index)
+                qubits.append(_cudaq_qubit(call, arg, registers))
             elif name == "MZ" and isinstance(arg, ast.Name):
                 continue  # mz(q): every qubit is measured at the end anyway
             else:
