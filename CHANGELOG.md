@@ -281,6 +281,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listed in time order, and any Hadamard cut followed by a gate cut. On random circuits
   with repeated pairs this was about 3% of cases. Earlier releases have the same code, so
   check results with such cuts.
+- **A wire cut between gates on two shared qubits cut a line it should not.** With another
+  gate between them on one line, that line was cut too, and with a gate cut alongside the value
+  was wrong, with no error. A wire cut now severs only the lines on which its two gates are
+  next to each other, and gates next to each other on no line are refused.
 - **A cut ignored what its backend object was configured with.** Aer's `noise_model`,
   `use_gpu` and `precision`, Qibo's `platform` and CUDA-Q's `target` did not reach the
   circuits a cut ran: a noisy run returned the noiseless value and a GPU run ran on the

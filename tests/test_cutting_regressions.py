@@ -990,5 +990,74 @@ class CutsOnARepeatedPairTest(BaseTimedTestCase):
         self.assertAlmostEqual(value, self._exact(qc, "ZZ"), places=8)
 
 
+class WireCutBetweenGatesOnTwoLinesTest(BaseTimedTestCase):
+    """A wire cut names two gates; it cuts the lines on which they are next to each
+    other, not every line they share."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(2)
+        qc.ry(0.4, 0)
+        qc.ry(0.7, 1)
+        qc.cz(0, 1)  # CZ_3
+        qc.rx(0.5, 1)  # RX_4: on line 1 it stands between the two
+        qc.cx(0, 1)  # CX_5
+        qc.ry(0.3, 0)
+        return qc
+
+    def _exact(self, qc, observable="ZZ"):
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+
+        return float(Statevector(qc).expectation_value(SparsePauliOp(observable)).real)
+
+    def test_only_the_line_they_are_next_to_each_other_on_is_cut(self):
+        from Qdislib.core.cutting_algorithms.wire_cutting import _expand_wire_cuts
+        from Qdislib.utils.backends import convert_to_dag
+
+        dag = convert_to_dag(self._circuit())
+        self.assertEqual(
+            _expand_wire_cuts(dag, [("CZ_3", "CX_5")]), [("CZ_3", "CX_5", 0)]
+        )
+
+    def test_with_a_gate_cut_the_value_is_the_circuits(self):
+        import Qdislib as qd
+
+        qc = self._circuit()
+        for cuts in (
+            {"gate": ["CZ_3"], "wire": [("CZ_3", "CX_5")]},
+            {"hadamard": ["CZ_3"], "wire": [("CZ_3", "CX_5")]},
+        ):
+            value = qd.circuit_cutting(qc, cuts, "ZZ", shots=None)
+            self.assertAlmostEqual(value, self._exact(qc), places=8, msg=str(cuts))
+
+    def test_gates_next_to_each_other_on_two_lines_cut_both(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(2)
+        qc.ry(0.4, 0)
+        qc.ry(0.7, 1)
+        qc.cz(0, 1)
+        qc.cx(0, 1)
+        qc.ry(0.3, 0)
+        value = qd.circuit_cutting(qc, {"wire": [("CZ_3", "CX_4")]}, "ZZ", shots=None)
+        self.assertAlmostEqual(value, self._exact(qc), places=8)
+
+    def test_gates_not_next_to_each_other_on_any_line_are_refused(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+        from Qdislib.utils.exceptions import InvalidCutError
+
+        qc = QuantumCircuit(1)
+        qc.ry(0.4, 0)
+        qc.rx(0.5, 0)
+        qc.ry(0.3, 0)
+        with self.assertRaisesRegex(InvalidCutError, "next to each other"):
+            qd.circuit_cutting(qc, {"wire": [("RY_1", "RY_3")]}, "Z", shots=None)
+
+
 if __name__ == "__main__":
     unittest.main()
