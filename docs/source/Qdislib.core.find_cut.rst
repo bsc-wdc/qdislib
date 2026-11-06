@@ -12,6 +12,22 @@ Qdislib.core.find\_cut.find\_cut module
    :undoc-members:
    :show-inheritance:
 
+Qdislib.core.find\_cut.cost\_search module
+------------------------------------------
+
+.. automodule:: Qdislib.core.find_cut.cost_search
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.core.find\_cut.draw module
+----------------------------------
+
+.. automodule:: Qdislib.core.find_cut.draw
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

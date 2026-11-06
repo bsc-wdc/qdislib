@@ -36,6 +36,54 @@ Qdislib.core.cutting\_algorithms.mixed\_cutting module
    :undoc-members:
    :show-inheritance:
 
+Qdislib.core.cutting\_algorithms.factored module
+------------------------------------------------
+
+.. automodule:: Qdislib.core.cutting_algorithms.factored
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.core.cutting\_algorithms.uncertainty module
+---------------------------------------------------
+
+.. automodule:: Qdislib.core.cutting_algorithms.uncertainty
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.core.cutting\_algorithms.budget module
+----------------------------------------------
+
+.. automodule:: Qdislib.core.cutting_algorithms.budget
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.core.cutting\_algorithms.parameters module
+--------------------------------------------------
+
+.. automodule:: Qdislib.core.cutting_algorithms.parameters
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.core.cutting\_algorithms.engine\_cache module
+-----------------------------------------------------
+
+.. automodule:: Qdislib.core.cutting_algorithms.engine_cache
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.core.cutting\_algorithms.describe module
+------------------------------------------------
+
+.. automodule:: Qdislib.core.cutting_algorithms.describe
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

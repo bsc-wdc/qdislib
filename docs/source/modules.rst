@@ -1,4 +1,4 @@
-Qdislib
+Modules
 =======
 
 .. toctree::

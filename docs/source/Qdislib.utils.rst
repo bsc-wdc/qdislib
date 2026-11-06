@@ -92,6 +92,62 @@ Qdislib.utils.graph\_pennylane module
    :undoc-members:
    :show-inheritance:
 
+Qdislib.utils.graph\_qilisdk module
+-----------------------------------
+
+.. automodule:: Qdislib.utils.graph_qilisdk
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.utils.circuit\_dag module
+---------------------------------
+
+.. automodule:: Qdislib.utils.circuit_dag
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.utils.gates module
+--------------------------
+
+.. automodule:: Qdislib.utils.gates
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.utils.qasm module
+-------------------------
+
+.. automodule:: Qdislib.utils.qasm
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.utils.runtime module
+----------------------------
+
+.. automodule:: Qdislib.utils.runtime
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.utils.sdks module
+-------------------------
+
+.. automodule:: Qdislib.utils.sdks
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Qdislib.utils.statevector module
+--------------------------------
+
+.. automodule:: Qdislib.utils.statevector
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 
