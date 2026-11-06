@@ -46,7 +46,6 @@ except ImportError:  # qiskit / qiskit-aer are optional
     generate_preset_pass_manager = AerSimulator = None
 
 import re
-from collections import namedtuple
 
 from Qdislib.utils.sdks import sdk_names as _sdk_names
 from Qdislib.utils.gates import canonical
@@ -67,12 +66,9 @@ from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
 from Qdislib.utils.graph_pennylane import _apply_pennylane_gate, _build_pennylane_qnode
 
 try:
-    from qiskit_ibm_runtime import (
-        QiskitRuntimeService,
-        SamplerV2 as Sampler,
-    )
+    from qiskit_ibm_runtime import SamplerV2 as Sampler
 except ImportError:  # qiskit-ibm-runtime optional (only used for IBM QPU)
-    QiskitRuntimeService = Sampler = None
+    Sampler = None
 
 
 try:
@@ -86,11 +82,10 @@ except ImportError:  # qiskit is optional; functions that need it fail when call
 
 try:
     import qibo
-    from qibo import gates
 
     qibo_available = True
 except ImportError:  # qibo is optional; functions that need it fail when called
-    qibo = gates = None
+    qibo = None
     qibo_available = False
 
 try:
@@ -120,7 +115,6 @@ from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    resolve_software,
     default_observable,
 )
 
@@ -185,8 +179,6 @@ def _gate_cutting(
         Simulation method to use. Possible values are backend-dependent (e.g., "statevector", "qasm_simulator").
     sync : bool, default=True
         Whether to synchronize and wait for all computations to finish (useful in distributed environments like PyCOMPSs).
-    return_subcircuits : bool, default=False
-        If True, also return the list of subcircuits generated after cutting.
     gpu : bool, default=False
         If True, attempt to run circuit evaluations on GPU simulators when possible.
     gpu_min_qubits : int, optional
@@ -251,7 +243,6 @@ def _gate_cutting(
     .. code-block:: python
 
         from qiskit import QuantumCircuit
-        from mymodule import gate_cutting
 
         qc = QuantumCircuit(2)
         qc.h(0)     # Gate "H_1"
@@ -261,7 +252,7 @@ def _gate_cutting(
         # Define the gate to cut (e.g., the CZ gate)
         gates_to_cut = ["CZ_2"]  # You must identify the gate in order of definition
 
-        reconstruction = gate_cutting(qc, gates_to_cut, shots=2048)
+        reconstruction = _gate_cutting(qc, gates_to_cut, shots=2048)
 
     """
 
@@ -346,11 +337,7 @@ def _gate_cutting(
         ]
         results = []
         for piece, s in enumerate(S):
-            # num_qubits = _max_qubit(s)
-            tmp_cuts = []
-            for c in gates_cut:
-                if s.has_node(c):
-                    tmp_cuts.append(c)
+            tmp_cuts = [c for c in gates_cut if s.has_node(c)]
             if tmp_cuts:
                 graphs = _execute_gate_cutting(
                     s,
@@ -622,9 +609,8 @@ def _decompose_gate_in_dag(dag, gate_name):
     from Qdislib.utils.graph_qibo import gate_matrix
 
     node = dag.nodes[gate_name]
-    qubits = node["qubits"]
     params = node.get("parameters") or ()
-    if len(qubits) != 2:
+    if len(node["qubits"]) != 2:
         raise InvalidCutError(
             f"Gate cutting needs a two-qubit gate; {gate_name!r} is not one"
         )
@@ -633,45 +619,7 @@ def _decompose_gate_in_dag(dag, gate_name):
         raise InvalidCutError(
             f"Gate cutting needs a two-qubit gate; {gate_name!r} is {matrix.shape}"
         )
-    ops = _decompose_gate_to_cz(matrix)
-
-    qmap = {0: qubits[0], 1: qubits[1]}
-    preds = {
-        q: _find_nodes_with_qubit(dag, gate_name, qubit=q, direction="predecessor")
-        for q in qubits
-    }
-    succs = {
-        q: _find_nodes_with_qubit(dag, gate_name, qubit=q, direction="successor")
-        for q in qubits
-    }
-    dag.remove_node(gate_name)
-
-    last = {q: (preds[q][0] if preds[q] else None) for q in qubits}
-    cz_names = []
-    for i, (name, local_qubits, op_params) in enumerate(ops):
-        node_qubits = tuple(qmap[lq] for lq in local_qubits)
-        # CZ is symmetric, but the measure-and-prepare cut assigns SUBS1/SUBS2 (and the
-        # identity-observable sign recovery) by qubit *position*, so pin the control on
-        # the lower qubit -- a (1, 0) orientation otherwise mis-reconstructs.
-        if name == "CZ":
-            node_qubits = tuple(sorted(node_qubits))
-        node_id = f"{name}_{gate_name}_{i}"
-        dag.add_node(
-            node_id,
-            gate=canonical(name)[0],
-            qubits=node_qubits,
-            parameters=list(op_params),
-        )
-        for q in node_qubits:
-            if last[q] is not None:
-                dag.add_edge(last[q], node_id, color="blue")
-            last[q] = node_id
-        if name == "CZ":
-            cz_names.append(node_id)
-    for q in qubits:
-        if succs[q] and last[q] is not None:
-            dag.add_edge(last[q], succs[q][0], color="blue")
-    return cz_names
+    return _replace_with_ops(dag, gate_name, _decompose_gate_to_cz(matrix), "CZ")
 
 
 def _expand_general_gate_cuts(dag, gates_cut):
@@ -1876,15 +1824,6 @@ def _gate_cutting_sampling(
     return compss_wait_on(distribution) if sync else distribution
 
 
-#: One sampling subcircuit: a connected-component DAG, the backend it samples on,
-#: and the QPU routing (``qpu`` / ``qpu_dict``) that backend selection should use.
-_SampleUnit = namedtuple(
-    "_SampleUnit",
-    ["component", "software", "qpu", "qpu_dict"],
-    defaults=[False, None],
-)
-
-
 def sample_subcircuit(subcircuit, shots=1024, *, backend=None, seed=None):
     """Run one subcircuit of a ``*_sampling_subcircuits`` list (step two of three)::
 
@@ -1897,6 +1836,9 @@ def sample_subcircuit(subcircuit, shots=1024, *, backend=None, seed=None):
     :param shots: Shots; ``None`` is exact (statevector) where supported.
     :param backend: Where to run it, as in :func:`~Qdislib.expectation_value`.
     :param seed: Seed for a simulator's sampling.
+    :raises TypeError: For what is not a subcircuit, or one of a list made for
+        expectation values with no distribution to sample (1.x lists).
+    :raises ValueError: For ``shots=None`` with a backend that is no simulator.
     :return: ``(corr, original)`` -- its ``<Z^b>`` correlators and its qubits in the
         uncut circuit; ``reconstruct`` takes the list of these.
     """
@@ -1908,13 +1850,9 @@ def sample_subcircuit(subcircuit, shots=1024, *, backend=None, seed=None):
         return run(shots, backend, seed)
     if hasattr(subcircuit, "sample"):
         return subcircuit.sample(shots, seed)
-    return _sample_gate_subcircuit(  # a 1.x _SampleUnit
-        subcircuit.component,
-        subcircuit.software if backend is None else backend,
-        shots,
-        subcircuit.qpu,
-        subcircuit.qpu_dict,
-        seed,
+    raise TypeError(
+        f"sample_subcircuit takes a subcircuit of a *_sampling_subcircuits list, "
+        f"not {type(subcircuit).__name__}."
     )
 
 
@@ -1996,8 +1934,7 @@ def _gate_cutting_sampling_subcircuits(
     :param gates_cut: The gates to cut (as in :func:`gate_cutting_sampling`).
     :param software: Backend the subcircuits are sampled on (must match the backend
         used to sample them).
-    :param qpu: Route sampling to a QPU when each subcircuit is later sampled (each
-        :class:`_SampleUnit` carries this routing to :func:`sample_subcircuit`).
+    :param qpu: Route sampling to a QPU when each subcircuit is later sampled.
     :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
     :return: A :class:`SampledCutSubcircuits` (a ``list`` of sampling subcircuits
         plus the cut metadata and a :meth:`~SampledCutSubcircuits.reconstruct`
@@ -2142,10 +2079,7 @@ def _execute_gate_cutting(
         for c in nx.connected_components(new_dag.to_undirected(as_view=True))
     ]
 
-    max_qubit_list = []
-    for s in S:
-        _max_qubit = _max_qubits_graph(s)
-        max_qubit_list.append(_max_qubit)
+    max_qubit_list = [_max_qubits_graph(s) for s in S]
 
     reconstruction = []
     for index in range(6 ** len(gates_cut)):
@@ -2156,9 +2090,7 @@ def _execute_gate_cutting(
             copy_graph.to_undirected(as_view=True)
         )
 
-        graph_components = []
-        for i in range(num_components):
-            graph_components.append(nx.DiGraph().copy())
+        graph_components = [nx.DiGraph() for _ in range(num_components)]
 
         # Populates graph_components in place (one DiGraph per component).
         _generate_gate_cutting(copy_graph, gates_cut, index, graph_components)
@@ -2648,12 +2580,6 @@ def _gate_cutting_subcircuits(
     dag, gates_cut = _expand_general_gate_cuts(dag, gates_cut)
     _validate_gate_cuts_partition(dag, gates_cut)
 
-    # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
-    dispatch_map = {
-        name: (lambda d, n, name=name: make_subcircuit(d, n, name))
-        for name in _sdk_names()
-    }
-
     number_cuts = len(gates_cut)
 
     if nx.number_connected_components(dag.to_undirected(as_view=True)) > 1:
@@ -2672,13 +2598,7 @@ def _gate_cutting_subcircuits(
                 )
             else:
                 s_new, highest_qubit = _update_qubits(s)
-                try:
-                    piece = [dispatch_map[software](s_new, highest_qubit)]
-                except KeyError:
-                    raise UnsupportedBackendError(
-                        f"Unsupported software backend: '{software}'. "
-                        f"Expected one of {list(dispatch_map.keys())}."
-                    )
+                piece = [make_subcircuit(s_new, highest_qubit, software)]
             parts.append(
                 CutSubcircuits(
                     piece,
@@ -2694,13 +2614,7 @@ def _gate_cutting_subcircuits(
         )
     else:
         s_new, highest_qubit = _update_qubits(dag)
-        try:
-            subcircuits = [dispatch_map[software](s_new, highest_qubit)]
-        except KeyError:
-            raise UnsupportedBackendError(
-                f"Unsupported software backend: '{software}'. "
-                f"Expected one of {list(dispatch_map.keys())}."
-            )
+        subcircuits = [make_subcircuit(s_new, highest_qubit, software)]
 
     number_components = max(1, len(subcircuits) // (6**number_cuts))
     return CutSubcircuits(

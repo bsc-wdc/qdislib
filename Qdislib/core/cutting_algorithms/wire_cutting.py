@@ -96,7 +96,6 @@ from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    resolve_software,
     default_observable,
 )
 
@@ -203,15 +202,14 @@ def _wire_cutting(
     .. code-block:: python
 
         from qiskit import QuantumCircuit
-        from mymodule import wire_cutting
 
         qc = QuantumCircuit(2)
         qc.h(0)     # Gate "H_1"
-        qc.cx(0, 1) # Gate "CZ_2"
+        qc.cx(0, 1) # Gate "CX_2"
         qc.measure_all()
 
-        cuts = [("H_1","CZ_2")]  # List of gate tuples
-        reconstruction = wire_cutting(qc, cuts, shots=2048, backend="qiskit")
+        cuts = [("H_1","CX_2")]  # List of gate tuples
+        reconstruction = _wire_cutting(qc, cuts, shots=2048, software="qiskit")
     """
     if software is None:
         # Run the subcircuits in the circuit's own SDK: a Qiskit circuit's gate
@@ -2261,13 +2259,13 @@ def _counts_qibo(qc, shots=1024, backend="numpy"):
     return dict(result.frequencies(binary=True))
 
 
-def _expectation_from_counts_qibo(freq, observables, shots=1024):
-    """Compute ``<O>`` for a Z/I Pauli string from Qibo measurement counts.
+def _expectation_from_counts_qubit0_first(freq, observables, shots=1024):
+    """Compute ``<O>`` for a Z/I Pauli string from measurement counts whose keys are
+    qubit-0-first bit strings (qibo, CUDA-Q, PennyLane), which align directly with
+    the observable string.
 
-    Qibo frequency keys are already qubit-0-first bit strings, so they align
-    directly with the observable string.
-
-    :param freq: A ``{bitstring: count}`` dict as returned by :func:`_counts_qibo`.
+    :param freq: A ``{bitstring: count}`` dict, qubit-0-first (:func:`_counts_qibo`,
+        :func:`_counts_cudaq`, :func:`_counts_pennylane`).
     :param observables: Per-qubit Pauli string over ``{I, Z}``.
     :param shots: Number of shots the counts were drawn from.
     :raises ValueError: If an unsupported observable character is encountered.
@@ -2287,6 +2285,11 @@ def _expectation_from_counts_qibo(freq, observables, shots=1024):
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
     return expectation_value
+
+
+_expectation_from_counts_qibo = _expectation_from_counts_qubit0_first
+_expectation_from_counts_cudaq = _expectation_from_counts_qubit0_first
+_expectation_from_counts_pennylane = _expectation_from_counts_qubit0_first
 
 
 def _expectation_from_samples_qibo(qc, observables, shots, backend, prep_qubits):
@@ -2398,31 +2401,6 @@ def _counts_cudaq(kernel, shots=1024, target=None):
     select_cudaq_target(target)
     freq = cudaq.sample(kernel, shots_count=shots)
     return {str(key): int(value) for key, value in freq.items()}
-
-
-def _expectation_from_counts_cudaq(freq, observables, shots=1024):
-    """Compute ``<O>`` for a Z/I Pauli string from CUDA-Q measurement counts.
-
-    :param freq: A ``{bitstring: count}`` dict as returned by :func:`_counts_cudaq`.
-    :param observables: Per-qubit Pauli string over ``{I, Z}``.
-    :param shots: Number of shots the counts were drawn from.
-    :raises ValueError: If an unsupported observable character is encountered.
-    :return: The expectation value.
-    """
-    expectation_value = 0
-    for key, value in freq.items():
-        contribution = 1
-        for bit, obs in zip(key, observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
-            elif obs == "I":
-                contribution *= 1
-            else:
-                raise ValueError(f"Unsupported observable {obs}")
-
-        # Add the contribution weighted by its frequency
-        expectation_value += contribution * (value / shots)
-    return expectation_value
 
 
 def _expectation_cudaq_decoupled(
@@ -2579,32 +2557,6 @@ def _counts_pennylane(circuit, shots=1024, device="default.qubit", seed=None):
     return {str(key): int(value) for key, value in raw.items()}
 
 
-def _expectation_from_counts_pennylane(freq, observables, shots=1024):
-    """Compute ``<O>`` for a Z/I Pauli string from PennyLane measurement counts.
-
-    PennyLane ``counts`` keys are qubit-0-first bit strings, so they align
-    directly with the observable string (like Qibo/CUDA-Q).
-
-    :param freq: A ``{bitstring: count}`` dict as returned by :func:`_counts_pennylane`.
-    :param observables: Per-qubit Pauli string over ``{I, Z}``.
-    :param shots: Number of shots the counts were drawn from.
-    :raises ValueError: If an unsupported observable character is encountered.
-    :return: The expectation value.
-    """
-    expectation_value = 0
-    for key, value in freq.items():
-        contribution = 1
-        for bit, obs in zip(key, observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
-            elif obs == "I":
-                contribution *= 1
-            else:
-                raise ValueError(f"Unsupported observable {obs}")
-        expectation_value += contribution * (value / shots)
-    return expectation_value
-
-
 def _fold_cut_outcomes(outcomes):
     """One bit standing for all of a qubit's cut-point outcomes.
 
@@ -2737,36 +2689,6 @@ def _expec_value_pennylane(
 
     freq = _counts_pennylane(circuit, shots, device, seed=seed)
     return _expectation_from_counts_pennylane(freq, observables, shots)
-
-
-# Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
-def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
-    """Evaluate a subcircuit on a BSC QPU via the shared-filesystem bridge.
-
-    Ships the *unmeasured* subcircuit to the QPU listener
-    (:func:`~Qdislib.utils.qpu_bridge.run_qpu_listener`, which adds the
-    measurements and runs it on the hardware), then computes the expectation from
-    the returned counts. The wait is bounded (see
-    :func:`~Qdislib.utils.qpu_bridge.submit_and_wait`). ``method`` is unused here,
-    kept for signature parity with the CPU/GPU evaluators.
-    """
-    if subcirc is None:
-        return None
-
-    if not isinstance(subcirc, qibo.models.Circuit):
-        observables = subcirc[1]
-        subcirc = subcirc[0]
-    else:
-        observables = "Z" * subcirc.nqubits
-
-    from Qdislib.utils.qpu_bridge import submit_and_wait
-
-    result = submit_and_wait(subcirc)
-    freq = result.counts()
-    # Normalise by the actual shot count returned by the QPU (its num_bins may
-    # differ from the classical-side ``shots`` argument).
-    total_shots = sum(freq.values()) or 1
-    return _expectation_from_counts_qibo(freq, observables, total_shots)
 
 
 @task(returns=1, expectation_value=COLLECTION_IN)
@@ -3114,14 +3036,6 @@ def _wire_cutting_subcircuits(
             reason = f"failed ({exc})"
         _warn_not_optimized("subcircuits", reason)
 
-    # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
-    dispatch_map = {
-        "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
-        "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
-        "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
-        "pennylane": lambda d, n: make_subcircuit(d, n, "pennylane"),
-    }
-
     if networkx.number_connected_components(dag.to_undirected(as_view=True)) > 1:
         # Disconnected pieces are cut (or not) independently and multiply: keep each
         # piece's subcircuits as its own part so reconstruct() can't mix them up.
@@ -3140,13 +3054,7 @@ def _wire_cutting_subcircuits(
                 )
             else:
                 s_new, highest_qubit = _update_qubits(s)
-                try:
-                    piece = [dispatch_map[software](s_new, highest_qubit)]
-                except KeyError:
-                    raise UnsupportedBackendError(
-                        f"Unsupported software backend: '{software}'. "
-                        f"Expected one of {list(dispatch_map.keys())}."
-                    )
+                piece = [make_subcircuit(s_new, highest_qubit, software)]
             parts.append(
                 CutSubcircuits(
                     piece,
@@ -3166,13 +3074,7 @@ def _wire_cutting_subcircuits(
         else:
             number_cuts = 0
             s_new, highest_qubit = _update_qubits(dag)
-            try:
-                subcircuits = [dispatch_map[software](s_new, highest_qubit)]
-            except KeyError:
-                raise UnsupportedBackendError(
-                    f"Unsupported software backend: '{software}'. "
-                    f"Expected one of {list(dispatch_map.keys())}."
-                )
+            subcircuits = [make_subcircuit(s_new, highest_qubit, software)]
 
     number_components = max(1, len(subcircuits) // (8**number_cuts))
     return CutSubcircuits(

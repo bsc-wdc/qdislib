@@ -65,7 +65,6 @@ from Qdislib.utils.backends import Subcircuit
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    resolve_software,
     default_observable,
 )
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
