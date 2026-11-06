@@ -22,6 +22,7 @@
 import importlib.util
 import math
 import unittest
+import warnings
 
 import numpy as np
 
@@ -260,6 +261,106 @@ class StatevectorTest(BaseTimedTestCase):
         want = Statevector(qc).probabilities()
         got = dag_probabilities(convert_to_dag(qc), 4)
         self.assertTrue(np.allclose(want, got, atol=1e-12))
+
+
+@unittest.skipUnless(QISKIT, "qiskit required")
+class GatesAerDoesNotKnowTest(BaseTimedTestCase):
+    """iswap, ch, dcx: Aer has no such instruction, so a shot run must lower them."""
+
+    def _circuit(self, gate):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(3)
+        qc.ry(0.3, 0)
+        qc.ry(0.8, 1)
+        getattr(qc, gate)(0, 1)
+        qc.cz(1, 2)
+        qc.ry(0.4, 2)
+        return qc
+
+    def test_every_way_to_run_it(self):
+        import Qdislib as qd
+
+        for gate in ("iswap", "ch", "dcx"):
+            qc = self._circuit(gate)
+            exact = qd.analytical_solution(qc, "ZZZ")
+            cut, wire = ["CZ_4"], [(f"{gate.upper()}_3", "CZ_4")]
+            option = {"shots": 40000, "seed": 1}
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                runs = {
+                    "gate": lambda: qd.gate_cutting(qc, cut, "ZZZ", **option),
+                    "wire": lambda: qd.wire_cutting(qc, wire, "ZZZ", **option),
+                    "hadamard": lambda: qd.gate_cutting_hadamard(
+                        qc, cut, "ZZZ", **option
+                    ),
+                    "1.x": lambda: qd.gate_cutting(
+                        qc, cut, "ZZZ", method="automatic", **option
+                    ),
+                    "native": lambda: qd.expectation_value(qc, **option),
+                    "pair": lambda: qd.expectation_value([qc, "ZZZ"], **option),
+                }
+                for name, run in runs.items():
+                    with self.subTest(gate=gate, path=name):
+                        self.assertAlmostEqual(run(), exact, delta=0.05)
+                with self.subTest(gate=gate, path="sampling"):
+                    probabilities = qd.gate_cutting_sampling(qc, cut, **option)
+                    parity = sum(
+                        p * (-1) ** k.count("1") for k, p in probabilities.items()
+                    )
+                    self.assertAlmostEqual(parity, exact, delta=0.05)
+
+    def test_backend_without_compiling(self):
+        import Qdislib as qd
+
+        be = qd.QdBackEnd({"AER_BACKEND": {"num_qubits": 4}})
+        counts = be.sample_circuit(self._circuit("iswap"), 100, transpile=False).counts
+        self.assertEqual(sum(counts.values()), 100)
+
+    def test_registers_and_mid_circuit_measurements_stay(self):
+        from qiskit import ClassicalRegister, QuantumCircuit
+
+        from Qdislib.core.cutting_algorithms.gate_cutting import _counts_qiskit
+
+        # qubit 1 is measured (1), flipped by the iswap's qubit 0 state, read again
+        qc = QuantumCircuit(2)
+        qc.add_register(ClassicalRegister(2, "c"))
+        qc.x(1)
+        qc.measure(1, 0)
+        qc.iswap(0, 1)
+        counts = _counts_qiskit(qc, shots=20)
+        self.assertEqual(counts, {"01 01": 20})
+
+    def test_a_qubit_measured_then_kept_by_a_cut_with_such_a_gate_after(self):
+        import Qdislib as qd
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(3)
+        qc.ry(0.3, 0)
+        qc.ry(0.8, 1)
+        qc.cz(0, 1)
+        qc.iswap(1, 2)
+        qc.ry(0.4, 2)
+        exact = qd.analytical_solution(qc, "ZIZ")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            value = qd.gate_cutting(qc, ["CZ_3"], "ZIZ", shots=40000, seed=1)
+        self.assertAlmostEqual(value, exact, delta=0.05)
+
+    def test_ordinary_circuits_are_not_compiled(self):
+        from unittest import mock
+
+        from qiskit import QuantumCircuit
+
+        from Qdislib.core.cutting_algorithms.gate_cutting import _counts_qiskit
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.barrier()
+        qc.cx(0, 1)
+        qc.swap(0, 1)
+        with mock.patch("qiskit.transpile", side_effect=AssertionError("compiled")):
+            self.assertEqual(sum(_counts_qiskit(qc, shots=10).values()), 10)
 
 
 if __name__ == "__main__":

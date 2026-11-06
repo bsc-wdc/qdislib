@@ -2147,7 +2147,9 @@ def _counts_qiskit(qc, shots=1024, method="automatic", seed=None):
         mps_parallel_threshold=1,
     )
 
-    job = simulator.run(qc, shots=shots, seed_simulator=seed)
+    from Qdislib.utils.graph_qiskit import aer_runnable
+
+    job = simulator.run(aer_runnable(qc, simulator), shots=shots, seed_simulator=seed)
     result = job.result()
     logger.debug("Backend: %s", result.backend_name)
 
