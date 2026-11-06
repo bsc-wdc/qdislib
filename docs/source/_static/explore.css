@@ -87,3 +87,4 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 @media (prefers-reduced-motion: reduce) { .qd-try #qdx-play-board { transition: none; } }
 .qd-try .qdx-edit[hidden] { display: none; }
 .qd-try .qdx-edit { margin: 0.4rem 0 0.6rem; }
+.qd-try table.qdx-t td.qdx-term { font-weight: 600; white-space: nowrap; }

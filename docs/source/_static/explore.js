@@ -672,21 +672,37 @@
           ? "Wire cut on q" + cut.qubit + (plan.golden[index] ? " (golden)" : "")
           : (cut.kind === "gate" ? "Gate cut of " : "Hadamard cut of ") + shortName(ops[cut.op]) + "_" + (cut.op + 1);
         termsBody.appendChild(el("p", {}, title));
-        var rows = E.terms(plan, cut, index).map(function (t) {
-          var a, b;
-          if (cut.kind === "wire") { a = t.read === "I" ? "read nothing" : "measure " + t.read; b = "prepare |" + t.prep + "⟩"; }
+        var isHadamard = cut.kind === "hadamard", list = E.terms(plan, cut, index).slice();
+        /* In the order of Qdislib's describe(), whose (i,j) these are. */
+        if (isHadamard) list.sort(function (x, y) {
+          var p = x.a.had, q = y.a.had;
+          return p.i - q.i || p.j - q.j || p.g - q.g;
+        });
+        var rows = list.map(function (t) {
+          var a, b, term = "";
+          if (cut.kind === "wire") { a = t.read === "I" ? "read nothing" : "measure " + t.read; b = "prepare |" + t.prep + "\u27e9"; }
           else if (cut.kind === "gate") { a = termName(t.a); b = termName(t.b); }
-          else { a = hadName(t.a.had); b = hadName(t.b.had); }
-          return "<tr><td>" + (t.w >= 0 ? "+" : "−") + Math.abs(t.w).toFixed(4) + "</td><td>" + esc(a) + "</td><td>" + esc(b) + "</td></tr>";
+          else {
+            a = hadName(t.a.had, 0);
+            b = hadName(t.b.had, 1);
+            var h = t.a.had;
+            term = '<td class="qdx-term">(' + h.i + "," + h.j + ")" + (h.i === h.j ? "" : "<br>" + (h.g ? "imaginary" : "real")) + "</td>";
+          }
+          return "<tr>" + term + "<td>" + (t.w >= 0 ? "+" : "\u2212") + Math.abs(t.w).toFixed(4) + "</td><td>" + esc(a) + "</td><td>" + esc(b) + "</td></tr>";
         }).join("");
-        termsBody.appendChild(el("table", { class: "qdx-t" })).innerHTML = "<thead><tr><th>Weight</th><th>Side 1</th><th>Side 2</th></tr></thead><tbody>" + rows + "</tbody>";
+        termsBody.appendChild(el("table", { class: "qdx-t" })).innerHTML = "<thead><tr>" + (isHadamard ? "<th>Term</th>" : "") + "<th>Weight</th><th>Side 1</th><th>Side 2</th></tr></thead><tbody>" + rows + "</tbody>";
+        if (isHadamard) termsBody.appendChild(el("p", { class: "qd-note" }, "(i,j) as subs.describe() prints it, with parity 0 for the real part and 1 for the imaginary one. |0\u27e9 and |1\u27e9 are the ancilla's two branches. Swapping the operators conjugates the term: the real parts match and the imaginary parts flip sign, which cancels in the product, so each pair adds the same amount."));
       });
     }
     function termName(a) {
       return { i: "nothing", z: "Z", m: "measure, sign", "r+": "RZ(π/2)", "r-": "RZ(−π/2)" }[a];
     }
-    function hadName(h) {
-      return h.i === h.j ? (h.i ? "Z" : "nothing") : "ancilla, " + (h.g ? "imaginary" : "real") + " part";
+    /* What the engine applies: U[i] on the ancilla's |0>, U[j] on its |1>. Side 1 carries the
+       phase of the gate's -iZ. With i = j there is no ancilla, and that phase changes nothing. */
+    function hadName(h, side) {
+      if (h.i === h.j) return h.i ? "Z" : "nothing";
+      var U = ["I", side ? "Z" : (h.phase < 0 ? "\u2212iZ" : "iZ")];
+      return U[h.i] + " on |0\u27e9, " + U[h.j] + " on |1\u27e9";
     }
     function pythonFor(ops, cuts, observable) {
       var lines = ["from qiskit import QuantumCircuit", "import Qdislib as qd", "", "qc = QuantumCircuit(" + state.n + ")"];
