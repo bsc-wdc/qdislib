@@ -554,5 +554,303 @@ class GeneralGateAfterWireCutTest(BaseTimedTestCase):
         self.assertAlmostEqual(value, self._exact(qc), delta=0.1)
 
 
+@unittest.skipUnless(QISKIT, "qiskit required")
+class DeprecatedPathsObservableTest(BaseTimedTestCase):
+    """method= and the like read the observable as circuit_cutting does."""
+
+    def _runs(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3)
+        qc.ry(0.2, 0)
+        qc.cz(0, 1)
+        qc.ry(0.3, 1)
+        qc.cz(1, 2)
+        qc.x(2)
+        option = {"shots": 200, "seed": 1, "method": "automatic"}
+        return {
+            "gate": lambda o: qd.gate_cutting(qc, ["CZ_4"], o, **option),
+            "hadamard": lambda o: qd.gate_cutting_hadamard(qc, ["CZ_4"], o, **option),
+            "wire": lambda o: qd.wire_cutting(qc, [("RY_3", "CZ_4")], o, **option),
+        }
+
+    def test_one_letter_per_qubit(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for name, run in self._runs().items():
+                for observable in ("ZZ", "ZZZZ", {"ZZ": 1.0}):
+                    with self.subTest(path=name, observable=observable):
+                        with self.assertRaisesRegex(
+                            ValueError, "letters for a circuit"
+                        ):
+                            run(observable)
+
+    def test_only_pauli_letters(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for name, run in self._runs().items():
+                for observable in ("zzz", "ZZQ", {"ZZZ": 1.0, "zzi": 0.5}):
+                    with self.subTest(path=name, observable=observable):
+                        with self.assertRaises(ValueError):
+                            run(observable)
+
+    def test_what_is_right_still_runs(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for name, run in self._runs().items():
+                with self.subTest(path=name):
+                    self.assertLess(run("ZZZ"), -0.5)
+                    self.assertLess(run(None), -0.5)
+                    self.assertLess(run({"ZZZ": 1.0}), -0.5)
+
+
+@unittest.skipUnless(QISKIT, "qiskit required")
+class DeprecatedSamplersWidthTest(BaseTimedTestCase):
+    """method=... samplers: a key has a bit per qubit of the circuit, as on the main
+    path, whichever qubits are idle."""
+
+    def _assert_keys(self, qc, gate_cut, wire_cut, expected):
+        import Qdislib as qd
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            runs = {
+                "main": qd.gate_cutting_sampling(qc, gate_cut, shots=2000, seed=1),
+                "gate": qd.gate_cutting_sampling(
+                    qc, gate_cut, shots=2000, seed=1, method="automatic"
+                ),
+                "wire": qd.wire_cutting_sampling(
+                    qc, wire_cut, shots=2000, seed=1, method="automatic"
+                ),
+            }
+        for name, distribution in runs.items():
+            with self.subTest(path=name):
+                read = {k for k, p in distribution.items() if p > 0.05}
+                self.assertEqual(read, expected)
+
+    def test_a_trailing_idle_qubit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(4)
+        qc.x(0)
+        qc.cz(0, 1)
+        qc.h(1)
+        qc.cz(1, 2)
+        qc.x(2)
+        self._assert_keys(qc, ["CZ_4"], [("H_3", "CZ_4")], {"1010", "1110"})
+
+    def test_an_inner_idle_qubit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(4)
+        qc.x(0)
+        qc.cz(0, 1)
+        qc.h(1)
+        qc.cz(1, 3)
+        qc.x(3)
+        self._assert_keys(qc, ["CZ_4"], [("H_3", "CZ_4")], {"1001", "1101"})
+
+    def test_no_cut(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3)
+        qc.x(0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            gate = qd.gate_cutting_sampling(qc, [], shots=10, method="automatic")
+            wire = qd.wire_cutting_sampling(qc, [], shots=10, method="automatic")
+        self.assertEqual(gate, {"100": 1.0})
+        self.assertEqual(wire, {"100": 1.0})
+
+
+@unittest.skipUnless(QISKIT, "qiskit required")
+class AnalyticalFinalMeasurementsTest(BaseTimedTestCase):
+    def test_measure_all(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.cx(0, 1)
+        qc.measure_all()
+        self.assertAlmostEqual(qd.analytical_solution(qc, "ZZ"), 1.0)
+        self.assertEqual(len(qc.data), 5)  # the user's circuit keeps them
+
+    def test_a_measurement_on_one_qubit_and_idle_qubits(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3, 1)
+        qc.x(0)
+        qc.measure(0, 0)
+        qc.x(1)
+        self.assertAlmostEqual(qd.analytical_solution(qc, "ZII"), -1.0)
+        self.assertAlmostEqual(qd.analytical_solution(qc, "IZI"), -1.0)
+        self.assertAlmostEqual(qd.analytical_solution(qc, "IIZ"), 1.0)
+
+    def test_a_mid_circuit_one_is_still_refused(self):
+        from qiskit import QuantumCircuit
+        from qiskit.exceptions import QiskitError
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(1, 1)
+        qc.h(0)
+        qc.measure(0, 0)
+        qc.h(0)
+        with self.assertRaises(QiskitError):
+            qd.analytical_solution(qc, "Z")
+
+
+@unittest.skipUnless(QIBO, "qibo required")
+class QiboCircuitLeftAloneTest(BaseTimedTestCase):
+    """expectation_value does not change the user's Qibo circuit."""
+
+    def _circuit(self):
+        from qibo import gates, models
+
+        circuit = models.Circuit(2)
+        circuit.add(gates.H(0))
+        circuit.add(gates.CNOT(0, 1))
+        return circuit
+
+    def test_it_can_be_run_again(self):
+        import Qdislib as qd
+
+        circuit = self._circuit()
+        for _ in range(3):
+            self.assertEqual(qd.expectation_value(circuit, shots=50), 1.0)
+            self.assertEqual(qd.expectation_value([circuit, "ZZ"], shots=50), 1.0)
+        self.assertEqual([g.name for g in circuit.queue], ["h", "cx"])
+        self.assertFalse(circuit.measurements)
+        self.assertAlmostEqual(qd.analytical_solution(circuit, "ZZ"), 1.0)
+
+    def test_with_a_cache_too(self):
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        for mode in ("expectation", "counts"):
+            circuit = self._circuit()
+            value = qd.expectation_value(
+                circuit, shots=50, cache=InMemoryCircuitCache(), cache_mode=mode
+            )
+            self.assertEqual(value, 1.0)
+            self.assertEqual(len(circuit.queue), 2)
+
+    def test_a_cut_measurement_keeps_its_sign(self):
+        from qibo import gates, models
+
+        import Qdislib as qd
+
+        def measured():
+            circuit = models.Circuit(2)
+            circuit.add(gates.H(0))
+            circuit.add(gates.M(0, collapse=True))
+            circuit.add(gates.CNOT(0, 1))
+            return circuit
+
+        # -(-1)**m * (-1)**final: the cut point and the final read agree in every shot
+        self.assertEqual(qd.expectation_value([measured(), "ZI"], shots=200), -1.0)
+
+
+class NativeExactRunTest(BaseTimedTestCase):
+    """expectation_value(native, shots=None): the exact value, on every SDK."""
+
+    def _check(self, make, software):
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        for observable in ("ZI", "IZ", "ZZ", "II"):
+            with self.subTest(software=software, observable=observable):
+                exact = qd.analytical_solution(make(), observable)
+                value = qd.expectation_value([make(), observable], shots=None)
+                self.assertAlmostEqual(value, exact)
+                store = InMemoryCircuitCache()
+                for _ in range(2):  # an exact run's entry, shared
+                    value = qd.expectation_value(
+                        [make(), observable], shots=None, cache=store
+                    )
+                    self.assertAlmostEqual(value, exact)
+
+    @unittest.skipUnless(QIBO, "qibo required")
+    def test_qibo(self):
+        from qibo import gates, models
+
+        def make():
+            circuit = models.Circuit(2)
+            circuit.add(gates.RY(0, 0.7))
+            circuit.add(gates.CNOT(0, 1))
+            circuit.add(gates.RY(1, 0.2))
+            return circuit
+
+        self._check(make, "qibo")
+
+    @unittest.skipUnless(QISKIT, "qiskit required")
+    def test_qiskit(self):
+        from qiskit import QuantumCircuit
+
+        def make():
+            qc = QuantumCircuit(2)
+            qc.ry(0.7, 0)
+            qc.cx(0, 1)
+            qc.ry(0.2, 1)
+            return qc
+
+        self._check(make, "qiskit")
+
+    @unittest.skipUnless(QISKIT, "qiskit required")
+    def test_a_bare_circuit_reads_z_on_every_qubit(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3)
+        qc.x(0)
+        self.assertAlmostEqual(qd.expectation_value(qc, shots=None), -1.0)
+
+    @unittest.skipUnless(QISKIT, "qiskit required")
+    def test_a_cut_measurement_as_with_shots(self):
+        from qiskit import ClassicalRegister, QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(2)
+        qc.add_register(ClassicalRegister(2, "c"))
+        qc.ry(0.7, 0)
+        qc.measure(0, 0)
+        qc.cx(0, 1)
+        for observable in ("ZI", "IZ", "ZZ"):
+            with self.subTest(observable=observable):
+                self.assertAlmostEqual(
+                    qd.expectation_value([qc, observable], shots=None),
+                    qd.expectation_value([qc, observable], shots=200000, seed=1),
+                    delta=0.02,
+                )
+
+    @unittest.skipUnless(QISKIT, "qiskit required")
+    def test_what_it_cannot_read_says_so(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        with self.assertRaisesRegex(ValueError, "Unsupported observable"):
+            qd.expectation_value([qc, "XZ"], shots=None)
+        with self.assertRaisesRegex(ValueError, "letters"):
+            qd.expectation_value([qc, "Z"], shots=None)
+        with self.assertRaisesRegex(ValueError, "counts"):
+            qd.expectation_value(
+                qc, shots=None, cache=InMemoryCircuitCache(), cache_mode="counts"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

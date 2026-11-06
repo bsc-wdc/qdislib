@@ -62,7 +62,7 @@ from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    default_observable,
+    checked_observable,
 )
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
@@ -246,23 +246,56 @@ def _general_local_terms(u):
         return _pauli_local_terms(u)
 
 
+def _qiskit_gate_matrix(gate_name, params=()):
+    """A two-qubit gate's matrix from Qiskit, first qubit most significant."""
+    from qiskit import QuantumCircuit
+    from qiskit.quantum_info import Operator
+
+    from Qdislib.utils.graph_qiskit import _emit_qiskit_gate
+
+    circuit = QuantumCircuit(2)
+    _emit_qiskit_gate(circuit, gate_name, params, (0, 1))
+    return Operator(circuit).reverse_qargs().data
+
+
 def _two_qubit_matrix(gate_name, params=()):
     """The 4x4 unitary of a named two-qubit gate (any vocabulary; for the general
-    cut path)."""
+    cut path): the matrix of a dense gate, else qibo's, else the OpenQASM table's,
+    else Qiskit's, so a Qiskit-only install cuts what it can write.
+
+    :raises NotImplementedError: For what is not a two-qubit gate, or what none of
+        them knows.
+    """
     from Qdislib.utils.gates import GATES, canonical
-    from Qdislib.utils.graph_qibo import gate_matrix
+    from Qdislib.utils.graph_qibo import gate_matrix, qibo_available
+    from Qdislib.utils.statevector import gate_unitary
 
     name = canonical(gate_name, params)[0]
     if GATES.get(name, (2,))[0] != 2:
         raise NotImplementedError(
             f"Hadamard-test cut needs a two-qubit gate; {gate_name!r} is not one"
         )
-    try:
-        matrix = gate_matrix(gate_name, params, 2)
-    except Exception as exc:  # noqa: BLE001
+    sources = [gate_unitary, _qiskit_gate_matrix]
+    if qibo_available and name != "unitary":
+        sources.insert(0, lambda n, p: gate_matrix(n, p, 2))
+    matrix, failure = None, None
+    for source in sources:
+        try:
+            matrix = source(gate_name, params)
+        except Exception as exc:  # noqa: BLE001 -- the next one may know it
+            failure = exc
+        if matrix is not None:
+            break
+    if matrix is None:
+        hint = (
+            ""
+            if qibo_available
+            else ' Installing qibo may help: pip install "qdislib[qibo]".'
+        )
         raise NotImplementedError(
-            f"cannot build a two-qubit matrix for {gate_name!r}: {exc}"
-        ) from exc
+            f"cannot build a two-qubit matrix for {gate_name!r}: {failure}.{hint}"
+        ) from failure
+    matrix = np.asarray(matrix)
     if matrix.shape != (4, 4):
         raise NotImplementedError(
             f"Hadamard-test cut needs a two-qubit gate; {gate_name!r} is {matrix.shape}"
@@ -288,15 +321,14 @@ def local_unitary_decomposition(gate_name, params=()):
     :raises NotImplementedError: if ``gate_name`` is not a resolvable two-qubit gate.
     """
     name = str(gate_name).upper()
-    theta = float(params[0]) if params else 0.0
     if name == "CZ" or (name in ("CX", "CNOT")):
         # CZ = diag(1, 1, 1, -1). CX is cut as CZ with H-conjugation on the target
         # (handled by the fragment builder); the decomposition is the CZ one.
         diag = [1, 1, 1, -1]
     elif name in ("CP", "CPHASE", "CU1"):  # CU1 is qibo's controlled-phase name
-        diag = [1, 1, 1, cmath.exp(1j * theta)]
+        diag = [1, 1, 1, cmath.exp(1j * (float(params[0]) if params else 0.0))]
     elif name == "RZZ":
-        e = cmath.exp(-1j * theta / 2)
+        e = cmath.exp(-0.5j * (float(params[0]) if params else 0.0))
         diag = [e, e.conjugate(), e.conjugate(), e]
     else:  # general non-diagonal two-qubit gate: KAK / Cartan (optimal) or Pauli basis
         return _general_local_terms(_two_qubit_matrix(gate_name, params))
@@ -1663,7 +1695,7 @@ def gate_cutting_hadamard(
     return _gate_cutting_hadamard(
         circuit,
         cuts,
-        default_observable(observable, circuit),
+        checked_observable(observable, circuit),
         software=resolve_backend(backend, circuit),
         shots=shots,
         seed=seed,

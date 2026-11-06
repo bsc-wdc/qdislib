@@ -528,5 +528,68 @@ class HadamardSamplingTest(BaseTimedTestCase):
         self.assertAlmostEqual(single, tree, places=9)
 
 
+_WITHOUT_QIBO = """
+import sys
+sys.modules["qibo"] = None  # as on pip install "qdislib[qiskit]"
+import warnings
+warnings.simplefilter("ignore")
+import Qdislib as qd
+from qiskit import QuantumCircuit
+from Qdislib.core.cutting_algorithms.hadamard_cut import _two_qubit_matrix
+from Qdislib.core.find_cut.cost_search import _gate_costs
+from Qdislib.utils.backends import convert_to_dag
+from Qdislib.utils.graph_qibo import qibo_available
+
+assert not qibo_available
+for gate, params in (
+    ("crz", (0.5,)),
+    ("rxx", (0.5,)),
+    ("swap", ()),
+    ("iswap", ()),
+    ("cry", (0.4,)),
+    ("ch", ()),
+    ("dcx", ()),
+    ("ecr", ()),
+    ("rzx", (0.3,)),
+):
+    qc = QuantumCircuit(3)
+    qc.ry(0.3, 0)
+    qc.ry(0.8, 1)
+    getattr(qc, gate)(*params, 0, 1)
+    qc.cz(1, 2)
+    qc.ry(0.4, 2)
+    exact = qd.analytical_solution(qc, "ZZZ")
+    cut = [f"{gate.upper()}_3"]
+    value = qd.gate_cutting_hadamard(qc, cut, "ZZZ", shots=None)
+    assert abs(value - exact) < 1e-9, (gate, value, exact)
+    value = qd.gate_cutting_hadamard(qc, cut, "ZZZ", shots=40000, seed=1)
+    assert abs(value - exact) < 0.1, (gate, value, exact)
+    # the search prices it too: it saw no Hadamard form at all
+    assert _gate_costs(convert_to_dag(qc), cut[0], {})[1] < float("inf"), gate
+try:
+    _two_qubit_matrix("SYC")  # a qibo gate: nothing else knows it
+except NotImplementedError as error:
+    assert "qdislib[qibo]" in str(error), error
+else:
+    raise AssertionError("no error")
+print("fine")
+"""
+
+
+@unittest.skipUnless(importlib.util.find_spec("qiskit") is not None, "qiskit required")
+class QiskitOnlyInstallTest(BaseTimedTestCase):
+    def test_a_general_gate_is_cut_without_qibo(self):
+        import subprocess
+        import sys
+
+        out = subprocess.run(
+            [sys.executable, "-c", _WITHOUT_QIBO],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        self.assertEqual(out.stdout.strip()[-4:], "fine", out.stderr[-1500:])
+
+
 if __name__ == "__main__":
     unittest.main()

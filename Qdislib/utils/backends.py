@@ -437,6 +437,36 @@ def _make_subcircuit_task(component, software):
     return Subcircuit(s_new, highest_qubit, software)
 
 
+def _exact_native(subcircuit):
+    """``<observable>`` of a native subcircuit from its statevector: the exact run of
+    what the shot evaluators read (see :meth:`Subcircuit._exact_expectation`).
+
+    :param subcircuit: A native circuit or a ``[circuit, observable]`` pair.
+    :raises ValueError: For a letter other than I, Z, or a string without one letter
+        per qubit.
+    :return: The expectation value.
+    """
+    from Qdislib.core.cutting_algorithms.mixed_cutting import _exact_fragment
+
+    circuit, observable, software = _unpack_native(subcircuit)
+    if isinstance(circuit, tuple):  # CUDA-Q's legacy (dag, num_qubits)
+        dag, width = circuit
+    else:
+        dag, width = convert_to_dag(circuit), num_qubits(circuit)
+    observable = "Z" * width if observable is None else observable
+    unsupported = set(observable) - set("IZ")
+    if unsupported:
+        raise ValueError(f"Unsupported observable {sorted(unsupported)[0]}")
+    if len(observable) != width:
+        raise ValueError(
+            f"The observable {observable!r} has {len(observable)} letters for a "
+            f"circuit of {width} qubits: write one per qubit (I where nothing is read)."
+        )
+    corr, original = _exact_fragment(dag, software)
+    mask = sum(1 << i for i, q in enumerate(original) if observable[q] != "I")
+    return float(corr[mask])
+
+
 def _run_native(circuit, software, shots):
     """Evaluate an already-built native subcircuit with the matching evaluator."""
     from Qdislib.core.cutting_algorithms.wire_cutting import (
@@ -446,6 +476,8 @@ def _run_native(circuit, software, shots):
     )
     from Qdislib.core.cutting_algorithms.gate_cutting import _expec_value_qiskit
 
+    if shots is None:
+        return _exact_native(circuit)
     if software == "qibo":
         return _expec_value_qibo(circuit, shots)
     if software == "qiskit":
@@ -548,12 +580,18 @@ class _SimContext:
 
     def counts(self):
         """Raw measurement counts for the circuit."""
+        if self.shots is None:
+            raise ValueError(
+                "shots=None is an exact run, which has no counts to keep: use "
+                "cache_mode='expectation', or pass shots."
+            )
         return _simulate_counts(self.circuit, self.software, self.shots)
 
     def expectation_from_counts(self, counts):
-        """Expectation value derived from ``counts`` for this observable."""
+        """Expectation value derived from ``counts`` for this observable, over their
+        own total: a store can hold counts drawn with other shots than this run's."""
         return _expectation_from_counts(
-            counts, self.observables, self.software, self.shots
+            counts, self.observables, self.software, sum(counts.values())
         )
 
 
@@ -680,6 +718,10 @@ def _cached_expectation(subcircuit, shots, cache, cache_mode):
     fingerprint = _cut_point_fingerprint(circuit, software)
     if fingerprint:
         key = f"{key}#{fingerprint}"
+    # A shot run's value belongs to its shots (a later, longer run must not get the
+    # first one's noise); exact runs have no shots and share their entry.
+    if shots is not None:
+        key = f"{key}|shots={shots}"
 
     strategy = _resolve_strategy(cache_mode)
     sim = _SimContext(circuit, subcircuit, observables, software, shots)
@@ -808,6 +850,8 @@ def expectation_value(
         )
     if cache is not None:
         return _cached_expectation(subcircuit, shots, cache, cache_mode)
+    if shots is None:
+        return _exact_native(subcircuit)
 
     from Qdislib.core.cutting_algorithms.wire_cutting import (
         _expec_value_qibo,
@@ -924,6 +968,13 @@ class CombinedCutSubcircuits(CutSubcircuits):
         self.number_cuts = sum(counts) if self.coefficients is None else max(counts)
         #: Number of parts recombined.
         self.number_components = len(self.parts)
+
+    def __repr__(self):
+        how = "product" if self.coefficients is None else "weighted sum"
+        return (
+            f"<{type(self).__name__}: {len(self)} subcircuits, "
+            f"{how} of {len(self.parts)} parts>"
+        )
 
     @property
     def parameters(self):

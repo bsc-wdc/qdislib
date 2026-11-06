@@ -436,14 +436,15 @@ def _check_cut_names(dag, gate_cuts, had_cuts, wire_edges):
 _STATED_WIDTH_SDKS = ("qibo", "qiskit", "qilisdk")
 
 
-def _check_observable_width(observable, plan, circuit):
+def _check_observable_width(observable, gate_width, circuit):
     """Raise unless a Pauli string has one letter per qubit: a shorter one read as
-    if the rest were ``I``, and a longer one as if the circuit had more qubits."""
+    if the rest were ``I``, and a longer one as if the circuit had more qubits.
+    ``gate_width`` is the width of a circuit that does not state its own."""
     from Qdislib.core.cutting_algorithms.hadamard_cut import _num_circuit_qubits
     from Qdislib.utils.circuit_cache import _detect_software
 
     stated = _detect_software(circuit) in _STATED_WIDTH_SDKS
-    width = _num_circuit_qubits(circuit) if stated else plan.width
+    width = _num_circuit_qubits(circuit) if stated else gate_width
     if len(observable) < width or (stated and len(observable) > width):
         raise ValueError(
             f"The observable {observable!r} has {len(observable)} letters for a "
@@ -2568,7 +2569,7 @@ def _prepare_cut(
     qubits (its circuits return only the correlators it reads)."""
     plan = _CutPlan(circuit, cuts, observable, hadamard, optimized, joint)
     if observable is not None:
-        _check_observable_width(observable, plan, circuit)
+        _check_observable_width(observable, plan.width, circuit)
     _warn_cheaper_hadamard(plan)
     draws = None
     if num_samples is not None:

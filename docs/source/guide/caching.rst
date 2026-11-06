@@ -78,3 +78,10 @@ The three-step workflow
     store = qd.default_circuit_cache("memory")
     values = [qd.expectation_value(s, shots=2000, seed=1, cache=store) for s in subs]
     print(subs.reconstruct(values), store.stats())
+
+Under PyCOMPSs, on the paths that take ``cache_mode`` (``expectation_value`` on a native
+circuit or a list's subcircuit, and the deprecated cut options), a task that finds a
+circuit reserved by another waits for its result. ``$QDISLIB_PENDING_TIMEOUT`` on the
+workers is how long, in seconds (default 21600, six hours): past it the run raises and
+the reservation is removed, so one left by a killed run costs at most that wait. Raise
+it for fragments that take longer.

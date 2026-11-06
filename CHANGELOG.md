@@ -293,7 +293,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An observable of the wrong length answered for another operator**: `"ZZ"` on 4
   qubits was read as `ZZII`. It now raises.
 - **A wire cut between gates sharing no qubit was ignored**, so the whole circuit ran as
-  one piece. That, an unknown cut and a repeated cut now raise `InvalidCutError`.
+  one piece. That, an unknown cut and a repeated cut now raise `InvalidCutError` on the
+  2.0 paths (the deprecated `method=`, `gpu=` and `qpu=` paths still raise `KeyError`).
+- **`expectation_value(cache=...)` kept a shot run's value for any other shots.** A key
+  holds the shots now, and exact runs stay shared. Counts-mode entries are read over their
+  own total, where an expectation of -10 could come back.
+- **CUDA-Q kernels:** several registers read the right qubits; final `mz` is stripped
+  everywhere; a gate after a measurement, `mx`, `my` and `qvector(state)` raise a readable
+  error instead of a wrong value; `t.adj` runs with shots; a bare kernel runs with shots.
+- **The deprecated `method=` and `qpu=` paths** check the observable as the main path does,
+  and their samplers keep a bit per qubit.
+- **`QdBackEnd.sample_circuit`** returns qubit-0-first keys on every backend.
+- **Aer shot runs lower instructions it does not know** (`iswap`, `ch`, `dcx`), which
+  raised `AerError`; only such circuits are compiled.
+- **`analytical_solution`** ignores a Qiskit circuit's final measurements.
+- **`find_cut`** returns `[]` when the circuit already fits `max_qubits`, as documented, and
+  `top_n` lists each cut once.
+- **`expectation_value`** leaves a Qibo circuit without collapse measurements untouched, and
+  a native circuit with `shots=None` gives its exact value.
+- **Hadamard cuts** work on dense unitaries and, on a Qiskit-only install, on general
+  gates; `find_cut(mixed=True)` prices them.
+- `estimate` metrics report the session cache, `store.stats()` counts each circuit once,
+  the QPU listener handles glob characters in its directory, and a refused Redis URL's
+  password stays out of the message. `CombinedCutSubcircuits` has a short repr.
 - **PennyLane circuits:** gates without a QASM mnemonic (`U3`, `CU1`, `SWAP`...) no
   longer collide in the semantic key, and `num_qubits` counts up to the highest wire.
 - **A cache placeholder that never resolves** raises instead of dropping a factor from a
@@ -394,6 +416,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration (6**g * 8**w). Its counts now come from closed forms (0.04 s for 12
   CZ cuts, against minutes).
 ### Changed
+- **A reader waits longer for a reserved cache key:** up to six hours, or
+  `$QDISLIB_PENDING_TIMEOUT` seconds, since a fragment can take that long. A value that never
+  appears raises, and its placeholder is removed.
+- **Counts-mode cache entries are per shot count:** one simulation serves all observables at
+  the same shots.
+- **A CUDA-Q kernel with `mz`** is rebuilt without it, so its seeded values change, and one
+  with a loop and `mz` raises under shots. `rediss://` is accepted.
 - **`pymetis` is no longer installed on Linux arm64 or Windows**, where it has no wheel and
   `pip install qdislib` failed without a C compiler. `find_cut` runs without it and says so,
   though a wire cut can come out larger; the `metis` extra adds it. Nothing changes elsewhere.
@@ -561,7 +590,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 - `HadamardCutSubcircuits`, `HadamardSampledCutSubcircuits`, `SampledCutSubcircuits` and
   `WireSampledCutSubcircuits`: no function returns them since 2.0.0 (the lists are
-  `CutCircuits`). `qd.<name>` warns, and they left `__all__`. They will be removed.
+  `CutCircuits`). `qd.<name>` and `Qdislib.api.<name>` warn, and they left `__all__`. They
+  will be removed.
 - An SDK's name as third positional argument of a subcircuit generator
   (`qd.wire_cutting_subcircuits(circuit, cut, "qiskit")`) warns and is read as the list's
   default SDK. The third argument is the observable.

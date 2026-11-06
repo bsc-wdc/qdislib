@@ -109,7 +109,8 @@ class QdBackEnd:
             wide enough, then the next if one fails.
         :raises ValueError: For an unknown ``backend_name``, or none wide enough.
         :raises RuntimeError: If every candidate failed (from the last failure).
-        :return: A :class:`~Qdislib.core.backend.base_backend.SampleJobResult`.
+        :return: A :class:`~Qdislib.core.backend.base_backend.SampleJobResult`, its
+            counts with qubit-0-first keys whichever backend ran it.
         """
         last_exc: Exception | None = None
         for backend in self._select_backends(circuit, backend_name):

@@ -45,6 +45,7 @@ import hashlib
 import logging
 import os
 import pickle
+import re
 
 import numpy as np
 
@@ -92,7 +93,7 @@ def _in_compss_runtime():
 def _store(spec):
     """A store from what ``cache=`` takes: ``True`` (the default store: in memory,
     or LMDB on the working directory's filesystem under PyCOMPSs), ``"memory"``,
-    ``"lmdb:<path>"``, ``"redis"`` / ``"redis://host:port/db"``, or a
+    ``"lmdb:<path>"``, ``"redis"`` / ``"redis[s]://host:port/db"``, or a
     :class:`~Qdislib.utils.circuit_cache.CircuitCache` object."""
     from Qdislib.utils import circuit_cache as cc
 
@@ -123,9 +124,9 @@ def _store(spec):
             path = spec[len("lmdb:") :]
             os.makedirs(path, exist_ok=True)
             _STORES[spec] = cc.LMDBCircuitCache(path)
-        elif spec == "redis" or spec.startswith("redis://"):
+        elif spec == "redis" or spec.startswith(("redis://", "rediss://")):
             kwargs = {}
-            if spec.startswith("redis://"):
+            if spec.startswith(("redis://", "rediss://")):
                 from urllib.parse import urlparse
 
                 url = urlparse(spec)
@@ -138,9 +139,13 @@ def _store(spec):
                     kwargs["username"] = url.username
                 if url.password:
                     kwargs["password"] = url.password
+                if url.scheme == "rediss":
+                    kwargs["ssl"] = True
             _STORES[spec] = cc.default_circuit_cache("redis", **kwargs)
         else:
-            raise ValueError(f"Unknown cache {spec!r}")
+            # a URL's password stays out of what gets printed and logged
+            shown = re.sub(r"://([^:/@]*):.*@", r"://\1:***@", spec)
+            raise ValueError(f"Unknown cache {shown!r}")
     return _STORES[spec]
 
 
@@ -158,7 +163,7 @@ class use_cache:  # noqa: N801 -- used as a function and as a context manager
     that call).
 
     :param store: ``True``, ``"memory"``, ``"lmdb:<path>"``, ``"redis"``,
-        ``"redis://[user:password@]host:port/db"``, a ``CircuitCache`` object, or
+        ``"redis[s]://[user:password@]host:port/db"``, a ``CircuitCache`` object, or
         ``None`` (off). ``"memory"`` is one process's memory, refused under PyCOMPSs.
     :param key: ``"exact"`` (default) or ``"semantic"`` (see the module).
     :raises ValueError: For an unknown ``key`` or store.
@@ -437,13 +442,14 @@ class EngineCache:
         return future
 
 
-def _read(store, key):
+def _read(store, key, again=False):
     """What ``store`` holds under ``key``; ``None`` on a miss, a 1.x placeholder, or
-    a store error (which never stops a run)."""
+    a store error (which never stops a run). ``again``: a second look at a key already
+    counted as a lookup, so not counted."""
     from Qdislib.utils.circuit_cache import is_pending
 
     try:
-        payload = store.get(key)
+        payload = store.peek(key) if again else store.get(key)
     except Exception as exc:  # noqa: BLE001
         logger.warning("cache read failed (%s); running the circuit", exc)
         return None
@@ -480,7 +486,11 @@ class CacheRequest:
         return f"qd-semantic:{key}:{backend_id(runner, self.shots)}"
 
     def get(self, key):
-        return None if self.refresh else _read(self.store, key)
+        # An exact key was read on the master, and read again here in case a task
+        # stored it since. A semantic key is only read here.
+        if self.refresh:
+            return None
+        return _read(self.store, key, again=self.key is not None)
 
     def put(self, key, result):
         payload = to_payload(result)

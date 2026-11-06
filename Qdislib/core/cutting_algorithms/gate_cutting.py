@@ -113,7 +113,7 @@ from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    default_observable,
+    checked_observable,
 )
 
 
@@ -1076,6 +1076,14 @@ def _dag_num_qubits(dag):
     return (max(qubits) + 1) if qubits else 0
 
 
+def _circuit_width(dag, circuit):
+    """Number of qubits of ``circuit``, its DAG being ``dag``: idle ones count, so the
+    keys of its distribution have a bit per qubit."""
+    from Qdislib.core.cutting_algorithms.hadamard_cut import _num_circuit_qubits
+
+    return max(_dag_num_qubits(dag), _num_circuit_qubits(circuit))
+
+
 def _component_original_qubits(component):
     """Sorted original qubit indices a component acts on (pre-renumbering)."""
     qubits = set()
@@ -1791,7 +1799,7 @@ def _gate_cutting_sampling(
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     dag = convert_to_dag(circuit)
-    num_qubits = _dag_num_qubits(dag)
+    num_qubits = _circuit_width(dag, circuit)
     _validate_gate_cuts_partition(dag, gates_cut)
 
     if not gates_cut:
@@ -2139,7 +2147,9 @@ def _counts_qiskit(qc, shots=1024, method="automatic", seed=None):
         mps_parallel_threshold=1,
     )
 
-    job = simulator.run(qc, shots=shots, seed_simulator=seed)
+    from Qdislib.utils.graph_qiskit import aer_runnable
+
+    job = simulator.run(aer_runnable(qc, simulator), shots=shots, seed_simulator=seed)
     result = job.result()
     logger.debug("Backend: %s", result.backend_name)
 
@@ -2853,7 +2863,7 @@ def gate_cutting(
     return _gate_cutting(
         circuit,
         cuts,
-        observables=default_observable(observable, circuit),
+        observables=checked_observable(observable, circuit),
         shots=shots,
         method=legacy.get("method", "automatic"),
         sync=sync,

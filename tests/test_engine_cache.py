@@ -328,6 +328,35 @@ class EngineCacheTest(BaseTimedTestCase):
             "redis", host="host", port=7000, db=3, username="me", password="secret"
         )
 
+    def test_a_tls_redis_url(self):
+        with mock.patch.dict(engine_cache._STORES, clear=True):
+            with mock.patch(
+                "Qdislib.utils.circuit_cache.default_circuit_cache"
+            ) as build:
+                engine_cache._store("rediss://me:secret@host:7000/3")
+        build.assert_called_once_with(
+            "redis",
+            host="host",
+            port=7000,
+            db=3,
+            username="me",
+            password="secret",
+            ssl=True,
+        )
+
+    def test_a_refused_url_does_not_print_its_password(self):
+        for spec in (
+            "rediz://me:s3cret@host:7000/3",
+            "rediz://:s3cret@host",
+            "rediz://me:pa/s3cret@host",
+            "rediz://me:p@s3cret@host",
+        ):
+            with mock.patch.dict(engine_cache._STORES, clear=True):
+                with self.assertRaises(ValueError) as caught:
+                    engine_cache._store(spec)
+            self.assertNotIn("s3cret", str(caught.exception))
+            self.assertIn("rediz://", str(caught.exception))
+
     def test_cache_mode_is_deprecated(self):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -342,6 +371,49 @@ class EngineCacheTest(BaseTimedTestCase):
         self.assertTrue(
             any("cache_mode is deprecated" in str(w.message) for w in caught)
         )
+
+
+@unittest.skipUnless(QISKIT, "qiskit required")
+class EstimateMetricsTest(BaseTimedTestCase):
+    """estimate's metrics report the cache the call used, however it was chosen."""
+
+    def _estimate(self, **options):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.ry(0.3, 1)
+        qc.cz(1, 2)
+        qc.ry(0.5, 2)
+        _, metrics = qd.estimate(
+            qc, "ZZZ", max_qubits=2, shots=None, return_metrics=True, **options
+        )
+        return metrics["cache"]
+
+    def test_the_session_cache(self):
+        import Qdislib as qd
+
+        with qd.use_cache("memory") as store:
+            stats = self._estimate()
+            self.assertIsNotNone(stats)
+            self.assertEqual(stats, store.stats())
+            self.assertGreater(stats["size"], 0)
+
+    def test_its_own_cache(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        store = InMemoryCircuitCache()
+        self.assertEqual(self._estimate(cache=store), store.stats())
+
+    def test_off(self):
+        import Qdislib as qd
+
+        self.assertIsNone(self._estimate())
+        with qd.use_cache("memory"):
+            self.assertIsNone(self._estimate(cache=False))
 
 
 if __name__ == "__main__":

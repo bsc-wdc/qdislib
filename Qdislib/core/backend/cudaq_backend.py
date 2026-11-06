@@ -99,7 +99,9 @@ class CudaqBackend(BaseBackend):
 
             kernel, _obs = dag_to_circuit_cudaq_kernel(circuit[0], circuit[1])
             return kernel
-        return circuit
+        from Qdislib.utils.graph_cudaq import cudaq_without_measurements
+
+        return cudaq_without_measurements(circuit)
 
     def transpile(self, circuit: SupportedCircuit) -> Any:
         return self._to_kernel(circuit)

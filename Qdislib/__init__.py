@@ -34,29 +34,10 @@ _logging_config._init_from_env()
 
 from Qdislib.api import *
 
-#: The 1.x list types: no function returns them since 2.0.0. Name -> its module.
-_DEPRECATED = {
-    "HadamardCutSubcircuits": "Qdislib.core.cutting_algorithms.hadamard_cut",
-    "HadamardSampledCutSubcircuits": "Qdislib.core.cutting_algorithms.hadamard_cut",
-    "SampledCutSubcircuits": "Qdislib.core.cutting_algorithms.gate_cutting",
-    "WireSampledCutSubcircuits": "Qdislib.core.cutting_algorithms.wire_cutting",
-}
+# The 1.x list types: no function returns them since 2.0.0.
+from Qdislib.api.api import _deprecated_names
 
-
-def __getattr__(name):
-    """A deprecated name, with its warning."""
-    if name not in _DEPRECATED:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    import importlib
-    import warnings
-
-    warnings.warn(
-        f"qd.{name} is deprecated and will be removed: since 2.0.0 no function returns "
-        "it (the subcircuit lists are qd.CutCircuits).",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return getattr(importlib.import_module(_DEPRECATED[name]), name)
+__getattr__ = _deprecated_names(__name__)
 
 
 # Curated public surface. This is what `from Qdislib import *`, tab-completion and

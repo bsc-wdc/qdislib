@@ -32,8 +32,10 @@ from Qdislib.core.backend.base_backend import (
     SupportedCircuit,
     SampleJobResult,
     ExpectationJobResult,
+    qubit0_first,
 )
 from Qdislib.core.backend.circuit_converter import CircuitConverter
+from Qdislib.utils.graph_qiskit import aer_runnable
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +118,8 @@ class AerBackend(BaseBackend):
             circuit = qiskit_transpile(
                 circuit, backend=self._simulator, optimization_level=0
             )
+        else:
+            circuit = aer_runnable(circuit, self._simulator)
         job = self._simulator.run([circuit], shots=shots, seed_simulator=seed)
         return job.result().get_counts()
 
@@ -207,10 +211,11 @@ class AerBackend(BaseBackend):
             prepared = prepared.copy()
             prepared.measure_all()
 
+        prepared = aer_runnable(prepared, self._simulator)
         aer_job = self._simulator.run([prepared], shots=shots)
         counts = aer_job.result().get_counts()
         return SampleJobResult(
-            counts=counts,
+            counts=qubit0_first(counts),
             backend_name=self.name,
             shots=shots,
             job_id=job.job_id,

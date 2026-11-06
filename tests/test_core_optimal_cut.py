@@ -293,3 +293,117 @@ class MetisMissingTest(BaseTimedTestCase):
         self.assertFalse(marker.evaluate(env))
         env = {"sys_platform": "win32", "platform_machine": "AMD64"}
         self.assertFalse(marker.evaluate(env))
+
+
+class FitsAlreadyTest(BaseTimedTestCase):
+    """A connected circuit within max_qubits needs no cut."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.ry(0.3, 1)
+        qc.cz(1, 2)
+        qc.ry(0.5, 2)
+        return qc
+
+    def test_no_cut_when_it_fits(self):
+        import Qdislib as qd
+
+        qc = self._circuit()
+        for max_qubits in (3, 10):
+            for kinds in ({}, {"gate_cut": False}, {"wire_cut": False}):
+                with self.subTest(max_qubits=max_qubits, kinds=kinds):
+                    self.assertEqual(qd.find_cut(qc, max_qubits, **kinds), [])
+
+    def test_ranked_mode_says_so(self):
+        import Qdislib as qd
+
+        self.assertEqual(
+            qd.find_cut(self._circuit(), max_qubits=3, top_n=3),
+            [{"cut": [], "kind": "none", "score": 0.0}],
+        )
+
+    def test_estimate_runs_it_uncut(self):
+        import Qdislib as qd
+
+        qc = self._circuit()
+        value, metrics = qd.estimate(
+            qc, "ZZZ", max_qubits=3, shots=None, return_metrics=True
+        )
+        self.assertEqual(metrics["cut"], [])
+        self.assertAlmostEqual(value, qd.analytical_solution(qc, "ZZZ"))
+
+    def test_a_circuit_that_does_not_fit_is_still_cut(self):
+        import Qdislib as qd
+
+        self.assertTrue(qd.find_cut(self._circuit(), max_qubits=2, seed=0))
+
+    def test_without_max_qubits_it_still_looks_for_one(self):
+        import Qdislib as qd
+
+        qc = self._circuit()
+        self.assertTrue(qd.find_cut(qc, seed=0))
+        self.assertTrue(qd.find_cut(qc, gate_cut=False, wire_cut=True, seed=0))
+
+    def test_neither_kind_is_still_refused(self):
+        import Qdislib as qd
+
+        with self.assertRaises(ValueError):
+            qd.find_cut(self._circuit(), 3, gate_cut=False, wire_cut=False)
+
+    def test_routing_gates_are_still_cut_on_a_coupling_map(self):
+        import Qdislib as qd
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(4)
+        qc.cz(0, 1)
+        qc.cz(2, 3)
+        qc.cz(0, 3)
+        line = [(0, 1), (1, 2), (2, 3)]
+        self.assertEqual(qd.find_cut(qc, coupling_map=line, seed=0), ["CZ_3"])
+        self.assertEqual(
+            qd.find_cut(qc, max_qubits=2, coupling_map=line, seed=0), ["CZ_3"]
+        )
+
+
+class RankedCandidatesTest(BaseTimedTestCase):
+    """find_cut(top_n=): each candidate once, in the ranking's order."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(6)
+        for q in range(6):
+            qc.h(q)
+        for q in range(5):
+            qc.cz(q, q + 1)
+        for q in range(6):
+            qc.ry(0.1 * q, q)
+        qc.cz(0, 5)
+        return qc
+
+    def _ranked(self, **options):
+        import Qdislib as qd
+
+        return qd.find_cut(self._circuit(), max_qubits=3, seed=0, **options)
+
+    def test_no_duplicates(self):
+        for kinds in ({}, {"wire_cut": False}, {"gate_cut": False}):
+            with self.subTest(kinds=kinds):
+                ranked = self._ranked(top_n=100, **kinds)
+                self.assertTrue(ranked)
+                seen = [(c["kind"], tuple(sorted(map(str, c["cut"])))) for c in ranked]
+                self.assertEqual(len(seen), len(set(seen)), ranked)
+
+    def test_best_first_and_as_many_as_asked(self):
+        ranked = self._ranked(top_n=100)
+        scores = [c["score"] for c in ranked]
+        self.assertEqual(scores, sorted(scores))
+        self.assertEqual(self._ranked(top_n=2), ranked[:2])
+
+    def test_the_winner_is_still_the_winner(self):
+        ranked = self._ranked(top_n=1, wire_cut=False)
+        self.assertEqual(ranked[0]["cut"], self._ranked(wire_cut=False))

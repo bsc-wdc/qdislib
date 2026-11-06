@@ -49,6 +49,28 @@ from Qdislib.utils.graph_qibo import _final_measurements, _update_qubits_serie
 from Qdislib.utils.runtime import task
 
 
+def aer_runnable(circuit, simulator):
+    """``circuit``, with what ``simulator`` (Aer) has no instruction for lowered to
+    what it has (``iswap``, ``ch``, ``dcx``). A circuit it can run as it is comes back
+    untouched and is not compiled. Compiling at level 0 for a simulator, which has no
+    connectivity, keeps the qubits, the classical registers and the mid-circuit
+    measurements.
+
+    :param circuit: A ``QuantumCircuit``.
+    :param simulator: The ``AerSimulator`` that runs it.
+    :return: A circuit it knows every instruction of.
+    """
+    known = set(simulator.configuration().basis_gates)
+    # every simulator takes these two, though neither is listed there
+    used = {instruction.operation.name for instruction in circuit.data}
+    used -= {"barrier", "measure"}
+    if used <= known:
+        return circuit
+    from qiskit import transpile
+
+    return transpile(circuit, backend=simulator, optimization_level=0)
+
+
 def _emit_qiskit_gate(circuit, gate_name, params, qubits):
     """Append one DAG gate to a Qiskit circuit. The DAG's canonical names are
     OpenQASM's, which are Qiskit's; other vocabularies (a DAG built by hand, the
@@ -281,5 +303,9 @@ def qiskit_statevector(circuit):
     from qiskit.quantum_info import Statevector
 
     n = circuit.num_qubits
+    # As the DAG converters do (see _final_measurements); one followed by more gates
+    # stays, and Statevector refuses it.
+    if any(instruction.operation.name == "measure" for instruction in circuit.data):
+        circuit = circuit.remove_final_measurements(inplace=False)
     data = np.asarray(Statevector(circuit).data, dtype=complex)
     return data.reshape([2] * n).transpose(list(range(n))[::-1]).reshape(-1)

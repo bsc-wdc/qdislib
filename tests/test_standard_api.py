@@ -469,5 +469,70 @@ class OverheadTest(BaseTimedTestCase):
         self.assertEqual((wire["subcircuits"], wire["gamma"]), (7, 4))
 
 
+class DeprecatedNamesTest(BaseTimedTestCase):
+    """The names no function returns since 2.0.0: Qdislib, Qdislib.api and
+    Qdislib.api.api take the same deprecation step."""
+
+    NAMES = (
+        "HadamardCutSubcircuits",
+        "HadamardSampledCutSubcircuits",
+        "SampledCutSubcircuits",
+        "WireSampledCutSubcircuits",
+    )
+
+    def test_each_warns_and_gives_the_class(self):
+        import importlib
+
+        import Qdislib
+
+        for module in ("Qdislib", "Qdislib.api", "Qdislib.api.api"):
+            loaded = importlib.import_module(module)
+            for name in self.NAMES:
+                with self.subTest(module=module, name=name):
+                    with warnings.catch_warnings(record=True) as caught:
+                        warnings.simplefilter("always")
+                        value = getattr(loaded, name)
+                    self.assertTrue(isinstance(value, type))
+                    self.assertTrue(
+                        any(
+                            issubclass(w.category, DeprecationWarning)
+                            and name in str(w.message)
+                            for w in caught
+                        )
+                    )
+                    self.assertNotIn(name, getattr(loaded, "__all__", ()))
+
+    def test_from_import(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            from Qdislib.api import SampledCutSubcircuits  # noqa: F401
+            from Qdislib.api.api import WireSampledCutSubcircuits  # noqa: F401
+        # importing a name from a package asks for it twice, so it can warn twice
+        messages = {str(w.message).split()[0] for w in caught}
+        self.assertIn("qd.SampledCutSubcircuits", messages)
+        self.assertIn("qd.WireSampledCutSubcircuits", messages)
+
+    def test_star_imports_stay_silent(self):
+        for module in ("Qdislib", "Qdislib.api", "Qdislib.api.api"):
+            with self.subTest(module=module):
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    exec(f"from {module} import *", {})  # noqa: S102
+                self.assertEqual(
+                    [
+                        str(w.message)
+                        for w in caught
+                        if "CutSubcircuits" in str(w.message)
+                    ],
+                    [],
+                )
+
+    def test_anything_else_is_still_missing(self):
+        import Qdislib.api
+
+        with self.assertRaises(AttributeError):
+            Qdislib.api.no_such_name
+
+
 if __name__ == "__main__":
     unittest.main()

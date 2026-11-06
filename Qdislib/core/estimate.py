@@ -134,12 +134,12 @@ def estimate(
 
 
 def _cache_stats(cache):
-    """The statistics of what ``cache=`` named (``None`` when it is off)."""
-    if cache is None or cache is False:
-        return None
-    from Qdislib.core.cutting_algorithms.engine_cache import _store
+    """The statistics of the store a call with this ``cache=`` uses, its own or the
+    session's (:func:`~Qdislib.use_cache`); ``None`` when it is off."""
+    from Qdislib.core.cutting_algorithms.engine_cache import resolve
 
-    return _store(cache).stats()
+    used = resolve(cache)
+    return None if used is None else used.store.stats()
 
 
 def cut_cost(cut, wire=None):

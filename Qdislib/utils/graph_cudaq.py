@@ -53,6 +53,8 @@ from Qdislib.utils.gates import lowered
 
 #: The adjoint of a gate, as the gate it is (``t.adj(q)`` -> ``"TDG"``).
 _CUDAQ_ADJOINT = {"S": "SDG", "T": "TDG", "H": "H", "X": "X", "Y": "Y", "Z": "Z"}
+#: A measurement Qdislib's final read in Z cannot stand for.
+_CUDAQ_OTHER_BASES = ("MX", "MY")
 #: Statements that change which gates run: the source alone does not say.
 _CUDAQ_CONTROL_FLOW = (ast.For, ast.While, ast.If, ast.With, ast.Try)
 
@@ -107,44 +109,94 @@ def _eval_cudaq_param(node):
         return None
 
 
-def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
-    """Convert a CUDA-Q kernel into a Qdislib DAG.
+def _cudaq_allocation(statement):
+    """``(register name, its size)`` for ``a = cudaq.qvector(n)`` / ``cudaq.qubit()``,
+    else ``None``. The name is ``None`` for a bare allocation; the size is ``None``
+    where the source does not state it as a number."""
+    target = None
+    if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+        target = statement.targets[0]
+    elif isinstance(statement, ast.AnnAssign):
+        target = statement.target
+    elif not isinstance(statement, ast.Expr):
+        return None
+    call = statement.value
+    if not isinstance(call, ast.Call):
+        return None
+    func = call.func
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        kind = func.attr if func.value.id == "cudaq" else None
+    else:
+        kind = func.id if isinstance(func, ast.Name) else None
+    if kind not in ("qvector", "qubit"):
+        return None
+    name = target.id if isinstance(target, ast.Name) else None
+    if kind == "qubit":
+        return name, 1
+    size = _eval_cudaq_param(call.args[0]) if call.args else None
+    if call.args and (size is None or size != int(size)):
+        # qvector(state) starts elsewhere than |0...0>, which the gates do not say; a
+        # name could hold either a size or a state
+        raise _unreadable(call, "a register whose size is no number: an initial state")
+    return name, int(size) if size is not None else None
 
-    The kernel's Python source (``kernel.funcSrc``, or ``kernel.to_json()["funcSrc"]``
-    before CUDA-Q 0.16) is parsed with
-    the :mod:`ast` module rather than scanned with regular expressions, so it is
-    robust to formatting/comments, the qubit-register variable name, expression
-    parameters (e.g. ``np.pi / 2``) and the ``gate.ctrl(...)`` controlled syntax.
 
-    :param kernel: A CUDA-Q kernel (``PyKernelDecorator``).
-    :param obs_I: Optional observable string; each ``"I"`` appends an identity
-        observable sink node on that qubit (internal use when cutting).
-    :raises ValueError: For what the source does not say gate by gate: a loop or a
-        branch, a gate on a whole register or on a computed qubit, an angle that is
-        not a number there (a kernel argument, a variable).
-    :return: A :class:`networkx.DiGraph` whose nodes carry ``gate`` (upper-cased
-        name), ``qubits`` (tuple of ints) and ``parameters`` (list of floats),
-        with blue (nearest-predecessor) and red (other-predecessor) edges.
-    """
-    dag = nx.DiGraph()
+def _cudaq_qubit(call, arg, registers):
+    """The global qubit of ``arg``, a register's ``q[i]``: registers are numbered in
+    the order they are allocated, as the kernel's state is."""
+    index = arg.slice.value if isinstance(arg.slice, ast.Constant) else None
+    if not isinstance(index, int):
+        raise _unreadable(call, "a qubit that is not a literal index")
+    if not isinstance(arg.value, ast.Name) or arg.value.id not in registers:
+        raise _unreadable(call, "a qubit of a register the kernel does not allocate")
+    first, size = registers[arg.value.id]
+    if size is not None and not 0 <= index < size:
+        raise _unreadable(call, "a qubit outside its register")
+    return first + index
 
+
+def _cudaq_source(kernel):
+    """The Python source of a ``@cudaq.kernel``, ``None`` for a builder's kernel."""
     source = getattr(kernel, "funcSrc", None)  # CUDA-Q >= 0.16 has no to_json()
-    if source is None:
+    if source is None and hasattr(kernel, "to_json"):
         payload = kernel.to_json()
         if isinstance(payload, str):
             payload = json.loads(payload)
         source = payload["funcSrc"]
-    tree = ast.parse(source)
+    return source
+
+
+def _cudaq_listing(kernel):
+    """A kernel's source, statement by statement.
+
+    :param kernel: A CUDA-Q kernel with source (``PyKernelDecorator``).
+    :raises ValueError: See :func:`circuit_cudaq_to_dag`.
+    :return: ``(operations, width)``: ``(label, name, qubits, params, is_measurement)``
+        per statement, in order, and the qubits allocated (``None`` if not stated).
+    """
+    tree = ast.parse(_cudaq_source(kernel))
     func = next(
         (node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None
     )
     if func is None:
-        return dag
+        return [], None
 
-    ops = []
+    operations = []
+    registers = {}  # name -> (its first qubit, its size or None)
+    next_qubit = 0  # None after a register of no stated size
+    measured = []  # (first, end) of the qubits measured so far
     for statement in func.body:
         if isinstance(statement, _CUDAQ_CONTROL_FLOW):
             raise _unreadable(statement, "a loop or a branch")
+        allocation = _cudaq_allocation(statement)
+        if allocation is not None:
+            if next_qubit is None:
+                raise _unreadable(statement, "a register after one of no stated size")
+            name, size = allocation
+            if name is not None:
+                registers[name] = (next_qubit, size)
+            next_qubit = None if size is None else next_qubit + size
+            continue
         # Gate operations are bare calls (``h(q[0])``) or measurement
         # assignments (``m = mz(q[0])``); everything else is skipped.
         if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
@@ -159,28 +211,99 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
         name = _cudaq_gate_name(call)
         if name is None:
             continue
+        if name in _CUDAQ_OTHER_BASES:
+            raise _unreadable(call, "a measurement not in the Z basis")
+        is_measurement = name == "MZ"
 
         # Subscript arguments (``q[0]``) are qubits; the rest are parameters.
         qubits, parameters = [], []
         for arg in call.args:
             if isinstance(arg, ast.Subscript):
-                index = arg.slice.value if isinstance(arg.slice, ast.Constant) else None
-                if not isinstance(index, int):
-                    raise _unreadable(call, "a qubit that is not a literal index")
-                qubits.append(index)
-            elif name == "MZ" and isinstance(arg, ast.Name):
-                continue  # mz(q): every qubit is measured at the end anyway
+                qubits.append(_cudaq_qubit(call, arg, registers))
+            elif is_measurement and isinstance(arg, ast.Name):  # mz(q): the register
+                if arg.id not in registers:
+                    raise _unreadable(call, "a register the kernel does not allocate")
+                first, size = registers[arg.id]
+                end = math.inf if size is None else first + size
+                measured.append((first, end))
+                qubits.extend(range(first, first + (size or 0)))
             else:
                 value = _eval_cudaq_param(arg)
                 if value is None:
                     raise _unreadable(call, "an argument that is not a number or q[i]")
                 parameters.append(value)
 
-        if not qubits:  # mz(q)
+        if is_measurement:
+            measured.extend((qubit, qubit + 1) for qubit in qubits)
+        elif not qubits:  # no qubit named: not a gate of this circuit
             continue
-        ops.append((f"{name}_{len(ops) + 1}", name, qubits, parameters))
+        elif any(first <= q < end for q in qubits for first, end in measured):
+            raise _unreadable(call, "a gate after a measurement of its qubit")
+        label = f"{name}_{len(operations) + 1}"
+        operations.append((label, name, qubits, parameters, is_measurement))
+    return operations, next_qubit
 
+
+def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
+    """Convert a CUDA-Q kernel into a Qdislib DAG.
+
+    The kernel's Python source (``kernel.funcSrc``, or ``kernel.to_json()["funcSrc"]``
+    before CUDA-Q 0.16) is parsed with
+    the :mod:`ast` module rather than scanned with regular expressions, so it is
+    robust to formatting/comments, the qubit-register variable name, expression
+    parameters (e.g. ``np.pi / 2``) and the ``gate.ctrl(...)`` controlled syntax.
+
+    Measurements that end their qubits are left out, keeping the numbering, as for the
+    other SDKs: Qdislib measures every qubit at the end anyway.
+
+    :param kernel: A CUDA-Q kernel (``PyKernelDecorator``).
+    :param obs_I: Optional observable string; each ``"I"`` appends an identity
+        observable sink node on that qubit (internal use when cutting).
+    :raises ValueError: For what the source does not say gate by gate: a loop or a
+        branch, a gate on a whole register or on a computed qubit, a register after
+        one of no stated size, an angle that is not a number there (a kernel argument,
+        a variable); and for what a final read in Z cannot stand for: a gate after a
+        measurement of its qubit, a measurement in another basis.
+    :return: A :class:`networkx.DiGraph` whose nodes carry ``gate`` (upper-cased
+        name), ``qubits`` (tuple of ints) and ``parameters`` (list of floats),
+        with blue (nearest-predecessor) and red (other-predecessor) edges.
+    """
+    operations, _ = _cudaq_listing(kernel)
+    ops = [op[:4] for op in operations if not op[4]]
     return ops_to_dag(ops, obs_I, sdk="cudaq")
+
+
+def _measures(kernel):
+    """Whether a kernel's own source has a measurement (a builder's kernel has no
+    source: only Qdislib builds those, with the measurements a cut needs)."""
+    source = _cudaq_source(kernel)
+    if source is None:
+        return False
+    return any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id.upper() in ("MZ", *_CUDAQ_OTHER_BASES)
+        for node in ast.walk(ast.parse(source))
+    )
+
+
+def cudaq_without_measurements(kernel):
+    """``kernel`` as CUDA-Q should run it for Qdislib: without its final measurements.
+
+    ``cudaq.get_state`` collapses at a measurement, and ``cudaq.sample`` reports only
+    the qubits measured (when some are) and does not collapse a mid-circuit one. A
+    kernel with none is returned as it is.
+
+    :param kernel: A CUDA-Q kernel.
+    :raises ValueError: See :func:`circuit_cudaq_to_dag`.
+    :return: A kernel on the same qubits.
+    """
+    if not _measures(kernel):
+        return kernel
+    operations, width = _cudaq_listing(kernel)
+    if width is None:
+        width = max((q for op in operations for q in op[2]), default=-1) + 1
+    return dag_to_circuit_cudaq_kernel(circuit_cudaq_to_dag(kernel), width)[0]
 
 
 @task(returns=1)
@@ -262,7 +385,7 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
                 qubits = tuple(qubits[k] for k in positions)
 
             # --- Common 1-qubit gates ---
-            if gate in ["H", "X", "Y", "Z", "T", "S", "SDG"]:
+            if gate in ["H", "X", "Y", "Z", "T", "S", "SDG", "TDG"]:
                 for qb in qubits:
                     getattr(kernel, gate.lower())(q[qb])
 
@@ -474,11 +597,11 @@ def _build_cudaq_run_kernel(dag, num_qubits, observables):
 
 
 def cudaq_gates(kernel):
-    """``[(label, qubits, False), ...]`` in kernel order (CUDA-Q has no gate
+    """``[(label, qubits, is_measurement), ...]`` in kernel order (CUDA-Q has no gate
     iteration API: the kernel source is parsed, as for the DAG)."""
     return [
-        (str(node).rsplit("_", 1)[0], tuple(data["qubits"]), False)
-        for node, data in circuit_cudaq_to_dag(kernel).nodes(data=True)
+        (name, tuple(qubits), is_measurement)
+        for _, name, qubits, _, is_measurement in _cudaq_listing(kernel)[0]
     ]
 
 
@@ -492,6 +615,7 @@ def cudaq_statevector(kernel):
     """The exact state, qubit 0 the most significant bit (CUDA-Q's is reversed)."""
     import cudaq
 
+    kernel = cudaq_without_measurements(kernel)
     data = np.asarray(cudaq.get_state(kernel), dtype=complex).reshape(-1)
     # From the state: a kernel can allocate more qubits than its gates touch.
     n = int(round(math.log2(len(data))))

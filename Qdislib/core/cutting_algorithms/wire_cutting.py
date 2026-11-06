@@ -94,7 +94,7 @@ from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    default_observable,
+    checked_observable,
 )
 
 
@@ -746,11 +746,11 @@ def _wire_cutting_sampling(
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _sample_gate_subcircuit,
-        _dag_num_qubits,
+        _circuit_width,
     )
 
     dag = convert_to_dag(circuit)
-    num_qubits = _dag_num_qubits(dag)
+    num_qubits = _circuit_width(dag, circuit)
     wire_cuts = _expand_wire_cuts(dag, cut)
     _validate_wire_cuts_partition(dag, wire_cuts, num_qubits)
 
@@ -2203,9 +2203,10 @@ def _sum_results(lst: typing.List[int]) -> int:
 def _counts_qibo(qc, shots=1024, backend="numpy"):
     """Simulate a Qibo circuit and return its measurement counts (frequencies).
 
-    Appends a measurement on every qubit in place -- so the circuit is single-use
-    (evaluate once); deep-copying is not viable here as it severs the symbol
-    binding that gate-cut collapse measurements rely on -- then runs it.
+    Appends a measurement on every qubit to a copy, so the caller's circuit is left
+    untouched and can be run again. One with a collapse measurement is the exception:
+    a copy has new measurement gates, and the circuit's symbols would stay bound to
+    the old ones, so it gets the measurement in place and is single-use.
 
     :param qc: A Qibo ``Circuit``.
     :param shots: Number of measurement shots.
@@ -2213,6 +2214,8 @@ def _counts_qibo(qc, shots=1024, backend="numpy"):
     :return: A ``{bitstring: count}`` dict (qubit-0-first keys).
     """
     qibo.set_backend(backend)
+    if not any(isinstance(g, gates.M) and g.collapse for g in qc.queue):
+        qc = qc.copy(deep=True)
     qc.add(gates.M(*range(qc.nqubits)))
     result = qc(nshots=shots)
     return dict(result.frequencies(binary=True))
@@ -2356,9 +2359,10 @@ def _counts_cudaq(kernel, shots=1024, target=None):
     :return: A ``{bitstring: count}`` dict.
     """
     from Qdislib.core.backend.cudaq_backend import select_cudaq_target
+    from Qdislib.utils.graph_cudaq import cudaq_without_measurements
 
     select_cudaq_target(target)
-    freq = cudaq.sample(kernel, shots_count=shots)
+    freq = cudaq.sample(cudaq_without_measurements(kernel), shots_count=shots)
     return {str(key): int(value) for key, value in freq.items()}
 
 
@@ -2489,6 +2493,8 @@ def _expec_value_cudaq(
         subcirc = payload
 
     freq = _counts_cudaq(subcirc, shots, target)
+    if observables is None:  # a bare kernel: Z on every qubit, as its exact run reads
+        observables = "Z" * len(next(iter(freq)))
     return _expectation_from_counts_cudaq(freq, observables, shots)
 
 
@@ -3264,7 +3270,7 @@ def wire_cutting(
         circuit,
         cuts,
         sync=sync,
-        observables=default_observable(observable, circuit),
+        observables=checked_observable(observable, circuit),
         shots=shots,
         backend=legacy.get("platform", "numpy"),
         qpu=legacy.get("qpu"),

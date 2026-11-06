@@ -333,7 +333,9 @@ def run_qpu_listener(
                 logger.info("QPU listener: STOP file found; shutting down.")
                 break
             pending = sorted(
-                glob.glob(os.path.join(directory, f"{_CIRCUIT_PREFIX}*.pkl"))
+                glob.glob(
+                    os.path.join(glob.escape(directory), f"{_CIRCUIT_PREFIX}*.pkl")
+                )
             )
             if not pending:
                 idle = time.monotonic() - last_activity

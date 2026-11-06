@@ -114,6 +114,38 @@ class ResolveRuncardTest(BaseTimedTestCase):
                     os.environ[key] = val
 
 
+class ListenerDirectoryTest(BaseTimedTestCase):
+    def test_a_directory_with_glob_characters(self):
+        import tempfile
+        from unittest import mock
+
+        from Qdislib.utils import qpu_bridge
+
+        qililab = types.ModuleType("qililab")
+        qililab.logger = logging.getLogger("qililab-stand-in")
+        qililab.build_platform = lambda runcard: mock.MagicMock()
+        digital = types.ModuleType("qililab.digital")
+        digital.DigitalTranspilationConfig = lambda routing: None
+        seen = []
+
+        def process(platform, circuit_path, nshots, transpilation):
+            seen.append(os.path.basename(circuit_path))
+            os.remove(circuit_path)
+
+        with tempfile.TemporaryDirectory(prefix="run[1]_") as tmp:
+            open(os.path.join(tmp, "circuit_1.pkl"), "wb").close()
+            with (
+                mock.patch.dict(
+                    sys.modules, {"qililab": qililab, "qililab.digital": digital}
+                ),
+                mock.patch.object(qpu_bridge, "_process_one", process),
+            ):
+                qpu_bridge.run_qpu_listener(
+                    tmp, runcard="/r.yml", poll_interval=0.01, idle_timeout=0.05
+                )
+        self.assertEqual(seen, ["circuit_1.pkl"])
+
+
 class SubmitAndWaitTest(BaseTimedTestCase):
     def test_roundtrip_with_stand_in_listener(self):
         import tempfile

@@ -227,6 +227,58 @@ class AerBackendTest(BaseTimedTestCase):
             be.sample_circuit(qc, shots=100)
 
 
+class SampleBitOrderTest(BaseTimedTestCase):
+    """sample_circuit's keys: qubit 0 first, whichever backend runs it."""
+
+    @unittest.skipUnless(
+        QISKIT_AVAILABLE and QIBO_AVAILABLE, "qiskit and qibo required"
+    )
+    def test_every_simulator(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(2)
+        qc.x(0)
+        for name in ("AER_BACKEND", "QIBO_BACKEND"):
+            with self.subTest(backend=name):
+                be = qd.QdBackEnd({name: {"num_qubits": 4}})
+                self.assertEqual(be.sample_circuit(qc, shots=10).counts, {"10": 10})
+        if CUDAQ_AVAILABLE:
+            from Qdislib.utils.backends import convert_to_dag
+            from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
+
+            kernel = dag_to_circuit_cudaq_kernel(convert_to_dag(qc), 2)[0]
+            be = qd.QdBackEnd({"CUDAQ_BACKEND": {"num_qubits": 4, "target": "qpp-cpu"}})
+            self.assertEqual(
+                be.backends[0].run_samples(kernel, False, 10).counts, {"10": 10}
+            )
+
+    @unittest.skipUnless(QISKIT_AVAILABLE, "qiskit required")
+    def test_a_circuit_with_its_own_measurements(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3)
+        qc.x(0)
+        qc.measure_all()
+        be = qd.QdBackEnd({"AER_BACKEND": {"num_qubits": 4}})
+        self.assertEqual(be.sample_circuit(qc, shots=10).counts, {"100": 10})
+
+    def test_the_device_backend(self):
+        from Qdislib.core.backend.base_backend import BackendConfig, Job
+        from Qdislib.core.backend.iqm_backend import IQMBackend
+
+        backend = IQMBackend.__new__(IQMBackend)
+        backend.config = BackendConfig(num_qubits=2)
+        backend.name = "IQM_BACKEND"
+        backend._counts = lambda circuit, transpile, shots: {"01": shots}
+        job = types.SimpleNamespace(job_id="j")
+        result = backend._execute_samples(None, False, 10, job)
+        self.assertEqual(result.counts, {"10": 10})
+
+
 @unittest.skipUnless(QIBO_AVAILABLE, "qibo required")
 class QiboBackendTest(BaseTimedTestCase):
     def test_sample_and_estimate(self):

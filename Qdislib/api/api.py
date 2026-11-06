@@ -50,3 +50,35 @@ from Qdislib.utils.exceptions import (
     UnsupportedBackendError,
     InvalidCutError,
 )
+
+#: What no function returns since 2.0.0 -> its module. Out of ``__all__`` and of the
+#: star imports: only asking for one by name warns.
+_DEPRECATED = {
+    "HadamardCutSubcircuits": "Qdislib.core.cutting_algorithms.hadamard_cut",
+    "HadamardSampledCutSubcircuits": "Qdislib.core.cutting_algorithms.hadamard_cut",
+    "SampledCutSubcircuits": "Qdislib.core.cutting_algorithms.gate_cutting",
+    "WireSampledCutSubcircuits": "Qdislib.core.cutting_algorithms.wire_cutting",
+}
+
+
+def _deprecated_names(module):
+    """A ``__getattr__`` for ``module`` that gives a deprecated name, with its warning."""
+
+    def __getattr__(name):
+        if name not in _DEPRECATED:
+            raise AttributeError(f"module {module!r} has no attribute {name!r}")
+        import importlib
+        import warnings
+
+        warnings.warn(
+            f"qd.{name} is deprecated and will be removed: since 2.0.0 no function "
+            "returns it (the subcircuit lists are qd.CutCircuits).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(importlib.import_module(_DEPRECATED[name]), name)
+
+    return __getattr__
+
+
+__getattr__ = _deprecated_names(__name__)

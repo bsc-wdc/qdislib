@@ -520,6 +520,79 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
             pending.resolve()
         self.assertIsNone(cache.get("k"))  # the next run computes it
 
+    def _pending_with_a_clock(self, finishes_at):
+        """A PendingResult whose owner stores its value at ``finishes_at`` seconds
+        (``None``: never), and a patched clock so no test really waits."""
+        from Qdislib.utils import circuit_cache as cc
+
+        store = cc.InMemoryCircuitCache()
+        store.put("k", cc._PENDING)
+        clock = {"now": 0.0}
+
+        def sleep(seconds):
+            clock["now"] += seconds
+            if finishes_at is not None and clock["now"] >= finishes_at:
+                store.put("k", 0.5)
+
+        patches = (
+            unittest.mock.patch.object(cc.time, "sleep", sleep),
+            unittest.mock.patch.object(cc.time, "monotonic", lambda: clock["now"]),
+        )
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        return (
+            cc.PendingResult(store, "k", cc.ExpectationStrategy(), "ZZ", "qibo", 1024),
+            store,
+            clock,
+        )
+
+    def test_pending_waits_for_a_slow_owner(self):
+        # a long fragment takes hours; the owner is working, the run must not abort
+        for seconds in (20, 1800, 4 * 3600):
+            with self.subTest(owner_takes=seconds):
+                pending, _, clock = self._pending_with_a_clock(seconds)
+                self.assertEqual(pending.resolve(), 0.5)
+                self.assertGreaterEqual(clock["now"], seconds)
+
+    def test_pending_wait_is_configurable_and_a_lost_placeholder_raises(self):
+        from Qdislib.utils.exceptions import QdislibException
+
+        with unittest.mock.patch.dict(os.environ, {"QDISLIB_PENDING_TIMEOUT": "60"}):
+            pending, store, clock = self._pending_with_a_clock(None)
+            with self.assertRaisesRegex(QdislibException, "QDISLIB_PENDING_TIMEOUT"):
+                pending.resolve()
+            self.assertGreaterEqual(clock["now"], 60)
+            self.assertLess(clock["now"], 90)
+            self.assertIsNone(store.get("k"))  # the next run computes it
+
+            pending, _, _ = self._pending_with_a_clock(30)
+            self.assertEqual(pending.resolve(), 0.5)
+
+    def test_pending_default_still_ends(self):
+        from Qdislib.utils.exceptions import QdislibException
+
+        pending, _, clock = self._pending_with_a_clock(None)
+        with self.assertRaises(QdislibException):
+            pending.resolve()
+        self.assertLess(clock["now"], 7 * 3600)
+
+    def test_pending_a_bad_setting_keeps_the_default(self):
+        for bad in ("soon", "-1", "nan"):
+            with self.subTest(value=bad):
+                with unittest.mock.patch.dict(
+                    os.environ, {"QDISLIB_PENDING_TIMEOUT": bad}
+                ):
+                    pending, _, _ = self._pending_with_a_clock(1800)
+                    self.assertEqual(pending.resolve(), 0.5)
+
+    def test_pending_says_what_it_waits_for(self):
+        pending, _, _ = self._pending_with_a_clock(600)
+        with self.assertLogs("Qdislib.utils.circuit_cache", "WARNING") as logs:
+            pending.resolve()
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("QDISLIB_PENDING_TIMEOUT", logs.output[0])
+
     @unittest.skipUnless(QIBO_AVAILABLE and PYZX_AVAILABLE, "qibo and pyzx required")
     def test_concurrent_placeholder_defers_then_refreshes(self):
         # Simulate a concurrent task: plant the placeholder another task would
@@ -536,12 +609,13 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
         cache = InMemoryCircuitCache()
         key = semantic_key(_qibo_circuit(), "qibo")
         self.assertIsNotNone(key)
-        cache.put(f"{key}|ZZ", _PENDING)  # another task is computing this key
+        key = f"{key}|shots=1024|ZZ"
+        cache.put(key, _PENDING)  # another task is computing this key
 
         deferred = expectation_value([_qibo_circuit(), "ZZ"], cache=cache)
         self.assertIsInstance(deferred, PendingResult)
 
-        cache.put(f"{key}|ZZ", 0.25)  # owning task stored the real value
+        cache.put(key, 0.25)  # owning task stored the real value
         self.assertEqual(deferred.resolve(), 0.25)
 
     @unittest.skipUnless(QIBO_AVAILABLE, "qibo required to import reconstruction")
@@ -564,6 +638,140 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
         )
         result = wire_cutting_subcircuit_reconstruction([pending, 1.0], number_cuts=0)
         self.assertAlmostEqual(result, 0.5)
+
+
+class CountsTotalTest(BaseTimedTestCase):
+    """Stored counts are read over their own total, not the shots asked for now."""
+
+    def test_counts_read_with_other_shots(self):
+        from Qdislib.utils.backends import _SimContext
+
+        sim = _SimContext(None, None, "ZZ", "qiskit", 100)
+        self.assertEqual(sim.expectation_from_counts({"01": 1000}), -1.0)
+        sim = _SimContext(None, None, "ZZ", "qibo", 4000)
+        self.assertEqual(sim.expectation_from_counts({"10": 750, "00": 250}), -0.5)
+
+    @unittest.skipUnless(
+        QISKIT_AVAILABLE and PYZX_AVAILABLE, "qiskit and pyzx required"
+    )
+    def test_a_strategy_sharing_counts_across_shots(self):
+        from qiskit import QuantumCircuit
+
+        from Qdislib.utils.backends import expectation_value
+        from Qdislib.utils.circuit_cache import CountsStrategy, InMemoryCircuitCache
+
+        class OneEntry(CountsStrategy):
+            def make_key(self, semantic_key, sim):
+                return "the one entry"
+
+        qc = QuantumCircuit(2)
+        qc.x(0)
+        cache = InMemoryCircuitCache()
+        values = [
+            expectation_value(qc, shots=shots, cache=cache, cache_mode=OneEntry())
+            for shots in (1000, 100, 4000)
+        ]
+        self.assertEqual(values, [-1.0, -1.0, -1.0])
+        self.assertEqual(len(cache), 1)
+
+
+@unittest.skipUnless(
+    QISKIT_AVAILABLE and PYZX_AVAILABLE, "qiskit and pyzx required for the shot keys"
+)
+class ShotsInKeyTest(BaseTimedTestCase):
+    """A shot run's value belongs to its shots: a later run with others runs."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.rz(0.3, 0)
+        qc.h(0)
+        qc.cz(0, 1)
+        return qc
+
+    def _assert_not_reused(self, payload, cache, **options):
+        from Qdislib.utils.backends import expectation_value
+
+        # <ZZ> = cos(0.3) = 0.955. Four shots can only give multiples of 0.5.
+        expectation_value(payload, shots=4, seed=1, cache=cache, **options)
+        value = expectation_value(payload, shots=100000, seed=1, cache=cache, **options)
+        self.assertAlmostEqual(value, 0.9553, delta=0.02)
+
+    def test_native_circuit(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        self._assert_not_reused(self._circuit(), InMemoryCircuitCache())
+
+    def test_circuit_observable_pair(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        self._assert_not_reused([self._circuit(), "ZZ"], InMemoryCircuitCache())
+
+    def test_the_shared_store_of_cache_true(self):
+        # Its own circuit: the store outlives the test.
+        qc = self._circuit()
+        qc.rz(0.123456, 1)
+        self._assert_not_reused(qc, True)
+
+    def test_counts_mode(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        cache = InMemoryCircuitCache()
+        self._assert_not_reused(self._circuit(), cache, cache_mode="counts")
+        self.assertEqual(len(cache), 2)
+
+    def test_custom_strategy_keeps_its_own_key_hook(self):
+        from Qdislib.utils.circuit_cache import (
+            ExpectationStrategy,
+            InMemoryCircuitCache,
+        )
+
+        class Keyed(ExpectationStrategy):
+            def make_key(self, semantic_key, sim):
+                return f"mine:{semantic_key}"
+
+        cache = InMemoryCircuitCache()
+        self._assert_not_reused(self._circuit(), cache, cache_mode=Keyed())
+        self.assertEqual(len(cache), 2)
+
+    def test_subcircuit_of_a_list(self):
+        from Qdislib.utils.backends import Subcircuit, convert_to_dag
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        subcircuit = Subcircuit(convert_to_dag(self._circuit()), 2, "qiskit")
+        self._assert_not_reused(subcircuit, InMemoryCircuitCache())
+
+    def test_the_deprecated_cut_paths(self):
+        import warnings
+
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.rz(0.3, 0)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.cz(1, 2)
+        exact = qd.analytical_solution(qc, "ZZZ")
+        for run in (
+            lambda **k: qd.gate_cutting(qc, ["CZ_5"], "ZZZ", method="automatic", **k),
+            lambda **k: qd.wire_cutting(
+                qc, [("CZ_4", "CZ_5")], "ZZZ", method="automatic", **k
+            ),
+        ):
+            cache = InMemoryCircuitCache()
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                run(shots=4, seed=1, cache=cache)
+                size = len(cache)
+                value = run(shots=100000, seed=1, cache=cache)
+            self.assertEqual(len(cache), 2 * size)
+            self.assertAlmostEqual(value, exact, delta=0.1)
 
 
 @unittest.skipUnless(
