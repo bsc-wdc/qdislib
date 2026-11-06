@@ -43,6 +43,58 @@ def _ref_circuit():
 
 
 class CacheStatsTest(BaseTimedTestCase):
+    def test_a_membership_test_is_not_a_lookup(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        cache = InMemoryCircuitCache()
+        cache.put("k", 1.0)
+        self.assertIn("k", cache)
+        self.assertNotIn("absent", cache)
+        self.assertEqual(cache.stats()["hits"], 0)
+        self.assertEqual(cache.stats()["misses"], 0)
+
+    def test_a_cut_run_counts_each_circuit_once(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.ry(0.3, 1)
+        qc.cz(1, 2)
+        qc.ry(0.5, 2)
+        store = InMemoryCircuitCache()
+        first = qd.gate_cutting(qc, ["CZ_2"], "ZZZ", shots=200, seed=1, cache=store)
+        stats = store.stats()
+        self.assertEqual(stats["misses"], stats["size"])  # one per circuit run
+        self.assertEqual(stats["hits"], 0)  # circuits it repeats are not looked up
+        second = qd.gate_cutting(qc, ["CZ_2"], "ZZZ", shots=200, seed=1, cache=store)
+        self.assertEqual(first, second)
+        again = store.stats()
+        self.assertEqual(again["misses"], stats["misses"])
+        self.assertGreaterEqual(again["hits"], stats["size"])
+
+    def test_a_semantic_run_counts_each_circuit_once(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.ry(0.3, 1)
+        qc.cz(1, 2)
+        qc.ry(0.5, 2)
+        store = InMemoryCircuitCache()
+        qd.gate_cutting(
+            qc, ["CZ_2"], "ZZZ", shots=None, cache=store, cache_key="semantic"
+        )
+        stats = store.stats()
+        self.assertEqual(stats["misses"], stats["size"])
+
     def test_stats_track_hits_and_misses(self):
         from Qdislib.utils.circuit_cache import InMemoryCircuitCache
 

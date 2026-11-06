@@ -373,8 +373,17 @@ class CircuitCache:
         """Remove ``key`` if present (used to release a stale reservation)."""
         raise NotImplementedError
 
+    def peek(self, key):
+        """:meth:`get` that leaves the hit and miss counters alone: for a look that is
+        not a lookup, such as polling for a value or reading again what just missed."""
+        counters = getattr(self, "hits", 0), getattr(self, "misses", 0)
+        try:
+            return self.get(key)
+        finally:
+            self.hits, self.misses = counters
+
     def __contains__(self, key):
-        return self.get(key) is not None
+        return self.peek(key) is not None
 
     def _record(self, value):
         """Update hit/miss counters from a ``get`` result and return the value."""
@@ -881,7 +890,7 @@ class PendingResult:
         attempt = 0
         told = False
         while True:
-            value = self.cache.get(self.cache_key)
+            value = self.cache.peek(self.cache_key)
             if value is not None and not is_pending(value):
                 return self.strategy.load(value, sim)
             attempt += 1
