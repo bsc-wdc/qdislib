@@ -18,7 +18,7 @@ import tempfile
 import time
 
 SOURCE = pathlib.Path(__file__).resolve().parent / "source"
-BLOCK = re.compile(r"^\.\. code-block:: python\s*$")
+BLOCK = re.compile(r"^(\s*)\.\. code-block:: python\s*$")
 
 
 def python_blocks(path):
@@ -26,17 +26,21 @@ def python_blocks(path):
     lines = path.read_text().splitlines()
     blocks, skipped = [], 0
     for number, line in enumerate(lines):
-        if not BLOCK.match(line):
+        match = BLOCK.match(line)
+        if not match:
             continue
+        own = len(match.group(1))
         before = next((lines[i] for i in range(number - 1, -1, -1) if lines[i].strip()), "")
         if before.startswith(".. not run:"):
             skipped += 1
             continue
-        code = []
+        code, indent = [], None
         for body in lines[number + 1 :]:
-            if body.strip() and not body.startswith("    "):
+            width = len(body) - len(body.lstrip())
+            if body.strip() and width <= own:
                 break
-            code.append(body[4:])
+            indent = width if indent is None and body.strip() else indent
+            code.append(body[indent or 0 :])
         blocks.append((number + 1, "\n".join(code)))
     return blocks, skipped
 

@@ -66,6 +66,18 @@ registered backend name, or a backend object, used as it is. ``None`` is the cir
     aer = qd.build_backend("AER_BACKEND", qd.BackendConfig(num_qubits=20))
     print(qd.gate_cutting(circuit, cut, shots=8192, seed=1, backend=aer))
 
+A backend object's options apply in a cut. For Aer: ``noise_model`` on any gates, since a circuit is first written in the noise model's gates, ``precision``, and ``use_gpu``, which raises on a node without a GPU.
+
+.. code-block:: python
+
+    from qiskit_aer.noise import NoiseModel, depolarizing_error
+
+    noise = NoiseModel()
+    noise.add_all_qubit_quantum_error(depolarizing_error(0.05, 2), ["cz"])
+    noisy = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"noise_model": noise}))
+    print(qd.gate_cutting(circuit, cut, shots=20_000, seed=1, backend=noisy))
+    print(qd.gate_cutting(circuit, cut, shots=20_000, seed=1))
+
 A run that does something other than what was asked says so, once per process, with a ``UserWarning``: CUDA-Q running on ``qpp-cpu`` because its GPU target cannot be
 used, a Hadamard cut of a general gate using the Pauli basis because KAK is not available, and ``shots=None`` with a registered backend or backend object, which is an exact Qiskit simulation, not a run on it.
 
@@ -91,7 +103,7 @@ A Qiskit ``UnitaryGate`` can stay in a cut circuit as it is. It runs on Qiskit/A
 GPUs
 ----
 
-Aer's GPU simulator (``device="GPU"``, cuStateVec, which needs ``qiskit-aer-gpu``) and CUDA-Q's ``nvidia`` target run subcircuits on a GPU. Send only the large subcircuits there from the three-step loop.
+Aer's GPU simulator (``device="GPU"``, cuStateVec, which needs ``qiskit-aer-gpu``) and CUDA-Q's ``nvidia`` target run subcircuits on a GPU. ``use_gpu`` raises on a node without a GPU, rather than running on the CPU. Send only the large subcircuits there from the three-step loop.
 
 .. not run: needs a GPU
 

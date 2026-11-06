@@ -1,7 +1,7 @@
 Running with PyCOMPSs and on HPC
 ================================
 
-The notebook :doc:`../notebooks/09_distributed_and_qpu` was run under real COMPSs.
+The notebooks :doc:`../notebooks/09_distributed_and_qpu` and :doc:`../notebooks/Qdislib_try_it` were run under real COMPSs.
 
 Qdislib runs serially out of the box. Every fragment circuit is a PyCOMPSs task, so when `PyCOMPSs <https://compss-doc.readthedocs.io/>`__ is installed, the same code runs them in parallel. It needs COMPSs 3.3 or later. Without it the tasks run one after another in the same process.
 
@@ -22,11 +22,13 @@ In a notebook, start the runtime **before importing Qdislib**: importing it firs
 .. code-block:: python
 
     import pycompss.interactive as ipycompss
-    ipycompss.start(graph=True, monitor=1000)
+    ipycompss.start(graph=True, cpu_affinity="disabled")
 
     import Qdislib as qd
     ...
     ipycompss.stop(sync=True)
+
+``cpu_affinity="disabled"``, or ``--cpu_affinity=disabled`` on ``runcompss``, skips COMPSs' CPU pinning, which fails on Apple Silicon, also in a container, leaving the run waiting.
 
 What runs as a task
 -------------------
@@ -114,7 +116,15 @@ It writes to ``$QDISLIB_CHECK_DIR``, by default ``./mn5-check``, and prints the 
 In a container
 --------------
 
-``Dockerfile.compss`` builds an image on the COMPSs tutorial image, for trying a run or testing without a cluster:
+``binder/Dockerfile`` is the image behind the notebooks' Binder links. It runs as a normal user, and serves JupyterLab:
+
+.. code-block:: bash
+
+    docker build -f binder/Dockerfile -t qdislib-try .
+    docker run --rm -p 8888:8888 qdislib-try \
+        jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --IdentityProvider.token=qdislib
+
+``Dockerfile.compss`` builds an image on the COMPSs tutorial image, for testing without a cluster:
 
 .. code-block:: bash
 

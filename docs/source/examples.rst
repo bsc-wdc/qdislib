@@ -4,7 +4,7 @@ Notebooks and examples
 Running the notebooks
 ---------------------
 
-Every notebook runs top to bottom on a laptop in a few minutes at most, with no credentials and no GPU, and its stored outputs came from that run. Each page has the links to open it in **Colab** or **Binder**, and its first cell installs what it needs there.
+Every notebook runs top to bottom on a laptop in a few minutes at most, with no credentials and no GPU, and its stored outputs came from a real run. Each page has the links to open it in **Colab**, whose first cell installs what it needs, or **Binder**, whose image has Qdislib and COMPSs ready.
 
 Some have sliders. A slider on a page like this one moves through figures rendered when the notebook ran, so it works with no kernel; in Colab or Binder you can change what it renders, and cells with live widgets recompute at each move.
 
@@ -16,6 +16,11 @@ To run them locally:
     cd qdislib
     pip install ".[qibo,qiskit,cache]" jupyterlab ipywidgets
     jupyter lab notebooks
+
+A first look
+------------
+
+:doc:`notebooks/Qdislib_try_it` is the poster's four steps and four cutting methods, in a few minutes. Its results come from a real run under COMPSs. See also :doc:`try`.
 
 Learning path
 -------------
@@ -116,6 +121,7 @@ Scripts
    :caption: Learning path
    :hidden:
 
+   notebooks/Qdislib_try_it
    notebooks/01_quickstart
    notebooks/02_cutting_workflow
    notebooks/03_finding_cuts

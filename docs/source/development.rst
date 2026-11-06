@@ -29,9 +29,11 @@ The pages are in ``docs/source``, and ``docs/requirements.txt`` is what Read the
 
 ``docs/check_code_blocks.py`` runs every Python block of the pages. Mark one it cannot run with the comment ``.. not run: <why>`` just before it.
 
-The notebooks are the source of what they show, stored with their outputs; Read the Docs does not run them. ``notebooks/run_notebooks.py`` runs them in place and cleans what they store. Run it in an environment without CUDA-Q, and without PyZX except for ``07_caching``: importing CUDA-Q prints a warning with a local path, and importing PyZX in a notebook turns its figures into SVG, which the PDF build cannot use. ``09_distributed_and_qpu`` has its outputs from a real COMPSs run, by ``notebooks/run_under_compss.py``, whose docstring has the command.
+The notebooks are the source of what they show, stored with their outputs; Read the Docs does not run them. ``notebooks/run_notebooks.py`` runs them in place and cleans what they store. Run it in an environment without CUDA-Q, and without PyZX except for ``07_caching``: importing CUDA-Q prints a warning with a local path, and importing PyZX in a notebook turns its figures into SVG, which the PDF build cannot use. ``Qdislib_try_it`` and ``09_distributed_and_qpu`` have their outputs from a real COMPSs run in the Binder image; the script's docstring has the command.
 
-The Colab and Binder links in the notebooks name a branch of the GitHub repository (``main``), which is a mirror updated at each release, so a new notebook's links work from then on. ``binder/`` configures Binder.
+The Colab and Binder links in the notebooks name a branch of the GitHub repository (``main``), which is a mirror updated at each release, so a new notebook's links work from then on. ``binder/Dockerfile`` is the Binder image: COMPSs, and Qdislib from the repository.
+
+``docs/build_try_data.py`` regenerates the data of the demo on :doc:`try`. Run it again when a change would alter its numbers.
 
 Drafting new releases
 ---------------------

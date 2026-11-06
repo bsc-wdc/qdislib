@@ -188,11 +188,11 @@ Other
 Exceptions
 ----------
 
-.. autoexception:: Qdislib.QdislibException
-.. autoexception:: Qdislib.UnsupportedBackendError
-.. autoexception:: Qdislib.InvalidCutError
-.. autoexception:: Qdislib.QPUExecutionError
-.. autoexception:: Qdislib.QPUTimeoutError
+- :class:`~Qdislib.utils.exceptions.QdislibException`
+- :class:`~Qdislib.utils.exceptions.UnsupportedBackendError`
+- :class:`~Qdislib.utils.exceptions.InvalidCutError`
+- :class:`~Qdislib.utils.qpu_bridge.QPUExecutionError`
+- :class:`~Qdislib.utils.qpu_bridge.QPUTimeoutError`
 
 Deprecated
 ----------

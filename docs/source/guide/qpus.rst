@@ -46,7 +46,7 @@ IQM
 BSC QPUs
 --------
 
-At BSC the classical cut job and the quantum-control job run on separate clusters that cannot share a scheduler allocation, so they communicate through a shared directory, ``$QDISLIB_SUBCIRCUITS_DIR``. The cut job writes each subcircuit there and waits, bounded by ``$QDISLIB_QPU_TIMEOUT``, for its result; a listener on the quantum cluster, ``examples/qpu_listener.py``, runs it on a QPU and writes the result back.
+At BSC the classical cut job and the quantum-control job run on separate clusters that cannot share a scheduler allocation, so they communicate through a shared directory, ``$QDISLIB_SUBCIRCUITS_DIR``, which you have to set: it has no default. The cut job writes each subcircuit there and waits, bounded by ``$QDISLIB_QPU_TIMEOUT``, for its result; a listener on the quantum cluster, ``examples/qpu_listener.py``, runs it on a QPU and writes the result back.
 
 .. code-block:: bash
 

@@ -46,7 +46,7 @@ Python 3.10 or later, and at least one quantum SDK, installed as an extra:
 pip install "qdislib[qiskit]"     # or [qibo], [cudaq], [pennylane], [qilisdk], [all]
 ```
 
-To run in parallel, install [PyCOMPSs](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation.html) 3.3 or later, which `pip` does not do for you. Without it Qdislib runs serially. See [QUICKSTART.md](QUICKSTART.md) for more.
+To run in parallel, install [PyCOMPSs](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation_Configuration.html) 3.3 or later, which `pip` does not do for you. Without it Qdislib runs serially. See [QUICKSTART.md](QUICKSTART.md) for more.
 
 ## A first cut
 
@@ -80,7 +80,7 @@ print(subcircuits.reconstruct(values))                                 # 3. reco
 
 Run the same script with `runcompss --pythonpath=$(pwd) my_app.py` to run its circuits in parallel.
 
-The [notebooks](https://qdislib.readthedocs.io/en/latest/examples.html) go through all of it with results and figures, and open in Colab or Binder.
+The [notebooks](https://qdislib.readthedocs.io/en/latest/examples.html) go through all of it with results and figures, and open in Colab or Binder. To look around with nothing to install, [try it in your browser](https://qdislib.readthedocs.io/en/latest/try.html).
 
 ## Availability
 

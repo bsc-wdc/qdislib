@@ -84,6 +84,8 @@ The 1.x keywords keep working in this release with a ``DeprecationWarning`` that
      - ``cutting_overhead``
    * - ``gate_cutting_subcircuit_reconstruction``, ``gate_cutting_sampling_reconstruction``, ``wire_cutting_subcircuit_reconstruction``, ``gate_cutting_hadamard_subcircuit_reconstruction``
      - ``subs.reconstruct(results)``
+   * - ``HadamardCutSubcircuits``, ``HadamardSampledCutSubcircuits``, ``SampledCutSubcircuits``, ``WireSampledCutSubcircuits``
+     - ``CutCircuits``, which every ``*_subcircuits`` function returns. The old names warn.
    * - ``cache_mode=``
      - nothing: the cache keeps each circuit's whole result
    * - ``reduce_chunk=``

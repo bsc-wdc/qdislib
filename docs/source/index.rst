@@ -22,6 +22,10 @@ Qdislib
 
 Use it to run a circuit too wide for your device or simulator, when a few cuts split it. Each cut multiplies the shots a given precision needs, by ``gamma**2``, so the number of cuts is what limits it: ``qd.cutting_overhead`` tells you the cost before anything runs.
 
+.. tip::
+
+   New to Qdislib? :doc:`Try it in your browser <try>`, with nothing to install.
+
 .. grid:: 1 2 3 3
     :gutter: 3
 
@@ -78,7 +82,7 @@ Notebooks
 
 Every :doc:`notebook <examples>` runs top to bottom on a laptop with no credentials, stores its outputs, and has links to open it in Colab or Binder. Some have sliders that work on the page itself.
 
-- **Start here:** :doc:`notebooks/01_quickstart`, then :doc:`notebooks/02_cutting_workflow` and :doc:`notebooks/03_finding_cuts`.
+- **Start here:** :doc:`notebooks/Qdislib_try_it` follows the poster's four steps, then :doc:`notebooks/01_quickstart`, then :doc:`notebooks/02_cutting_workflow` and :doc:`notebooks/03_finding_cuts`.
 - **Topics:** :doc:`observables <notebooks/05_observables>`, :doc:`distributions <notebooks/06_sampling>`, :doc:`caching <notebooks/07_caching>`, :doc:`cut types <notebooks/10_cut_types>`, :doc:`error bars <notebooks/11_shots_and_errors>`, :doc:`free parameters <notebooks/12_parameters>`.
 - **Running it elsewhere:** :doc:`other SDKs <notebooks/04_backends>`, :doc:`your own backend <notebooks/08_backend_internals>`, :doc:`PyCOMPSs and QPUs <notebooks/09_distributed_and_qpu>`, :doc:`packing on a QPU <notebooks/13_packing>`.
 - **Applications:** :doc:`a VQE <notebooks/applications/01_vqe_h2>`, :doc:`scaling up <notebooks/applications/02_scaling>`, :doc:`an image <notebooks/applications/03_image_reconstruction>`.
@@ -87,6 +91,7 @@ Every :doc:`notebook <examples>` runs top to bottom on a laptop with no credenti
    :maxdepth: 2
    :hidden:
 
+   try
    quickstart
    examples
    user_guide

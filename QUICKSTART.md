@@ -56,7 +56,7 @@ export LD_PRELOAD="$(python -c 'import os, site; sp = site.getsitepackages()[0];
 Without PyCOMPSs, Qdislib runs serially, with the same results. To run in parallel:
 
 1. Install **PyCOMPSs 3.3** or later following
-   [its instructions](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation.html).
+   [its instructions](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation_Configuration.html).
    `pip` does not install the `pycompss` module with Qdislib.
 
 2. Launch your script with `runcompss --pythonpath=$(pwd) your_app.py`.
