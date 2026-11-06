@@ -60,7 +60,7 @@ def generate_random_graph(
 
     # Ensure the graph is connected (Optional step)
     # This step ensures that the generated graph is a single connected component
-    # (no question for fewer than two nodes: networkx refuses it for the empty graph)
+    # (networkx has no answer for the empty graph)
     while num_nodes > 1 and not networkx.is_connected(random_graph):
         u, v = rng.sample(range(num_nodes), 2)
         random_graph.add_edge(u, v)

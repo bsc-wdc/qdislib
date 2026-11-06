@@ -411,21 +411,7 @@ def _update_qubits(
     """
     if not s.nodes():
         return None, None
-    my_set = set()
-    for node, _ in s.nodes(data=True):
-        for qubit in s.nodes[node]["qubits"]:
-            my_set.add(qubit)
-
-    for node, _ in s.nodes(data=True):
-        new_tuple = ()
-        for qubit in s.nodes[node]["qubits"]:
-            len_missing = _count_missing_up_to(my_set, qubit)
-            new_qubit = qubit - len_missing
-            new_tuple = new_tuple + (new_qubit,)
-        s.nodes[node]["qubits"] = new_tuple
-
-    highest_qubit = max(my_set) + 1 - _count_missing_up_to(my_set, max(my_set))
-    return s, highest_qubit
+    return s, _compact_qubits(s)
 
 
 def _remove_red_edges(graph: networkx.DiGraph) -> networkx.DiGraph:
@@ -458,21 +444,17 @@ def _remove_red_edges(graph: networkx.DiGraph) -> networkx.DiGraph:
     return copy_dag
 
 
-def _count_missing_up_to(nums: typing.Set[int], max_num: int) -> int:
-    """Retrieve the amount of missing numbers in the nums set.
+def _compact_qubits(s: typing.Any) -> int:
+    """Renumber the qubits of a DAG to ``0..n-1``, keeping their order, in place.
 
-    :param nums: Set of numbers.
-    :param max_num: Highest number in nums.
-    :return: Amount of missing numbers.
+    :param s: A circuit DAG whose nodes carry a ``"qubits"`` attribute.
+    :return: ``n``, the qubits it uses.
     """
-    # Create a set of all numbers from 0 to max_num
-    full_set = set(range(max_num + 1))
-
-    # Subtract the given set from the full set to get the missing numbers
-    missing_numbers = full_set - nums
-
-    # Return the count of missing numbers
-    return len(missing_numbers)
+    used = {qubit for _, data in s.nodes(data=True) for qubit in data["qubits"]}
+    new_qubit = {qubit: i for i, qubit in enumerate(sorted(used))}
+    for _, data in s.nodes(data=True):
+        data["qubits"] = tuple(new_qubit[qubit] for qubit in data["qubits"])
+    return len(used)
 
 
 def _update_qubits_serie(
@@ -483,31 +465,11 @@ def _update_qubits_serie(
     :param s: Input qubit serie.
     :return: Updated qubit serie, highest qubit value and lowest qubit value.
     """
-    my_set = set()
-    for node, data in s.nodes(data=True):
-        for qubit in s.nodes[node]["qubits"]:
-            my_set.add(qubit)
-
     # An empty component carries no qubits -- e.g. a fragment whose only marker was
     # an Observable-I node (stripped before conversion). It contributes <I> = 1 to
     # the reconstruction product, so report it as a single idle |0> qubit: the
-    # resulting gate-free circuit evaluates to 1.0. Without this guard max()/min()
-    # below would raise ValueError on the empty set (an isolated qubit observed with
-    # a single-qubit Z after a gate/wire cut used to crash here).
-    if not my_set:
-        return s, 1, 0
-
-    for node, data in s.nodes(data=True):
-        new_tuple = ()
-        for qubit in s.nodes[node]["qubits"]:
-            len_missing = _count_missing_up_to(my_set, qubit)
-            new_qubit = qubit - len_missing
-            new_tuple = new_tuple + (new_qubit,)
-        s.nodes[node]["qubits"] = new_tuple
-
-    highest_qubit = max(my_set) + 1 - _count_missing_up_to(my_set, max(my_set))
-    smallest_qubit = min(my_set) - _count_missing_up_to(my_set, min(my_set))
-    return s, highest_qubit, smallest_qubit
+    # resulting gate-free circuit evaluates to 1.0.
+    return s, _compact_qubits(s) or 1, 0
 
 
 def _max_qubits_graph(s: typing.Any) -> int:
@@ -516,19 +478,10 @@ def _max_qubits_graph(s: typing.Any) -> int:
     :param s: A circuit DAG whose nodes carry a ``"qubits"`` attribute.
     :return: The qubit count (highest contiguous qubit index after compaction).
     """
-    my_set = set()
-    for node, data in s.nodes(data=True):
-        for qubit in s.nodes[node]["qubits"]:
-            my_set.add(qubit)
-
     # An empty graph touches no qubits; report a single (idle) qubit so callers that
     # size a circuit from this never build a 0-qubit circuit (mirrors the empty-set
     # guard in _update_qubits_serie).
-    if not my_set:
-        return 1
-
-    highest_qubit = max(my_set) + 1 - _count_missing_up_to(my_set, max(my_set))
-    return highest_qubit
+    return len({q for _, data in s.nodes(data=True) for q in data["qubits"]}) or 1
 
 
 # --- SDK table adapters (see Qdislib.utils.sdks) ------------------------------
