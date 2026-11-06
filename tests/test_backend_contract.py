@@ -21,7 +21,6 @@
 
 import importlib.util
 import pickle
-import types
 import unittest
 from unittest import mock
 

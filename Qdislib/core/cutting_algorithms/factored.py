@@ -103,6 +103,9 @@ class FactoredDistribution(collections.abc.Mapping):
     def __len__(self):
         return 2**self.width
 
+    def __bool__(self):  # len() has a limit, and past 62 qubits it raises
+        return True
+
     def __iter__(self):
         for bits in itertools.product("01", repeat=self.width):
             yield "".join(bits)
