@@ -1,0 +1,35 @@
+/* The Explore page, on top of try.css: same look and touch sizes. */
+.qd-try .qdx-tools { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.qd-try .qdx-tools button { min-width: 48px; padding: 0.4rem 0.55rem; }
+.qd-try .qdx-tools .sep { width: 0.6rem; }
+.qd-try .qdx-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin: 0.5rem 0; }
+.qd-try .qdx-row label { font-size: 0.9rem; }
+.qd-try .qdx-row input[type="range"] { flex: 1 1 200px; min-width: 0; }
+.qd-try .qdx-board { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--qd-line); border-radius: 10px; margin: 0.6rem 0; background: var(--color-background-primary, #fff); }
+.qd-try .qdx-board svg { display: block; width: auto; max-width: none; height: auto; touch-action: manipulation; }
+.qd-try .qdx-fit svg { width: 100%; max-width: 100%; }
+.qd-try .qdx-board text { font-size: 11px; fill: var(--color-foreground-secondary, #555); }
+.qd-try .qdx-board text.g { fill: #fff; font-weight: 700; font-size: 11px; }
+.qd-try .qdx-board text.i { font-size: 9px; }
+.qd-try .qdx-board text.q { fill: var(--color-foreground-primary, #111); font-size: 13px; font-weight: 700; }
+.qd-try .qdx-board text.scissors { fill: var(--qdx-cut); font-size: 15px; }
+.qd-try .qdx-hit { fill: transparent; cursor: pointer; }
+.qd-try .qdx-board .pending { fill: none; stroke: var(--qd-a); stroke-width: 3; }
+.qd-try .qdx-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.4rem 0; }
+.qd-try .qdx-chips button { font-size: 0.85rem; }
+.qd-try .qdx-warn { border-left: 4px solid var(--qdx-cut); padding: 0.4rem 0.75rem; background: var(--qd-soft); border-radius: 0 8px 8px 0; margin: 0.5rem 0; }
+.qd-try details { margin: 0.6rem 0; }
+.qd-try summary { min-height: 44px; padding: 0.6rem 0.2rem; cursor: pointer; font-weight: 600; }
+.qd-try pre { white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; margin: 0.3rem 0; padding: 0.6rem; background: var(--qd-soft); border-radius: 8px; }
+.qd-try .qdx-tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }
+.qd-try .qdx-tabs button { flex: 1 1 auto; }
+.qd-try table.qdx-t td, .qd-try table.qdx-t th { text-align: right; }
+.qd-try table.qdx-t td:first-child, .qd-try table.qdx-t th:first-child { text-align: left; }
+.qd-try .qdx-t tr.on td { background: var(--qd-soft); font-weight: 700; }
+.qd-try .qdx-map text { font-size: 9px; font-weight: 700; }
+.qd-try { --qdx-cut: #c0392b; --qdx-had: #7b3fa0;
+  --qdx-f0: #3f6fa8; --qdx-f1: #c8640a; --qdx-f2: #2e8b57; --qdx-f3: #a8326a; --qdx-f4: #7a6a1e; --qdx-f5: #5a4fb0; --qdx-f6: #2b8a99; --qdx-f7: #8a4b2a; }
+body[data-theme="dark"] .qd-try { --qdx-cut: #ff7a66; --qdx-had: #c792ea; }
+@media (prefers-color-scheme: dark) {
+  body:not([data-theme="light"]) .qd-try { --qdx-cut: #ff7a66; --qdx-had: #c792ea; }
+}
