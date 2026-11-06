@@ -106,5 +106,3 @@ compss-*.err
 # Notebook artifacts (draw_cut default output, run in-place from the repo root)
 /cut.png
 
-# Progress of docs/build_try_data.py
-docs/.try_runs.json

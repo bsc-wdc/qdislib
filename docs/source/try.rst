@@ -1,26 +1,27 @@
-.. Landing page for the poster QR code: https://qdislib.readthedocs.io/en/latest/try.html
-   This path is printed on the poster: do not move this file.
+.. Landing page of the printed QR code: https://qdislib.readthedocs.io/en/latest/try.html
+   This path is printed: do not move this file.
 
 Try Qdislib
 ===========
 
-What Qdislib does today, with nothing to install. Pick a cutting method and a number of cuts, and see what it costs and that the result comes back. These are the four methods of the :doc:`SC poster <poster>`. To go further, :doc:`explore the whole library <explore>`.
+Cut a circuit into pieces, run them, and get the uncut result back. It all runs in your browser.
 
 .. raw:: html
 
    <link rel="stylesheet" href="_static/try.css">
-   <div id="qd-try" class="qd-try"><p>This demo needs JavaScript. The notebook below has the same results.</p></div>
-   <script src="_static/try_data.js"></script>
-   <script src="_static/try.js"></script>
+   <link rel="stylesheet" href="_static/explore.css">
+   <script src="_static/explore_engine.js"></script>
+   <div id="qdx-play" class="qd-try"><p>This playground needs JavaScript. The notebook below does the same with the real library.</p></div>
+   <script src="_static/explore.js"></script>
 
 .. only:: latex
 
-   The interactive demo is at https://qdislib.readthedocs.io/en/latest/try.html.
+   The live playground is at https://qdislib.readthedocs.io/en/latest/try.html.
 
 Run the real code
 -----------------
 
-The demo above shows stored results. The same four steps run live in a notebook, with a free, temporary environment and nothing to install on your device.
+A notebook with the real library, in a free, temporary environment, with nothing to install on your device.
 
 .. raw:: html
 
@@ -33,34 +34,6 @@ The demo above shows stored results. The same four steps run live in a notebook,
 .. only:: latex
 
    :doc:`notebooks/Qdislib_try_it` is the notebook, with its results.
-
-The poster's four steps
------------------------
-
-.. container:: qd-wrap
-
-   .. code-block:: python
-
-      from qiskit import QuantumCircuit
-      import Qdislib as qd
-
-      circuit = QuantumCircuit(3)
-      circuit.ry(0.8, 0)
-      circuit.cz(0, 1)
-      circuit.ry(0.5, 1)
-      circuit.cz(1, 2)
-
-      # 1. Identify gates to cut
-      cut = qd.find_cut(circuit, gate_cut=False, wire_cut=True)
-
-      # 2. Generate subcircuits
-      subcircuits = qd.wire_cutting_subcircuits(circuit, cut)
-
-      # 3. Execute fragments
-      values = [qd.expectation_value(s) for s in subcircuits]
-
-      # 4. Reconstruct expectation value
-      result = subcircuits.reconstruct(values)
 
 Install it yourself
 -------------------
@@ -75,8 +48,4 @@ Qdislib runs serially as it is. For parallel runs add `PyCOMPSs <https://compss-
 More
 ----
 
-* The poster: :doc:`read it or download it <poster>`
-* Documentation: :doc:`the notebooks <examples>`, the :doc:`user guide <user_guide>`, and :doc:`PyCOMPSs and HPC <guide/hpc>`
-* Source code: `github.com/bsc-wdc/qdislib <https://github.com/bsc-wdc/qdislib>`__
-* Papers: `arXiv:2505.01184 <https://arxiv.org/abs/2505.01184>`__ and `SC '25 Workshops <https://doi.org/10.1145/3731599.3767547>`__
-* Contact: `support-compss@bsc.es <mailto:support-compss@bsc.es>`__
+:doc:`Explore the whole library <explore>`, read :doc:`the notebooks <examples>`, or see the source on `GitHub <https://github.com/bsc-wdc/qdislib>`__.

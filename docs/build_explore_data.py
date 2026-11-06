@@ -634,7 +634,8 @@ PLACEHOLDER = {"cz": 0.005, "sx": 0.0005, "readout": 0.01}
 
 
 def ona_red():
-    """MareNostrum-Ona Red, as its webpage draws it: an 8 x 8 grid of (row, column)."""
+    """MareNostrum-Ona Red, as its webpage draws it: a grid of (row, column), without its
+    eight qubits that have no couplers."""
     grid = [
         [0, 1, 2, 3, 8, 9, 10, 11],
         [4, 5, 6, 7, 12, 13, 14, 15],
@@ -642,30 +643,28 @@ def ona_red():
         [20, 21, 22, 23, 28, 29, 30, 31],
         [32, 33, 34, 35, 40, 41, 42, 43],
         [36, 37, 38, 39, 44, 45, 46, 47],
-        [48, 49, 50, 51, 56, 57, 58, 59],
-        [52, 53, 54, 55, 60, 61, 62, 63],
+        [48, 49, 50, 51],
+        [52, 53, 54, 55],
     ]
     across, down = [], []
     for r, row in enumerate(grid):
-        for c in range(7):
+        for c in range(len(row) - 1):
             if r == 0 and c == 3:  # 3-8 is not connected
                 continue
-            if r >= 6 and c >= 3:  # rows 6 and 7 only within the left four columns
-                continue
             across.append((row[c], row[c + 1]))
-    for c in range(8):
-        for r in range(7 if c < 4 else 5):  # the right four columns: rows 0 to 5 only
+    for r in range(len(grid) - 1):
+        for c in range(len(grid[r + 1])):
             down.append((grid[r][c], grid[r + 1][c]))
     assert len(across) == 47 and len(down) == 48
     edges = sorted(tuple(sorted(e)) for e in across + down)
     assert len(edges) == 95
     points = {str(q): [c, r] for r, row in enumerate(grid) for c, q in enumerate(row)}
-    return {"count": 64, "edges": edges, "points": points, "accent": "#e8112d", "numbered": True}
+    assert len(points) == 56
+    return {"count": 56, "edges": edges, "points": points}
 
 
 def ona_blue():
-    """MareNostrum-Ona Blue, as its webpage draws it. The source numbers no qubit in general,
-    so the indices here are only for the Target, and the page never shows them."""
+    """MareNostrum-Ona Blue, as its webpage draws it, numbered row by row for this page only."""
     spots = [(0, 2), (0, 3)] + [(r, c) for r in (1, 2, 3) for c in range(5)] + [(4, 1), (4, 2), (4, 3)]
     assert len(spots) == 20
     index = {spot: i for i, spot in enumerate(spots)}
@@ -675,7 +674,7 @@ def ona_blue():
     )
     assert len(edges) == 30
     points = {str(index[spot]): [spot[1], spot[0]] for spot in spots}
-    return {"count": 20, "edges": edges, "points": points, "accent": "#1f6fd1", "numbered": False}
+    return {"count": 20, "edges": edges, "points": points, "numbering": "The numbers are only for this page."}
 
 
 def device_target(num_qubits, couplers, sx, readout):
@@ -808,7 +807,9 @@ def load_device(entry):
     if "drawn" in entry:
         drawn = globals()[entry["drawn"]]()
         check_drawing(entry["key"], drawn["points"], drawn["edges"])
-        facts.update(kind="layout", source="the MareNostrum-Ona webpage", accent=drawn["accent"], numbered=drawn["numbered"])
+        facts.update(kind="layout", source="the MareNostrum-Ona webpage")
+        if "numbering" in drawn:
+            facts["numbering"] = drawn["numbering"]
         return placeholder_target(drawn["count"], drawn["edges"]), facts, drawn["count"], drawn["edges"], drawn["points"]
     device = next(d for d in json.loads((here / "explore_devices.json").read_text())["devices"] if d["key"] == entry["layout"])
     edges = [tuple(e) for e in device["edges"]]

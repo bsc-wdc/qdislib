@@ -277,7 +277,15 @@
         jointConfigurations *= 2 * r * r - r;
         if (groups[key].length > 1) shared += groups[key].length;
       });
-      joint = { shared: shared, gamma: jointGamma, configurations: jointConfigurations, subcircuits: jointConfigurations * fragments.length };
+      /* one ancilla per fragment for each boundary of Hadamard cuts it has */
+      var jointWidths = fragments.map(function (f, index) {
+        var count = 0;
+        Object.keys(groups).forEach(function (key) {
+          if (key.split(":").map(Number).indexOf(index) >= 0) count += 1;
+        });
+        return f.segments.length + count;
+      });
+      joint = { widths: jointWidths, shared: shared, gamma: jointGamma, configurations: jointConfigurations, subcircuits: jointConfigurations * fragments.length };
     }
 
     var widths = fragments.map(function (f) {

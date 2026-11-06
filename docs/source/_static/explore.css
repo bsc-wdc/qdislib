@@ -35,12 +35,12 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 .qd-try .qdx-bar { display: grid; grid-template-columns: minmax(7.5rem, 14rem) 1fr; gap: 0.15rem 0.5rem; align-items: center; font-size: 0.85rem; margin: 0.35rem 0; }
 .qd-try .qdx-bar .qdx-num { grid-column: 2; font-size: 0.78rem; color: var(--color-foreground-secondary, #555); font-variant-numeric: tabular-nums; }
 .qd-try .qdx-bar .qd-bar { border-radius: 0 4px 4px 0; }
-.qd-try .qdx-hint { font-weight: 600; min-height: 3rem; margin: 0.4rem 0 0.2rem; }
+.qd-try .qdx-hint { font-weight: 600; min-height: 1.6rem; margin: 0.4rem 0 0.2rem; }
 .qd-try .qdx-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0; }
 .qd-try .qdx-primary { font-weight: 700; border-color: var(--qd-a); }
 .qd-try .qdx-start { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin: 0.6rem 0; }
 .qd-try .qdx-start label { font-weight: 700; }
-.qd-try .qdx-start select { flex: 0 1 25rem; min-width: 0; min-height: 48px; padding: 0 0.6rem; font: inherit; font-weight: 600; color: var(--color-foreground-primary, #111); background-color: var(--qd-soft); border: 2px solid var(--qd-a); border-radius: 10px; cursor: pointer; }
+.qd-try .qdx-start select { flex: 1 1 7rem; max-width: 25rem; min-width: 0; min-height: 48px; padding: 0 0.6rem; font: inherit; font-weight: 600; color: var(--color-foreground-primary, #111); background-color: var(--qd-soft); border: 2px solid var(--qd-a); border-radius: 10px; cursor: pointer; }
 .qd-try .qdx-obs rect { fill: var(--qd-soft); stroke: var(--qd-a); stroke-width: 2; }
 .qd-try .qdx-code { position: relative; margin: 0.3rem 0; background: none; }
 .qd-try .qdx-code pre { padding-right: 2.2rem; }
@@ -90,3 +90,27 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 .qd-try table.qdx-t td.qdx-term { font-weight: 600; white-space: nowrap; }
 .qd-try .qdx-grid3 { grid-template-columns: repeat(3, 1fr); max-width: 660px; }
 .qd-try .qdx-plot-small { max-width: 540px; margin-left: auto; margin-right: auto; }
+.qd-try .qdx-fitbox { margin: 0.5rem 0; padding: 0.4rem 0.6rem; border: 2px solid var(--qd-line); border-radius: 12px; }
+.qd-try .qdx-fitbox.qdx-fits { border-color: var(--qdx-gate); }
+.qd-try .qdx-fitrow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.5rem; font-weight: 600; }
+.qd-try .qdx-fitrow button { min-height: 44px; min-width: 44px; padding: 0; font-size: 1.2rem; }
+.qd-try .qdx-fitrow b { min-width: 1.5rem; text-align: center; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.qd-try .qdx-fitstatus { margin: 0.25rem 0 0.1rem; font-size: 0.92rem; }
+.qd-try .qdx-run { margin: 0.5rem 0; padding: 0.6rem; background: var(--qd-soft); border-radius: 12px; }
+.qd-try .qdx-run[hidden] { display: none; }
+.qd-try .qdx-tiles { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 0.3rem; }
+.qd-try .qdx-tiles i { display: block; width: 10px; height: 10px; border-radius: 2px; opacity: 0.12; transition: opacity 0.2s ease; }
+.qd-try .qdx-rundot { transition: transform 0.35s ease; }
+@media (prefers-reduced-motion: reduce) { .qd-try .qdx-rundot, .qd-try .qdx-tiles i { transition: none; } }
+.qdx-cards { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 1rem 0; }
+.qdx-cards a { display: block; padding: 0.9rem 1rem; min-height: 48px; border: 2px solid var(--color-background-border, #d9d9d9); border-radius: 12px; text-decoration: none; color: var(--color-foreground-primary, #111); background: var(--color-background-secondary, #f6f6f6); }
+.qdx-cards a:hover { border-color: var(--color-brand-content, #6f5aa6); }
+.qdx-cards svg { display: block; width: 100%; max-width: 200px; height: 60px; margin-bottom: 0.5rem; }
+.qdx-cards b { display: block; font-size: 1.05rem; color: var(--color-brand-content, #6f5aa6); }
+.qdx-cards span { display: block; font-size: 0.9rem; color: var(--color-foreground-secondary, #555); margin-top: 0.15rem; }
+.qdx-bigtry { display: block; margin: 1rem 0; padding: 1rem 1.1rem; min-height: 48px; border-radius: 12px; text-decoration: none; background: var(--color-brand-content, #6f5aa6); color: #fff !important; }
+.qdx-bigtry b { display: block; font-size: 1.2rem; }
+.qdx-bigtry span { font-size: 0.92rem; }
+body[data-theme="dark"] .qdx-bigtry { color: #111 !important; }
+@media (prefers-color-scheme: dark) { body:not([data-theme="light"]) .qdx-bigtry { color: #111 !important; } }
+.qd-try .qdx-start button { white-space: nowrap; }

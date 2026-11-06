@@ -31,7 +31,7 @@ Use it to run a circuit too wide for your device or simulator, when a few cuts s
 
 .. tip::
 
-   New to Qdislib? :doc:`Explore the whole library <explore>` or :doc:`try it in your browser <try>`, with nothing to install, or :doc:`read the SC poster <poster>`.
+   New to Qdislib? :doc:`Try it in your browser <try>`, with nothing to install, or :doc:`explore the whole library <explore>`.
 
 .. grid:: 1 2 4 4
     :gutter: 3
@@ -110,8 +110,8 @@ Every :doc:`notebook <examples>` runs top to bottom on a laptop with no credenti
    :maxdepth: 2
    :hidden:
 
-   explore
    try
+   explore
    quickstart
    examples
    user_guide

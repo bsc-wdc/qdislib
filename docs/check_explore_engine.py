@@ -51,8 +51,22 @@ const out = cases.map((c) => {
     r.gamma = plan.gamma;
     r.optimized = plan.optimized;
     r.golden = Object.keys(plan.golden).length;
-    if (plan.joint) { r.joint_subcircuits = plan.joint.subcircuits; r.joint_gamma = plan.joint.gamma; }
+    if (plan.joint) {
+      r.joint_subcircuits = plan.joint.subcircuits;
+      r.joint_gamma = plan.joint.gamma;
+      r.joint_widths = plan.joint.widths.slice().sort((x, y) => x - y);
+    }
     r.value = engine.reconstruct(circuit, c.cuts.map((x) => Object.assign({}, x)), c.observable).value;
+    r.joint_value = r.value;
+    /* The simulated shots of "With shots" and "Run it": their mean must be the exact value. */
+    if (plan.subcircuits <= 600) {
+      const prepared = engine.prepare(circuit, c.cuts.map((x) => Object.assign({}, x)), c.observable);
+      const rng = engine.mulberry(99), draws = [];
+      for (let i = 0; i < 16; i++) draws.push(prepared.draw(4096, rng));
+      const mean = draws.reduce((a, b) => a + b, 0) / draws.length;
+      const spread = Math.sqrt(draws.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (draws.length - 1));
+      r.draw_sigmas = Math.abs(mean - r.value) / (spread / 4 + 1e-3);
+    }
   }
   return r;
 });
@@ -164,6 +178,11 @@ def qdislib_result(case):
         default = qd.circuit_cutting_subcircuits(qc, spec, observable)
         out["joint_subcircuits"] = len(default)
         out["joint_gamma"] = default.plan.gamma()
+        widths = {}
+        for s in default:
+            widths[str(s).split("fragment ")[1].split(",")[0]] = s.num_qubits
+        out["joint_widths"] = sorted(widths.values())
+        out["joint_value"] = float(qd.circuit_cutting(qc, spec, observable, shots=None))
     else:
         probe = qd.circuit_cutting_subcircuits(qc, spec, observable, optimized=True)
         out["optimized"] = probe.plan.num_units()
@@ -180,7 +199,8 @@ def main():
             input=json.dumps(cases), capture_output=True, text=True, check=True,
         ).stdout
     )
-    worst = {"exact": 0.0, "value": 0.0, "gamma": 0.0, "joint_gamma": 0.0, "self": 0.0}
+    worst = {"exact": 0.0, "value": 0.0, "joint_value": 0.0, "gamma": 0.0, "joint_gamma": 0.0, "self": 0.0}
+    largest_draw = 0.0
     tally = {"valid": 0, "invalid": 0, "gate": 0, "hadamard": 0, "wire": 0, "mixed": 0, "golden": 0, "wire_on_shared_pair": 0}
     failures, crashes = [], []
     for case, mine in zip(cases, js):
@@ -195,15 +215,18 @@ def main():
         problems = []
         if "value" in mine:
             worst["self"] = max(worst["self"], abs(mine["value"] - mine["exact"]))
-        for key in ("exact", "value", "gamma", "joint_gamma"):
+        for key in ("exact", "value", "joint_value", "gamma", "joint_gamma"):
             if key in theirs and key in mine:
                 difference = abs(theirs[key] - mine[key])
                 worst[key] = max(worst[key], difference)
                 if difference > 1e-9:
                     problems.append(f"{key}: {mine[key]} against {theirs[key]}")
-        for key in ("invalid", "subcircuits", "fragments", "widths", "configurations", "optimized", "joint_subcircuits"):
+        for key in ("invalid", "subcircuits", "fragments", "widths", "joint_widths", "configurations", "optimized", "joint_subcircuits"):
             if key in theirs and mine.get(key) != theirs[key]:
                 problems.append(f"{key}: {mine.get(key)} against {theirs[key]}")
+        largest_draw = max(largest_draw, mine.get("draw_sigmas", 0.0))
+        if mine.get("draw_sigmas", 0.0) > 6:
+            problems.append(f"simulated shots: mean {mine['draw_sigmas']:.1f} standard errors from the value")
         kinds = {c["kind"] for c in case["cuts"]}
         if theirs["invalid"]:
             tally["invalid"] += 1
@@ -221,6 +244,7 @@ def main():
             failures.append((case, problems))
     print(f"{count} circuits: {tally}")
     print("largest differences:", {k: f"{v:.2e}" for k, v in worst.items()})
+    print(f"simulated shots: largest distance of a mean from the value, {largest_draw:.1f} standard errors")
     for case, problems in failures[:8]:
         print("DIFFERENT", json.dumps(case), problems)
     for case, message in crashes[:8]:

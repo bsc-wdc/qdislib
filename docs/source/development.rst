@@ -33,7 +33,7 @@ The notebooks are the source of what they show, stored with their outputs; Read 
 
 The Colab and Binder links in the notebooks name a branch of the GitHub repository (``main``), which is a mirror updated at each release, so a new notebook's links work from then on. ``binder/Dockerfile`` is the Binder image: COMPSs, and Qdislib from the repository.
 
-``docs/build_try_data.py`` regenerates the data of the demo on :doc:`try`. Run it again when a change would alter its numbers.
+``docs/build_explore_data.py`` regenerates the stored results on the :doc:`Explore <explore>` pages, and ``docs/check_explore_engine.py`` checks the live playground on :doc:`try` against Qdislib on random circuits. Run them again when a change would alter their numbers.
 
 Drafting new releases
 ---------------------

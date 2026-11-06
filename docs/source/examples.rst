@@ -20,7 +20,7 @@ To run them locally:
 A first look
 ------------
 
-:doc:`notebooks/Qdislib_try_it` is the poster's four steps and four cutting methods, in a few minutes. Its results come from a real run under COMPSs. See also :doc:`try`.
+:doc:`notebooks/Qdislib_try_it` goes through a cut in four steps and compares the cutting methods, in a few minutes. Its results come from a real run under COMPSs. See also :doc:`try`.
 
 Learning path
 -------------

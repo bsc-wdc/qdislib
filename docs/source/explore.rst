@@ -1,99 +1,29 @@
 Explore Qdislib
 ===============
 
-The whole library, on one page, with nothing to install. The first section computes everything in your browser. The others show stored results of real Qdislib runs, and say so. To run the real code, open :doc:`the notebooks <examples>` in Colab or Binder, or :doc:`try the four cutting methods <try>`.
+The whole library, with nothing to install. Stored results of real Qdislib runs, labelled as stored.
 
 .. raw:: html
 
-   <link rel="stylesheet" href="_static/try.css">
    <link rel="stylesheet" href="_static/explore.css">
-   <script src="_static/explore_engine.js"></script>
-   <script src="_static/explore_data.js"></script>
+   <a class="qdx-bigtry" href="try.html"><b>Cut a circuit yourself</b><span>The circuit playground, live in your browser: tap to cut, then run it.</span></a>
+   <div class="qdx-cards">
+     <a href="explore_cost.html">
+       <svg viewBox="0 0 200 60" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3"><path d="M10 50H190"/><path d="M20 50V40M60 50V30M100 50V24M140 50V14M180 50V6"/></g></svg>
+       <b>Cutting and cost</b><span>What lowers the cost of a cut, finding cuts, and planning a run.</span></a>
+     <a href="explore_results.html">
+       <svg viewBox="0 0 200 60" aria-hidden="true"><g fill="currentColor"><rect x="14" y="10" width="26" height="42" rx="2"/><rect x="48" y="24" width="26" height="28" rx="2"/><rect x="82" y="32" width="26" height="20" rx="2"/><rect x="116" y="40" width="26" height="12" rx="2"/><rect x="150" y="46" width="26" height="6" rx="2"/></g></svg>
+       <b>Results and shots</b><span>Distributions, error bars, and the same run from any SDK.</span></a>
+     <a href="explore_hardware.html">
+       <svg viewBox="0 0 200 60" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2"><path d="M20 15H180M20 45H180M50 15V45M110 15V45M170 15V45"/></g><g fill="currentColor"><circle cx="20" cy="15" r="6"/><circle cx="50" cy="15" r="6"/><circle cx="80" cy="15" r="6"/><circle cx="110" cy="15" r="6"/><circle cx="140" cy="15" r="6"/><circle cx="170" cy="15" r="6"/><circle cx="50" cy="45" r="6"/><circle cx="80" cy="45" r="6"/><circle cx="110" cy="45" r="6"/><circle cx="140" cy="45" r="6"/><circle cx="170" cy="45" r="6"/></g></svg>
+       <b>Noise and hardware</b><span>How each cut behaves under noise, and packing on 12 chips.</span></a>
+   </div>
 
-Circuit playground
-------------------
+To run the real code, open :doc:`the notebooks <examples>` in Colab or Binder.
 
-Tap a gate or a line to cut the circuit. It falls apart into coloured fragments that a smaller device can run, and the panel below shows that their results still add up to the uncut one, and at what cost.
+.. toctree::
+   :hidden:
 
-**This runs live, in your browser:** a statevector simulation of each fragment, with the actual decompositions of each cut. ``docs/check_explore_engine.py`` checks these numbers against real Qdislib on random circuits.
-
-.. raw:: html
-
-   <div id="qdx-play" class="qd-try"><p>This section needs JavaScript.</p></div>
-
-What lowers the cost
---------------------
-
-Each cut multiplies the work, so Qdislib has several ways to multiply it by less: optimized runs, joint cuts, golden cut points, and cuts that follow the gate's angle. *Stored from* :func:`~Qdislib.cutting_overhead` *and real runs.*
-
-.. raw:: html
-
-   <div id="qdx-low" class="qd-try"><p>This section needs JavaScript.</p></div>
-
-Finding cuts
-------------
-
-Pick a circuit and a device size, and see the cut :func:`~Qdislib.find_cut` chooses and what it costs. *Stored from real runs.*
-
-.. raw:: html
-
-   <div id="qdx-find" class="qd-try"><p>This section needs JavaScript.</p></div>
-
-Planning a run
---------------
-
-What a number of cuts costs for each kind of cut, before anything runs: the subcircuits, and the shots for an almost exact result. *Stored from* :func:`~Qdislib.cutting_overhead` *and* :func:`~Qdislib.shots_for`.
-
-.. raw:: html
-
-   <div id="qdx-plan" class="qd-try"><p>This section needs JavaScript.</p></div>
-
-Distributions
--------------
-
-The ``_sampling`` functions return the output distribution: all of it, the qubits you name, or over more than 24 qubits a :class:`~Qdislib.FactoredDistribution`. *Stored from real runs.*
-
-.. raw:: html
-
-   <div id="qdx-dist" class="qd-try"><p>This section needs JavaScript.</p></div>
-
-Error bars
-----------
-
-``error=True`` gives a standard error from one run. Is it right? Compare it with the spread of many runs. *Stored from real runs.*
-
-.. raw:: html
-
-   <div id="qdx-err" class="qd-try"><p>This section needs JavaScript.</p></div>
-
-Noise
------
-
-How each kind of cut behaves as noise grows, next to the uncut circuit. *Stored from real Aer runs.*
-
-.. raw:: html
-
-   <div id="qdx-noise" class="qd-try"><p>This section needs JavaScript.</p></div>
-
-Any SDK
--------
-
-The same circuit and cut in five SDKs. *Each snippet was run; its results are stored.*
-
-.. raw:: html
-
-   <div id="qdx-sdk" class="qd-try"><p>This section needs JavaScript.</p></div>
-
-Packing on a QPU
-----------------
-
-:func:`qd.pack <Qdislib.pack>` runs several subcircuits side by side, on groups of a device's qubits. *Stored from real calls on real device layouts: nothing ran on them. Each layout says where its calibration comes from.*
-
-.. raw:: html
-
-   <div id="qdx-pack" class="qd-try"><p>This section needs JavaScript.</p></div>
-   <script src="_static/explore.js"></script>
-
-.. only:: latex
-
-   The interactive page is at https://qdislib.readthedocs.io/en/latest/explore.html.
+   explore_cost
+   explore_results
+   explore_hardware

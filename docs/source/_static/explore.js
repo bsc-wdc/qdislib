@@ -179,7 +179,7 @@
       ["cz", "CZ"], ["cx", "CX"], ["rzz", "RZZ"]
     ];
     var ANGLED = { rx: 1, ry: 1, rz: 1, rzz: 1 }, TWO = { cz: 1, cx: 1, rzz: 1 };
-    var state = { n: 5, ops: [], cuts: [], observable: "ZZZZZ", tool: null, angle: 0.8, pending: null, seed: 1, said: "", example: "chain", auto: false, editing: false };
+    var state = { n: 5, ops: [], cuts: [], observable: "ZZZZZ", tool: null, angle: 0.8, pending: null, seed: 1, said: "", example: "chain", auto: false, editing: false, fit: 3 };
     var uid = 1, painted = {}, keyed = null;
 
     function add(name, qubits, col, theta) {
@@ -359,6 +359,7 @@
       EXAMPLES[key][1]();
       state.tool = null;
       state.editing = key === "empty";
+      state.fit = Math.ceil(state.n / 2);
       render();
     }
     menu.addEventListener("change", function () { if (menu.value !== "yours") pickCircuit(menu.value); });
@@ -379,12 +380,27 @@
     var boardHost = root.appendChild(el("div", { id: "qdx-play-board" }));
     var legend = root.appendChild(el("div", { class: "qd-legend" }));
     legend.innerHTML = legendHtml();
-    root.appendChild(el("p", { class: "qd-note" }, "The letters at the end of the lines are what is measured. Tap one to change it: Z, X, Y, or I for nothing."));
     var actions = root.appendChild(el("div", { class: "qdx-actions" }));
     var auto = actions.appendChild(el("button", { type: "button", class: "qdx-primary" }, "Auto cut"));
+    var runButton = actions.appendChild(el("button", { type: "button", class: "qdx-primary" }, "Run it"));
     var clear = actions.appendChild(el("button", { type: "button" }, "Clear cuts"));
+
+    /* Fit it on a smaller chip: a goal to reach by hand, with no claim about the best cut. */
+    var fitBox = root.appendChild(el("div", { class: "qdx-fitbox" }));
+    var fitRow = fitBox.appendChild(el("div", { class: "qdx-fitrow" }));
+    fitRow.appendChild(el("span", {}, "Fit it on a chip of"));
+    var fitLess = fitRow.appendChild(el("button", { type: "button", "aria-label": "One qubit fewer" }, "\u2212"));
+    var fitNumber = fitRow.appendChild(el("b", {}, "3"));
+    var fitMore = fitRow.appendChild(el("button", { type: "button", "aria-label": "One qubit more" }, "+"));
+    var fitWord = fitRow.appendChild(el("span", {}, "qubits"));
+    var fitStatus = fitBox.appendChild(el("p", { class: "qdx-fitstatus", "aria-live": "polite" }));
+    fitLess.addEventListener("click", function () { state.fit = Math.max(1, state.fit - 1); render(); });
+    fitMore.addEventListener("click", function () { state.fit = Math.min(state.n, state.fit + 1); render(); });
+
+    var runBox = root.appendChild(el("div", { class: "qdx-run", hidden: "" }));
     var warn = root.appendChild(el("div", { class: "qdx-warn", hidden: "" }));
     var payoff = root.appendChild(el("div", { class: "qdx-payoff" }));
+    root.appendChild(el("p", { class: "qd-note" }, "The letters at the end of the lines are what is measured. Tap one to change it: Z, X, Y, or I for nothing."));
 
     var shotBody = root.appendChild(el("div", { class: "qdx-withshots" }));
     shotBody.appendChild(el("span", { class: "qd-label" }, "With shots"));
@@ -396,14 +412,17 @@
     shotBody.appendChild(el("p", { class: "qd-note" },
       "Slide to more shots and the dots close in on the exact value: the axis stays the same, set by the fewest shots. Shots are simulated here: each distinct fragment circuit gives a +1 or −1 per shot, drawn with its exact probability. Dots are 30 independent runs."));
 
+    var shotExtra = shotBody.appendChild(el("p", { class: "qd-note" }));
+
     var how = root.appendChild(el("details"));
     how.appendChild(el("summary", {}, "How it works"));
     how.appendChild(el("div", {})).innerHTML =
       "<p>A cut replaces part of a circuit with local operations, so that it falls apart into <b>fragments</b>, each in its own colour, which a smaller device can run.</p>" +
       "<ul><li>A <b>gate cut</b> replaces a two-qubit gate with single-qubit operations and a measurement on each side. Tap the gate.</li>" +
       "<li>A <b>Hadamard cut</b> does it with one extra qubit per side instead of the measurement. Tap the gate again.</li>" +
-      "<li>A <b>wire cut</b> measures a qubit's line at one point and prepares it again later. Tap the circle on the line.</li></ul>" +
-      "<p>Each fragment runs several times, once per term of its cuts. Those are the <b>subcircuits</b>. Adding up their results with the right weights gives back the uncut result. The price is <b>gamma</b>: for the same worst-case precision, the shots grow as gamma squared.</p>";
+      "<li>A <b>wire cut</b> measures a qubit's line at one point and prepares it again later. Tap the line.</li></ul>" +
+      "<p>Each fragment runs several times, once per term of its cuts. Those are the <b>subcircuits</b>. Adding up their results with the right weights gives back the uncut result. The price is <b>gamma</b>: for the same worst-case precision, the shots grow as gamma squared.</p>" +
+      "<p>All of this runs in your browser: a statevector simulation of each fragment, with the actual decompositions of each cut. <code>docs/check_explore_engine.py</code> checks these numbers against real Qdislib on random circuits.</p>";
 
     var termsBox = root.appendChild(el("details"));
     termsBox.appendChild(el("summary", {}, "The terms of each cut"));
@@ -591,10 +610,11 @@
       }
       paint();
 
+      if (runKey !== null && runKey !== stateKey()) stopRun();
       /* What just happened, or what to do */
       hint.textContent = editing
         ? (state.tool === "erase" ? "Tap a gate to remove it." : TWO[state.tool] ? "Tap one qubit, then another in the same column." : "Tap an empty place on the circuit.")
-        : state.said || (state.editing ? "Pick a gate here, then tap where it goes on the lines. Tap Edit the circuit again when you are done." : ops.length ? "Tap a two-qubit gate to cut it, or a line to cut the wire. Or try Auto cut." : "An empty circuit.");
+        : state.said || (state.editing ? "Pick a gate here, then tap where it goes on the lines. Tap Edit the circuit again when you are done." : ops.length ? "Tap a gate or a line, or try Auto cut." : "An empty circuit.");
       angleRow.style.display = ANGLED[state.tool] ? "" : "none";
 
       /* The result */
@@ -613,10 +633,108 @@
         payoff.appendChild(payoffCost(plan, cuts, prepared));
         drawShots(prepared, plan, exact);
         drawTerms(plan, cuts, circuit.ops);
+        current = { prepared: prepared, plan: plan, exact: exact };
       }
+      if (bad) current = null;
+      runButton.disabled = bad || !ops.length;
+      if (runKey === null) runButton.textContent = "Run it";
+      shotExtra.textContent = !bad && plan.joint && plan.joint.shared ? "Simulated with one ancilla per gate, joint=False. The value is the same as the default's, at the cost above." : "";
+      drawFit(plan, ops, cuts, bad);
       clear.disabled = !state.cuts.length;
       codeBody.textContent = pythonFor(ops, cuts, observable);
     }
+
+    function costOf(plan) { return plan.joint || plan; }  /* what 2.0 does by default */
+    function widthsOf(plan) { return plan.joint ? plan.joint.widths : plan.widths; }
+
+    function drawFit(plan, ops, cuts, bad) {
+      fitBox.style.display = ops.length ? "" : "none";
+      state.fit = Math.max(1, Math.min(state.fit, state.n));
+      fitNumber.textContent = String(state.fit);
+      fitWord.textContent = state.fit === 1 ? "qubit" : "qubits";
+      fitLess.disabled = state.fit <= 1;
+      fitMore.disabled = state.fit >= state.n;
+      fitBox.classList.remove("qdx-fits");
+      if (bad) { fitStatus.textContent = "This cut separates nothing yet."; return; }
+      var largest = Math.max.apply(null, widthsOf(plan).concat([0])), cost = costOf(plan);
+      var plural = largest === 1 ? " qubit" : " qubits";
+      if (largest > state.fit) {
+        fitStatus.textContent = "Largest piece: " + largest + plural + ". Not yet.";
+      } else if (!cuts.length) {
+        fitBox.classList.add("qdx-fits");
+        fitStatus.textContent = "\u2713 It fits already, with no cut.";
+      } else {
+        fitBox.classList.add("qdx-fits");
+        fitStatus.textContent = "\u2713 It fits: largest piece " + largest + plural + ", at gamma " + gammaText(cost.gamma) + " and " + count(cost.subcircuits) + " subcircuits. Another cut can cost more or less.";
+      }
+    }
+
+    /* ---- Run it: every subcircuit lights up, round after round, while the simulated value
+       closes in on the uncut one. The values are real draws from the engine's fragments. */
+    var ROUNDS = [64, 256, 1024, 4096, 16384];
+    var current = null, runKey = null, runTimer = null, runCount = 0;
+    function stateKey() { return JSON.stringify([state.ops, state.cuts, state.observable]); }
+    function stopRun() {
+      clearInterval(runTimer);
+      runTimer = null;
+      runKey = null;
+      runBox.hidden = true;
+      runBox.textContent = "";
+      runButton.textContent = "Run it";
+    }
+    function startRun() {
+      stopRun();
+      if (!current) return;
+      var plan = current.plan, prepared = current.prepared, exact = current.exact;
+      runKey = stateKey();
+      runBox.hidden = false;
+      var W = 340, at = function (v) { return 14 + ((Math.max(-1, Math.min(1, v)) + 1) / 2) * (W - 28); };
+      var each = Math.ceil(plan.subcircuits / 240), tiles = [];
+      var grid = runBox.appendChild(el("div", { class: "qdx-tiles" }));
+      plan.fragments.forEach(function (fragment, f) {
+        for (var i = 0; i < Math.ceil(plan.configurations / each); i++) {
+          tiles.push(grid.appendChild(el("i", { style: "background:" + fragColor(f) })));
+        }
+      });
+      var line = runBox.appendChild(el("div", { class: "qdx-line" }));
+      line.innerHTML = '<svg viewBox="0 0 ' + W + ' 30" style="max-width:560px" role="img" aria-label="The simulated value against the uncut one">' +
+        '<line x1="14" x2="' + (W - 14) + '" y1="14" y2="14" stroke="var(--qd-line)" stroke-width="4" stroke-linecap="round"/>' +
+        '<circle cx="' + at(exact) + '" cy="14" r="10" fill="none" stroke="var(--qd-b)" stroke-width="3"/>' +
+        '<circle class="qdx-rundot" cx="0" cy="14" r="5.5" fill="var(--qd-a)" style="transform:translateX(' + at(0) + 'px)"/></svg>';
+      var dot = line.querySelector(".qdx-rundot");
+      var caption = runBox.appendChild(el("p", { class: "qd-note", "aria-live": "polite" }));
+      var rng = E.mulberry(4099 + 17 * ++runCount), round = 0, lit = 0, batch = Math.max(1, Math.ceil(tiles.length / 16));
+      var who = "Simulated in your browser: ", joint = plan.joint && plan.joint.shared ? " With one ancilla per gate, joint=False." : "";
+      var words = each > 1 ? " Each tile is " + each + " subcircuits." : "";
+      runButton.textContent = "Running\u2026";
+      function finishRound() {
+        var shots = ROUNDS[round], value = prepared.draw(shots, rng);
+        dot.style.transform = "translateX(" + at(value) + "px)";
+        caption.textContent = who + count(shots) + " shots per subcircuit gives " + num(value, 4) + ", against " + num(exact, 4) + " uncut." + words + joint;
+      }
+      var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (still) {
+        tiles.forEach(function (t) { t.style.opacity = 1; });
+        round = ROUNDS.length - 1;
+        finishRound();
+        runButton.textContent = "Run again";
+        return;
+      }
+      runTimer = setInterval(function () {
+        var shade = 0.25 + 0.75 * (round + 1) / ROUNDS.length;
+        for (var i = 0; i < batch && lit < tiles.length; i++) tiles[lit++].style.opacity = shade;
+        if (lit < tiles.length) return;
+        finishRound();
+        lit = 0;
+        round += 1;
+        if (round === ROUNDS.length) {
+          clearInterval(runTimer);
+          runTimer = null;
+          runButton.textContent = "Run again";
+        }
+      }, 45);
+    }
+    runButton.addEventListener("click", startRun);
 
     function payoffValues(exact, value, observable) {
       var box = el("div", { class: "qdx-values" });
@@ -644,22 +762,22 @@
     function payoffCost(plan, cuts, prepared) {
       var box = el("div", { class: "qdx-cost" });
       var pieces = box.appendChild(el("div", { class: "qdx-pieces" }));
+      var widths = widthsOf(plan), cost = costOf(plan);
       plan.fragments.forEach(function (fragment, f) {
         var piece = pieces.appendChild(el("span", { class: "qdx-piece", title: "Fragment " + (f + 1) }));
-        for (var i = 0; i < plan.widths[f]; i++) piece.appendChild(el("i", { style: "background:" + fragColor(f) }));
+        for (var i = 0; i < widths[f]; i++) piece.appendChild(el("i", { style: "background:" + fragColor(f) }));
       });
-      var largest = Math.max.apply(null, plan.widths.concat([0]));
+      var largest = Math.max.apply(null, widths.concat([0]));
       box.appendChild(el("p", { class: "qd-note" }, !cuts.length
         ? "The whole circuit needs " + state.n + " qubits at once" + (plan.fragments.length > 1 ? ", in pieces that already do not touch." : ".")
         : "Largest piece: " + largest + " qubit" + (largest === 1 ? "" : "s") + ", from a circuit of " + state.n + "."));
       var stats = box.appendChild(el("div", { class: "qd-stats" }));
-      stat(stats, count(plan.subcircuits), plan.subcircuits === 1 ? "circuit to run" : "subcircuits to run");
+      stat(stats, count(cost.subcircuits), cost.subcircuits === 1 ? "circuit to run" : "subcircuits to run");
       if (plan.optimized !== null && cuts.length) stat(stats, count(plan.optimized), "with optimized=True");
-      stat(stats, gammaText(plan.gamma), "gamma");
-      if (cuts.length) stat(stats, "×" + count(plan.gamma * plan.gamma), "shots, in the worst case");
+      stat(stats, gammaText(cost.gamma), "gamma");
+      if (cuts.length) stat(stats, "\u00d7" + count(cost.gamma * cost.gamma), "shots, in the worst case");
       var notes = [], goldenCount = Object.keys(plan.golden).length;
       if (goldenCount) notes.push((goldenCount > 1 ? goldenCount + " wire cuts are golden" : "This wire cut is golden") + ": the state before it is real, so its Y terms are zero and are left out, with 6 terms and gamma 3.");
-      if (plan.joint && plan.joint.shared) notes.push("Qdislib's default, joint=True, shares ancillas between the " + plan.joint.shared + " Hadamard cuts across one boundary: " + count(plan.joint.subcircuits) + " subcircuits, gamma " + gammaText(plan.joint.gamma) + ". The value is the same.");
       if (notes.length) box.appendChild(el("p", { class: "qd-note" }, notes.join(" ")));
       return box;
     }
@@ -711,6 +829,7 @@
           return "<tr>" + term + "<td>" + (t.w >= 0 ? "+" : "\u2212") + Math.abs(t.w).toFixed(4) + "</td><td>" + esc(a) + "</td><td>" + esc(b) + "</td></tr>";
         }).join("");
         termsBody.appendChild(el("table", { class: "qdx-t" })).innerHTML = "<thead><tr>" + (isHadamard ? "<th>Term</th>" : "") + "<th>Weight</th><th>Side 1</th><th>Side 2</th></tr></thead><tbody>" + rows + "</tbody>";
+        if (isHadamard && plan.joint.shared) termsBody.appendChild(el("p", { class: "qd-note" }, "These are the terms of this cut alone, as joint=False runs them. By default, Qdislib combines the Hadamard cuts across one boundary."));
         if (isHadamard) termsBody.appendChild(el("p", { class: "qd-note" }, "(i,j) as subs.describe() prints it, with parity 0 for the real part and 1 for the imaginary one. |0\u27e9 and |1\u27e9 are the ancilla's two branches. Swapping the operators conjugates the term: the real parts match and the imaginary parts flip sign, which cancels in the product, so each pair adds the same amount."));
       });
     }
@@ -738,8 +857,8 @@
       });
       lines.push("");
       lines.push('cuts = {"gate": [' + parts.gate.join(", ") + '], "hadamard": [' + parts.hadamard.join(", ") + '], "wire": [' + parts.wire.join(", ") + "]}");
-      lines.push("print(qd.cutting_overhead(qc, cuts, joint=False))");
-      lines.push('print(qd.circuit_cutting(qc, cuts, "' + observable + '", shots=None, joint=False))');
+      lines.push("print(qd.cutting_overhead(qc, cuts))");
+      lines.push('print(qd.circuit_cutting(qc, cuts, "' + observable + '", shots=None))');
       lines.push('print(qd.analytical_solution(qc, "' + observable + '"))');
       return lines.join("\n");
     }
@@ -1188,7 +1307,7 @@
       var how = data.kind === "read" ? "Calibration read on " + data.snapshot + ", not a live connection." + (data.missing ? " " + data.missing + " couplers are absent from that calibration and are not drawn." : "")
         : data.kind === "snapshot" ? "Real device layout, with a calibration snapshot shipped in Qiskit, from " + data.snapshot + ". Not a live connection."
         : "The layout is the published one, from " + data.source + ", and packing uses uniform placeholder errors (" + all.placeholder.cz + " on cz, " + all.placeholder.readout + " on readout), so this shows the layout's capacity rather than the device's current state.";
-      packNote.textContent = how + " The drawing shows the connections, not the physical positions. Placement only, stored from a real call to qd.pack: nothing ran on any device. These are the " + all.circuits + " subcircuits of a 6-qubit circuit with one cut, and each colour is one subcircuit's group.";
+      packNote.textContent = how + (data.numbering ? " " + data.numbering : "") + " The drawing shows the connections, not the physical positions. Placement only, stored from a real call to qd.pack: nothing ran on any device. These are the " + all.circuits + " subcircuits of a 6-qubit circuit with one cut, and each colour is one subcircuit's group.";
       slider.max = String(run.jobs.length - 1);
       job = Math.min(job, run.jobs.length - 1);
       slider.value = String(job);
@@ -1210,26 +1329,21 @@
       var radius = 11;
       data.edges.forEach(function (e) {
         var a = px(e[0]), b = px(e[1]);
-        s += '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="' + (data.accent ? "var(--color-foreground-primary, #111)" : "var(--qd-line)") + '" stroke-width="2"/>';
+        s += '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="var(--qd-line)" stroke-width="2"/>';
       });
       Object.keys(data.points).forEach(function (q) {
         var p = px(q), on = owner[q] !== undefined;
-        /* Idle qubits stay pale in the chip's own colour, so a group's colour stands out. */
         var paint = on ? 'fill="' + COLOURS[owner[q] % COLOURS.length] + '" stroke="none"'
-          : data.accent ? 'fill="' + data.accent + '" fill-opacity="0.22" stroke="' + data.accent + '" stroke-width="1.5"'
           : 'fill="var(--color-background-primary, #fff)" stroke="var(--color-foreground-secondary, #777)"';
-        /* a solid disc first, so that no line shows through a pale qubit */
-        s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + radius + '" fill="var(--color-background-primary, #fff)"/>';
         s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + radius + '" ' + paint + "/>";
-        if (data.numbered === false) return;  /* the source does not number them */
-        s += '<text x="' + p[0] + '" y="' + (p[1] + 3) + '" text-anchor="middle" style="fill:' + (on ? "#fff" : data.accent ? "var(--color-foreground-primary, #111)" : "var(--color-foreground-secondary, #555)") + '">' + q + "</text>";
+        s += '<text x="' + p[0] + '" y="' + (p[1] + 3) + '" text-anchor="middle" style="fill:' + (on ? "#fff" : "var(--color-foreground-secondary, #555)") + '">' + q + "</text>";
       });
       map.innerHTML = s + "</svg>";
       chipBox.textContent = "";
       run.jobs[job].forEach(function (slot, i) {
         var item = chipBox.appendChild(el("span"));
         item.appendChild(el("span", { class: "qd-swatch", style: "background:" + COLOURS[i % COLOURS.length] }));
-        item.appendChild(document.createTextNode("subcircuit " + slot.circuit + (data.numbered === false ? "" : ": " + slot.qubits.join(", "))));
+        item.appendChild(document.createTextNode("subcircuit " + slot.circuit + ": " + slot.qubits.join(", ")));
       });
     }
     slider.addEventListener("input", function () { job = Number(slider.value); update(); });
