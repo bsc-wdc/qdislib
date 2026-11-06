@@ -567,6 +567,41 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
         self.assertAlmostEqual(result, 0.5)
 
 
+class CountsTotalTest(BaseTimedTestCase):
+    """Stored counts are read over their own total, not the shots asked for now."""
+
+    def test_counts_read_with_other_shots(self):
+        from Qdislib.utils.backends import _SimContext
+
+        sim = _SimContext(None, None, "ZZ", "qiskit", 100)
+        self.assertEqual(sim.expectation_from_counts({"01": 1000}), -1.0)
+        sim = _SimContext(None, None, "ZZ", "qibo", 4000)
+        self.assertEqual(sim.expectation_from_counts({"10": 750, "00": 250}), -0.5)
+
+    @unittest.skipUnless(
+        QISKIT_AVAILABLE and PYZX_AVAILABLE, "qiskit and pyzx required"
+    )
+    def test_a_strategy_sharing_counts_across_shots(self):
+        from qiskit import QuantumCircuit
+
+        from Qdislib.utils.backends import expectation_value
+        from Qdislib.utils.circuit_cache import CountsStrategy, InMemoryCircuitCache
+
+        class OneEntry(CountsStrategy):
+            def make_key(self, semantic_key, sim):
+                return "the one entry"
+
+        qc = QuantumCircuit(2)
+        qc.x(0)
+        cache = InMemoryCircuitCache()
+        values = [
+            expectation_value(qc, shots=shots, cache=cache, cache_mode=OneEntry())
+            for shots in (1000, 100, 4000)
+        ]
+        self.assertEqual(values, [-1.0, -1.0, -1.0])
+        self.assertEqual(len(cache), 1)
+
+
 @unittest.skipUnless(
     QISKIT_AVAILABLE and PYZX_AVAILABLE, "qiskit and pyzx required for the shot keys"
 )

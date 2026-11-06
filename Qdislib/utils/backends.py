@@ -551,9 +551,10 @@ class _SimContext:
         return _simulate_counts(self.circuit, self.software, self.shots)
 
     def expectation_from_counts(self, counts):
-        """Expectation value derived from ``counts`` for this observable."""
+        """Expectation value derived from ``counts`` for this observable, over their
+        own total: a store can hold counts drawn with other shots than this run's."""
         return _expectation_from_counts(
-            counts, self.observables, self.software, self.shots
+            counts, self.observables, self.software, sum(counts.values())
         )
 
 
