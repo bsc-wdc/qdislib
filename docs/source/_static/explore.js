@@ -377,6 +377,16 @@
     var warn = root.appendChild(el("div", { class: "qdx-warn", hidden: "" }));
     var payoff = root.appendChild(el("div", { class: "qdx-payoff" }));
 
+    var shotBody = root.appendChild(el("div", { class: "qdx-withshots" }));
+    shotBody.appendChild(el("span", { class: "qd-label" }, "With shots"));
+    var shotRow = shotBody.appendChild(el("div", { class: "qd-shots" }));
+    var shotSlider = shotRow.appendChild(el("input", { type: "range", min: "6", max: "16", step: "1", value: "10", "aria-label": "Shots per subcircuit" }));
+    var again = shotRow.appendChild(el("button", { type: "button" }, "Draw again"));
+    var shotStats = shotBody.appendChild(el("div", { class: "qd-stats" }));
+    var strip = shotBody.appendChild(el("div"));
+    shotBody.appendChild(el("p", { class: "qd-note" },
+      "Shots are simulated here: each distinct fragment circuit gives a +1 or −1 per shot, drawn with its exact probability. Dots are 30 independent runs."));
+
     var how = root.appendChild(el("details"));
     how.appendChild(el("summary", {}, "How it works"));
     how.appendChild(el("div", {})).innerHTML =
@@ -385,17 +395,6 @@
       "<li>A <b>Hadamard cut</b> does it with one extra qubit per side instead of the measurement. Tap the gate again.</li>" +
       "<li>A <b>wire cut</b> measures a qubit's line at one point and prepares it again later. Tap the circle on the line.</li></ul>" +
       "<p>Each fragment runs several times, once per term of its cuts. Those are the <b>subcircuits</b>. Adding up their results with the right weights gives back the uncut result. The price is <b>gamma</b>: for the same worst-case precision, the shots grow as gamma squared.</p>";
-
-    var shotsBox = root.appendChild(el("details"));
-    shotsBox.appendChild(el("summary", {}, "With shots"));
-    var shotBody = shotsBox.appendChild(el("div"));
-    var shotRow = shotBody.appendChild(el("div", { class: "qd-shots" }));
-    var shotSlider = shotRow.appendChild(el("input", { type: "range", min: "6", max: "16", step: "1", value: "10", "aria-label": "Shots per subcircuit" }));
-    var again = shotRow.appendChild(el("button", { type: "button" }, "Draw again"));
-    var shotStats = shotBody.appendChild(el("div", { class: "qd-stats" }));
-    var strip = shotBody.appendChild(el("div"));
-    shotBody.appendChild(el("p", { class: "qd-note" },
-      "Shots are simulated here: each distinct fragment circuit gives a +1 or −1 per shot, drawn with its exact probability. Dots are 30 independent runs."));
 
     var termsBox = root.appendChild(el("details"));
     termsBox.appendChild(el("summary", {}, "The terms of each cut"));
