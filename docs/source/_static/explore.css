@@ -88,3 +88,5 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 .qd-try .qdx-slot { fill: var(--qd-line); pointer-events: none; }
 .qd-try #qdx-play-board { transition: width 0.25s ease; }
 @media (prefers-reduced-motion: reduce) { .qd-try #qdx-play-board { transition: none; } }
+.qd-try .qdx-edit[hidden] { display: none; }
+.qd-try .qdx-edit { margin: 0.4rem 0 0.6rem; }

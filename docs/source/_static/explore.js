@@ -197,7 +197,7 @@
       ["cz", "CZ"], ["cx", "CX"], ["rzz", "RZZ"]
     ];
     var ANGLED = { rx: 1, ry: 1, rz: 1, rzz: 1 }, TWO = { cz: 1, cx: 1, rzz: 1 };
-    var state = { n: 5, ops: [], cuts: [], observable: "ZZZZZ", tool: null, angle: 0.8, pending: null, seed: 1, said: "", example: "chain", auto: false };
+    var state = { n: 5, ops: [], cuts: [], observable: "ZZZZZ", tool: null, angle: 0.8, pending: null, seed: 1, said: "", example: "chain", auto: false, editing: false };
     var uid = 1, painted = {}, keyed = null;
 
     function add(name, qubits, col, theta) {
@@ -363,12 +363,20 @@
     var menu = startRow.appendChild(el("select", { id: "qdx-circuit" }));
     Object.keys(EXAMPLES).forEach(function (key) { menu.appendChild(el("option", { value: key }, EXAMPLES[key][0])); });
     var yours = menu.appendChild(el("option", { value: "yours" }, "Your circuit"));
+    var editButton = startRow.appendChild(el("button", { type: "button", "aria-pressed": "false" }, "Edit the circuit"));
+    editButton.addEventListener("click", function () {
+      state.editing = !state.editing;
+      state.tool = null;
+      state.pending = null;
+      state.said = "";
+      render();
+    });
     var another = startRow.appendChild(el("button", { type: "button" }, "Another random one"));
     function pickCircuit(key) {
       state.example = key;
       EXAMPLES[key][1]();
       state.tool = null;
-      edit.open = key === "empty";
+      state.editing = key === "empty";
       render();
     }
     menu.addEventListener("change", function () { if (menu.value !== "yours") pickCircuit(menu.value); });
@@ -379,17 +387,12 @@
       another.style.display = state.example === "random" ? "" : "none";
     }
     var hint = root.appendChild(el("p", { class: "qdx-hint", "aria-live": "polite" }));
-    var edit = root.appendChild(el("details"));
-    edit.appendChild(el("summary", {}, "Edit the circuit"));
-    var editBody = edit.appendChild(el("div"));
+    var editBody = root.appendChild(el("div", { class: "qdx-edit" }));
     var toolBox = editBody.appendChild(el("div", { class: "qdx-tools" }));
-    var help = editBody.appendChild(el("p", { class: "qd-note" }));
     var angleRow = editBody.appendChild(el("div", { class: "qdx-row" }));
     var angleLabel = angleRow.appendChild(el("label", { for: "qdx-angle" }, "Angle of the next rotation: 0.8"));
     var angle = angleRow.appendChild(el("input", { id: "qdx-angle", type: "range", min: "0.1", max: "3", step: "0.1", value: "0.8", "aria-label": "Angle of the next rotation" }));
     angle.addEventListener("input", function () { state.angle = Number(angle.value); angleLabel.textContent = "Angle of the next rotation: " + state.angle.toFixed(1); });
-    var doneEditing = editBody.appendChild(el("button", { type: "button" }, "Back to cutting"));
-    doneEditing.addEventListener("click", function () { state.tool = null; state.pending = null; edit.open = false; render(); });
 
     var boardHost = root.appendChild(el("div", { id: "qdx-play-board" }));
     var legend = root.appendChild(el("div", { class: "qd-legend" }));
@@ -543,7 +546,9 @@
     }
 
     function render() {
-      if (edit.open) drawTools();
+      editBody.hidden = !state.editing;
+      editButton.setAttribute("aria-pressed", String(state.editing));
+      if (state.editing) drawTools();
       drawExamples();
       auto.setAttribute("aria-pressed", String(state.auto));
       var ops = ordered();
@@ -555,7 +560,7 @@
 
       var svg = drawCircuit({
         n: state.n, ops: circuit.ops, cols: cols, cuts: cuts, plan: plan, keys: true,
-        width: edit.open ? COLS : Math.max(5, Math.max.apply(null, cols.concat([0])) + 1),
+        width: state.editing ? COLS : Math.max(5, Math.max.apply(null, cols.concat([0])) + 1),
         ends: state.observable.split(""),
         aria: "The circuit. Each colour is a fragment. Tap a two-qubit gate or a line to cut there.",
         overlay: function (g) {
@@ -595,7 +600,7 @@
       });
       board(boardHost, svg, true);
       /* The box follows the circuit: narrower or wider, shorter or taller, as it changes. */
-      var drawn = LEFT + (edit.open ? COLS : Math.max(5, Math.max.apply(null, cols.concat([0])) + 1)) * CELL + 50;
+      var drawn = LEFT + (state.editing ? COLS : Math.max(5, Math.max.apply(null, cols.concat([0])) + 1)) * CELL + 50;
       boardHost.style.width = "min(100%, " + Math.round(drawn * 1.35) + "px)";
       if (keyed) {  /* with a keyboard, stay on the same place */
         Array.prototype.some.call(boardHost.querySelectorAll(".qdx-hit"), function (node) {
@@ -608,10 +613,8 @@
       /* What just happened, or what to do */
       hint.textContent = editing
         ? (state.tool === "erase" ? "Tap a gate to remove it." : TWO[state.tool] ? "Tap one qubit, then another in the same column." : "Tap an empty place on the circuit.")
-        : state.said || (ops.length ? "Tap a two-qubit gate to cut it, or a line to cut the wire. Or try Auto cut." : "An empty circuit. Pick a gate here, then tap where it goes on the lines.");
-      help.textContent = "Pick a gate, then tap the circuit. Tap the gate here again, or Back to cutting, to return.";
+        : state.said || (state.editing ? "Pick a gate here, then tap where it goes on the lines. Tap Edit the circuit again when you are done." : ops.length ? "Tap a two-qubit gate to cut it, or a line to cut the wire. Or try Auto cut." : "An empty circuit.");
       angleRow.style.display = ANGLED[state.tool] ? "" : "none";
-      doneEditing.style.display = editing ? "" : "none";
 
       /* The result */
       var observable = state.observable, exact = E.exact(circuit, observable), bad = plan.invalid.length > 0;
@@ -786,10 +789,6 @@
       render();
     });
     clear.addEventListener("click", function () { state.cuts = []; state.said = ""; state.auto = false; render(); });
-    edit.addEventListener("toggle", function () {
-      if (!edit.open) { state.tool = null; state.pending = null; }
-      render();
-    });
     shotSlider.addEventListener("input", render);
     again.addEventListener("click", function () { state.seed += 1; render(); });
     EXAMPLES.chain[1]();
