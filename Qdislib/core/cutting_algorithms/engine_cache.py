@@ -45,6 +45,7 @@ import hashlib
 import logging
 import os
 import pickle
+import re
 
 import numpy as np
 
@@ -92,7 +93,7 @@ def _in_compss_runtime():
 def _store(spec):
     """A store from what ``cache=`` takes: ``True`` (the default store: in memory,
     or LMDB on the working directory's filesystem under PyCOMPSs), ``"memory"``,
-    ``"lmdb:<path>"``, ``"redis"`` / ``"redis://host:port/db"``, or a
+    ``"lmdb:<path>"``, ``"redis"`` / ``"redis[s]://host:port/db"``, or a
     :class:`~Qdislib.utils.circuit_cache.CircuitCache` object."""
     from Qdislib.utils import circuit_cache as cc
 
@@ -123,9 +124,9 @@ def _store(spec):
             path = spec[len("lmdb:") :]
             os.makedirs(path, exist_ok=True)
             _STORES[spec] = cc.LMDBCircuitCache(path)
-        elif spec == "redis" or spec.startswith("redis://"):
+        elif spec == "redis" or spec.startswith(("redis://", "rediss://")):
             kwargs = {}
-            if spec.startswith("redis://"):
+            if spec.startswith(("redis://", "rediss://")):
                 from urllib.parse import urlparse
 
                 url = urlparse(spec)
@@ -138,9 +139,13 @@ def _store(spec):
                     kwargs["username"] = url.username
                 if url.password:
                     kwargs["password"] = url.password
+                if url.scheme == "rediss":
+                    kwargs["ssl"] = True
             _STORES[spec] = cc.default_circuit_cache("redis", **kwargs)
         else:
-            raise ValueError(f"Unknown cache {spec!r}")
+            # a URL's password stays out of what gets printed and logged
+            shown = re.sub(r"://([^:/@]*):.*@", r"://\1:***@", spec)
+            raise ValueError(f"Unknown cache {shown!r}")
     return _STORES[spec]
 
 
@@ -158,7 +163,7 @@ class use_cache:  # noqa: N801 -- used as a function and as a context manager
     that call).
 
     :param store: ``True``, ``"memory"``, ``"lmdb:<path>"``, ``"redis"``,
-        ``"redis://[user:password@]host:port/db"``, a ``CircuitCache`` object, or
+        ``"redis[s]://[user:password@]host:port/db"``, a ``CircuitCache`` object, or
         ``None`` (off). ``"memory"`` is one process's memory, refused under PyCOMPSs.
     :param key: ``"exact"`` (default) or ``"semantic"`` (see the module).
     :raises ValueError: For an unknown ``key`` or store.

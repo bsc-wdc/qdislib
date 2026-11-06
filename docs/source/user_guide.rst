@@ -787,7 +787,7 @@ session with :func:`~Qdislib.use_cache`:
 
 ``cache=`` takes ``True`` (in memory; under PyCOMPSs, LMDB in the working directory
 or ``$QDISLIB_CACHE_DIR``, so every worker shares it), ``"memory"``,
-``"lmdb:<path>"``, ``"redis"`` / ``"redis://host:port/db"`` or a store object
+``"lmdb:<path>"``, ``"redis"`` / ``"redis://host:port/db"`` (``rediss://`` for TLS) or a store object
 (``qd.default_circuit_cache(...)``; ``store.stats()`` gives hits, misses and size).
 ``cache=False`` turns a session cache off for one call.
 

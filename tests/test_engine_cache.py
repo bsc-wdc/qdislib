@@ -328,6 +328,35 @@ class EngineCacheTest(BaseTimedTestCase):
             "redis", host="host", port=7000, db=3, username="me", password="secret"
         )
 
+    def test_a_tls_redis_url(self):
+        with mock.patch.dict(engine_cache._STORES, clear=True):
+            with mock.patch(
+                "Qdislib.utils.circuit_cache.default_circuit_cache"
+            ) as build:
+                engine_cache._store("rediss://me:secret@host:7000/3")
+        build.assert_called_once_with(
+            "redis",
+            host="host",
+            port=7000,
+            db=3,
+            username="me",
+            password="secret",
+            ssl=True,
+        )
+
+    def test_a_refused_url_does_not_print_its_password(self):
+        for spec in (
+            "rediz://me:s3cret@host:7000/3",
+            "rediz://:s3cret@host",
+            "rediz://me:pa/s3cret@host",
+            "rediz://me:p@s3cret@host",
+        ):
+            with mock.patch.dict(engine_cache._STORES, clear=True):
+                with self.assertRaises(ValueError) as caught:
+                    engine_cache._store(spec)
+            self.assertNotIn("s3cret", str(caught.exception))
+            self.assertIn("rediz://", str(caught.exception))
+
     def test_cache_mode_is_deprecated(self):
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
