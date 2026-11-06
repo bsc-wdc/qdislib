@@ -1,7 +1,7 @@
-Noise and hardware
+Hardware and noise
 ==================
 
-How cuts behave under noise, and how their subcircuits share a chip.
+How subcircuits share a chip, and how cuts behave under noise.
 
 .. raw:: html
 
@@ -9,15 +9,6 @@ How cuts behave under noise, and how their subcircuits share a chip.
    <link rel="stylesheet" href="_static/explore.css">
    <script src="_static/explore_engine.js"></script>
    <script src="_static/explore_data.js"></script>
-
-Noise
------
-
-How each kind of cut behaves as noise grows, next to the uncut circuit. *Stored from real Aer runs.*
-
-.. raw:: html
-
-   <div id="qdx-noise" class="qd-try"><p>This section needs JavaScript.</p></div>
 
 Packing on a QPU
 ----------------
@@ -27,6 +18,15 @@ Packing on a QPU
 .. raw:: html
 
    <div id="qdx-pack" class="qd-try"><p>This section needs JavaScript.</p></div>
+
+Noise
+-----
+
+How each kind of cut behaves as noise grows, next to the uncut circuit. *Stored from real Aer runs.*
+
+.. raw:: html
+
+   <div id="qdx-noise" class="qd-try"><p>This section needs JavaScript.</p></div>
 
 .. raw:: html
 

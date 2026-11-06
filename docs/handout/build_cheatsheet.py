@@ -211,7 +211,7 @@ def _decorate(canvas, doc):
     canvas.drawString(
         MARGIN_X,
         7 * mm,
-        "github.com/bsc-wdc/qdislib  ·  Barcelona Supercomputing Center",
+        "Qdislib 2.0  ·  github.com/bsc-wdc/qdislib  ·  Barcelona Supercomputing Center",
     )
     canvas.drawRightString(PAGE_W - MARGIN_X, 7 * mm, f"p. {doc.page}")
     canvas.restoreState()
@@ -290,7 +290,8 @@ def _story():
         body(
             "<b><font color='#3f8f9b'>Wire cutting</font></b> cuts a qubit's wire "
             "(its timeline) into “measure here / re-prepare there”. "
-            "<b>Cost: 8<super>k</super></b> terms for <i>k</i> cuts."
+            "<b>Cost: 8<super>k</super></b> terms for <i>k</i> cuts, &#947; = 4 each "
+            "(3 at a golden point, found automatically)."
         )
     )
     s.append(gap(2))
@@ -325,13 +326,13 @@ def _story():
     s.append(gap(2))
     s.append(
         code(
-            "cut = qd.find_cut(circ, gate_cut=True)\n"
+            "cut = qd.find_cut(circ, max_qubits=2, wire_cut=False)\n"
             "val = qd.gate_cutting(circ, cut, 'ZZZZ',\n"
             "          shots=8192)      # None = exact\n"
             "\n"
             "subs = qd.gate_cutting_subcircuits(\n"
             "    circ, cut, 'ZZZZ')  # .circuits('qiskit')\n"
-            "vals = [qd.expectation_value(s,\n"
+            "vals = [qd.expectation_value(s, shots=8192,\n"
             "    backend=None)  # or a QPU, per s\n"
             "        for s in subs]\n"
             "val = subs.reconstruct(vals)"
@@ -351,19 +352,32 @@ def _story():
     s.append(gap(3))
     s.append(
         code(
+            'pip install "qdislib[qiskit]"   # or: uv pip install ...\n'
+            "\n"
+            "from qiskit import QuantumCircuit\n"
             "import Qdislib as qd\n"
-            "from qibo import Circuit, gates\n"
             "\n"
-            "circ = Circuit(4)\n"
-            "circ.add(gates.H(0))\n"
-            "circ.add(gates.CZ(0, 1))\n"
-            "circ.add(gates.CZ(1, 2))\n"
-            "circ.add(gates.CZ(2, 3))\n"
+            "circ = QuantumCircuit(4)\n"
+            "circ.h(0)\n"
+            "circ.cz(0, 1)\n"
+            "circ.cz(1, 2)\n"
+            "circ.cz(2, 3)\n"
             "\n"
-            "cut = qd.find_cut(circ, gate_cut=True,\n"
+            "cut = qd.find_cut(circ, max_qubits=2,\n"
             "        wire_cut=False, seed=0)\n"
             "val = qd.gate_cutting(circ, cut,\n"
-            "        observable='ZZZZ', shots=8192)"
+            "        observable='ZZZZ', shots=8192, error=True)"
+        )
+    )
+    s.append(gap(2))
+    s.append(
+        body(
+            "Plain <font face='Courier'>pip install qdislib</font> brings no SDK: pick one, "
+            "<font face='Courier'>[qiskit]</font>, <font face='Courier'>[qibo]</font>, "
+            "<font face='Courier'>[cudaq]</font>, <font face='Courier'>[pennylane]</font>, "
+            "<font face='Courier'>[qilisdk]</font> or <font face='Courier'>[all]</font>. "
+            "No install at all: <b>Try Qdislib</b>, in the browser (see Learn more).",
+            BODY_MUTED,
         )
     )
     s.append(gap(4.5))
@@ -383,6 +397,7 @@ def _story():
                 ("expectation_value(sub)", "Run one subcircuit."),
                 ("estimate(circ, ...)", "One-call cut + run + reconstruct."),
                 ("cutting_overhead(circ, cuts)", "Preview circuits and gamma."),
+                ("shots_for(circ, cuts, eps)", "Shots for an error bound (worst case)."),
                 ("analytical_solution(...)", "Exact &lt;O&gt; (to check)."),
                 ("draw_cut(circ, cuts, path)", "Fragments in colour, cuts marked."),
                 ("from_qasm(qasm, ...)", "Import any OpenQASM 2."),
@@ -476,9 +491,10 @@ def _story():
     s.append(gap(2))
     s.append(
         body(
-            "<font face='Courier'>wire_cutting_sampling</font> too. Sampling carries "
-            "a quasiprobability overhead, so it needs <b>more shots</b> than an "
-            "expectation value.",
+            "<font face='Courier'>wire_cutting_sampling</font> too. "
+            "<font face='Courier'>qubits=[0, 1]</font> gives a marginal; over 24 qubits the "
+            "result is a <font face='Courier'>FactoredDistribution</font>, kept in pieces. "
+            "It needs <b>more shots</b> than an expectation value.",
             BODY_MUTED,
         )
     )
@@ -500,8 +516,9 @@ def _story():
                 (
                     "mixed=True",
                     "Gate, Hadamard and wire cuts priced by gamma (angle-aware, "
-                    "joint), within time_limit (10 s).",
+                    "joint), within time_limit (10 s). A dict for circuit_cutting.",
                 ),
+                ("top_n=k", "The k best candidates, ranked (not with mixed)."),
                 ("seed=n", "Reproducible cut selection."),
             ]
         )
@@ -536,13 +553,14 @@ def _story():
     s.append(
         api_table(
             [
-                ("backend=", "Where it runs: 'qiskit', 'IBM_BACKEND', an object."),
+                ("backend=", "'qiskit', 'IBM_BACKEND', an object; Aer by default."),
                 ("subs.circuits(sdk)", "3-step: the subcircuits in any SDK."),
                 ("shots=None / seed=n", "Exact / reproducible, on every cut."),
-                ("build_backend(name, cfg)", "A configured backend (QPU, GPU Aer)."),
+                ("build_backend(name, cfg)", "A configured backend, e.g. BackendConfig(use_gpu=True) on Aer."),
                 ("available_backends()", "List registered backends."),
-                ("QdBackEnd(pool)", "Load-balance across devices."),
-                ("register_backend(...)", "Plug in your own (BaseBackend)."),
+                ("QdBackEnd(qpu_dict=...)", "Route circuits to the shortest queue."),
+                ("BaseBackend", "Your own: one method, evaluate_samples."),
+                ("register_backend(...)", "Make it available by name."),
             ]
         )
     )
@@ -561,12 +579,13 @@ def _story():
     s.append(
         body(
             "Keeps each fragment circuit's result, for every observable read from it "
-            "(<font face='Courier'>cache_key='semantic'</font>: equivalent circuits too; "
-            "<font face='Courier'>qd.use_cache(...)</font>: a session). Stores: "
+            "(<font face='Courier'>qd.use_cache(...)</font>: a session; "
+            "<font face='Courier'>cache_key='semantic'</font>: equivalent circuits too, with a "
+            "warning, as two different circuits can rarely share a key). Stores: "
             "<font face='Courier'>'memory'</font> / "
             "<font face='Courier'>'lmdb'</font> / "
-            "<font face='Courier'>'redis'</font>. "
-            "<font face='Courier'>set_log_level('DEBUG')</font> for diagnostics.",
+            "<font face='Courier'>'redis'</font>, its password in "
+            "<font face='Courier'>$QDISLIB_REDIS_PASSWORD</font>.",
             BODY_MUTED,
         )
     )
@@ -586,31 +605,22 @@ def _story():
     s.append(
         code(
             "import pycompss.interactive as ipycompss\n"
-            "ipycompss.start()   # or:  runcompss app.py\n"
+            "ipycompss.start()  # or: runcompss --pythonpath=$(pwd) app.py\n"
             "subs = qd.gate_cutting_subcircuits(circ, cut)\n"
             "vals = [qd.expectation_value(s) for s in subs]\n"
             "val = subs.reconstruct(vals)   # auto-parallel\n"
-            "ipycompss.stop()"
+            "ipycompss.stop(sync=True)"
         )
     )
-    s.append(gap(4.5))
-
-    s.append(section("Choosing a method"))
-    s.append(gap(3))
+    s.append(gap(2))
     s.append(
-        api_table(
-            [
-                ("gate_cutting", "Any 2-qubit gate; distribution too; no ancilla."),
-                (
-                    "gate_cutting_hadamard",
-                    "Any gate as one cut; joint groups; no mid-circuit "
-                    "measure, one ancilla per fragment.",
-                ),
-                ("wire_cutting", "Cut a qubit's wire between two subcircuits."),
-                ("circuit_cutting", "Any mix of cuts on one circuit at once."),
-                ("*_sampling", "Reconstruct the full output distribution."),
-            ],
-            key_frac=0.44,
+        body(
+            "<b>GPU tasks:</b> a backend explicitly on a GPU (Aer "
+            "<font face='Courier'>use_gpu</font>, CUDA-Q <font face='Courier'>target='nvidia'</font>) "
+            "runs in tasks that ask for one GPU; nothing else is needed. Use GPU nodes: "
+            "without GPUs those tasks never start. On Apple Silicon add "
+            "<font face='Courier'>cpu_affinity='disabled'</font>.",
+            BODY_MUTED,
         )
     )
     s.append(gap(4.5))
@@ -626,8 +636,8 @@ def _story():
                 ),
                 (
                     "wire cut / cut",
-                    "8 terms, &#947; = 4 (optimized: 2<super>n</super>+1 + "
-                    "4<super>n</super> circuits).",
+                    "8 terms, &#947; = 4, 3 if golden (optimized: 3 sent + 4 received; "
+                    "k sent jointly: 2<super>k</super>+1).",
                 ),
                 (
                     "hadamard / cut",
@@ -654,7 +664,7 @@ def _story():
     s.append(
         api_table(
             [
-                ("sync=False", "Return futures; overlap several cuts (wait once)."),
+                ("sync=False", "Under PyCOMPSs: overlap several cuts, wait once."),
                 ("circuits_per_task=n", "Fewer, longer tasks for small circuits."),
                 (
                     "optimized=True",
@@ -686,7 +696,11 @@ def _story():
                 "(quasiprobability overhead).",
                 "<font face='Courier'>error=True</font> gives a standard error at no device "
                 "cost; <font face='Courier'>total_shots=</font> spends one budget.",
-                "Use <font face='Courier'>seed=</font> for a reproducible "
+                "<font face='Courier'>shots=1024</font> is the default, on every cut; "
+                "<font face='Courier'>shots=None</font> is exact.",
+                "A cut must separate its two sides, or it raises "
+                "<font face='Courier'>InvalidCutError</font>. Use "
+                "<font face='Courier'>seed=</font> for a reproducible "
                 "<font face='Courier'>find_cut</font>.",
             ]
         )
@@ -701,8 +715,12 @@ def _story():
     s.append(gap(2))
     s.append(
         code(
-            "ibm = qd.build_backend('IBM_BACKEND', cfg)\n"
+            "ibm = qd.build_backend('IBM_BACKEND', qd.BackendConfig(\n"
+            "        extra={'backend_name': 'ibm_marrakesh'}))\n"
             "qd.gate_cutting(circ, cut, backend=ibm)   # IBM\n"
+            "iqm = qd.build_backend('IQM_BACKEND',\n"
+            "        qd.BackendConfig(quantum_computer='garnet'))\n"
+            "qd.gate_cutting(circ, cut, backend=iqm)   # IQM\n"
             "qd.gate_cutting(circ, cut,\n"
             "        backend='BSC_QPU_BACKEND')        # BSC QPU"
         )
@@ -710,8 +728,11 @@ def _story():
     s.append(gap(2))
     s.append(
         body(
-            "<font face='Courier'>qd.pack</font>, or <font face='Courier'>pack=True</font> on the "
-            "IBM backend, runs many subcircuits in one job.",
+            "On IBM each subcircuit is one plain job, and the token stays in "
+            "<font face='Courier'>$IBM_QUANTUM_TOKEN</font>. <font face='Courier'>qd.pack</font>, or "
+            "<font face='Courier'>pack=True</font> on the IBM backend, runs many subcircuits "
+            "side by side in one job. The BSC QPUs read "
+            "<font face='Courier'>$QDISLIB_SUBCIRCUITS_DIR</font>.",
             BODY_MUTED,
         )
     )
@@ -729,7 +750,8 @@ def _story():
     s.append(gap(2))
     s.append(
         code(
-            "circ = qd.from_qasm(open('c.qasm').read())\n"
+            "circ = qd.from_qasm(open('c.qasm').read(),\n"
+            "        software='qiskit')   # the SDK to build it in\n"
             "qd.gate_cutting(circ, cut, backend='qiskit')"
         )
     )
@@ -739,20 +761,20 @@ def _story():
     s.append(gap(3))
     s.append(
         body(
-            "Full docs, the thirteen notebooks and three applications "
-            "and the API reference:"
+            "Run it in the browser, or read the docs, the notebooks and the API reference:"
         )
     )
     s.append(gap(2))
     s.append(
         api_table(
             [
+                ("Try", "qdislib.readthedocs.io/en/latest/try.html"),
+                ("Explore", "qdislib.readthedocs.io/en/latest/explore.html"),
                 ("Docs", "qdislib.readthedocs.io"),
                 ("Source", "github.com/bsc-wdc/qdislib"),
-                ("Notebooks", "notebooks/ — open in Colab or Binder."),
-                ("estimate(...)", "One call: find-cut + cut + reconstruct."),
+                ("Notebooks", "notebooks/, each opens in Colab or Binder."),
             ],
-            key_frac=0.30,
+            key_frac=0.22,
         )
     )
     s.append(gap(4.5))

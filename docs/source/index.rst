@@ -9,16 +9,7 @@ Qdislib
    <link rel="stylesheet" href="_static/explore.css">
    <div class="qdx-home">
      <a class="qdx-bigtry" href="try.html"><b>Try Qdislib</b><span>Cut a circuit and run it, live in your browser.</span></a>
-     <a class="qdx-bigtry qdx-second" href="explore.html"><b>Explore Qdislib</b><span>Costs, results, noise and packing on 12 chips.</span></a>
-   </div>
-   <div class="qdx-show">
-     <figure><img src="_static/landing_cut.svg" alt="The ten-qubit example below, drawn by qd.draw_cut: one gate cut at CZ_15 splits it into two fragments of five qubits." width="640"><figcaption>The example below, drawn by <code>qd.draw_cut</code>: one gate cut, two fragments.</figcaption></figure>
-     <ul class="qdx-facts">
-       <li><b>3 kinds of cut</b><span>Gate, Hadamard and wire, in any mix.</span></li>
-       <li><b>5 SDKs</b><span>Qiskit, Qibo, CUDA-Q, PennyLane and QiliSDK.</span></li>
-       <li><b>PyCOMPSs</b><span>Every fragment circuit a task, including GPU tasks.</span></li>
-       <li><b>QPUs</b><span>IBM, IQM and BSC devices.</span></li>
-     </ul>
+     <a class="qdx-bigtry qdx-second" href="explore.html"><b>Explore Qdislib</b><span>Costs, results, packing on 12 chips and noise.</span></a>
    </div>
 
 .. code-block:: bash

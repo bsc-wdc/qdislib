@@ -932,7 +932,8 @@ def find_cut(
         single winner, as a list of ``{"cut": [...], "kind": "gate"|"wire",
         "score": float}`` dicts, each cut once -- e.g. to compare options and size them
         with :func:`~Qdislib.cutting_overhead`. ``None`` (default) returns the single
-        best cut.
+        best cut. With ``mixed=True`` it has no effect: the single best cut comes back,
+        as a dict.
         Only affects the ``implementation="qdislib"`` path.
 
     coupling_map : list of (int, int), optional

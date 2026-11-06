@@ -870,40 +870,12 @@ SECTIONS = {
 }
 
 
-def landing_figure():
-    """The example on the landing page, as qd.draw_cut draws it."""
-    import io
-
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    circuit = QuantumCircuit(10)
-    circuit.ry(0.5, range(10))
-    for q in range(9):
-        circuit.cz(q, q + 1)
-    cut = qd.find_cut(circuit, max_qubits=5, wire_cut=False)
-    assert cut == ["CZ_15"]
-    with plt.rc_context({"svg.fonttype": "none", "font.family": "sans-serif"}):
-        ax = qd.draw_cut(circuit, {"gate": cut}, show=False)
-        ax.set_title("", loc="left")
-        buffer = io.StringIO()
-        ax.figure.savefig(buffer, format="svg", bbox_inches="tight", metadata={"Date": None})
-    plt.close(ax.figure)
-    (TARGET.parent / "landing_cut.svg").write_text(buffer.getvalue())
-    print("landing_cut.svg", len(buffer.getvalue()) // 1024, "KB", flush=True)
-
-
 def main():
     wanted = sys.argv[1:] or list(SECTIONS)
     data = {}
     if TARGET.exists():
         data = json.loads(TARGET.read_text().split("window.QD_EXPLORE = ", 1)[1].rsplit(";", 1)[0])
     data["version"] = qd.__version__
-    if "landing" in wanted:
-        landing_figure()
-        wanted = [name for name in wanted if name != "landing"]
     for name in wanted:
         start = time.time()
         with warnings.catch_warnings():

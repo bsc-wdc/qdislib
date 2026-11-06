@@ -16,7 +16,7 @@ The whole library, with nothing to install. Stored results of real Qdislib runs,
        <b>Results and shots</b><span>Output distributions and marginals, and error bars you can trust.</span></a>
      <a href="explore_hardware.html">
        <svg viewBox="0 0 200 60" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2"><path d="M20 15H180M20 45H180M50 15V45M110 15V45M170 15V45"/></g><g fill="currentColor"><circle cx="20" cy="15" r="6"/><circle cx="50" cy="15" r="6"/><circle cx="80" cy="15" r="6"/><circle cx="110" cy="15" r="6"/><circle cx="140" cy="15" r="6"/><circle cx="170" cy="15" r="6"/><circle cx="50" cy="45" r="6"/><circle cx="80" cy="45" r="6"/><circle cx="110" cy="45" r="6"/><circle cx="140" cy="45" r="6"/><circle cx="170" cy="45" r="6"/></g></svg>
-       <b>Noise and hardware</b><span>How each cut behaves under noise, and packing on 12 chips.</span></a>
+       <b>Hardware and noise</b><span>Packing on 12 chips, and how each cut behaves under noise.</span></a>
    </div>
 
 To run the real code, open :doc:`the notebooks <examples>` in Colab or Binder.
