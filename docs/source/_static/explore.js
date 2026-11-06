@@ -845,73 +845,45 @@
 
   /* ---- 2. find_cut ---- */
   function findCutSection(root) {
-    var data = D.find_cut, family = data[0].key, kind = "gate", max = 4, pick = 0;
+    var data = D.find_cut, family = data[0].key, kind = "gate", max = 4;
     root.textContent = "";
-    picker(root, "qdx-find-circuit", "Circuit", data.map(function (x) { return { value: x.key, label: x.label }; }), family, function (v) { family = v; pick = 0; update(); });
+    picker(root, "qdx-find-circuit", "Circuit", data.map(function (x) { return { value: x.key, label: x.label }; }), family, function (v) { family = v; update(); });
     var kindBox = root.appendChild(el("div", { class: "qd-choices qd-cuts" }));
     var row = root.appendChild(el("div", { class: "qdx-row" }));
     var label = row.appendChild(el("label", { for: "qdx-max" }));
     var slider = row.appendChild(el("input", { id: "qdx-max", type: "range", step: "1", "aria-label": "max_qubits" }));
-    var list = root.appendChild(el("div", { class: "qdx-options" }));
     var host = root.appendChild(el("div", { id: "qdx-find-board" }));
     root.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendHtml();
+    var stats = root.appendChild(el("div", { class: "qd-stats" }));
     var code = codeCell(root);
     var note = root.appendChild(el("p", { class: "qd-note" }));
 
-    function planOf(f, run) {
-      return E.plan({ n: f.n, ops: f.ops }, run.cuts.map(function (c) { return Object.assign({}, c); }), new Array(f.n + 1).join("Z"));
-    }
-    function nameCut(run) {
-      var parts = [];
-      ["gate", "hadamard", "wire"].forEach(function (key) {
-        (run.spec[key] || []).forEach(function (cut) { parts.push(Array.isArray(cut) ? cut.join(" → ") : cut); });
-      });
-      return parts.join(", ");
-    }
-    /* One number with a thin bar, on the scale of the options shown. */
-    function measure(value, text, largest, caption) {
-      var share = largest > 0 ? 100 * value / largest : 0;
-      return '<span class="qdx-measure"><b>' + esc(text) + "</b><span>" + esc(caption) + '</span><i style="width:' + Math.max(3, share) + '%"></i></span>';
-    }
     function update() {
       var f = data.filter(function (x) { return x.key === family; })[0];
-      toggles(kindBox, [{ value: "gate", label: "Gate" }, { value: "wire", label: "Wire" }, { value: "mixed", label: "Any, by cost" }], kind, function (v) { kind = v; pick = 0; update(); });
+      toggles(kindBox, [{ value: "gate", label: "Gate" }, { value: "wire", label: "Wire" }, { value: "mixed", label: "Any, by cost" }], kind, function (v) { kind = v; update(); });
       slider.min = "2"; slider.max = String(f.n - 1);
       max = Math.min(max, f.n - 1);
       slider.value = String(max);
       label.textContent = "max_qubits = " + max;
-      var runs = f.runs[kind + ":" + max];
-      pick = Math.min(pick, Math.max(runs.length - 1, 0));
-      list.textContent = "";
-      if (runs.length) {
-        var widest = runs.map(function (run) { return Math.max.apply(null, planOf(f, run).widths); });
-        var mostSubs = Math.max.apply(null, runs.map(function (run) { return Math.log(run.subcircuits + 1); }));
-        var mostGamma = Math.max.apply(null, runs.map(function (run) { return Math.log(run.gamma + 1); }));
-        var mostWide = Math.max.apply(null, widest);
-        runs.forEach(function (run, i) {
-          var b = list.appendChild(el("button", { type: "button", class: "qdx-option", "aria-pressed": String(i === pick) }));
-          b.innerHTML = '<span class="qdx-option-name">' + (runs.length > 1 ? "<b>" + (i + 1) + ".</b> " : "") + esc(nameCut(run)) + "</span>" +
-            '<span class="qdx-measures">' +
-            measure(Math.log(run.subcircuits + 1), count(run.subcircuits), mostSubs, "subcircuits") +
-            measure(Math.log(run.gamma + 1), gammaText(run.gamma), mostGamma, "gamma") +
-            measure(widest[i], String(widest[i]), mostWide, "largest piece") + "</span>";
-          b.addEventListener("click", function () { pick = i; update(); });
-        });
-      } else {
-        list.appendChild(el("p", { class: "qd-note" }, "find_cut found no cut within this limit."));
-      }
-      var run = runs[pick], cuts = run ? run.cuts : [], plan = run ? planOf(f, run) : E.plan({ n: f.n, ops: f.ops }, [], new Array(f.n + 1).join("Z"));
-      var cols = columns(f.n, f.ops);
-      var columnsUsed = Math.max.apply(null, cols) + 1;
+      var run = f.runs[kind + ":" + max], cuts = run.cuts || [];
+      var plan = E.plan({ n: f.n, ops: f.ops }, cuts.map(function (c) { return Object.assign({}, c); }), new Array(f.n + 1).join("Z"));
+      var cols = columns(f.n, f.ops), columnsUsed = Math.max.apply(null, cols) + 1;
       board(host, drawCircuit({ n: f.n, ops: f.ops, cols: cols, cuts: cuts, plan: plan, width: columnsUsed, aria: f.label }), true);
       /* The box follows the circuit, as in the playground. */
       host.style.width = "min(100%, " + (LEFT + columnsUsed * CELL + 12) + "px)";
-      var options = kind === "mixed" ? "mixed=True" : kind === "gate" ? "wire_cut=False, top_n=5" : "gate_cut=False, top_n=5";
-      code.textContent = "qd.find_cut(circuit, max_qubits=" + max + ", " + options + ", seed=0)";
-      var words = runs.length > 1 ? "The options as top_n ranks them, best first, and the first is what find_cut returns without it. Tap one to draw it. " : kind === "mixed" ? "With mixed=True, find_cut gives one answer, the cheapest it finds. " : "";
-      note.textContent = words + (run && run.difference !== undefined ? "Reconstructed with shots=None, the first differs from the uncut value by " + small(run.difference) + ". " : "") + "Bars are on the scale of the options shown, subcircuits and gamma logarithmic. The largest piece is in qubits, computed here from the cut. Stored from real runs.";
+      stats.textContent = "";
+      if (cuts.length) {
+        stat(stats, count(run.subcircuits), "subcircuits");
+        stat(stats, gammaText(run.gamma), "gamma");
+        stat(stats, String(Math.max.apply(null, plan.widths)), "qubits in the largest piece");
+      } else {
+        stat(stats, "none", "find_cut found no cut within this limit");
+      }
+      var options = kind === "mixed" ? "mixed=True" : kind === "gate" ? "wire_cut=False" : "gate_cut=False";
+      code.textContent = "qd.find_cut(circuit, max_qubits=" + max + ", " + options + ", seed=0)\n# " + (cuts.length ? JSON.stringify(run.spec) : "[]");
+      note.textContent = (run.difference !== undefined ? "Reconstructed with shots=None, this cut differs from the uncut value by " + small(run.difference) + ". " : "") + "Stored from a real run; the largest piece is computed here from the cut.";
     }
-    slider.addEventListener("input", function () { max = Number(slider.value); pick = 0; update(); });
+    slider.addEventListener("input", function () { max = Number(slider.value); update(); });
     update();
   }
 
@@ -1131,6 +1103,7 @@
       if (r.p !== 0.005) s += '<text x="' + x(r.p) + '" y="' + (H - B + 16) + '" text-anchor="middle">' + r.p + "</text>";
     });
     s += '<text x="' + (L + (W - L - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">noise strength p</text>';
+    s += '<text transform="translate(11 ' + ((T + H - B) / 2) + ') rotate(-90)" text-anchor="middle">expectation value \u27e8ZZZZZZ\u27e9</text>';
     var ends = [{ name: "exact", value: data.exact }];
     SERIES.forEach(function (series) {
       var line = data.rows.map(function (r) { return (x(r.p) + series.dx) + "," + y(series.get(r)[0]); }).join(" ");
@@ -1192,7 +1165,7 @@
     var all = D.pack, data = all.devices.filter(function (d) { return d.key === "montreal"; })[0], buffer = "1", job = 0;
     root.textContent = "";
     picker(root, "qdx-pack-device", "Layout", all.devices.map(function (d) {
-      return { value: d.key, label: d.device + ": " + d.family + ", " + d.qubits + " qubits" };
+      return { value: d.key, label: d.name + (d.family ? " (" + d.family + ")" : "") + ", " + d.qubits + " qubits" };
     }), data.key, function (v) {
       data = all.devices.filter(function (d) { return d.key === v; })[0];
       job = 0;
@@ -1212,7 +1185,7 @@
       var run = data.runs[buffer];
       toggles(bufferBox, Object.keys(data.runs).map(function (b) { return { value: b, label: b }; }), buffer, function (v) { buffer = v; job = 0; update(); });
       row.style.display = run.jobs.length > 1 ? "" : "none";
-      packNote.textContent = "qd.pack on " + data.device + ", a fake device: a published calibration snapshot of " + data.qubits + " qubits, not a live one. The " + all.circuits + " subcircuits of a 6-qubit circuit with one cut. Each colour is one subcircuit's group. Placement only, stored from a real call; nothing ran on any device.";
+      packNote.textContent = "Real device layouts, with calibration snapshots shipped in Qiskit: " + data.name + "'s is from " + data.snapshot + ". There is no live connection, and nothing ran on any device. These are the " + all.circuits + " subcircuits of a 6-qubit circuit with one cut, and each colour is one subcircuit's group. Placement only, stored from a real call to qd.pack.";
       slider.max = String(run.jobs.length - 1);
       job = Math.min(job, run.jobs.length - 1);
       slider.value = String(job);

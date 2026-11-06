@@ -67,9 +67,6 @@ def tvd(a, b):
 
 
 # --------------------------------------------------------------------- find_cut
-TOP_N = 5
-
-
 def family_chain():
     qc = QuantumCircuit(10)
     for q in range(10):
@@ -149,22 +146,7 @@ def family_random():
     return qc
 
 
-def find_cut_row(qc, spec, reconstruct):
-    """One option: its spec for the page, and its cost from Qdislib."""
-    row = {"spec": {k: v for k, v in spec.items() if v}}
-    if not any(spec.values()):
-        return row
-    cost = qd.cutting_overhead(qc, spec)
-    row.update(cost, cuts=engine_cuts(qc, spec))
-    if reconstruct and cost["configurations"] <= 10**7 and cost["fragments"] <= 8:
-        value = qd.circuit_cutting(qc, spec, "Z" * qc.num_qubits, shots=None)
-        row["difference"] = abs(float(value) - float(qd.analytical_solution(qc, "Z" * qc.num_qubits)))
-    return row
-
-
 def find_cut_section():
-    """For each circuit, limit and kind, find_cut's ranked options (top_n), best first. With
-    mixed=True find_cut gives one answer: it has no ranked form."""
     families = {
         "chain": ("A chain of CZ gates", family_chain),
         "ring": ("A ring of CZ gates", family_ring),
@@ -181,20 +163,20 @@ def find_cut_section():
         for kind, options in (
             ("gate", {"wire_cut": False}),
             ("wire", {"gate_cut": False}),
+            ("mixed", {"mixed": True, "time_limit": 3}),
         ):
             for max_qubits in range(2, qc.num_qubits):
-                found = qd.find_cut(qc, max_qubits=max_qubits, seed=0, top_n=TOP_N, **options)
-                first = qd.find_cut(qc, max_qubits=max_qubits, seed=0, **options)
-                rows = [find_cut_row(qc, {kind: option["cut"]}, i == 0) for i, option in enumerate(found) if option["cut"]]
-                # top_n's first is what find_cut itself returns: the page says so
-                assert not rows or found[0]["cut"] == first, (key, kind, max_qubits, found[0]["cut"], first)
-                entry["runs"][f"{kind}:{max_qubits}"] = rows
+                found = qd.find_cut(qc, max_qubits=max_qubits, seed=0, **options)
+                spec = found if isinstance(found, dict) else ({"gate": found} if kind == "gate" else {"wire": found})
+                run = {"spec": {k: v for k, v in spec.items() if v}}
+                if any(spec.values()):
+                    cost = qd.cutting_overhead(qc, spec)
+                    run.update(cost, cuts=engine_cuts(qc, spec))
+                    if cost["configurations"] <= 10**7 and cost["fragments"] <= 8:
+                        value = qd.circuit_cutting(qc, spec, "Z" * qc.num_qubits, shots=None)
+                        run["difference"] = abs(float(value) - float(qd.analytical_solution(qc, "Z" * qc.num_qubits)))
+                entry["runs"][f"{kind}:{max_qubits}"] = run
             print("find_cut", key, kind, flush=True)
-        for max_qubits in range(2, qc.num_qubits):
-            found = qd.find_cut(qc, max_qubits=max_qubits, seed=0, mixed=True, time_limit=3)
-            row = find_cut_row(qc, found, True)
-            entry["runs"][f"mixed:{max_qubits}"] = [row] if "cuts" in row else []
-        print("find_cut", key, "mixed", flush=True)
         out.append(entry)
     return out
 
@@ -625,13 +607,15 @@ def sdk_section():
 
 
 # ------------------------------------------------------------------------- pack
-PACK_DEVICES = {
-    "manila": ("FakeManilaV2", "a small 5-qubit chip"),
-    "guadalupe": ("FakeGuadalupeV2", "a small Falcon"),
-    "montreal": ("FakeMontrealV2", "Falcon"),
-    "sherbrooke": ("FakeSherbrooke", "Eagle"),
-    "torino": ("FakeTorino", "Heron"),
-}
+#: The layouts on the page. Each is a real device's coupling map with a calibration snapshot,
+#: as qiskit_ibm_runtime ships them; nothing connects to the device. To add one, add a row.
+PACK_DEVICES = [
+    {"key": "manila", "name": "IBM Manila", "family": "", "source": "FakeManilaV2"},
+    {"key": "guadalupe", "name": "IBM Guadalupe", "family": "", "source": "FakeGuadalupeV2"},
+    {"key": "montreal", "name": "IBM Montreal", "family": "Falcon", "source": "FakeMontrealV2"},
+    {"key": "sherbrooke", "name": "IBM Sherbrooke", "family": "Eagle", "source": "FakeSherbrooke"},
+    {"key": "torino", "name": "IBM Torino", "family": "Heron", "source": "FakeTorino"},
+]
 
 
 def pack_section():
@@ -651,15 +635,17 @@ def pack_section():
         c.measure_all()
         circuits.append(c)
     out = {"circuits": len(circuits), "widths": [c.num_qubits for c in circuits], "devices": []}
-    for key, (name, family) in PACK_DEVICES.items():
+    for entry in PACK_DEVICES:
+        key = entry["key"]
         start = time.time()
-        backend = getattr(fake_provider, name)()
+        backend = getattr(fake_provider, entry["source"])()
         graph = nx.Graph(list({tuple(sorted(edge)) for edge in backend.coupling_map.get_edges()}))
         layout = nx.kamada_kawai_layout(graph, weight=None)
         device = {
             "key": key,
-            "family": family,
-            "device": backend.name,
+            "name": entry["name"],
+            "family": entry["family"],
+            "snapshot": backend.properties().last_update_date.date().isoformat(),
             "qubits": backend.num_qubits,
             "edges": [list(edge) for edge in graph.edges],
             "points": {str(q): [round(float(p[0]), 3), round(float(p[1]), 3)] for q, p in layout.items()},

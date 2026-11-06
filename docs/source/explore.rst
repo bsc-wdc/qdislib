@@ -33,7 +33,7 @@ Each cut multiplies the work, so Qdislib has several ways to multiply it by less
 Finding cuts
 ------------
 
-Pick a circuit and a device size, and compare the options :func:`~Qdislib.find_cut` ranks. *Stored from real runs.*
+Pick a circuit and a device size, and see the cut :func:`~Qdislib.find_cut` chooses and what it costs. *Stored from real runs.*
 
 .. raw:: html
 
@@ -87,7 +87,7 @@ The same circuit and cut in five SDKs. *Each snippet was run; its results are st
 Packing on a QPU
 ----------------
 
-:func:`qd.pack <Qdislib.pack>` runs several subcircuits side by side, on groups of a device's qubits. *Stored from real calls on fake devices: calibration snapshots, not live ones.*
+:func:`qd.pack <Qdislib.pack>` runs several subcircuits side by side, on groups of a device's qubits. *Stored from real calls on real device layouts, with calibration snapshots shipped in Qiskit: nothing ran on them.*
 
 .. raw:: html
 

@@ -89,13 +89,4 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 .qd-try .qdx-edit { margin: 0.4rem 0 0.6rem; }
 .qd-try table.qdx-t td.qdx-term { font-weight: 600; white-space: nowrap; }
 .qd-try .qdx-grid3 { grid-template-columns: repeat(3, 1fr); max-width: 660px; }
-.qd-try .qdx-plot-small { max-width: 440px; }
-.qd-try .qdx-options { display: grid; gap: 0.4rem; margin: 0.5rem 0; }
-.qd-try button.qdx-option { display: block; width: 100%; text-align: left; padding: 0.5rem 0.65rem; }
-.qd-try .qdx-option-name { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; word-break: break-word; }
-.qd-try .qdx-measures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; }
-.qd-try .qdx-measure { display: block; min-width: 0; }
-.qd-try .qdx-measure b { font-size: 0.95rem; font-variant-numeric: tabular-nums; margin-right: 0.25rem; }
-.qd-try .qdx-measure span { font-size: 0.72rem; opacity: 0.8; }
-.qd-try .qdx-measure i { display: block; height: 4px; margin-top: 0.15rem; border-radius: 2px; background: var(--qd-a); }
-.qd-try button.qdx-option[aria-pressed="true"] .qdx-measure i, .qd-try button.qdx-option.qdx-flash .qdx-measure i { background: currentColor; }
+.qd-try .qdx-plot-small { max-width: 540px; margin-left: auto; margin-right: auto; }
