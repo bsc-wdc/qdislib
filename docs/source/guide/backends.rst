@@ -11,7 +11,8 @@ the input was. Install what you use:
 
 .. code-block:: bash
 
-    pip install "qdislib[qiskit]"      # or [qibo], [cudaq], [pennylane], [qilisdk], [all]
+    pip install "qdislib[qiskit]"      # or [qibo], [cudaq], [pennylane], [qilisdk]
+    uv pip install "qdislib[qiskit]"   # the same, with uv
 
 .. list-table::
    :header-rows: 1

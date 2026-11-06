@@ -4,13 +4,20 @@ Quickstart
 Installation
 ------------
 
-Qdislib needs Python 3.10 or later and at least one quantum SDK, installed as an extra:
+Qdislib needs Python 3.10 or later and at least one quantum SDK, installed as an extra. With ``pip`` or `uv <https://docs.astral.sh/uv/>`__, which installs the same package and is typically much faster:
 
 .. code-block:: bash
 
-    pip install "qdislib[qiskit]"     # or [qibo], [cudaq], [pennylane], [qilisdk], [all]
+    pip install "qdislib[qiskit]"            # or [qibo], [cudaq], [pennylane], [qilisdk]
+    uv pip install "qdislib[qiskit]"         # in an environment
+    uv add "qdislib[qiskit]"                 # in a uv project
+    uv run --with "qdislib[qiskit]" app.py   # one-off
 
-``[all]`` is all of the above plus the semantic cache (``[cache]``). ``[iqm]`` for IQM hardware and ``[qpu]`` for the BSC QPU listener are separate. The library imports with no SDK installed, but you need one to run circuits.
+A bare ``pip install qdislib`` has no SDK, so it can import Qdislib but cannot run a circuit. ``[all]`` is all the SDKs plus the semantic cache (``[cache]``). It is about 3.3 GB, mostly NVIDIA libraries for CUDA-Q, so most people do not want it. ``[iqm]`` for IQM hardware and ``[qpu]`` for the BSC QPU listener are separate.
+
+.. note::
+
+   ``pymetis``, one of ``find_cut``'s strategies, has no wheel for Linux arm64 or Windows, so it is not installed there. ``find_cut`` then warns and runs without METIS, and a wire cut can come out larger. ``pip install "qdislib[metis]"`` adds it, and needs a C compiler. Windows has been checked for wheel availability only, not run.
 
 Qdislib runs serially as it is. To run in parallel, install `PyCOMPSs <https://compss-doc.readthedocs.io/>`__ 3.3 or later, which ``pip`` does not do for you: see :doc:`guide/hpc`.
 

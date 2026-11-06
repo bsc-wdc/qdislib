@@ -3,9 +3,12 @@
 ### Dependencies
 
 Qdislib needs Python 3.10 or later. Its core dependencies, installed with it, are `numpy`,
-`networkx`, `matplotlib`, `pymetis` and `scikit-learn`.
+`networkx`, `matplotlib`, `scikit-learn` and, where it has a wheel, `pymetis`.
 
-You also need **at least one quantum SDK**, installed as an optional extra:
+You also need **at least one quantum SDK**, installed as an optional extra. Use `pip` or
+[uv](https://docs.astral.sh/uv/), which installs the same package and is typically much faster:
+`uv pip install "qdislib[qiskit]"` in an environment, `uv add "qdislib[qiskit]"` in a uv project,
+`uv run --with "qdislib[qiskit]" app.py` for a one-off.
 
 * `pip install "qdislib[qiskit]"` : Qiskit, with Aer and the IBM runtime
 * `pip install "qdislib[qibo]"` : Qibo
@@ -13,9 +16,15 @@ You also need **at least one quantum SDK**, installed as an optional extra:
 * `pip install "qdislib[pennylane]"` : PennyLane
 * `pip install "qdislib[qilisdk]"` : QiliSDK
 * `pip install "qdislib[cache]"` : PyZX and LMDB, for the semantic cache keys and the on-disk cache
-* `pip install "qdislib[all]"` : all of the above
+* `pip install "qdislib[all]"` : all of the above: about 3.3 GB, mostly NVIDIA libraries for CUDA-Q, so most people do not want it
 * `pip install "qdislib[iqm]"` : IQM hardware (not part of `[all]`)
 * `pip install "qdislib[qpu]"` : the BSC QPU listener, on the quantum cluster (not part of `[all]`)
+
+A bare `pip install qdislib` has no SDK, so it can import Qdislib but cannot run a circuit.
+
+**Linux arm64 and Windows:** `pymetis` has no wheel there, so it is not installed. `find_cut` then
+warns and runs without METIS, and a wire cut can come out larger. `pip install "qdislib[metis]"`
+adds it, and needs a C compiler. Windows has been checked for wheel availability only, not run.
 
 A GPU may need `qiskit-aer-gpu` (with Qiskit), or a CUDA-Q with its `nvidia` target. Cutting
 some gates with the Hadamard test also needs Qibo, for a circuit in any SDK.
@@ -32,7 +41,7 @@ export LD_PRELOAD="$(python -c 'import os, site; sp = site.getsitepackages()[0];
 
 ### Installation
 
-1. Install Qdislib with a backend extra: `pip3 install "qdislib[qiskit]"`.
+1. Install Qdislib with a backend extra: `pip install "qdislib[qiskit]"` or `uv pip install "qdislib[qiskit]"`.
 
 2. Check that it works:
 

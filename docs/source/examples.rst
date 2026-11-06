@@ -14,7 +14,7 @@ To run them locally:
 
     git clone https://github.com/bsc-wdc/qdislib.git
     cd qdislib
-    pip install ".[qibo,qiskit,cache]" jupyterlab ipywidgets
+    pip install ".[qibo,qiskit,cache]" jupyterlab ipywidgets    # or: uv pip install ...
     jupyter lab notebooks
 
 A first look

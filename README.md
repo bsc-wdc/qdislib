@@ -40,13 +40,18 @@ Use it to run a circuit too wide for your device or simulator, when a few cuts s
 
 ## Installation
 
-Python 3.10 or later, and at least one quantum SDK, installed as an extra:
+Python 3.10 or later, and at least one quantum SDK, installed as an extra. With `pip` or [uv](https://docs.astral.sh/uv/), which installs the same package and is typically much faster:
 
 ```bash
-pip install "qdislib[qiskit]"     # or [qibo], [cudaq], [pennylane], [qilisdk], [all]
+pip install "qdislib[qiskit]"            # or [qibo], [cudaq], [pennylane], [qilisdk]
+uv pip install "qdislib[qiskit]"         # in an environment
+uv add "qdislib[qiskit]"                 # in a uv project
+uv run --with "qdislib[qiskit]" app.py   # one-off
 ```
 
-To run in parallel, install [PyCOMPSs](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation_Configuration.html) 3.3 or later, which `pip` does not do for you. Without it Qdislib runs serially. See [QUICKSTART.md](QUICKSTART.md) for more.
+A bare `pip install qdislib` has no SDK, so it can import Qdislib but cannot run a circuit. `[all]` is about 3.3 GB, mostly NVIDIA libraries for CUDA-Q, so most people do not want it.
+
+To run in parallel, install [PyCOMPSs](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation_Configuration.html) 3.3 or later, which `pip` does not do for you. Without it Qdislib runs serially. See [QUICKSTART.md](QUICKSTART.md) for more, including a note on Linux arm64 and Windows.
 
 ## A first cut
 
