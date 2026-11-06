@@ -40,7 +40,7 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 .qd-try .qdx-primary { font-weight: 700; border-color: var(--qd-a); }
 .qd-try .qdx-start { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin: 0.6rem 0; }
 .qd-try .qdx-start label { font-weight: 700; }
-.qd-try .qdx-start select { flex: 1 1 7rem; max-width: 25rem; min-width: 0; min-height: 48px; padding: 0 0.6rem; font: inherit; font-weight: 600; color: var(--color-foreground-primary, #111); background-color: var(--qd-soft); border: 2px solid var(--qd-a); border-radius: 10px; cursor: pointer; }
+.qd-try .qdx-start select { flex: 1 1 7rem; max-width: 25rem; min-width: 0; height: 48px; padding: 0 0.6rem; font: inherit; font-weight: 600; color: var(--color-foreground-primary, #111); background-color: var(--qd-soft); border: 2px solid var(--qd-a); border-radius: 10px; cursor: pointer; }
 .qd-try .qdx-obs rect { fill: var(--qd-soft); stroke: var(--qd-a); stroke-width: 2; }
 .qd-try .qdx-code { position: relative; margin: 0.3rem 0; background: none; }
 .qd-try .qdx-code pre { padding-right: 2.2rem; }
@@ -105,7 +105,7 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 .qdx-cards { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 1rem 0; }
 .qdx-cards a { display: block; padding: 0.9rem 1rem; min-height: 48px; border: 2px solid var(--color-background-border, #d9d9d9); border-radius: 12px; text-decoration: none; color: var(--color-foreground-primary, #111); background: var(--color-background-secondary, #f6f6f6); }
 .qdx-cards a:hover { border-color: var(--color-brand-content, #6f5aa6); }
-.qdx-cards svg { display: block; width: 100%; max-width: 200px; height: 60px; margin-bottom: 0.5rem; }
+.qdx-cards svg { display: block; width: 100%; max-width: 200px; height: 60px; margin-bottom: 0.5rem; color: var(--color-brand-content, #6f5aa6); opacity: 0.75; }
 .qdx-cards b { display: block; font-size: 1.05rem; color: var(--color-brand-content, #6f5aa6); }
 .qdx-cards span { display: block; font-size: 0.9rem; color: var(--color-foreground-secondary, #555); margin-top: 0.15rem; }
 .qdx-bigtry { display: block; margin: 1rem 0; padding: 1rem 1.1rem; min-height: 48px; border-radius: 12px; text-decoration: none; background: var(--color-brand-content, #6f5aa6); color: #fff !important; }
@@ -114,3 +114,5 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 body[data-theme="dark"] .qdx-bigtry { color: #111 !important; }
 @media (prefers-color-scheme: dark) { body:not([data-theme="light"]) .qdx-bigtry { color: #111 !important; } }
 .qd-try .qdx-start button { white-space: nowrap; }
+.qd-try .qdx-run p { min-height: 3.4em; }
+@media (max-width: 600px) { .qd-try .qdx-hint { font-size: 0.94rem; } }

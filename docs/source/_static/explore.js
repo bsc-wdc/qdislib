@@ -385,6 +385,8 @@
     var runButton = actions.appendChild(el("button", { type: "button", class: "qdx-primary" }, "Run it"));
     var clear = actions.appendChild(el("button", { type: "button" }, "Clear cuts"));
 
+    var runBox = root.appendChild(el("div", { class: "qdx-run", hidden: "" }));
+
     /* Fit it on a smaller chip: a goal to reach by hand, with no claim about the best cut. */
     var fitBox = root.appendChild(el("div", { class: "qdx-fitbox" }));
     var fitRow = fitBox.appendChild(el("div", { class: "qdx-fitrow" }));
@@ -397,7 +399,6 @@
     fitLess.addEventListener("click", function () { state.fit = Math.max(1, state.fit - 1); render(); });
     fitMore.addEventListener("click", function () { state.fit = Math.min(state.n, state.fit + 1); render(); });
 
-    var runBox = root.appendChild(el("div", { class: "qdx-run", hidden: "" }));
     var warn = root.appendChild(el("div", { class: "qdx-warn", hidden: "" }));
     var payoff = root.appendChild(el("div", { class: "qdx-payoff" }));
     root.appendChild(el("p", { class: "qd-note" }, "The letters at the end of the lines are what is measured. Tap one to change it: Z, X, Y, or I for nothing."));
@@ -707,12 +708,19 @@
       var who = "Simulated in your browser: ", joint = plan.joint && plan.joint.shared ? " With one ancilla per gate, joint=False." : "";
       var words = each > 1 ? " Each tile is " + each + " subcircuits." : "";
       runButton.textContent = "Running\u2026";
+      caption.textContent = who + "starting." + words + joint;
       function finishRound() {
         var shots = ROUNDS[round], value = prepared.draw(shots, rng);
         dot.style.transform = "translateX(" + at(value) + "px)";
         caption.textContent = who + count(shots) + " shots per subcircuit gives " + num(value, 4) + ", against " + num(exact, 4) + " uncut." + words + joint;
       }
       var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      /* The tiles and the dot are the point: bring them on screen, if they are not. The fixed
+         bar at the top of a phone's page covers the first 50 or so pixels. */
+      var box = runBox.getBoundingClientRect();
+      if (box.top < 60 || box.bottom > window.innerHeight) {
+        window.scrollBy({ top: box.bottom > window.innerHeight && box.top >= 60 ? Math.min(box.bottom - window.innerHeight + 12, box.top - 60) : box.top - 60, behavior: still ? "auto" : "smooth" });
+      }
       if (still) {
         tiles.forEach(function (t) { t.style.opacity = 1; });
         round = ROUNDS.length - 1;
@@ -906,7 +914,7 @@
       state.cuts = found.map(function (c) { return { kind: "gate", opId: ops[c.op].id }; });
       state.auto = found.length > 0;
       if (found.length) {
-        state.said = "Auto cut: every split of the qubits in two, keeping the lowest gamma. A simple rule; qd.find_cut searches further.";
+        state.said = "Auto cut: a simple rule. qd.find_cut goes further.";
       } else {
         state.said = !ops.length ? "Nothing to cut yet: this circuit is empty." : E.plan(circuit, [], state.observable).fragments.length > 1
           ? "Nothing to cut: this circuit is already in pieces."
