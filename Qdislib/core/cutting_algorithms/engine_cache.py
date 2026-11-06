@@ -268,8 +268,10 @@ def _canonical(value):
         return ("s", tuple(sorted(repr(v) for v in value)))
     if isinstance(value, (bool, int, str, type(None))):
         return value
-    if isinstance(value, (float, complex, np.number)):
-        return repr(complex(value) if isinstance(value, complex) else float(value))
+    if isinstance(value, (complex, np.complexfloating)):
+        return repr(complex(value))
+    if isinstance(value, (float, np.number)):
+        return repr(float(value))
     if hasattr(value, "__dict__"):
         return ("o", type(value).__name__, _canonical(vars(value)))
     return repr(value)

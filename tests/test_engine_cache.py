@@ -308,6 +308,16 @@ class EngineCacheTest(BaseTimedTestCase):
             self.qd.expectation_value(subs[0], shots=100, cache=False, seed=1)
         self.assertEqual(runs.count, 2)
 
+    def test_a_key_tells_complex_numbers_apart(self):
+        import numpy as np
+
+        for kind in (np.complex64, np.complex128, complex):
+            self.assertNotEqual(
+                engine_cache._canonical(kind(1, 1)),
+                engine_cache._canonical(kind(1, -1)),
+            )
+        self.assertEqual(engine_cache._canonical(np.float64(0.5)), repr(0.5))
+
     def test_a_redis_url_keeps_its_credentials(self):
         with mock.patch.dict(engine_cache._STORES, clear=True):
             with mock.patch(

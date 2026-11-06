@@ -347,6 +347,8 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
 # Compiled run-kernels cached by source hash: cudaq JIT-compiles each kernel and
 # many gate-cut configurations share the same (renumbered) subcircuit.
 _CUDAQ_RUN_KERNEL_CACHE = {}
+#: A long-lived worker builds many: the oldest are dropped past this many.
+_CUDAQ_RUN_KERNEL_CACHE_SIZE = 256
 _CUDAQ_ONE_QUBIT = {"H": "h", "X": "x", "Y": "y", "Z": "z", "S": "s", "T": "t"}
 
 
@@ -376,6 +378,8 @@ def _compile_cudaq_source(source, func_name="cut_kernel"):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
     kernel = getattr(module, func_name)
+    if len(_CUDAQ_RUN_KERNEL_CACHE) >= _CUDAQ_RUN_KERNEL_CACHE_SIZE:
+        _CUDAQ_RUN_KERNEL_CACHE.pop(next(iter(_CUDAQ_RUN_KERNEL_CACHE)))
     _CUDAQ_RUN_KERNEL_CACHE[key] = kernel
     return kernel
 

@@ -248,6 +248,16 @@ class PackingTest(BaseTimedTestCase):
         with self.assertRaises(ValueError):
             self.qd.pack([QuantumCircuit(3)], self.device, regions=[group])
 
+    def test_counts_below_one(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(2)
+        qc.cz(0, 1)
+        with self.assertRaisesRegex(ValueError, "seeds"):
+            self.qd.pack([qc], self.device, seeds=0)
+        with self.assertRaisesRegex(ValueError, "per_circuit"):
+            self.qd.pack([qc], self.device, per_circuit=0)
+
     def test_bad_input(self):
         from qiskit import QuantumCircuit
 

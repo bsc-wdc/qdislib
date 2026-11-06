@@ -319,9 +319,10 @@ def pack(
         choosing them (e.g. another run's ``packed.regions``, to run a circuit
         alone on the qubits it had when packed). Each must be connected and hold
         the widest circuit.
-    :raises ValueError: For no circuits, a ``size`` smaller than the widest circuit,
-        no group of qubits passing the error limits, ``regions=`` too small, or a
-        circuit with classical bits and no measurement.
+    :raises ValueError: For no circuits, ``seeds`` or ``per_circuit`` below 1, a
+        ``size`` smaller than the widest circuit, no group of qubits passing the error
+        limits, ``regions=`` too small, or a circuit with classical bits and no
+        measurement.
     :return: A :class:`PackedCircuits`; run its ``circuits`` (one job each) and
         pass the results to its ``unpack``.
     """
@@ -331,6 +332,10 @@ def pack(
     circuits = list(circuits)
     if not circuits:
         raise ValueError("pack takes at least one circuit")
+    if int(seeds) < 1:
+        raise ValueError(f"seeds must be at least 1, got {seeds}")
+    if per_circuit is not None and int(per_circuit) < 1:
+        raise ValueError(f"per_circuit must be at least 1, got {per_circuit}")
     target = getattr(backend, "target", backend)
     width = max(c.num_qubits for c in circuits)
     size = width if size is None else int(size)
