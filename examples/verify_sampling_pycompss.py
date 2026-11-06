@@ -17,19 +17,13 @@
 
 # -*- coding: utf-8 -*-
 
-"""Verify ``gate_cutting_sampling`` under distributed (PyCOMPSs) execution.
+"""Verify the distribution reconstructions under distributed (PyCOMPSs) execution.
 
-The sampling path fans out two tasks per subcircuit -- ``_create_sample_subcircuit``
-(prepare) then ``_execute_sample_subcircuit`` (build + sample) -- and the
-distribution is combined in ``_reconstruct_gate_cut_distribution_task`` (fed the
-sample futures directly). This app runs both the all-in-one ``gate_cutting_sampling``
-and the three-step ``gate_cutting_sampling_subcircuits`` workflow and checks each
-reconstructed distribution against the *exact* statevector distribution, so the same
-script doubles as a correctness smoke test of the parallel path: task-boundary
-serialisation of the component DAGs, order-independent (positional) reconstruction,
-and -- crucially -- that no subcircuit helper is itself a ``@task`` nested inside
-another (PyCOMPSs has no nested tasks, so a ``@task`` calling a ``@task`` would
-return an unresolved future on the worker).
+Runs ``gate_cutting_sampling`` and ``wire_cutting_sampling``, all-in-one and three-step,
+and checks each reconstructed distribution against the *exact* statevector distribution,
+so the same script is a correctness check of the parallel path. Each fragment circuit
+is a @task, each fragment's counts are reduced in its own @task, and a last @task
+contracts them. Prints ``RESULT: PASS`` or ``RESULT: FAIL``.
 
 Run serially (no PyCOMPSs; the runtime shim runs every task inline)::
 
@@ -141,10 +135,8 @@ def main():
 
         # (b) Gate-cut three-step workflow: generate -> sample each -> reconstruct.
         try:
-            subs = qd.gate_cutting_sampling_subcircuits(
-                qc, gates_cut, software=software
-            )
-            sampled = [qd.sample_subcircuit(s, shots=SHOTS) for s in subs]
+            subs = qd.gate_cutting_sampling_subcircuits(qc, gates_cut)
+            sampled = [qd.sample_subcircuit(s, shots=SHOTS, backend=software) for s in subs]
             recon3 = subs.reconstruct(sampled)
             tvd_3step = total_variation(exact, recon3)
         except Exception as exc:  # noqa: BLE001
@@ -158,10 +150,8 @@ def main():
                 qc, wire_cut, shots=SHOTS, backend=software
             )
             tvd_wire = total_variation(exact, recon_w)
-            wsubs = qd.wire_cutting_sampling_subcircuits(
-                qc, wire_cut, software=software
-            )
-            wsampled = [qd.sample_subcircuit(s, shots=SHOTS) for s in wsubs]
+            wsubs = qd.wire_cutting_sampling_subcircuits(qc, wire_cut)
+            wsampled = [qd.sample_subcircuit(s, shots=SHOTS, backend=software) for s in wsubs]
             tvd_wire3 = total_variation(exact, wsubs.reconstruct(wsampled))
             # Optimized (fragment-separated) wire sampling: fans out the deduped
             # fragment samplings and feeds them to a reconstruction @task.

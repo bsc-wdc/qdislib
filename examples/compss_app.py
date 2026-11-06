@@ -27,11 +27,11 @@ Run distributed with PyCOMPSs::
 
     runcompss --pythonpath=$(pwd) --python_interpreter=python3 examples/compss_app.py
 
-Under ``runcompss`` the per-subcircuit evaluations execute as COMPSs ``@task``
-instances and are synchronised with ``compss_wait_on`` inside Qdislib, so this
-app doubles as a smoke test of the parallel execution path (circuit
-serialisation across tasks, reconstruction, etc.). It exits non-zero if the
-reconstructed values do not match the analytical reference.
+Under ``runcompss`` the fragment circuits run as COMPSs ``@task`` instances, so this
+app doubles as a smoke test of the parallel execution path. It prints ``RESULT: PASS``
+or ``RESULT: FAIL`` and exits non-zero if the reconstructed values do not match the
+analytical reference. ``QDISLIB_SOFTWARE`` selects the backend (``qibo``, the default,
+``qiskit`` or ``cudaq``).
 """
 
 import os
@@ -45,7 +45,7 @@ import Qdislib as qd
 
 TOLERANCE = 0.2
 
-# Backend used to build/execute the subcircuits (override with QDISLIB_SOFTWARE).
+# Where the subcircuits run (override with QDISLIB_SOFTWARE).
 SOFTWARE = os.environ.get("QDISLIB_SOFTWARE", "qibo")
 
 
@@ -87,25 +87,24 @@ def main():
     # Recommended three-step workflow: generate -> evaluate -> reconstruct.
     # Each subcircuit is a Subcircuit (s.circuit is the native circuit), evaluated
     # as its own task.
-    gate_subs = qd.gate_cutting_subcircuits(
-        build_circuit(), gate_cut, software=SOFTWARE
+    gate_subs = qd.gate_cutting_subcircuits(build_circuit(), gate_cut)
+    gate_step = gate_subs.reconstruct(
+        [qd.expectation_value(s, backend=SOFTWARE) for s in gate_subs]
     )
-    gate_step = gate_subs.reconstruct([qd.expectation_value(s) for s in gate_subs])
     print(
         f"3-step gate -> {gate_step:+.4f} (|diff| = {abs(gate_step - analytical):.4f})"
     )
 
-    wire_subs = qd.wire_cutting_subcircuits(
-        build_circuit(), wire_cut, software=SOFTWARE
+    wire_subs = qd.wire_cutting_subcircuits(build_circuit(), wire_cut)
+    wire_step = wire_subs.reconstruct(
+        [qd.expectation_value(s, backend=SOFTWARE) for s in wire_subs]
     )
-    wire_step = wire_subs.reconstruct([qd.expectation_value(s) for s in wire_subs])
     print(
         f"3-step wire -> {wire_step:+.4f} (|diff| = {abs(wire_step - analytical):.4f})"
     )
 
-    # Optimized (fragment-separated, 3**n + 4**n) wire cutting -- the fan-out of
-    # fragment @tasks feeds a reconstruction @task, so this exercises that parallel
-    # path under runcompss. Falls back to the standard method if not separable.
+    # Optimized wire cutting: each fragment runs once per setting of its cuts, and
+    # the fan-out of fragment @tasks feeds a reconstruction @task.
     wire_opt = qd.wire_cutting(
         build_circuit(), wire_cut, backend=SOFTWARE, optimized=True
     )
@@ -115,20 +114,17 @@ def main():
     )
 
     wire_opt_subs = qd.wire_cutting_subcircuits(
-        build_circuit(), wire_cut, software=SOFTWARE, optimized=True
+        build_circuit(), wire_cut, optimized=True
     )
     wire_opt_step = wire_opt_subs.reconstruct(
-        [qd.expectation_value(s) for s in wire_opt_subs]
+        [qd.expectation_value(s, backend=SOFTWARE) for s in wire_opt_subs]
     )
     print(
         f"3-step wire (optimized) -> {wire_opt_step:+.4f} "
         f"(|diff| = {abs(wire_opt_step - analytical):.4f})"
     )
 
-    # Hadamard-test gate cut: each (configuration, fragment) is one
-    # ``_evaluate_hadamard_fragment`` @task and they fan into a single
-    # ``_reduce_hadamard`` @task -- the fan-out/fan-in this app renders under
-    # ``runcompss --graph``. Sampled (shot-based) so it exercises the backend tasks.
+    # Hadamard-test gate cut, with shots so that it exercises the backend tasks.
     had_value = qd.gate_cutting_hadamard(
         build_circuit(), gate_cut, observable, backend=SOFTWARE, shots=100000
     )
@@ -138,10 +134,10 @@ def main():
     )
 
     had_subs = qd.gate_cutting_hadamard_subcircuits(
-        build_circuit(), gate_cut, observable, software=SOFTWARE
+        build_circuit(), gate_cut, observable
     )
     had_step = had_subs.reconstruct(
-        [qd.expectation_value(s, shots=100000) for s in had_subs]
+        [qd.expectation_value(s, shots=100000, backend=SOFTWARE) for s in had_subs]
     )
     print(
         f"3-step Hadamard -> {had_step:+.4f} (|diff| = {abs(had_step - analytical):.4f})"

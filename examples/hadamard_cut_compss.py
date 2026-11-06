@@ -9,9 +9,9 @@
 
 """Hadamard-test gate cut under PyCOMPSs -- a focused task-graph showcase.
 
-Runs the ancilla / double-Hadamard-test cut (arXiv:2403.01018) three ways, each of
-which fans one ``_evaluate_hadamard_fragment`` @task per (configuration, fragment) into
-a single ``_reduce_hadamard`` fan-in @task::
+Runs the ancilla / double-Hadamard-test cut (arXiv:2403.01018) three ways: all the
+configurations, drawn configurations, and the three-step form. Each fragment circuit is
+one @task, and they fan into the reconstruction::
 
     runcompss -g --pythonpath=$(pwd) --python_interpreter=python3 \\
         examples/hadamard_cut_compss.py
@@ -35,9 +35,6 @@ TOLERANCE = 0.15
 SOFTWARE = os.environ.get("QDISLIB_SOFTWARE", "qibo")
 SHOTS = int(os.environ.get("QDISLIB_SHOTS", "8192"))
 NUM_SAMPLES = int(os.environ.get("QDISLIB_NUM_SAMPLES", "12"))
-# Configurations per partial reduction -> a balanced reduction tree for the sampling
-# driver (0/None keeps the single fan-in task).
-REDUCE_CHUNK = int(os.environ.get("QDISLIB_REDUCE_CHUNK", "4")) or None
 
 
 def build_circuit():
@@ -62,9 +59,6 @@ def main():
     enum_future = qd.gate_cutting_hadamard(
         circuit, cut, observable, backend=SOFTWARE, shots=SHOTS, sync=False
     )
-    # reduce_chunk turns the Monte-Carlo (num_samples) single fan-in into a balanced reduction
-    # tree (partial reduces per chunk of configs -> combine), so the reduction itself
-    # parallelises -- visible in the graph as a two-level fan-in on the sampling side.
     samp_future = qd.gate_cutting_hadamard(
         build_circuit(),
         cut,
@@ -74,7 +68,6 @@ def main():
         num_samples=NUM_SAMPLES,
         seed=1,
         sync=False,
-        reduce_chunk=REDUCE_CHUNK,
     )
     enum = compss_wait_on(enum_future)
     samp = compss_wait_on(samp_future)
@@ -86,10 +79,10 @@ def main():
     )
 
     # (3) Three-step: build subcircuits, evaluate each as a task, reconstruct.
-    subs = qd.gate_cutting_hadamard_subcircuits(
-        build_circuit(), cut, observable, software=SOFTWARE
+    subs = qd.gate_cutting_hadamard_subcircuits(build_circuit(), cut, observable)
+    step = subs.reconstruct(
+        [qd.expectation_value(s, shots=SHOTS, backend=SOFTWARE) for s in subs]
     )
-    step = subs.reconstruct([qd.expectation_value(s, shots=SHOTS) for s in subs])
     print(
         f"Hadamard (3-step)     -> {step:+.4f} (|diff| = {abs(step - analytical):.4f})"
     )

@@ -1,128 +1,71 @@
 # Qdislib examples
 
-Runnable examples for Qdislib's distributed (PyCOMPSs / `runcompss`) execution
-path. The Jupyter notebooks under [`../notebooks/`](../notebooks) cover the
-serial API; this directory covers running the same circuit-cutting workflows
-**distributed across COMPSs tasks**.
+Scripts for Qdislib's distributed path. The [notebooks](../notebooks) cover the
+API; these run the same cutting functions as COMPSs tasks, against the exact answer,
+so they are usage examples and checks at once. They also run serially: Qdislib's tasks
+then run in the same process.
 
-## `compss_app.py`
+Run them from the repository root, with Qdislib and its SDKs installed
+(`pip install ".[qibo,qiskit]"`). Under COMPSs (`runcompss`, COMPSs 3.3 or later) add
+`-g` to write the task graph under `$HOME/.COMPSs/<app>/monitor/`.
 
-A self-contained smoke test that builds a small 5-qubit Qibo circuit, finds a
-cut, and reconstructs `<ZZZZZ>` four ways:
-
-- all-in-one `gate_cutting` / `wire_cutting`, and
-- the recommended three-step workflow
-  (`gate_cutting_subcircuits` → `expectation_value` → `reconstruct`).
-
-It compares every result against `analytical_solution` and prints
-`RESULT: PASS` / `RESULT: FAIL` (exiting non-zero on failure), so it works as
-both a usage example and a CI check of the parallel path.
-
-### Serial (no PyCOMPSs)
+| Script | What it does | Prints |
+|---|---|---|
+| [`compss_app.py`](compss_app.py) | Gate, wire and Hadamard cuts, all-in-one and three-step, on 5 qubits | `RESULT: PASS` |
+| [`mixed_cutting_compss.py`](mixed_cutting_compss.py) | A gate cut and a wire cut on one circuit | `RESULT: PASS` |
+| [`hadamard_cut_compss.py`](hadamard_cut_compss.py) | The Hadamard cut: every configuration, drawn ones and three-step, overlapping with `sync=False` | `RESULT: PASS` |
+| [`verify_sampling_pycompss.py`](verify_sampling_pycompss.py) | Distributions against the exact one, on each SDK in `QDISLIB_SOFTWARE` (default `qiskit`) | `RESULT: PASS` |
+| [`verify_engine_pycompss.py`](verify_engine_pycompss.py) | Backend objects, circuit groups, marginals, error bars, free parameters and a 26-qubit distribution (needs Qiskit) | `RESULT: PASS` |
+| [`verify_gpu_pycompss.py`](verify_gpu_pycompss.py) | GPU tasks: a GPU backend gets one GPU per task, a CPU one none (needs GPU nodes and CUDA-Q). `_gpu_probe.py` holds its backends | `RESULT: PASS` |
+| [`qpu_listener.py`](qpu_listener.py) | The listener for BSC QPUs, on the quantum cluster (needs `qdislib[qpu]`) | |
 
 ```bash
-python3 examples/compss_app.py
+python3 examples/compss_app.py                                                # serial
+runcompss --pythonpath=$(pwd) --python_interpreter=python3 examples/compss_app.py   # with COMPSs
+
+QDISLIB_SOFTWARE=qiskit python3 examples/compss_app.py                        # another backend
 ```
 
-### Distributed (PyCOMPSs)
+## In a container
+
+[`Dockerfile.compss`](../Dockerfile.compss) builds on the COMPSs tutorial image and runs
+the examples and the unit tests under `runcompss`, through
+[`scripts/run_compss_tests.sh`](../scripts/run_compss_tests.sh):
 
 ```bash
-runcompss --pythonpath=$(pwd) --python_interpreter=python3 examples/compss_app.py
-```
-
-Select the backend with the `QDISLIB_SOFTWARE` environment variable
-(`qibo` — the default, `qiskit`, or `cudaq`):
-
-```bash
-QDISLIB_SOFTWARE=qiskit runcompss --pythonpath=$(pwd) --python_interpreter=python3 examples/compss_app.py
-```
-
-## Serial vs. distributed: what changes
-
-The public API is identical in both modes — the difference is internal:
-
-- **Serial** (PyCOMPSs not installed): the `@task` / `compss_wait_on` decorators
-  in [`Qdislib/utils/runtime.py`](../Qdislib/utils/runtime.py) degrade to
-  no-ops; the `*_subcircuits` functions hand back `Subcircuit` objects
-  (`s.circuit` is the native Qibo/Qiskit/CUDA-Q/PennyLane circuit).
-- **Distributed** (under `runcompss`): each subcircuit evaluation runs as its
-  own COMPSs `@task`. Because native Qibo subcircuits and CUDA-Q kernels cannot
-  be pickled to remote workers, `*_subcircuits` instead returns picklable
-  `Subcircuit` wrappers (holding the circuit DAG); each worker materialises the
-  native circuit locally before executing it. Qiskit circuits pickle directly
-  but use the same wrapper for uniformity.
-
-So you write the three-step workflow once and it runs serially or distributed
-unchanged.
-
-## Running everything under COMPSs in Docker
-
-[`Dockerfile.compss`](../Dockerfile.compss) builds on the official COMPSs
-tutorial image and runs both the example app and the full unit-test suite under
-`runcompss` (via [`scripts/run_compss_tests.sh`](../scripts/run_compss_tests.sh)):
-
-```bash
-# qibo + qiskit (default); pass QDISLIB_EXTRAS=all to also install cudaq
-docker build -f Dockerfile.compss -t qdislib-compss .
+docker build -f Dockerfile.compss -t qdislib-compss .   # QDISLIB_EXTRAS=all also installs CUDA-Q
 docker run --rm qdislib-compss
 ```
 
-`runcompss` exits 0 even when an inner unittest fails, so the script inspects
-the captured output for `RESULT: PASS` and the unittest `OK` summary line
-instead of trusting the exit code.
+`runcompss` exits 0 even when an inner test fails, so the script checks the output for
+`RESULT: PASS` and the unittest `OK` line instead.
 
-## Semantic circuit cache
+## On MareNostrum 5
 
-Cutting produces many *functionally equivalent* subcircuits (repeated fragments,
-or the same ansatz across variational iterations). The semantic cache
-([`Qdislib/utils/circuit_cache.py`](../Qdislib/utils/circuit_cache.py)) keys each
-subcircuit by a ZX-reduced Weisfeiler–Lehman hash, so an equivalent fragment is
-simulated once and reused. It never changes the result — an uncacheable circuit
-just falls back to a normal simulation (requires the `cache` extra:
-`pip install Qdislib[cache]`).
+[`scripts/mn5/check.sh`](../scripts/mn5/check.sh) submits `verify_engine_pycompss.py`
+(`engine`, on a GPP login) or `verify_gpu_pycompss.py` (`gpu`, on an ACC login):
 
-You pick the store; `"redis"` becomes the BSC COMPSs PSCO store under PyCOMPSs
-(shared across tasks/nodes) and a plain redis-py store otherwise:
-
-```python
-import Qdislib as qd
-
-cache = qd.default_circuit_cache("lmdb", path="/scratch/qcache")   # or "redis" / "memory"
-
-# one-call API:
-value = qd.gate_cutting(circuit, cut, backend="qibo", cache=cache)
-
-# or the three-step workflow, switching granularity / a custom payload:
-subs   = qd.wire_cutting_subcircuits(circuit, cut, software="qibo")
-values = [qd.expectation_value(s, cache=cache, cache_mode="counts") for s in subs]
-result = subs.reconstruct(values)
+```bash
+scripts/mn5/check.sh engine <account> <qos>
 ```
 
-Under PyCOMPSs, a subcircuit whose key another task is already computing is
-deferred (a placeholder is reserved) and refreshed at reconstruction — so high
-concurrency doesn't turn would-be hits into duplicate simulations.
+Each log ends with `RESULT: PASS` or `RESULT: FAIL ...`: grep for it in `compss-<job>.out`.
 
-## Diagnostic logging
+## The task graphs here
 
-The old per-function `verbose=` flags are gone; enable Qdislib's diagnostics
-(candidate cut scores, chosen backend, reconstruction values, ...) with a single
-switch, or the `QDISLIB_LOG_LEVEL` environment variable:
+`hadamard_compss_graph.*` and `mixed_compss_graph.*` are the task graphs of
+`hadamard_cut_compss.py` and `mixed_cutting_compss.py` from a real run
+(`scripts/run_hadamard_graph.sh`, `scripts/run_mixed_graph.sh`, in the container).
 
-```python
-import Qdislib as qd
-qd.set_log_level("DEBUG")   # or "INFO"; default is quiet
-```
+## Running subcircuits on a BSC QPU
 
-## Running subcircuits on a real QPU (cross-cluster)
+The classical (PyCOMPSs) cut job and the quantum-control job run on separate clusters
+that cannot share a scheduler allocation, so they communicate through a shared directory,
+`$QDISLIB_SUBCIRCUITS_DIR`. The cut job writes each subcircuit there and waits for its
+result; a listener on the quantum cluster runs it on a QPU, Blue or Red, and writes the
+result back.
 
-At BSC the classical (PyCOMPSs) cut job and the quantum-control job run on
-separate clusters that can't be launched from one scheduler allocation, so they
-communicate through a **shared filesystem directory**. The cut job's QPU path
-writes each subcircuit there and waits (bounded) for its result; a **listener**
-on the quantum cluster executes it on a QPU (Blue or Red) and writes the result
-back. Both sides agree on the directory via `$QDISLIB_SUBCIRCUITS_DIR`.
-
-On the **quantum cluster** ([`qpu_listener.py`](qpu_listener.py)):
+On the quantum cluster:
 
 ```bash
 export QDISLIB_SUBCIRCUITS_DIR=/gpfs/projects/.../subcircuits   # shared by both clusters
@@ -130,16 +73,12 @@ export RUNCARD_RED=/path/to/red_runcard.yml                     # or RUNCARD_BLU
 python examples/qpu_listener.py --qpu red --nshots 1000
 ```
 
-On the **classical cluster**, point the cut workflow at a QPU and the same
-directory:
+On the classical cluster, with the same directory:
 
-```bash
-export QDISLIB_SUBCIRCUITS_DIR=/gpfs/projects/.../subcircuits
-```
 ```python
 qd.gate_cutting(circuit, cut, backend="BSC_QPU_BACKEND")
 ```
 
-The listener runs until a `STOP` file appears in the directory, `Ctrl-C`, or
-`--idle-timeout`. If the listener is down, submissions fail with a clear
-`QPUTimeoutError` after `$QDISLIB_QPU_TIMEOUT` (default 1 h) instead of hanging.
+The listener runs until a `STOP` file appears in the directory, Ctrl-C, or
+`--idle-timeout`. If it is down, submissions fail with a `QPUTimeoutError` after
+`$QDISLIB_QPU_TIMEOUT` (default 1 h) instead of hanging.
