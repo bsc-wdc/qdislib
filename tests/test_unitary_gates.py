@@ -109,5 +109,59 @@ class UnitaryGateTest(BaseTimedTestCase):
                 self.check(got, want, 0.01)
 
 
+@unittest.skipUnless(QISKIT, "qiskit required")
+class DenseTwoQubitGateTest(BaseTimedTestCase):
+    """A dense two-qubit unitary as the gate cut, and in the cut search."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+        from qiskit.circuit.library import UnitaryGate
+        from qiskit.quantum_info import random_unitary
+
+        qc = QuantumCircuit(2)
+        qc.ry(0.3, 0)
+        qc.ry(0.2, 1)
+        qc.append(UnitaryGate(random_unitary(4, seed=1)), [0, 1])
+        qc.ry(0.3, 0)
+        return qc
+
+    def test_hadamard_cut_of_it(self):
+        import Qdislib as qd
+
+        qc = self._circuit()
+        exact = qd.analytical_solution(qc, "ZZ")
+        cut = ["UNITARY_3"]
+        self.assertAlmostEqual(
+            qd.gate_cutting_hadamard(qc, cut, "ZZ", shots=None), exact
+        )
+        value = qd.gate_cutting_hadamard(qc, cut, "ZZ", shots=20000, seed=1)
+        self.assertAlmostEqual(value, exact, delta=0.2)
+
+    def test_the_mixed_search_prices_it(self):
+        import Qdislib as qd
+
+        qc = self._circuit()
+        exact = qd.analytical_solution(qc, "ZZ")
+        cuts = qd.find_cut(qc, max_qubits=1, mixed=True, seed=0, time_limit=5)
+        self.assertEqual(sum(len(c) for c in cuts.values()), 1)
+        self.assertAlmostEqual(qd.circuit_cutting(qc, cuts, "ZZ", shots=None), exact)
+
+    def test_a_cheaper_dense_gate_costs_less(self):
+        from qiskit import QuantumCircuit
+        from qiskit.circuit.library import UnitaryGate
+
+        from Qdislib.core.find_cut.cost_search import _gate_costs
+        from Qdislib.utils.backends import convert_to_dag
+
+        cz = QuantumCircuit(2)
+        cz.append(
+            UnitaryGate([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, -1]]),
+            [0, 1],
+        )
+        dense = _gate_costs(convert_to_dag(cz), "UNITARY_1", {})
+        general = _gate_costs(convert_to_dag(self._circuit()), "UNITARY_3", {})
+        self.assertLess(dense[1], general[1])
+
+
 if __name__ == "__main__":
     unittest.main()

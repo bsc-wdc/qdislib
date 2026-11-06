@@ -251,6 +251,7 @@ def _two_qubit_matrix(gate_name, params=()):
     cut path)."""
     from Qdislib.utils.gates import GATES, canonical
     from Qdislib.utils.graph_qibo import gate_matrix
+    from Qdislib.utils.statevector import gate_unitary
 
     name = canonical(gate_name, params)[0]
     if GATES.get(name, (2,))[0] != 2:
@@ -258,7 +259,11 @@ def _two_qubit_matrix(gate_name, params=()):
             f"Hadamard-test cut needs a two-qubit gate; {gate_name!r} is not one"
         )
     try:
-        matrix = gate_matrix(gate_name, params, 2)
+        matrix = None
+        if name == "unitary":
+            matrix = gate_unitary(gate_name, params)
+        if matrix is None:
+            matrix = gate_matrix(gate_name, params, 2)
     except Exception as exc:  # noqa: BLE001
         raise NotImplementedError(
             f"cannot build a two-qubit matrix for {gate_name!r}: {exc}"
@@ -288,15 +293,14 @@ def local_unitary_decomposition(gate_name, params=()):
     :raises NotImplementedError: if ``gate_name`` is not a resolvable two-qubit gate.
     """
     name = str(gate_name).upper()
-    theta = float(params[0]) if params else 0.0
     if name == "CZ" or (name in ("CX", "CNOT")):
         # CZ = diag(1, 1, 1, -1). CX is cut as CZ with H-conjugation on the target
         # (handled by the fragment builder); the decomposition is the CZ one.
         diag = [1, 1, 1, -1]
     elif name in ("CP", "CPHASE", "CU1"):  # CU1 is qibo's controlled-phase name
-        diag = [1, 1, 1, cmath.exp(1j * theta)]
+        diag = [1, 1, 1, cmath.exp(1j * (float(params[0]) if params else 0.0))]
     elif name == "RZZ":
-        e = cmath.exp(-1j * theta / 2)
+        e = cmath.exp(-0.5j * (float(params[0]) if params else 0.0))
         diag = [e, e.conjugate(), e.conjugate(), e]
     else:  # general non-diagonal two-qubit gate: KAK / Cartan (optimal) or Pauli basis
         return _general_local_terms(_two_qubit_matrix(gate_name, params))

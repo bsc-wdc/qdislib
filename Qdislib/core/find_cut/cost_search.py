@@ -49,6 +49,7 @@ import random
 import time
 
 import networkx
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +69,12 @@ def _gate_costs(dag, node, cache):
 
     data = dag.nodes[node]
     name = str(data.get("gate") or "").upper()
-    params = tuple(float(p) for p in data.get("parameters") or ())
-    key = (name, params)
+    if name == "UNITARY":  # its one parameter is the gate's matrix
+        params = tuple(data["parameters"])
+        key = (name, np.asarray(params[0]).tobytes())
+    else:
+        params = tuple(float(p) for p in data.get("parameters") or ())
+        key = (name, params)
     if key in cache:
         return cache[key]
     # measure-and-prepare, as circuit_cutting runs it: CZ/CX at gamma 3, any other
