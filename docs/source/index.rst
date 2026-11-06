@@ -5,7 +5,7 @@ Qdislib
 
 .. code-block:: bash
 
-    pip install "qdislib[qiskit]"
+    pip install "qdislib[qiskit]"        # or: uv pip install "qdislib[qiskit]"
 
 .. code-block:: python
 
@@ -24,7 +24,7 @@ Use it to run a circuit too wide for your device or simulator, when a few cuts s
 
 .. tip::
 
-   New to Qdislib? :doc:`Try it in your browser <try>`, with nothing to install.
+   New to Qdislib? :doc:`Try it in your browser <try>`, with nothing to install, or :doc:`read the SC poster <poster>`.
 
 .. grid:: 1 2 3 3
     :gutter: 3
@@ -92,6 +92,7 @@ Every :doc:`notebook <examples>` runs top to bottom on a laptop with no credenti
    :hidden:
 
    try
+   poster
    quickstart
    examples
    user_guide

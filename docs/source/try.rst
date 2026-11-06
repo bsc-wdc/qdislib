@@ -4,7 +4,7 @@
 Try Qdislib
 ===========
 
-The companion to the poster *Qdislib: Implementation and Evaluation of Circuit Cutting and Sampling Techniques for Quantum Circuits*. Pick a cutting method and a number of cuts, and see what it costs and that the result comes back. Nothing to install.
+The companion to the :doc:`poster <poster>` *Qdislib: Implementation and Evaluation of Circuit Cutting and Sampling Techniques for Quantum Circuits*. Pick a cutting method and a number of cuts, and see what it costs and that the result comes back. Nothing to install.
 
 .. To add the demo video: upload it (e.g. unlisted on YouTube), then remove the ".. " comment
    markers from the block below and replace VIDEO_ID.
@@ -79,12 +79,14 @@ Install it yourself
 .. code-block:: bash
 
    pip install "qdislib[qiskit]"
+   uv pip install "qdislib[qiskit]"     # the same, with uv, typically much faster
 
 Qdislib runs serially as it is. For parallel runs add `PyCOMPSs <https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation_Configuration.html>`__: see the :doc:`Quickstart <quickstart>`.
 
 More
 ----
 
+* The poster: :doc:`read it or download it <poster>`
 * Documentation: :doc:`the notebooks <examples>`, the :doc:`user guide <user_guide>`, and :doc:`PyCOMPSs and HPC <guide/hpc>`
 * Source code: `github.com/bsc-wdc/qdislib <https://github.com/bsc-wdc/qdislib>`__
 * Papers: `arXiv:2505.01184 <https://arxiv.org/abs/2505.01184>`__ and `SC '25 Workshops <https://doi.org/10.1145/3731599.3767547>`__
