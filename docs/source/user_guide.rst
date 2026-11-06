@@ -524,7 +524,9 @@ The IBM backend does all of this itself: with ``pack=True`` each group of
 
 A group holds one fragment's circuits. Under PyCOMPSs each worker connects to IBM
 again, reading ``IBM_QUANTUM_TOKEN`` from its environment: a token passed in ``extra``
-stays on the master, because task arguments are written to files.
+stays on the master, because task arguments are written to files. The workers need a route to
+IBM: nodes without internet access, such as MareNostrum 5's, cannot submit these jobs,
+so run from a machine that has it.
 
 **Seeing what is passed between the steps.** The list, each item and each result
 print readably, and ``subcircuits.describe(values)`` is a table of every
