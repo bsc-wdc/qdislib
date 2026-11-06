@@ -667,5 +667,46 @@ class DeprecatedSamplersWidthTest(BaseTimedTestCase):
         self.assertEqual(wire, {"100": 1.0})
 
 
+@unittest.skipUnless(QISKIT, "qiskit required")
+class AnalyticalFinalMeasurementsTest(BaseTimedTestCase):
+    def test_measure_all(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.cx(0, 1)
+        qc.measure_all()
+        self.assertAlmostEqual(qd.analytical_solution(qc, "ZZ"), 1.0)
+        self.assertEqual(len(qc.data), 5)  # the user's circuit keeps them
+
+    def test_a_measurement_on_one_qubit_and_idle_qubits(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3, 1)
+        qc.x(0)
+        qc.measure(0, 0)
+        qc.x(1)
+        self.assertAlmostEqual(qd.analytical_solution(qc, "ZII"), -1.0)
+        self.assertAlmostEqual(qd.analytical_solution(qc, "IZI"), -1.0)
+        self.assertAlmostEqual(qd.analytical_solution(qc, "IIZ"), 1.0)
+
+    def test_a_mid_circuit_one_is_still_refused(self):
+        from qiskit import QuantumCircuit
+        from qiskit.exceptions import QiskitError
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(1, 1)
+        qc.h(0)
+        qc.measure(0, 0)
+        qc.h(0)
+        with self.assertRaises(QiskitError):
+            qd.analytical_solution(qc, "Z")
+
+
 if __name__ == "__main__":
     unittest.main()

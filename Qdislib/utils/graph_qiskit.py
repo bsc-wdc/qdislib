@@ -303,5 +303,9 @@ def qiskit_statevector(circuit):
     from qiskit.quantum_info import Statevector
 
     n = circuit.num_qubits
+    # As the DAG converters do (see _final_measurements); one followed by more gates
+    # stays, and Statevector refuses it.
+    if any(instruction.operation.name == "measure" for instruction in circuit.data):
+        circuit = circuit.remove_final_measurements(inplace=False)
     data = np.asarray(Statevector(circuit).data, dtype=complex)
     return data.reshape([2] * n).transpose(list(range(n))[::-1]).reshape(-1)
