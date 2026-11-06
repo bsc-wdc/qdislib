@@ -100,8 +100,8 @@ Seeing a cut
 ------------
 
 :func:`~Qdislib.draw_cut` draws the circuit with each gate's index, every fragment in its own
-colour and every cut marked: a measure-and-prepare gate cut in red, a Hadamard cut in purple, a wire
-cut as a scissors on the wire. It takes any cut ``circuit_cutting`` takes. A cut that does not
+colour and every cut marked: a measure-and-prepare gate cut in green, a Hadamard cut in purple, a wire
+cut in red, as scissors on the wire. It takes any cut ``circuit_cutting`` takes. A cut that does not
 separate is drawn with a cross and named in the title rather than raising. The title gives the
 number of fragments and ``gamma``. Pass a filename to save it, or an ``ax=`` to draw into.
 

@@ -13,13 +13,10 @@ to docs/source/_static/explore_engine.js (run by Node) and to Qdislib. They must
   the optimized count when no Hadamard cut is in it), and with Hadamard cuts the
   subcircuits and gamma of joint=True, Qdislib's default.
 
-Every reconstruction is also compared with the engine's own uncut value. That is the only
-check on two kinds of circuit, listed separately: Qdislib raises on a wire cut right after a
-cut gate, and counts one fragment more when Hadamard and gate cuts share a line that has
-nothing else on it in places. Those are the library's, with the values in agreement.
+Every reconstruction is also compared with the engine's own uncut value.
 
 Hadamard cuts go with joint=False, each with its own ancilla, as the page runs them. Exits
-non-zero on any other difference above 1e-9.
+non-zero on any difference above 1e-9, or if Qdislib raises.
 """
 
 import json
@@ -175,7 +172,7 @@ def main():
     )
     worst = {"exact": 0.0, "value": 0.0, "gamma": 0.0, "joint_gamma": 0.0, "self": 0.0}
     tally = {"valid": 0, "invalid": 0, "gate": 0, "hadamard": 0, "wire": 0, "mixed": 0, "golden": 0}
-    failures, crashes, known = [], [], []
+    failures, crashes = [], []
     for case, mine in zip(cases, js):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -206,10 +203,7 @@ def main():
                 tally[kind] += 1
             tally["mixed"] += len(kinds) > 1
             tally["golden"] += mine.get("golden", 0) > 0
-        counts_only = all(p.startswith(("subcircuits", "fragments", "joint_subcircuits")) for p in problems)
-        if problems and counts_only and {"hadamard", "gate"} <= kinds:
-            known.append((case, problems))
-        elif problems:
+        if problems:
             failures.append((case, problems))
     print(f"{count} circuits: {tally}")
     print("largest differences:", {k: f"{v:.2e}" for k, v in worst.items()})
@@ -217,8 +211,8 @@ def main():
         print("DIFFERENT", json.dumps(case), problems)
     for case, message in crashes[:8]:
         print("QDISLIB RAISED", message[:200], json.dumps(case))
-    print(f"{len(failures)} circuits differ; one fragment more in Qdislib's count on {len(known)}; Qdislib raised on {len(crashes)}")
-    return 1 if failures or worst["self"] > 1e-9 else 0
+    print(f"{len(failures)} circuits differ; Qdislib raised on {len(crashes)}")
+    return 1 if failures or crashes or worst["self"] > 1e-9 else 0
 
 
 if __name__ == "__main__":

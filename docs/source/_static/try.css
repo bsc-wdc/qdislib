@@ -45,8 +45,8 @@ body[data-theme="dark"] .qd-try button[aria-pressed="true"] { color: #111; }
 .qd-try .qd-stat { background: var(--qd-soft); border-radius: 10px; padding: 0.6rem 0.75rem; }
 .qd-try .qd-stat b { display: block; font-size: 1.45rem; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .qd-try .qd-stat span { font-size: 0.8rem; color: var(--color-foreground-secondary, #555); }
-.qd-try figure { margin: 0.5rem 0; }
-.qd-try figure img { display: block; width: 100%; max-width: 760px; height: auto; background: #fff; border-radius: 8px; }
+.qd-try figure { margin: 0.5rem 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.qd-try figure img { display: block; width: 100%; min-width: 560px; max-width: 760px; height: auto; background: #fff; border-radius: 8px; }
 .qd-try .qd-check { border-left: 4px solid var(--qd-a); padding: 0.4rem 0.75rem; background: var(--qd-soft); border-radius: 0 8px 8px 0; font-variant-numeric: tabular-nums; }
 .qd-try .qd-check p { margin: 0.15rem 0; }
 .qd-try .qd-shots { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }

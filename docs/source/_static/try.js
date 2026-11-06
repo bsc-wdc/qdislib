@@ -70,7 +70,7 @@
   var stats = root.appendChild(el("div", { class: "qd-stats" }));
   var figure = root.appendChild(el("figure"));
   var image = figure.appendChild(el("img", { alt: "The circuit with its cuts and its fragments, drawn by qd.draw_cut" }));
-  figure.appendChild(el("figcaption", { class: "qd-note" }, "Drawn by qd.draw_cut: each colour is a fragment, each mark a cut."));
+  figure.appendChild(el("figcaption", { class: "qd-note" }, "Drawn by qd.draw_cut: each colour is a fragment, each pair of scissors a cut."));
 
   root.appendChild(el("span", { class: "qd-label" }, "4. The reconstruction equals the uncut result"));
   var check = root.appendChild(el("div", { class: "qd-check" }));

@@ -35,6 +35,20 @@
   function fragColor(f) { return "var(--qdx-f" + (f % 8) + ")"; }
   function shortName(op) { return op.name.toUpperCase(); }
 
+  /* Scissors as a drawing: a glyph can come out as a coloured emoji on a phone. */
+  function scissors(x, y, colour, size) {
+    var u = (size || 12) / 12;
+    return '<g transform="translate(' + x + " " + y + ") scale(" + u + ')" fill="none" stroke="' + colour + '" stroke-width="1.8" stroke-linecap="round">' +
+      '<circle cx="-5" cy="-3.5" r="2.4"/><circle cx="-5" cy="3.5" r="2.4"/>' +
+      '<path d="M-3 -2.2 L6 4 M-3 2.2 L6 -4"/></g>';
+  }
+  function cutColour(kind) { return kind === "hadamard" ? "var(--qdx-had)" : kind === "gate" ? "var(--qdx-gate)" : "var(--qdx-wire)"; }
+  function legendHtml() {
+    return [["gate", "gate cut"], ["hadamard", "Hadamard cut"], ["wire", "wire cut"]].map(function (x) {
+      return '<span><svg width="22" height="18" viewBox="-11 -9 22 18" style="display:inline-block;width:22px;vertical-align:-4px">' + scissors(0, 0, cutColour(x[0]), 15) + "</svg> " + x[1] + "</span>";
+    }).join("");
+  }
+
   /* ---- A circuit as SVG, coloured by fragment ---- */
   var CELL = 50, LEFT = 40, TOP = 18, ROW = 46;
 
@@ -92,15 +106,15 @@
       };
       if (op.qubits.length === 2) {
         var a = y(op.qubits[0]), b = y(op.qubits[1]);
-        var stroke = cut ? (cut.kind === "hadamard" ? "var(--qdx-had)" : "var(--qdx-cut)") : "var(--color-foreground-secondary, #555)";
+        var stroke = cut ? cutColour(cut.kind) : "var(--color-foreground-secondary, #555)";
         s += '<line x1="' + c + '" x2="' + c + '" y1="' + a + '" y2="' + b + '" stroke="' + stroke + '" stroke-width="2"' + (cut ? ' stroke-dasharray="4 3"' : "") + "/>";
-        if (cut) s += '<text class="scissors" x="' + (c + 3) + '" y="' + ((a + b) / 2 + 5) + '" style="fill:' + stroke + '">✂</text>';
+        if (cut) s += scissors(c + 11, (a + b) / 2, stroke, 14);
       }
       op.qubits.forEach(function (qubit, side) {
         var f = fragOf(side), fill = f === null ? "#667" : fragColor(f);
         var cy = y(qubit);
         s += '<rect x="' + (c - 17) + '" y="' + (cy - 14) + '" width="34" height="28" rx="6" fill="' + fill + '"' +
-          (cut ? ' stroke="' + (cut.kind === "hadamard" ? "var(--qdx-had)" : "var(--qdx-cut)") + '" stroke-width="3" stroke-dasharray="4 2"' : "") + "/>";
+          (cut ? ' stroke="' + cutColour(cut.kind) + '" stroke-width="3" stroke-dasharray="4 2"' : "") + "/>";
         s += '<text class="g" x="' + c + '" y="' + (cy + 4) + '" text-anchor="middle">' + esc(shortName(op)) + "</text>";
       });
       s += '<text class="i" x="' + c + '" y="' + (y(Math.min.apply(null, op.qubits)) - 17) + '" text-anchor="middle">' + (i + 1) + "</text>";
@@ -109,7 +123,7 @@
     (o.cuts || []).forEach(function (cut) {
       if (cut.kind !== "wire") return;
       var cx = wireX[cut.qubit + ":" + cut.from];
-      s += '<text class="scissors" x="' + cx + '" y="' + (y(cut.qubit) + 5) + '" text-anchor="middle">✂</text>';
+      s += scissors(cx, y(cut.qubit), cutColour("wire"), 15);
     });
     if (o.overlay) s += o.overlay({ x: x, y: y });
     return s + "</svg>";
@@ -247,6 +261,8 @@
     angle.addEventListener("input", function () { state.angle = Number(angle.value); angleLabel.textContent = "Angle of the next rotation: " + state.angle.toFixed(1); });
     angleLabel.textContent = "Angle of the next rotation: 0.8";
     var boardHost = root.appendChild(el("div"));
+    var legend = root.appendChild(el("div", { class: "qd-legend" }));
+    legend.innerHTML = legendHtml();
     var chips = root.appendChild(el("div", { class: "qdx-chips" }));
     var warn = root.appendChild(el("div", { class: "qdx-warn", hidden: "" }));
     var stats = root.appendChild(el("div", { class: "qd-stats" }));
@@ -279,7 +295,7 @@
       render();
     });
     var toolItems = PALETTE.map(function (p) { return { value: p[0], label: p[1] }; }).concat([
-      { value: "cut", label: "✂ Cut" }, { value: "erase", label: "Erase" }
+      { value: "cut", label: "Cut" }, { value: "erase", label: "Erase" }
     ]);
     function drawTools() {
       toggles(toolBox, toolItems, state.tool, function (v) { state.tool = v; state.pending = null; render(); });
@@ -375,7 +391,7 @@
             edges.forEach(function (edge, i) {
               var cx = LEFT + ((cols[edge.from] + cols[edge.to] + 1) / 2) * CELL;
               var on = cuts.some(function (k) { return k.kind === "wire" && k.qubit === edge.qubit && k.from === edge.from && k.to === edge.to; });
-              if (!on) s += '<circle cx="' + cx + '" cy="' + g.y(edge.qubit) + '" r="5" fill="var(--color-background-primary, #fff)" stroke="var(--qdx-cut)" stroke-width="2"/>';
+              if (!on) s += '<circle cx="' + cx + '" cy="' + g.y(edge.qubit) + '" r="5" fill="var(--color-background-primary, #fff)" stroke="var(--qdx-wire)" stroke-width="2"/>';
               s += '<rect class="qdx-hit" data-edge="' + i + '" x="' + (cx - 13) + '" y="' + (g.y(edge.qubit) - 16) + '" width="26" height="32"/>';
             });
           }
@@ -538,8 +554,8 @@
     var data = D.lower, k = 3, angle = 1;
     root.textContent = "";
     var row = root.appendChild(el("div", { class: "qdx-row" }));
-    var label = row.appendChild(el("label", { for: "qdx-low" }));
-    var slider = row.appendChild(el("input", { id: "qdx-low", type: "range", min: "1", max: String(data.cuts.length), step: "1", value: String(k), "aria-label": "Number of cuts" }));
+    var label = row.appendChild(el("label", { for: "qdx-low-k" }));
+    var slider = row.appendChild(el("input", { id: "qdx-low-k", type: "range", min: "1", max: String(data.cuts.length), step: "1", value: String(k), "aria-label": "Number of cuts" }));
     var body = root.appendChild(el("div"));
     root.appendChild(el("span", { class: "qd-label" }, "A gate cut follows the gate's angle"));
     var row2 = root.appendChild(el("div", { class: "qdx-row" }));
@@ -586,6 +602,7 @@
     var label = row.appendChild(el("label", { for: "qdx-max" }));
     var slider = row.appendChild(el("input", { id: "qdx-max", type: "range", step: "1", "aria-label": "max_qubits" }));
     var host = root.appendChild(el("div"));
+    root.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendHtml();
     var stats = root.appendChild(el("div", { class: "qd-stats" }));
     var code = root.appendChild(el("pre"));
     var note = root.appendChild(el("p", { class: "qd-note" }));

@@ -109,7 +109,7 @@ def figure(qc, cuts, k):
     glyph outlines would make the page's data ten times larger."""
     with plt.rc_context({"svg.fonttype": "none", "font.family": "sans-serif"}):
         ax = qd.draw_cut(qc, cuts, show=False)
-        ax.set_title("")  # it gives the default's gamma: the page gives the state shown
+        ax.set_title("", loc="left")  # it gives the default's gamma: the page gives the state shown
         buffer = io.BytesIO()
         ax.figure.savefig(buffer, format="svg", bbox_inches="tight", metadata={"Date": None})
     plt.close(ax.figure)
