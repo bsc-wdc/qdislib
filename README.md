@@ -1,5 +1,5 @@
 <h1 align="center">
-    <img src="https://github.com/bsc-wdc/qdislib/raw/master/docs/logos/dislib-logo-full.png" alt="Qdislib - The Quantum Distributed Computing Library" height="90px">
+    <img src="https://github.com/bsc-wdc/qdislib/raw/main/docs/logo.png" alt="Qdislib - The Quantum Distributed Computing Library" height="90px">
 </h1>
 
 <h3 align="center">Quantum distributed computing library implemented over PyCOMPSs programming model for HPC.</h3>
@@ -12,128 +12,81 @@
       <img src="https://badge.fury.io/py/qdislib.svg" alt="PyPI version" height="18">
   </a>
   <a href="https://badge.fury.io/py/qdislib">
-      <img src="https://img.shields.io/badge/python-3.10-blue.svg" alt="Python version" height="18">
+      <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python version" height="18">
   </a>
 </p>
 
-<!-- <p align="center"><b>
-    <a href="https://qdislib.bsc.es">Website</a> •
-    <a href="https://qdislib.bsc.es/en/stable/api-reference.html">Documentation</a> •
+<p align="center"><b>
+    <a href="https://qdislib.readthedocs.io">Documentation</a> •
+    <a href="https://qdislib.readthedocs.io/en/latest/examples.html">Notebooks</a> •
     <a href="https://github.com/bsc-wdc/qdislib/releases">Releases</a> •
     <a href="https://bit.ly/bsc-wdc-community">Slack</a>
-</b></p> -->
+</b></p>
 
- **Table of content:**
-- [Description](#description)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Quickstart](#quickstart)
-- [Availability](#availability)
-- [URLs](#urls)
-- [Acknowledgements](#acknowledgements)
-- [License](#license)
+**Qdislib** runs quantum circuits by **cutting** them into smaller subcircuits, running those independently, and reconstructing the result of the original circuit. It runs serially on a laptop or in parallel on HPC with [PyCOMPSs](https://compss-doc.readthedocs.io/), on simulators, GPUs and QPUs.
 
-## Description
+Use it to run a circuit too wide for your device or simulator, when a few cuts split it. Each cut multiplies the shots a given precision needs, so the number of cuts is what limits it.
 
-**Qdislib** is a Python library designed for scalable quantum circuit execution using *circuit cutting* techniques. It enables the simulation of large quantum circuits by splitting them into smaller, manageable subcircuits that can be executed independently—either on classical simulators, GPUs, or quantum hardware.
+## What it does
 
-Qdislib is built on top of the [PyCOMPSs](<https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar>) parallel runtime, allowing seamless distributed execution of quantum workloads across CPUs, GPUs, and QPUs.
-
-With Qdislib, researchers and developers can:
-
-- Perform **gate** and **wire cutting** to decompose complex quantum circuits — including an ancilla-based **Hadamard-test gate cut** (`gate_cutting_hadamard`) that cuts *any* two-qubit gate at optimal overhead with no mid-circuit measurement, and any **mix** of gate, Hadamard and wire cuts on one circuit (`circuit_cutting`).
-- Cut **any two-qubit gate** (CZ/CX natively; others auto-decomposed to CZ, or use the Hadamard cut).
-- Leverage **GPU acceleration** using cuQuantum or Qibojit.
-- Submit subcircuits to **remote QPUs** like IBM Quantum.
-- Work with circuits defined in **Qibo**, **Qiskit**, **CUDA-Q**, **PennyLane** and **QiliSDK**.
-- Automatically identify good cut points with `find_cut` — a **cost-aware** search (`mixed=True`) that prices gate, Hadamard and wire cuts as they will run (each gate's own sampling overhead, joint cuts) within a time limit, and **hardware-aware** selection that cuts the longest-routing gates for a given QPU `coupling_map` (SparseCut, [arXiv:2511.05492](https://arxiv.org/abs/2511.05492)).
-- Extract and manipulate subcircuits independently.
-
-Whether you're targeting HPC systems, hybrid quantum-classical setups, or constrained simulators, Qdislib is a flexible and modular tool to bridge the gap between current hardware limitations and large-scale quantum algorithm design.
-
-Explore the sections below to get started with installation, quickstart examples, user guides, API references, and more.
-
-
-Qdislib has been implemented on top of [PyCOMPSs](<https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar/>) programming model,
-and it is being developed by the [Workflows and Distributed Computing](<https://www.bsc.es/discover-bsc/organisation/scientific-structure/workflows-and-distributed-computing>) group of the [Barcelona Supercomputing Center](<http://www.bsc.es>).
-
-
-
-## Requirements
-
-- Python >= 3.10
-- At least one quantum SDK backend — **Qibo**, **Qiskit**, or **CUDA-Q** — installed as an extra (see below)
-- *(optional)* COMPSs >= 3.3 for distributed execution on HPC; without it, Qdislib runs serially
-
-The core Python dependencies are listed in `requirements.txt`; the quantum SDK
-backends are optional extras declared in `pyproject.toml`.
+- **Three kinds of cut, in any mix** (`circuit_cutting`): measure-and-prepare gate cuts that follow the gate's angle, Hadamard gate cuts with no mid-circuit measurement, and wire cuts.
+- **Expectation values and distributions.** Pauli strings and Hamiltonians; output distributions, marginals with `qubits=`, and `FactoredDistribution` over more than 24 qubits.
+- **Finding cuts** (`find_cut`): for a size, by cost over all kinds of cut (`mixed=True`), or for a device's connectivity (`coupling_map`). `cutting_overhead` gives the cost of a cut before running it.
+- **Shots and error bars.** `error=`, `total_shots=`, `num_samples=` and `shots_for`.
+- **Any SDK.** Circuits from Qiskit, Qibo, CUDA-Q, PennyLane and QiliSDK, run on any of them. `qd.BaseBackend` adds your own in one method.
+- **PyCOMPSs.** Every fragment circuit is a task, including GPU tasks. Without PyCOMPSs it runs serially, with the same results.
+- **QPUs.** IBM, IQM and BSC devices, and `qd.pack` to run many subcircuits in one job.
+- **A cache** of fragment results, across observables and runs.
 
 ## Installation
 
-Install Qdislib together with at least one backend extra:
+Python 3.10 or later, and at least one quantum SDK, installed as an extra:
 
 ```bash
-pip3 install "qdislib[qibo]"      # or [qiskit], [cudaq], or [all]
+pip install "qdislib[qiskit]"     # or [qibo], [cudaq], [pennylane], [qilisdk], [all]
 ```
 
-Installing the bare package (`pip3 install qdislib`) pulls only the core
-dependencies — you need a backend extra to run circuits.
+To run in parallel, install [PyCOMPSs](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation.html) 3.3 or later, which `pip` does not do for you. Without it Qdislib runs serially. See [QUICKSTART.md](QUICKSTART.md) for more.
 
-> **Qibo + numpy 2.x:** the `[qibo]` extra requires qibo>=0.3.5 for a
-> numpy>=2.4 fix ([qiboteam/qibo#1871](https://github.com/qiboteam/qibo/pull/1871)).
-> That shipped in qibo 0.3.5 on PyPI, so a plain install now resolves it:
-> ```bash
-> pip3 install "qdislib[qibo]"
-> ```
-
-## Quickstart
-
-The recommended way to use Qdislib is the **three-step circuit-cutting workflow**:
-generate subcircuits, evaluate each one in your own loop, then recombine the
-results. Evaluating the subcircuits yourself is the whole point — that loop is
-where you dispatch to a simulator, a GPU, or a real QPU, batch them, or cache
-results, all while Qdislib handles the cutting and the reconstruction.
+## A first cut
 
 ```python
+from qiskit import QuantumCircuit
 import Qdislib as qd
-from qibo import models, gates
 
-# A small example circuit (works the same with Qiskit or CUDA-Q circuits).
-circuit = models.Circuit(2)
-circuit.add(gates.H(0))
-circuit.add(gates.CZ(0, 1))
-circuit.add(gates.RY(0, 0.8))
+circuit = QuantumCircuit(5)
+for qubit, angle in enumerate([0.8, 0.5, 0.6, 0.4, 0.3]):
+    circuit.ry(angle, qubit)
+for qubit in range(4):
+    circuit.cz(qubit, qubit + 1)
 
-# 1. Cut the circuit into independently executable subcircuits.
-#    Use find_cut to discover good cut points automatically.
-subcircuits = qd.gate_cutting_subcircuits(circuit, ["CZ_2"])
+cut = qd.find_cut(circuit, max_qubits=3, wire_cut=False)
+print(cut)                                # ['CZ_7']
+print(qd.cutting_overhead(circuit, cut))
+# {'subcircuits': 12, 'configurations': 6, 'fragments': 2, 'gamma': 3.0}
 
-# 2. Evaluate each subcircuit — this loop is yours to control.
-values = [qd.expectation_value(s, shots=8192) for s in subcircuits]
-
-# 3. Recombine into the original circuit's expectation value.
-result = subcircuits.reconstruct(values)
-print(result)  # ≈ -0.717
+value = qd.gate_cutting(circuit, cut, shots=8192, seed=1, error=True)
+print(value)                              # 0.441427 ± 0.0082
+print(qd.analytical_solution(circuit, "ZZZZZ"))   # 0.4440, exact
 ```
 
-`qd.wire_cutting_subcircuits(circuit, [("H_1", "CZ_2")])` works
-the same way for **wire cutting** (and for `gate_cutting_hadamard_subcircuits` and
-`circuit_cutting_subcircuits`). The list is SDK-neutral: `subs.circuits("qiskit")`
-(or `"qibo"`, `"cudaq"`, `"pennylane"`, `"qilisdk"`) gives the native circuits, in the
-circuit's own SDK by default, and `qd.expectation_value(s, shots=..., backend=...)`
-runs each one anywhere: the circuit's own SDK's simulator by default, or a QPU
-backend.
+To run the subcircuits yourself, on your own devices or with your own tools, split the call in three:
 
-If you'd rather not manage the loop, the all-in-one `qd.gate_cutting(...)` and
-`qd.wire_cutting(...)` run the cut, execution and reconstruction in a single call
-— convenient for quick experiments, but the three-step workflow above is the
-flexible, production-oriented path.
+```python
+subcircuits = qd.gate_cutting_subcircuits(circuit, cut, "ZZZZZ")       # 1. cut
+values = [qd.expectation_value(s, shots=8192) for s in subcircuits]    # 2. run: this loop is yours
+print(subcircuits.reconstruct(values))                                 # 3. recombine
+```
+
+Run the same script with `runcompss --pythonpath=$(pwd) my_app.py` to run its circuits in parallel.
+
+The [notebooks](https://qdislib.readthedocs.io/en/latest/examples.html) go through all of it with results and figures, and open in Colab or Binder.
 
 ## Availability
 
-Currently, the following supercomputers have already PyCOMPSs and Qdislib installed and ready to use. If you need help configuring your own cluster or supercomputer, drop us an email and we will be pleased to help.
+These supercomputers have PyCOMPSs and Qdislib installed. For help configuring your own cluster, write to support-compss@bsc.es.
 
-- Marenostrum 5 - Barcelona Supercomputing Center (BSC)
+- MareNostrum 5, Barcelona Supercomputing Center (BSC): see [the HPC guide](https://qdislib.readthedocs.io/en/latest/guide/hpc.html)
 
 
 ## Citing Qdislib
@@ -175,7 +128,9 @@ https://arxiv.org/abs/2604.26788
 
 ## URLs
 
-[Quantum Distributed computing libraries BSC](https://www.bsc.es/research-development/research-areas/distributed-computing/distributed-computing-libraries-and)
+- [Documentation](https://qdislib.readthedocs.io)
+- [Changelog](CHANGELOG.md)
+- Developed by the [Workflows and Distributed Computing](https://www.bsc.es/discover-bsc/organisation/scientific-structure/workflows-and-distributed-computing) group of the [Barcelona Supercomputing Center](https://www.bsc.es)
 
 
 ## Acknowledgements
