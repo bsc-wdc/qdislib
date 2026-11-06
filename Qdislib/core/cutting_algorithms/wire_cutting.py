@@ -2203,9 +2203,10 @@ def _sum_results(lst: typing.List[int]) -> int:
 def _counts_qibo(qc, shots=1024, backend="numpy"):
     """Simulate a Qibo circuit and return its measurement counts (frequencies).
 
-    Appends a measurement on every qubit in place -- so the circuit is single-use
-    (evaluate once); deep-copying is not viable here as it severs the symbol
-    binding that gate-cut collapse measurements rely on -- then runs it.
+    Appends a measurement on every qubit to a copy, so the caller's circuit is left
+    untouched and can be run again. One with a collapse measurement is the exception:
+    a copy has new measurement gates, and the circuit's symbols would stay bound to
+    the old ones, so it gets the measurement in place and is single-use.
 
     :param qc: A Qibo ``Circuit``.
     :param shots: Number of measurement shots.
@@ -2213,6 +2214,8 @@ def _counts_qibo(qc, shots=1024, backend="numpy"):
     :return: A ``{bitstring: count}`` dict (qubit-0-first keys).
     """
     qibo.set_backend(backend)
+    if not any(isinstance(g, gates.M) and g.collapse for g in qc.queue):
+        qc = qc.copy(deep=True)
     qc.add(gates.M(*range(qc.nqubits)))
     result = qc(nshots=shots)
     return dict(result.frequencies(binary=True))

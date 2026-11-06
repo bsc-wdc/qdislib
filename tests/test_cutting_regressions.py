@@ -708,5 +708,56 @@ class AnalyticalFinalMeasurementsTest(BaseTimedTestCase):
             qd.analytical_solution(qc, "Z")
 
 
+@unittest.skipUnless(QIBO, "qibo required")
+class QiboCircuitLeftAloneTest(BaseTimedTestCase):
+    """expectation_value does not change the user's Qibo circuit."""
+
+    def _circuit(self):
+        from qibo import gates, models
+
+        circuit = models.Circuit(2)
+        circuit.add(gates.H(0))
+        circuit.add(gates.CNOT(0, 1))
+        return circuit
+
+    def test_it_can_be_run_again(self):
+        import Qdislib as qd
+
+        circuit = self._circuit()
+        for _ in range(3):
+            self.assertEqual(qd.expectation_value(circuit, shots=50), 1.0)
+            self.assertEqual(qd.expectation_value([circuit, "ZZ"], shots=50), 1.0)
+        self.assertEqual([g.name for g in circuit.queue], ["h", "cx"])
+        self.assertFalse(circuit.measurements)
+        self.assertAlmostEqual(qd.analytical_solution(circuit, "ZZ"), 1.0)
+
+    def test_with_a_cache_too(self):
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        for mode in ("expectation", "counts"):
+            circuit = self._circuit()
+            value = qd.expectation_value(
+                circuit, shots=50, cache=InMemoryCircuitCache(), cache_mode=mode
+            )
+            self.assertEqual(value, 1.0)
+            self.assertEqual(len(circuit.queue), 2)
+
+    def test_a_cut_measurement_keeps_its_sign(self):
+        from qibo import gates, models
+
+        import Qdislib as qd
+
+        def measured():
+            circuit = models.Circuit(2)
+            circuit.add(gates.H(0))
+            circuit.add(gates.M(0, collapse=True))
+            circuit.add(gates.CNOT(0, 1))
+            return circuit
+
+        # -(-1)**m * (-1)**final: the cut point and the final read agree in every shot
+        self.assertEqual(qd.expectation_value([measured(), "ZI"], shots=200), -1.0)
+
+
 if __name__ == "__main__":
     unittest.main()
