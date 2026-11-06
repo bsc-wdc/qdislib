@@ -26,12 +26,58 @@
 .qd-try table.qdx-t td:first-child, .qd-try table.qdx-t th:first-child { text-align: left; }
 .qd-try .qdx-t tr.on td { background: var(--qd-soft); font-weight: 700; }
 .qd-try .qdx-map text { font-size: 9px; font-weight: 700; }
-.qd-try { --qdx-gate: #0B6E3A; --qdx-had: #6A3D9A; --qdx-wire: #D62728; --qdx-cut: #D62728;
+.qd-try { --qdx-plain: #5f6b7a; --qdx-gate: #0B6E3A; --qdx-had: #6A3D9A; --qdx-wire: #D62728; --qdx-cut: #D62728;
   --qdx-f0: #3f6fa8; --qdx-f1: #c8640a; --qdx-f2: #2e8b57; --qdx-f3: #a8326a; --qdx-f4: #7a6a1e; --qdx-f5: #5a4fb0; --qdx-f6: #2b8a99; --qdx-f7: #8a4b2a; }
-body[data-theme="dark"] .qd-try { --qdx-gate: #4cc38a; --qdx-wire: #ff7a66; --qdx-cut: #ff7a66; --qdx-had: #c792ea; }
+body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --qdx-wire: #ff7a66; --qdx-cut: #ff7a66; --qdx-had: #c792ea; }
 @media (prefers-color-scheme: dark) {
-  body:not([data-theme="light"]) .qd-try { --qdx-gate: #4cc38a; --qdx-wire: #ff7a66; --qdx-cut: #ff7a66; --qdx-had: #c792ea; }
+  body:not([data-theme="light"]) .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --qdx-wire: #ff7a66; --qdx-cut: #ff7a66; --qdx-had: #c792ea; }
 }
 .qd-try .qdx-bar { display: grid; grid-template-columns: minmax(7.5rem, 14rem) 1fr; gap: 0.15rem 0.5rem; align-items: center; font-size: 0.85rem; margin: 0.35rem 0; }
 .qd-try .qdx-bar .qdx-num { grid-column: 2; font-size: 0.78rem; color: var(--color-foreground-secondary, #555); font-variant-numeric: tabular-nums; }
 .qd-try .qdx-bar .qd-bar { border-radius: 0 4px 4px 0; }
+.qd-try .qdx-hint { font-weight: 600; min-height: 3rem; margin: 0.4rem 0 0.2rem; }
+.qd-try .qdx-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0; }
+.qd-try .qdx-primary { font-weight: 700; border-color: var(--qd-a); }
+.qd-try .qdx-start { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; margin: 0.6rem 0; }
+.qd-try .qdx-start label { font-weight: 700; }
+.qd-try .qdx-start select { flex: 0 1 16rem; min-width: 0; min-height: 48px; padding: 0 0.6rem; font: inherit; font-weight: 600; color: var(--color-foreground-primary, #111); background-color: var(--qd-soft); border: 2px solid var(--qd-a); border-radius: 10px; cursor: pointer; }
+.qd-try .qdx-obs rect { fill: var(--qd-soft); stroke: var(--qd-a); stroke-width: 2; }
+.qd-try .qdx-code { display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem; }
+.qd-try .qdx-code pre { width: 100%; }
+.qd-try button:disabled { opacity: 0.45; cursor: default; }
+.qd-try .qdx-mark { fill: var(--color-background-primary, #fff); stroke: var(--qdx-gate); stroke-width: 2; pointer-events: none; }
+.qd-try .qdx-wiremark { stroke: var(--qdx-wire); }
+.qd-try .qdx-board rect[data-k], .qd-try .qdx-board line[data-k] { transition: fill 0.3s ease, stroke 0.3s ease; }
+.qd-try .qdx-pop { animation: qdx-pop 0.22s ease-out; transform-origin: center; transform-box: fill-box; }
+@keyframes qdx-pop { from { transform: scale(0.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .qd-try .qdx-pop { animation: none; } .qd-try .qdx-board rect[data-k], .qd-try .qdx-board line[data-k] { transition: none; } }
+@media (hover: hover) {
+  .qd-try .qdx-hit:hover { fill: var(--qd-a); fill-opacity: 0.16; }
+  /* With a mouse, a cut's circle shows only over its place. A touch screen cannot hover, so
+     there the circles stay: they are the only sign of what can be tapped. */
+  .qd-try .qdx-mark { opacity: 0; transition: opacity 0.12s ease; }
+  .qd-try .qdx-hit:hover + .qdx-mark, .qd-try .qdx-hit:focus-visible + .qdx-mark { opacity: 1; }
+}
+.qd-try .qdx-payoff { margin: 0.75rem 0; padding: 0.75rem; background: var(--qd-soft); border-radius: 12px; }
+.qd-try .qdx-numbers { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.qd-try .qdx-numbers span { display: block; font-size: 0.85rem; color: var(--color-foreground-secondary, #555); }
+.qd-try .qdx-numbers b { display: block; font-size: clamp(1.7rem, 7vw, 2.4rem); line-height: 1.15; font-variant-numeric: tabular-nums; }
+.qd-try .qdx-key::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 0.35rem; border-radius: 50%; vertical-align: -1px; }
+.qd-try .qdx-ring::before { border: 2.5px solid var(--qd-b); }
+.qd-try .qdx-dot::before { background: var(--qd-a); }
+.qd-try .qdx-line { margin: 0.35rem 0 0; }
+.qd-try .qdx-verdict { margin: 0.15rem 0 0.4rem; font-weight: 600; font-size: 0.92rem; }
+.qd-try .qdx-pieces { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.5rem 0 0.2rem; }
+.qd-try .qdx-piece { display: inline-flex; gap: 3px; }
+.qd-try .qdx-piece i { display: block; width: 20px; height: 20px; border-radius: 4px; transition: background-color 0.3s ease; }
+.qd-try .qdx-cost .qd-stats { margin: 0.5rem 0 0.2rem; }
+.qd-try .qdx-cost .qd-stat { background: var(--color-background-primary, #fff); }
+.qd-try details > div > ul, .qd-try details > div > p { margin: 0.4rem 0; }
+.qd-try .qdx-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(4, 1fr); margin: 0.5rem 0; }
+@media (max-width: 720px) { .qd-try .qdx-grid { grid-template-columns: repeat(2, 1fr); } }
+.qd-try .qdx-grid svg, .qd-try .qdx-plot svg { max-width: 100%; }
+.qd-try .qdx-plot { max-width: 620px; margin: 0.5rem 0; }
+.qd-try svg .big { font-size: 13px; font-weight: 700; fill: var(--color-foreground-primary, #111); }
+.qd-try .qdx-series .qd-swatch { box-shadow: 0 0 0 1.5px var(--color-background-primary, #fff); }
+.qd-try .qdx-hit:focus { outline: none; }
+.qd-try .qdx-hit:focus-visible { outline: 2px solid var(--qd-a); outline-offset: -2px; }

@@ -83,7 +83,12 @@
   slider.value = String(state.shots);
   slider.addEventListener("input", function () { state.shots = Number(slider.value); state.seed = 0; update(); });
   var again = shotRow.appendChild(el("button", { type: "button" }, "Another run"));
-  again.addEventListener("click", function () { state.seed = (state.seed + 1) % data.seeds; update(); });
+  again.addEventListener("click", function () {
+    state.seed = (state.seed + 1) % data.seeds;
+    update();
+    again.classList.add("qdx-flash");   /* a press shows, also on touch */
+    setTimeout(function () { again.classList.remove("qdx-flash"); }, 220);
+  });
   var shotStats = root.appendChild(el("div", { class: "qd-stats" }));
   var plots = root.appendChild(el("div", { class: "qd-plots" }));
   var bars = root.appendChild(el("div"));

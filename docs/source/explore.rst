@@ -13,7 +13,9 @@ The whole library, on one page, with nothing to install. The first section compu
 Circuit playground
 ------------------
 
-Build a circuit of up to 6 qubits and cut it. **This runs live, in your browser:** a statevector simulation of each fragment, with the actual decompositions of a gate cut, a Hadamard cut and a wire cut. ``docs/check_explore_engine.py`` checks these numbers against real Qdislib on random circuits. Hadamard cuts here use one ancilla per gate, ``joint=False``. The page also gives what Qdislib's default, ``joint=True``, would cost.
+Tap a gate or a line to cut the circuit. It falls apart into coloured fragments that a smaller device can run, and the panel below shows that their results still add up to the uncut one, and at what cost.
+
+**This runs live, in your browser:** a statevector simulation of each fragment, with the actual decompositions of each cut. ``docs/check_explore_engine.py`` checks these numbers against real Qdislib on random circuits.
 
 .. raw:: html
 

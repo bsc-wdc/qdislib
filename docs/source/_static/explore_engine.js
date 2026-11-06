@@ -518,7 +518,33 @@
     };
   }
 
-  var api = { exact: exact, plan: plan, prepare: prepare, reconstruct: reconstruct, mulberry: mulberry, TWO_QUBIT: TWO_QUBIT, terms: termsOf };
+  /* A simple rule for "Auto cut", not find_cut: try every way of splitting the qubits in
+     two, cut the gates that cross it, and keep the smallest gamma among the splits whose
+     larger side has at most half the qubits (rounded up), or else among all of them. */
+  function autoCut(circuit, observable) {
+    var n = circuit.n, half = Math.ceil(n / 2), best = null;
+    for (var mask = 1; mask < (1 << (n - 1)); mask++) {
+      var cuts = [];
+      circuit.ops.forEach(function (op, i) {
+        if (op.qubits.length === 2 && ((mask >> op.qubits[0]) & 1) !== ((mask >> op.qubits[1]) & 1)) {
+          cuts.push({ kind: "gate", op: i });
+        }
+      });
+      if (!cuts.length || cuts.length > 4) continue;
+      var p = plan(circuit, cuts.map(function (c) { return { kind: c.kind, op: c.op }; }), observable);
+      if (p.invalid.length) continue;
+      var largest = Math.max.apply(null, p.widths);
+      var candidate = { cuts: cuts, gamma: p.gamma, fits: largest <= half, largest: largest };
+      if (!best || (candidate.fits && !best.fits) ||
+          (candidate.fits === best.fits && (candidate.gamma < best.gamma - 1e-9 ||
+            (Math.abs(candidate.gamma - best.gamma) < 1e-9 && largest < best.largest)))) {
+        best = candidate;
+      }
+    }
+    return best ? best.cuts : [];
+  }
+
+  var api = { autoCut: autoCut, exact: exact, plan: plan, prepare: prepare, reconstruct: reconstruct, mulberry: mulberry, TWO_QUBIT: TWO_QUBIT, terms: termsOf };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.QD_ENGINE = api;
 })(typeof window !== "undefined" ? window : this);

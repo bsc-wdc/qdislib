@@ -12,7 +12,7 @@
     return node;
   }
   function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
-  function num(x, digits) { return (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(digits); }
+  function num(x, digits) { return (Number(x.toFixed(digits)) < 0 ? "−" : "+") + Math.abs(x).toFixed(digits); }
   function count(n) {
     if (n < 1e6) return Math.round(n).toLocaleString("en-US");
     var e = Math.floor(Math.log10(n));
@@ -32,15 +32,53 @@
       b.addEventListener("click", function () { onPick(item.value); });
     });
   }
+  /* A press shows on every button, also on a touch screen, where :active barely lasts. */
+  document.addEventListener("click", function (event) {
+    var b = event.target.closest && event.target.closest(".qd-try button");
+    if (!b) return;
+    b.classList.add("qdx-flash");
+    setTimeout(function () { b.classList.remove("qdx-flash"); }, 220);
+  });
+  /* A code box with a button that copies it. Selects the text where the clipboard is refused. */
+  function codeBox(parent) {
+    var box = parent.appendChild(el("div", { class: "qdx-code" }));
+    var button = box.appendChild(el("button", { type: "button", "aria-pressed": "false" }, "Copy"));
+    var pre = box.appendChild(el("pre"));
+    var timer;
+    function said(text) {
+      button.textContent = text;
+      button.setAttribute("aria-pressed", "true");
+      clearTimeout(timer);
+      timer = setTimeout(function () { button.textContent = "Copy"; button.setAttribute("aria-pressed", "false"); }, 1600);
+    }
+    function select() {
+      var range = document.createRange(), selection = window.getSelection();
+      range.selectNodeContents(pre);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      var done = false;
+      try { done = document.execCommand("copy"); } catch (e) { done = false; }
+      said(done ? "Copied" : "Selected: copy it");
+    }
+    button.addEventListener("click", function () {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(pre.textContent).then(function () { said("Copied"); }, select);
+      } else {
+        select();
+      }
+    });
+    return pre;
+  }
   function fragColor(f) { return "var(--qdx-f" + (f % 8) + ")"; }
   function shortName(op) { return op.name.toUpperCase(); }
 
   /* Scissors as a drawing: a glyph can come out as a coloured emoji on a phone. */
-  function scissors(x, y, colour, size) {
+  function scissors(x, y, colour, size, key) {
     var u = (size || 12) / 12;
-    return '<g transform="translate(' + x + " " + y + ") scale(" + u + ')" fill="none" stroke="' + colour + '" stroke-width="1.8" stroke-linecap="round">' +
+    return '<g transform="translate(' + x + " " + y + ") scale(" + u + ')"><g' + (key ? ' data-k="' + key + '"' : "") + ' fill="none" stroke="' + colour + '" stroke-width="1.9" stroke-linecap="round">' +
+      '<circle cx="0" cy="0" r="7" fill="var(--color-background-primary, #fff)" stroke="none"/>' +
       '<circle cx="-5" cy="-3.5" r="2.4"/><circle cx="-5" cy="3.5" r="2.4"/>' +
-      '<path d="M-3 -2.2 L6 4 M-3 2.2 L6 -4"/></g>';
+      '<path d="M-3 -2.2 L6 4 M-3 2.2 L6 -4"/></g></g>';
   }
   function cutColour(kind) { return kind === "hadamard" ? "var(--qdx-had)" : kind === "gate" ? "var(--qdx-gate)" : "var(--qdx-wire)"; }
   function legendHtml() {
@@ -66,10 +104,10 @@
 
   /* opts: n, ops, cols (per op), cuts, plan, width (columns), labels (per qubit), hits (bool) */
   function drawCircuit(o) {
-    var width = o.width, W = LEFT + width * CELL + 12, H = TOP + o.n * ROW + 6;
+    var width = o.width, W = LEFT + width * CELL + (o.ends ? 50 : 12), H = TOP + o.n * ROW + 6, lineEnd = o.ends ? W - 38 : W - 6;
     var y = function (q) { return TOP + q * ROW + ROW / 2; };
     var x = function (c) { return LEFT + c * CELL + CELL / 2; };
-    var s = '<svg viewBox="0 0 ' + W + " " + H + '" width="' + W + '" height="' + H + '" style="max-width:' + W + 'px" role="img" aria-label="' + esc(o.aria || "A circuit") + '">';
+    var s = '<svg viewBox="0 0 ' + W + " " + H + '" width="' + W + '" height="' + H + '" style="max-width:' + (o.keys ? Math.round(W * 1.35) : W) + "px" + (o.keys ? ";min-width:" + Math.round(W * 0.7) + "px" : "") + '" role="img" aria-label="' + esc(o.aria || "A circuit") + '">';
     var p = o.plan;
     var hasPlan = p && !p.invalid.length;
 
@@ -84,13 +122,13 @@
       var segs = hasPlan ? p.segments.filter(function (g) { return g.qubit === q; }) : [];
       var start = LEFT - 8;
       if (!segs.length) {
-        s += '<line x1="' + start + '" x2="' + (W - 6) + '" y1="' + y(q) + '" y2="' + y(q) + '" stroke="var(--qd-line)" stroke-width="2"/>';
+        s += '<line x1="' + start + '" x2="' + lineEnd + '" y1="' + y(q) + '" y2="' + y(q) + '" stroke="var(--qd-line)" stroke-width="2"/>';
       }
       segs.forEach(function (g) {
-        var end = W - 6;
+        var end = lineEnd;
         if (g.outgoing) end = wireX[q + ":" + g.outgoing.from];
         var colour = g.fragment === undefined ? "var(--qd-line)" : fragColor(g.fragment);
-        s += '<line x1="' + start + '" x2="' + end + '" y1="' + y(q) + '" y2="' + y(q) + '" stroke="' + colour + '" stroke-width="2.5"/>';
+        s += '<line' + (o.keys ? ' data-k="l' + q + ":" + g.ordinal + '"' : "") + ' x1="' + start + '" x2="' + end + '" y1="' + y(q) + '" y2="' + y(q) + '" stroke="' + colour + '" stroke-width="2.5"/>';
         start = end;
       });
     }
@@ -108,12 +146,12 @@
         var a = y(op.qubits[0]), b = y(op.qubits[1]);
         var stroke = cut ? cutColour(cut.kind) : "var(--color-foreground-secondary, #555)";
         s += '<line x1="' + c + '" x2="' + c + '" y1="' + a + '" y2="' + b + '" stroke="' + stroke + '" stroke-width="2"' + (cut ? ' stroke-dasharray="4 3"' : "") + "/>";
-        if (cut) s += scissors(c + 11, (a + b) / 2, stroke, 14);
+        if (cut) s += scissors(c, (a + b) / 2, stroke, 12, o.keys ? "xg" + op.id + cut.kind : null);
       }
       op.qubits.forEach(function (qubit, side) {
         var f = fragOf(side), fill = f === null ? "#667" : fragColor(f);
         var cy = y(qubit);
-        s += '<rect x="' + (c - 17) + '" y="' + (cy - 14) + '" width="34" height="28" rx="6" fill="' + fill + '"' +
+        s += '<rect' + (o.keys ? ' data-k="g' + op.id + ":" + side + '"' : "") + ' x="' + (c - 17) + '" y="' + (cy - 14) + '" width="34" height="28" rx="6" fill="' + fill + '"' +
           (cut ? ' stroke="' + cutColour(cut.kind) + '" stroke-width="3" stroke-dasharray="4 2"' : "") + "/>";
         s += '<text class="g" x="' + c + '" y="' + (cy + 4) + '" text-anchor="middle">' + esc(shortName(op)) + "</text>";
       });
@@ -123,9 +161,15 @@
     (o.cuts || []).forEach(function (cut) {
       if (cut.kind !== "wire") return;
       var cx = wireX[cut.qubit + ":" + cut.from];
-      s += scissors(cx, y(cut.qubit), cutColour("wire"), 15);
+      s += scissors(cx, y(cut.qubit), cutColour("wire"), 12, o.keys ? "xw" + cut.qubit + ":" + cut.from : null);
     });
-    if (o.overlay) s += o.overlay({ x: x, y: y });
+    if (o.ends) {
+      s += '<text class="i" x="' + (W - 4) + '" y="11" text-anchor="end">measured</text>';
+      o.ends.forEach(function (letter, q) {
+        s += '<g class="qdx-obs"><rect x="' + (W - 34) + '" y="' + (y(q) - 13) + '" width="26" height="26" rx="6"/><text class="q" x="' + (W - 21) + '" y="' + (y(q) + 4.5) + '" text-anchor="middle">' + esc(letter) + "</text></g>";
+      });
+    }
+    if (o.overlay) s += o.overlay({ x: x, y: y, W: W });
     return s + "</svg>";
   }
 
@@ -136,14 +180,14 @@
 
   /* ---- 1. The playground ---- */
   function playground(root) {
-    var COLS = 12, MAX_CUTS = 4;
+    var COLS = 10, MAX_CUTS = 4;
     var PALETTE = [
       ["h", "H"], ["x", "X"], ["s", "S"], ["t", "T"], ["rx", "RX"], ["ry", "RY"], ["rz", "RZ"],
       ["cz", "CZ"], ["cx", "CX"], ["rzz", "RZZ"]
     ];
     var ANGLED = { rx: 1, ry: 1, rz: 1, rzz: 1 }, TWO = { cz: 1, cx: 1, rzz: 1 };
-    var state = { n: 5, ops: [], cuts: [], observable: "ZZZZZ", tool: "cut", angle: 0.8, pending: null, shots: 10, seed: 1 };
-    var uid = 1;
+    var state = { n: 5, ops: [], cuts: [], observable: "ZZZZZ", tool: null, angle: 0.8, pending: null, seed: 1, said: "", example: "chain", auto: false };
+    var uid = 1, painted = {}, keyed = null;
 
     function add(name, qubits, col, theta) {
       var op = { id: uid++, name: name, qubits: qubits, col: col };
@@ -151,64 +195,113 @@
       state.ops.push(op);
       return op;
     }
-    function presets() {
-      return {
-        chain: function () {
-          state.n = 5; state.observable = "ZZZZZ"; state.ops = []; state.cuts = [];
-          [0.8, 0.5, 0.6, 0.4, 0.3].forEach(function (a, q) { add("ry", [q], 0, a); });
-          var mid = null;
-          for (var q = 0; q < 4; q++) { var op = add("cz", [q, q + 1], q + 1); if (q === 1) mid = op; }
-          [0.2, 0.1, 0.7, 0.3, 0.9].forEach(function (a, q) { add("rx", [q], 5 + q % 2, a); });
-          state.cuts = [{ kind: "gate", opId: mid.id }];
-        },
-        blocks: function () {
-          state.n = 6; state.observable = "ZZZZZZ"; state.ops = []; state.cuts = [];
-          [0, 1, 2, 3, 4, 5].forEach(function (q) { add("h", [q], 0); });
-          add("rzz", [0, 1], 1, 1.2); add("rzz", [3, 4], 1, 1.2);
-          add("rzz", [1, 2], 2, 1.2); add("rzz", [4, 5], 2, 1.2);
-          var a = add("rzz", [2, 3], 3, 0.2), b = add("rzz", [0, 5], 4, 0.2);
-          [0, 1, 2, 3, 4, 5].forEach(function (q) { add("rx", [q], 5, 0.5); });
-          state.cuts = [{ kind: "gate", opId: a.id }, { kind: "gate", opId: b.id }];
-        },
-        wire: function () {
-          state.n = 4; state.observable = "ZZZZ"; state.ops = []; state.cuts = [];
-          [0, 1, 2, 3].forEach(function (q) { add("ry", [q], 0, 0.5 + 0.2 * q); });
-          add("cz", [0, 1], 1);
-          var a = add("cz", [1, 2], 2), b = add("cz", [2, 3], 3);
-          state.cuts = [{ kind: "wire", qubit: 2, fromId: a.id, toId: b.id }];
-        },
-        ghz: function () {
-          state.n = 6; state.observable = "ZZZZZZ"; state.ops = []; state.cuts = [];
-          add("h", [0], 0);
-          for (var q = 0; q < 5; q++) add("cx", [q, q + 1], q + 1);
-          state.cuts = [{ kind: "hadamard", opId: state.ops[3].id }];
-        },
-        random: function () {
-          var rng = E.mulberry((state.seed = state.seed + 1)), n = 4 + Math.floor(rng() * 3);
-          state.n = n; state.ops = []; state.cuts = [];
-          state.observable = new Array(n + 1).join("Z");
-          for (var c = 0; c < 8; c++) {
-            var used = {};
-            for (var t = 0; t < n; t++) {
-              var q = Math.floor(rng() * n);
-              if (used[q]) continue;
-              if (rng() < 0.45) {
-                var r = (q + 1 + Math.floor(rng() * (n - 1))) % n, low = Math.min(q, r), high = Math.max(q, r), clear = true;
-                for (var k = low; k <= high; k++) if (used[k]) clear = false;
-                if (!clear) continue;
-                for (k = low; k <= high; k++) used[k] = 1;
-                var name = ["cz", "cx", "rzz"][Math.floor(rng() * 3)];
-                add(name, [q, r], c, 0.3 + 2.4 * rng());
-              } else {
-                used[q] = 1;
-                var one = PALETTE[Math.floor(rng() * 7)][0];
-                add(one, [q], c, 0.3 + 2.4 * rng());
-              }
+    function fresh(n) {
+      state.n = n;
+      state.observable = new Array(n + 1).join("Z");
+      state.ops = [];
+      state.cuts = [];
+      state.pending = null;
+      state.said = "";
+      state.auto = false;
+    }
+    var EXAMPLES = {
+      chain: ["Chain", function () {
+        fresh(5);
+        [0.8, 0.5, 0.6, 0.4, 0.3].forEach(function (a, q) { add("ry", [q], 0, a); });
+        for (var q = 0; q < 4; q++) add("cz", [q, q + 1], q + 1);
+        [0.2, 0.1, 0.7, 0.3, 0.9].forEach(function (a, q) { add("rx", [q], 5 + q % 2, a); });
+      }],
+      blocks: ["Weak links", function () {
+        fresh(6);
+        [0, 1, 2, 3, 4, 5].forEach(function (q) { add("h", [q], 0); });
+        add("rzz", [0, 1], 1, 1.2); add("rzz", [3, 4], 1, 1.2);
+        add("rzz", [1, 2], 2, 1.2); add("rzz", [4, 5], 2, 1.2);
+        add("rzz", [2, 3], 3, 0.2); add("rzz", [0, 5], 4, 0.2);
+        [0, 1, 2, 3, 4, 5].forEach(function (q) { add("rx", [q], 5, 0.5); });
+      }],
+      real: ["Real gates", function () {
+        fresh(4);
+        [0, 1, 2, 3].forEach(function (q) { add("ry", [q], 0, 0.5 + 0.2 * q); });
+        add("cz", [0, 1], 1); add("cz", [1, 2], 2); add("cz", [2, 3], 3);
+      }],
+      ghz: ["GHZ", function () {
+        fresh(6);
+        add("h", [0], 0);
+        for (var q = 0; q < 5; q++) add("cx", [q, q + 1], q + 1);
+      }],
+      qaoa: ["QAOA ring", function () {
+        fresh(6);
+        [0, 1, 2, 3, 4, 5].forEach(function (q) { add("h", [q], 0); });
+        add("rzz", [0, 1], 1, 0.7); add("rzz", [2, 3], 1, 0.7); add("rzz", [4, 5], 1, 0.7);
+        add("rzz", [1, 2], 2, 0.7); add("rzz", [3, 4], 2, 0.7);
+        add("rzz", [0, 5], 3, 0.7);
+        [0, 1, 2, 3, 4, 5].forEach(function (q) { add("rx", [q], 4, 0.6); });
+      }],
+      ising: ["Ising steps", function () {
+        fresh(5);
+        [0, 1, 2, 3, 4].forEach(function (q) { add("ry", [q], 0, 0.4); });
+        [1, 4].forEach(function (c) {
+          add("rzz", [0, 1], c, 0.5); add("rzz", [2, 3], c, 0.5);
+          add("rzz", [1, 2], c + 1, 0.5); add("rzz", [3, 4], c + 1, 0.5);
+          [0, 1, 2, 3, 4].forEach(function (q) { add("rx", [q], c + 2, 0.3); });
+        });
+      }],
+      brick: ["Brickwork", function () {
+        fresh(6);
+        [0, 3, 6].forEach(function (c) {
+          [0, 1, 2, 3, 4, 5].forEach(function (q) { add("ry", [q], c, 0.3 + 0.1 * q + 0.05 * c); });
+          if (c === 6) return;
+          add("cz", [0, 1], c + 1); add("cz", [2, 3], c + 1); add("cz", [4, 5], c + 1);
+          add("cz", [1, 2], c + 2); add("cz", [3, 4], c + 2);
+        });
+      }],
+      linked: ["Linked GHZ", function () {
+        fresh(6);
+        add("h", [0], 0); add("h", [2], 0);
+        add("cx", [0, 1], 1); add("cx", [2, 3], 1);
+        add("cx", [3, 4], 2);
+        add("cx", [4, 5], 3);
+        add("cx", [1, 2], 4);
+        [0, 1, 2, 3, 4, 5].forEach(function (q) { add("rx", [q], 5, 0.4); });
+      }],
+      star: ["Star", function () {
+        fresh(5);
+        [0, 1, 2, 3, 4].forEach(function (q) { add("ry", [q], 0, 0.5 + 0.1 * q); });
+        [1, 2, 3, 4].forEach(function (q) { add("cz", [0, q], q); });
+        [0, 1, 2, 3, 4].forEach(function (q) { add("rx", [q], 5, 0.3); });
+      }],
+      clifford: ["Clifford + T", function () {
+        fresh(4);
+        [0, 1, 2, 3].forEach(function (q) { add("h", [q], 0); add("t", [q], 1); });
+        add("cx", [0, 1], 2); add("cx", [2, 3], 2);
+        add("cx", [1, 2], 3);
+        [0, 1, 2, 3].forEach(function (q) { add("t", [q], 4); add("h", [q], 5); });
+        add("cx", [0, 1], 6); add("cx", [2, 3], 6);
+        [0, 1, 2, 3].forEach(function (q) { add("t", [q], 7); add("h", [q], 8); });
+      }],
+      random: ["Random", function () {
+        var rng = E.mulberry((state.seed = state.seed + 1)), n = 4 + Math.floor(rng() * 3);
+        fresh(n);
+        for (var c = 0; c < 8; c++) {
+          var used = {};
+          for (var t = 0; t < n; t++) {
+            var q = Math.floor(rng() * n);
+            if (used[q]) continue;
+            if (rng() < 0.45) {
+              var r = (q + 1 + Math.floor(rng() * (n - 1))) % n, low = Math.min(q, r), high = Math.max(q, r), clear = true;
+              for (var k = low; k <= high; k++) if (used[k]) clear = false;
+              if (!clear) continue;
+              for (k = low; k <= high; k++) used[k] = 1;
+              add(["cz", "cx", "rzz"][Math.floor(rng() * 3)], [q, r], c, 0.3 + 2.4 * rng());
+            } else {
+              used[q] = 1;
+              add(PALETTE[Math.floor(rng() * 7)][0], [q], c, 0.3 + 2.4 * rng());
             }
           }
         }
-      };
-    }
+      }],
+      empty: ["Empty", function () { fresh(4); }]
+    };
 
     /* The circuit as Qdislib numbers it: by column, then from the top. */
     function ordered() {
@@ -220,15 +313,18 @@
       for (var i = 0; i < ops.length; i++) if (ops[i].id === id) return i;
       return -1;
     }
-    /* Consecutive gates on a qubit that share only it: what a wire cut can name. */
+    /* What one tap can cut: a line between two gates next to each other on it. Qdislib names
+       a wire cut by its two gates, and that name cuts every line on which they are next to
+       each other, so a pair that is neighbours on both lines is two wires, not offered here. */
     function wireEdges(ops) {
       var last = {}, out = [];
       ops.forEach(function (op, i) {
+        var before = {};
+        Object.keys(last).forEach(function (q) { before[q] = last[q]; });
         op.qubits.forEach(function (q) {
-          if (q in last) {
-            var other = ops[last[q]];
-            var shared = other.qubits.filter(function (x) { return op.qubits.indexOf(x) >= 0; }).length;
-            if (shared === 1) out.push({ qubit: q, from: last[q], to: i });
+          if (q in before) {
+            var lines = ops[before[q]].qubits.filter(function (x) { return op.qubits.indexOf(x) >= 0 && before[x] === before[q]; });
+            if (lines.length === 1) out.push({ qubit: q, from: before[q], to: i });
           }
           last[q] = i;
         });
@@ -249,64 +345,96 @@
       })[0];
     }
 
+    /* ---- The page ---- */
     root.textContent = "";
-    root.appendChild(el("span", { class: "qd-label" }, "Start from"));
-    var presetBox = root.appendChild(el("div", { class: "qdx-tools" }));
-    root.appendChild(el("span", { class: "qd-label" }, "Then tap a tool, and tap the circuit"));
-    var toolBox = root.appendChild(el("div", { class: "qdx-tools" }));
-    var help = root.appendChild(el("p", { class: "qd-note" }));
-    var angleRow = root.appendChild(el("div", { class: "qdx-row" }));
-    var angleLabel = angleRow.appendChild(el("label", { for: "qdx-angle" }));
-    var angle = angleRow.appendChild(el("input", { id: "qdx-angle", type: "range", min: "0.1", max: "3", step: "0.1", value: "0.8", "aria-label": "Angle of the next rotation" }));
-    angle.addEventListener("input", function () { state.angle = Number(angle.value); angleLabel.textContent = "Angle of the next rotation: " + state.angle.toFixed(1); });
-    angleLabel.textContent = "Angle of the next rotation: 0.8";
+    var startRow = root.appendChild(el("div", { class: "qdx-start" }));
+    startRow.appendChild(el("label", { for: "qdx-circuit" }, "Circuit"));
+    var menu = startRow.appendChild(el("select", { id: "qdx-circuit" }));
+    Object.keys(EXAMPLES).forEach(function (key) { menu.appendChild(el("option", { value: key }, EXAMPLES[key][0])); });
+    var yours = menu.appendChild(el("option", { value: "yours" }, "Your circuit"));
+    var another = startRow.appendChild(el("button", { type: "button" }, "Another random one"));
+    function pickCircuit(key) {
+      state.example = key;
+      EXAMPLES[key][1]();
+      state.tool = null;
+      edit.open = key === "empty";
+      render();
+    }
+    menu.addEventListener("change", function () { if (menu.value !== "yours") pickCircuit(menu.value); });
+    another.addEventListener("click", function () { pickCircuit("random"); });
+    function drawExamples() {
+      yours.hidden = yours.disabled = state.example !== null;
+      menu.value = state.example === null ? "yours" : state.example;
+      another.style.display = state.example === "random" ? "" : "none";
+    }
+    var hint = root.appendChild(el("p", { class: "qdx-hint", "aria-live": "polite" }));
     var boardHost = root.appendChild(el("div"));
     var legend = root.appendChild(el("div", { class: "qd-legend" }));
     legend.innerHTML = legendHtml();
-    var chips = root.appendChild(el("div", { class: "qdx-chips" }));
-    var warn = root.appendChild(el("div", { class: "qdx-warn", hidden: "" }));
-    var stats = root.appendChild(el("div", { class: "qd-stats" }));
-    var check = root.appendChild(el("div", { class: "qd-check" }));
-    var note = root.appendChild(el("p", { class: "qd-note" }));
+    root.appendChild(el("p", { class: "qd-note" }, "The letters at the end of the lines are what is measured. Tap one to change it: Z, X, Y, or I for nothing."));
+    var actions = root.appendChild(el("div", { class: "qdx-actions" }));
+    var auto = actions.appendChild(el("button", { type: "button", class: "qdx-primary" }, "Auto cut"));
+    var clear = actions.appendChild(el("button", { type: "button" }, "Clear cuts"));
+    var edit = root.appendChild(el("details"));
+    edit.appendChild(el("summary", {}, "Edit the circuit"));
+    var editBody = edit.appendChild(el("div"));
+    var toolBox = editBody.appendChild(el("div", { class: "qdx-tools" }));
+    var help = editBody.appendChild(el("p", { class: "qd-note" }));
+    var angleRow = editBody.appendChild(el("div", { class: "qdx-row" }));
+    var angleLabel = angleRow.appendChild(el("label", { for: "qdx-angle" }, "Angle of the next rotation: 0.8"));
+    var angle = angleRow.appendChild(el("input", { id: "qdx-angle", type: "range", min: "0.1", max: "3", step: "0.1", value: "0.8", "aria-label": "Angle of the next rotation" }));
+    angle.addEventListener("input", function () { state.angle = Number(angle.value); angleLabel.textContent = "Angle of the next rotation: " + state.angle.toFixed(1); });
+    var doneEditing = editBody.appendChild(el("button", { type: "button" }, "Back to cutting"));
+    doneEditing.addEventListener("click", function () { state.tool = null; state.pending = null; edit.open = false; render(); });
 
-    root.appendChild(el("span", { class: "qd-label" }, "With shots"));
-    var shotRow = root.appendChild(el("div", { class: "qd-shots" }));
+    var warn = root.appendChild(el("div", { class: "qdx-warn", hidden: "" }));
+    var payoff = root.appendChild(el("div", { class: "qdx-payoff" }));
+
+    var how = root.appendChild(el("details"));
+    how.appendChild(el("summary", {}, "How it works"));
+    how.appendChild(el("div", {})).innerHTML =
+      "<p>A cut replaces part of a circuit with local operations, so that it falls apart into <b>fragments</b>, each in its own colour, which a smaller device can run.</p>" +
+      "<ul><li>A <b>gate cut</b> replaces a two-qubit gate with single-qubit operations and a measurement on each side. Tap the gate.</li>" +
+      "<li>A <b>Hadamard cut</b> does it with one extra qubit per side instead of the measurement. Tap the gate again.</li>" +
+      "<li>A <b>wire cut</b> measures a qubit's line at one point and prepares it again later. Tap the circle on the line.</li></ul>" +
+      "<p>Each fragment runs several times, once per term of its cuts. Those are the <b>subcircuits</b>. Adding up their results with the right weights gives back the uncut result. The price is <b>gamma</b>: for the same worst-case precision, the shots grow as gamma squared.</p>";
+
+    var shotsBox = root.appendChild(el("details"));
+    shotsBox.appendChild(el("summary", {}, "With shots"));
+    var shotBody = shotsBox.appendChild(el("div"));
+    var shotRow = shotBody.appendChild(el("div", { class: "qd-shots" }));
     var shotSlider = shotRow.appendChild(el("input", { type: "range", min: "6", max: "16", step: "1", value: "10", "aria-label": "Shots per subcircuit" }));
     var again = shotRow.appendChild(el("button", { type: "button" }, "Draw again"));
-    var shotStats = root.appendChild(el("div", { class: "qd-stats" }));
-    var strip = root.appendChild(el("div"));
-    var shotNote = root.appendChild(el("p", { class: "qd-note" },
+    var shotStats = shotBody.appendChild(el("div", { class: "qd-stats" }));
+    var strip = shotBody.appendChild(el("div"));
+    shotBody.appendChild(el("p", { class: "qd-note" },
       "Shots are simulated here: each distinct fragment circuit gives a +1 or −1 per shot, drawn with its exact probability. Dots are 30 independent runs."));
 
     var termsBox = root.appendChild(el("details"));
     termsBox.appendChild(el("summary", {}, "The terms of each cut"));
     var termsBody = termsBox.appendChild(el("div"));
-    var codeBox = root.appendChild(el("details"));
-    codeBox.appendChild(el("summary", {}, "The same thing with Qdislib"));
-    var codeBody = codeBox.appendChild(el("pre"));
+    var codeSection = root.appendChild(el("details"));
+    codeSection.appendChild(el("summary", {}, "The same thing with Qdislib"));
+    var codeBody = codeBox(codeSection);
 
-    toggles(presetBox, [
-      { value: "chain", label: "Chain" }, { value: "blocks", label: "Weak gates" }, { value: "wire", label: "Wire cut" },
-      { value: "ghz", label: "GHZ" }, { value: "random", label: "Random" }, { value: "clear", label: "Clear" }
-    ], null, function (v) {
-      if (v === "clear") { state.ops = []; state.cuts = []; state.pending = null; }
-      else presets()[v]();
-      state.pending = null;
-      render();
-    });
-    var toolItems = PALETTE.map(function (p) { return { value: p[0], label: p[1] }; }).concat([
-      { value: "cut", label: "Cut" }, { value: "erase", label: "Erase" }
-    ]);
+    function nameOf(op, ops) { return shortName(op) + "_" + (ops.indexOf(op) + 1); }
+
     function drawTools() {
-      toggles(toolBox, toolItems, state.tool, function (v) { state.tool = v; state.pending = null; render(); });
+      var items = PALETTE.map(function (p) { return { value: p[0], label: p[1] }; }).concat([{ value: "erase", label: "Erase" }]);
+      toggles(toolBox, items, state.tool, function (v) {
+        state.tool = state.tool === v ? null : v;
+        state.pending = null;
+        render();
+      });
       var more = toolBox.appendChild(el("button", { type: "button" }, "+ qubit"));
       more.addEventListener("click", function () {
-        if (state.n < 6) { state.n += 1; state.observable += "Z"; render(); }
+        if (state.n < 6) { state.n += 1; state.observable += "Z"; state.example = null; render(); }
       });
       var less = toolBox.appendChild(el("button", { type: "button" }, "− qubit"));
       less.addEventListener("click", function () {
         if (state.n > 2) {
           state.n -= 1;
+          state.example = null;
           state.observable = state.observable.slice(0, state.n);
           state.ops = state.ops.filter(function (op) { return op.qubits.every(function (q) { return q < state.n; }); });
           render();
@@ -314,28 +442,42 @@
       });
     }
 
-    function cycleCut(op) {
+    function tapGate(op, ops) {
+      state.auto = false;
       var i = -1;
       state.cuts.forEach(function (c, k) { if (c.opId === op.id) i = k; });
+      var name = nameOf(op, ops);
       if (i < 0) {
-        if (state.cuts.length >= MAX_CUTS) return;
+        if (state.cuts.length >= MAX_CUTS) { state.said = "At most " + MAX_CUTS + " cuts here. Tap a pair of scissors to remove one."; return; }
         state.cuts.push({ kind: "gate", opId: op.id });
-      } else if (state.cuts[i].kind === "gate") state.cuts[i].kind = "hadamard";
-      else state.cuts.splice(i, 1);
+        state.said = name + " has a gate cut. Tap it again for a Hadamard cut.";
+      } else if (state.cuts[i].kind === "gate") {
+        state.cuts[i].kind = "hadamard";
+        state.said = name + " has a Hadamard cut. Tap it again to join it back.";
+      } else {
+        state.cuts.splice(i, 1);
+        state.said = name + " is whole again.";
+      }
     }
-    function toggleWire(edge, ops) {
+    function tapWire(edge, ops) {
+      state.auto = false;
       var fromId = ops[edge.from].id, toId = ops[edge.to].id, i = -1;
       state.cuts.forEach(function (c, k) { if (c.kind === "wire" && c.fromId === fromId && c.toId === toId && c.qubit === edge.qubit) i = k; });
-      if (i >= 0) state.cuts.splice(i, 1);
-      else if (state.cuts.length < MAX_CUTS) state.cuts.push({ kind: "wire", qubit: edge.qubit, fromId: fromId, toId: toId });
+      if (i >= 0) {
+        state.cuts.splice(i, 1);
+        state.said = "The line of q" + edge.qubit + " is whole again.";
+      } else if (state.cuts.length < MAX_CUTS) {
+        state.cuts.push({ kind: "wire", qubit: edge.qubit, fromId: fromId, toId: toId });
+        state.said = "A wire cut on q" + edge.qubit + ". Tap the scissors to join it back.";
+      } else {
+        state.said = "At most " + MAX_CUTS + " cuts here. Tap a pair of scissors to remove one.";
+      }
     }
-
     function tapCell(q, col) {
       var tool = state.tool, here = occupied(q, col);
+      state.example = null;
       if (tool === "erase") {
         if (here) state.ops.splice(state.ops.indexOf(here), 1);
-      } else if (tool === "cut") {
-        if (here && here.qubits.length === 2) cycleCut(here);
       } else if (TWO[tool]) {
         if (!state.pending) {
           if (!here) state.pending = { q: q, col: col };
@@ -353,142 +495,202 @@
       render();
     }
 
-    function render() {
-      drawTools();
-      var ops = ordered();
-      dropStaleCuts(ops);
-      var plain = ops.map(function (op) {
-        var o = { name: op.name, qubits: op.qubits };
-        if (op.theta !== undefined) o.theta = op.theta;
-        return o;
-      });
-      var cols = ops.map(function (op) { return op.col; });
-      var cuts = state.cuts.map(function (c) {
+    function buildCircuit(ops) {
+      return {
+        n: state.n,
+        ops: ops.map(function (op) {
+          var o = { name: op.name, qubits: op.qubits, id: op.id };
+          if (op.theta !== undefined) o.theta = op.theta;
+          return o;
+        })
+      };
+    }
+    function cutsFor(ops) {
+      return state.cuts.map(function (c) {
         return c.opId !== undefined
           ? { kind: c.kind, op: indexOf(ops, c.opId) }
           : { kind: "wire", qubit: c.qubit, from: indexOf(ops, c.fromId), to: indexOf(ops, c.toId) };
       });
-      var circuit = { n: state.n, ops: plain };
-      var plan = E.plan(circuit, cuts, state.observable);
-      var edges = wireEdges(ops);
+    }
 
-      /* The drawing, with its tap targets */
-      var labels = state.observable.split("").map(function (p, q) { return p + " q" + q; });
+    /* Colours and new scissors ease in, keeping the page light on a tablet. */
+    function paint() {
+      var seen = {};
+      Array.prototype.forEach.call(boardHost.querySelectorAll("[data-k]"), function (node) {
+        var key = node.getAttribute("data-k"), value = node.getAttribute("fill") || node.getAttribute("stroke");
+        seen[key] = value;
+        if (key.charAt(0) === "x") {
+          if (!(key in painted)) node.classList.add("qdx-pop");
+        } else if (painted[key] && painted[key] !== value) {
+          var property = node.getAttribute("fill") ? "fill" : "stroke";
+          node.style[property] = painted[key];
+          node.getBoundingClientRect();
+          node.style[property] = "";
+        }
+      });
+      painted = seen;
+    }
+
+    function render() {
+      if (edit.open) drawTools();
+      drawExamples();
+      auto.setAttribute("aria-pressed", String(state.auto));
+      var ops = ordered();
+      dropStaleCuts(ops);
+      var circuit = buildCircuit(ops), cols = ops.map(function (op) { return op.col; }), cuts = cutsFor(ops);
+      var plan = E.plan(circuit, cuts, state.observable), edges = wireEdges(ops), editing = !!state.tool;
+      var cutOps = {};
+      cuts.forEach(function (c) { if (c.kind !== "wire") cutOps[c.op] = true; });
+
       var svg = drawCircuit({
-        n: state.n, ops: plain, cols: cols, cuts: cuts, plan: plan, width: COLS,
-        labels: state.observable.split(""),
-        aria: "The circuit. Each colour is a fragment.",
+        n: state.n, ops: circuit.ops, cols: cols, cuts: cuts, plan: plan, keys: true,
+        width: editing ? COLS : Math.max(5, Math.max.apply(null, cols.concat([0])) + 1),
+        ends: state.observable.split(""),
+        aria: "The circuit. Each colour is a fragment. Tap a two-qubit gate or a line to cut there.",
         overlay: function (g) {
           var s = "";
           if (state.pending) s += '<circle class="pending" cx="' + g.x(state.pending.col) + '" cy="' + g.y(state.pending.q) + '" r="16"/>';
           for (var q = 0; q < state.n; q++) {
-            s += '<rect class="qdx-hit" data-obs="' + q + '" x="0" y="' + (g.y(q) - ROW / 2) + '" width="' + LEFT + '" height="' + ROW + '"/>';
-            for (var c = 0; c < COLS; c++) {
-              s += '<rect class="qdx-hit" data-q="' + q + '" data-c="' + c + '" x="' + (g.x(c) - CELL / 2) + '" y="' + (g.y(q) - ROW / 2) + '" width="' + CELL + '" height="' + ROW + '"/>';
+            s += '<rect class="qdx-hit" role="button" tabindex="0" aria-label="Qubit ' + q + ' measures ' + state.observable.charAt(q) + ': tap to change it" data-obs="' + q + '" x="' + (g.W - 42) + '" y="' + (g.y(q) - ROW / 2) + '" width="42" height="' + ROW + '" rx="8"/>';
+          }
+          if (editing) {
+            for (q = 0; q < state.n; q++) {
+              for (var c = 0; c < COLS; c++) {
+                s += '<rect class="qdx-hit" data-q="' + q + '" data-c="' + c + '" x="' + (g.x(c) - CELL / 2) + '" y="' + (g.y(q) - ROW / 2) + '" width="' + CELL + '" height="' + ROW + '"/>';
+              }
             }
+            return s;
           }
-          if (state.tool === "cut") {
-            edges.forEach(function (edge, i) {
-              var cx = LEFT + ((cols[edge.from] + cols[edge.to] + 1) / 2) * CELL;
-              var on = cuts.some(function (k) { return k.kind === "wire" && k.qubit === edge.qubit && k.from === edge.from && k.to === edge.to; });
-              if (!on) s += '<circle cx="' + cx + '" cy="' + g.y(edge.qubit) + '" r="5" fill="var(--color-background-primary, #fff)" stroke="var(--qdx-wire)" stroke-width="2"/>';
-              s += '<rect class="qdx-hit" data-edge="' + i + '" x="' + (cx - 13) + '" y="' + (g.y(edge.qubit) - 16) + '" width="26" height="32"/>';
-            });
-          }
+          /* Tap targets on the gates and on the lines, with a circle where a cut can go. */
+          ops.forEach(function (op, i) {
+            if (op.qubits.length !== 2) return;
+            var a = g.y(Math.min.apply(null, op.qubits)), b = g.y(Math.max.apply(null, op.qubits)), cx = g.x(cols[i]);
+            s += '<rect class="qdx-hit" role="button" tabindex="0" aria-label="Cut ' + shortName(op) + "_" + (i + 1) + '" data-op="' + i + '" x="' + (cx - 21) + '" y="' + (a - 19) + '" width="42" height="' + (b - a + 38) + '" rx="8"/>';
+            if (!cutOps[i]) s += '<circle class="qdx-mark" cx="' + cx + '" cy="' + ((a + b) / 2) + '" r="5"/>';
+          });
+          edges.forEach(function (edge, i) {
+            var cx = LEFT + ((cols[edge.from] + cols[edge.to] + 1) / 2) * CELL, y = g.y(edge.qubit);
+            var on = cuts.some(function (k) { return k.kind === "wire" && k.qubit === edge.qubit && k.from === edge.from && k.to === edge.to; });
+            /* A one-qubit gate does nothing when tapped, so the line may take its half too. */
+            var reach = function (op) { return op.qubits.length === 1 ? 0 : 13; };
+            var left = Math.min(g.x(cols[edge.from]) + reach(ops[edge.from]), cx - 13);
+            var right = Math.max(g.x(cols[edge.to]) - reach(ops[edge.to]), cx + 13);
+            s += '<rect class="qdx-hit" role="button" tabindex="0" aria-label="Cut the line of qubit ' + edge.qubit + " between gates " + (edge.from + 1) + " and " + (edge.to + 1) + '" data-edge="' + i + '" x="' + left + '" y="' + (y - 17) + '" width="' + (right - left) + '" height="34" rx="6"/>';
+            if (!on) s += '<circle class="qdx-mark qdx-wiremark" cx="' + cx + '" cy="' + y + '" r="5"/>';
+          });
           return s;
         }
       });
-      board(boardHost, svg);
-
-      /* Chips: the same cuts with a large target */
-      chips.textContent = "";
-      if (state.tool === "cut") {
-        ops.forEach(function (op, i) {
-          if (op.qubits.length !== 2) return;
-          var cut = cuts.filter(function (k) { return k.op === i; })[0];
-          var text = shortName(op) + "_" + (i + 1) + (cut ? (cut.kind === "gate" ? ": gate cut" : ": Hadamard cut") : "");
-          var b = chips.appendChild(el("button", { type: "button", "aria-pressed": String(!!cut) }, text));
-          b.addEventListener("click", function () { cycleCut(op); render(); });
+      board(boardHost, svg, true);
+      if (keyed) {  /* with a keyboard, stay on the same place */
+        Array.prototype.some.call(boardHost.querySelectorAll(".qdx-hit"), function (node) {
+          if (node.getAttribute("data-op") === keyed.op && node.getAttribute("data-edge") === keyed.edge && node.getAttribute("data-obs") === keyed.obs) { node.focus(); return true; }
         });
-        edges.forEach(function (edge) {
-          var on = cuts.some(function (k) { return k.kind === "wire" && k.qubit === edge.qubit && k.from === edge.from && k.to === edge.to; });
-          var text = "wire q" + edge.qubit + ": " + (edge.from + 1) + "→" + (edge.to + 1);
-          var b = chips.appendChild(el("button", { type: "button", "aria-pressed": String(on) }, text));
-          b.addEventListener("click", function () { toggleWire(edge, ops); render(); });
-        });
+        keyed = null;
       }
-      help.textContent = state.tool === "cut"
-        ? "Tap a two-qubit gate once for a gate cut, again for a Hadamard cut, again to remove it. Tap a small circle on a line for a wire cut. At most " + MAX_CUTS + " cuts. Tap a letter on the left to change what is measured on that qubit."
-        : state.tool === "erase" ? "Tap a gate to remove it."
-        : TWO[state.tool] ? "Tap one qubit, then another in the same column. The first is the control of a CX."
-        : "Tap an empty place on the circuit.";
-      angleRow.style.display = ANGLED[state.tool] ? "" : "none";
+      paint();
 
-      /* What it costs, and the result */
-      var observable = state.observable;
-      stats.textContent = "";
-      check.textContent = "";
-      note.textContent = "";
-      var exact = E.exact(circuit, observable);
-      var bad = plan.invalid.length > 0;
+      /* What just happened, or what to do */
+      hint.textContent = editing
+        ? (state.tool === "erase" ? "Tap a gate to remove it." : TWO[state.tool] ? "Tap one qubit, then another in the same column." : "Tap an empty place on the circuit.")
+        : state.said || (ops.length ? "Tap a two-qubit gate to cut it, or a line to cut the wire. Or try Auto cut." : "An empty circuit. Pick a gate under Edit the circuit, then tap where it goes.");
+      help.textContent = "Pick a gate, then tap the circuit. Tap the gate here again, or Back to cutting, to return.";
+      angleRow.style.display = ANGLED[state.tool] ? "" : "none";
+      doneEditing.style.display = editing ? "" : "none";
+
+      /* The result */
+      var observable = state.observable, exact = E.exact(circuit, observable), bad = plan.invalid.length > 0;
       warn.hidden = !bad;
+      payoff.textContent = "";
+      strip.textContent = "";
+      shotStats.textContent = "";
+      termsBody.textContent = "";
       if (bad) {
-        warn.textContent = "This cut does not separate its two sides: another path still joins them. Qdislib refuses it with InvalidCutError. Cut the path as well, or remove it.";
-        check.appendChild(el("p", {}, "Uncut circuit, statevector: <" + observable + "> = " + num(exact, 6)));
-        shotStats.textContent = "";
-        strip.textContent = "";
-        termsBody.textContent = "";
+        warn.textContent = "This cut leaves its two sides joined by another path, so it separates nothing. Qdislib refuses it with InvalidCutError. Cut that path as well, or tap the scissors to remove it.";
+        payoff.appendChild(payoffValues(exact, null, observable));
       } else {
         var prepared = E.prepare(circuit, cuts, observable);
-        var widths = plan.widths.length ? plan.widths.join(" + ") : "0";
-        stat(stats, String(plan.fragments.length), plan.fragments.length === 1 ? "fragment" : "fragments, of " + widths + " qubits");
-        stat(stats, count(plan.subcircuits), plan.configurations + " configurations × " + plan.fragments.length + " fragment" + (plan.fragments.length === 1 ? "" : "s"));
-        if (plan.optimized !== null && cuts.length) stat(stats, count(plan.optimized), "subcircuits with optimized=True");
-        stat(stats, gammaText(plan.gamma), "gamma, the sampling overhead");
-        check.appendChild(el("p", {}, "Uncut circuit, statevector: <" + observable + "> = " + num(exact, 6)));
-        check.appendChild(el("p", {}, "Reconstructed from the fragments: " + num(prepared.value, 6)));
-        check.appendChild(el("p", {}, "Difference " + small(Math.abs(prepared.value - exact)) + ", from " + prepared.runs + " distinct fragment circuits computed in your browser."));
-        var goldenCount = Object.keys(plan.golden).length, notes = [];
-        if (goldenCount) notes.push(goldenCount + " wire cut" + (goldenCount > 1 ? "s are" : " is") + " golden: the state that sends it is real, so its Y terms are zero and are left out, with 6 terms and gamma 3.");
-        if (plan.joint && plan.joint.shared) notes.push("Qdislib's default, joint=True, would share ancillas between the " + plan.joint.shared + " Hadamard cuts across one boundary: " + count(plan.joint.subcircuits) + " subcircuits and gamma " + gammaText(plan.joint.gamma) + ", against " + count(plan.subcircuits) + " and " + gammaText(plan.gamma) + " here. The value is the same.");
-        note.textContent = notes.join(" ");
-
-        /* Shots */
-        var shots = Math.pow(2, Number(shotSlider.value));
-        var rng = E.mulberry(state.seed * 7919 + shots);
-        var draws = [];
-        for (var i = 0; i < 30; i++) draws.push(prepared.draw(shots, rng));
-        var run = draws[0], mean = draws.reduce(function (a, b) { return a + b; }, 0) / draws.length;
-        var spread = Math.sqrt(draws.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (draws.length - 1));
-        shotStats.textContent = "";
-        stat(shotStats, count(shots), "shots per subcircuit");
-        stat(shotStats, num(run, 4), "one run, exact " + num(exact, 4));
-        stat(shotStats, spread.toFixed(4), "spread of 30 runs");
-        stat(shotStats, count(shots * plan.subcircuits), "shots in total, per run");
-        strip.innerHTML = stripPlot(draws, exact);
-
-        /* The terms */
-        termsBody.textContent = "";
-        if (!cuts.length) termsBody.appendChild(el("p", { class: "qd-note" }, "No cuts yet."));
-        cuts.forEach(function (cut, index) {
-          var title = cut.kind === "wire"
-            ? "Wire cut on q" + cut.qubit + (plan.golden[index] ? " (golden)" : "")
-            : (cut.kind === "gate" ? "Gate cut of " : "Hadamard cut of ") + shortName(plain[cut.op]) + "_" + (cut.op + 1);
-          termsBody.appendChild(el("p", {}, title));
-          var rows = E.terms(plan, cut, index).map(function (t) {
-            var a, b;
-            if (cut.kind === "wire") { a = t.read === "I" ? "read nothing" : "measure " + t.read; b = "prepare |" + t.prep + "⟩"; }
-            else if (cut.kind === "gate") { a = termName(t.a); b = termName(t.b); }
-            else { a = hadName(t.a.had); b = hadName(t.b.had); }
-            return "<tr><td>" + (t.w >= 0 ? "+" : "−") + Math.abs(t.w).toFixed(4) + "</td><td>" + esc(a) + "</td><td>" + esc(b) + "</td></tr>";
-          }).join("");
-          var table = termsBody.appendChild(el("table", { class: "qdx-t" }));
-          table.innerHTML = "<thead><tr><th>Weight</th><th>Side 1</th><th>Side 2</th></tr></thead><tbody>" + rows + "</tbody>";
-        });
+        payoff.appendChild(payoffValues(exact, cuts.length ? prepared.value : null, observable));
+        payoff.appendChild(payoffCost(plan, cuts, prepared));
+        drawShots(prepared, plan, exact);
+        drawTerms(plan, cuts, circuit.ops);
       }
-
-      /* The code */
+      clear.disabled = !state.cuts.length;
       codeBody.textContent = pythonFor(ops, cuts, observable);
+    }
+
+    function payoffValues(exact, value, observable) {
+      var box = el("div", { class: "qdx-values" });
+      var W = 340, x = function (v) { return 14 + ((v + 1) / 2) * (W - 28); };
+      var numbers = box.appendChild(el("div", { class: "qdx-numbers" }));
+      var first = numbers.appendChild(el("div"));
+      first.appendChild(el("span", { class: "qdx-key qdx-ring" }, "Uncut circuit"));
+      first.appendChild(el("b", {}, num(exact, 4)));
+      var second = numbers.appendChild(el("div"));
+      second.appendChild(el("span", { class: "qdx-key qdx-dot" }, "Reconstructed"));
+      second.appendChild(el("b", {}, value === null ? "—" : num(value, 4)));
+      var line = '<svg viewBox="0 0 ' + W + ' 44" style="max-width:560px" role="img" aria-label="Both values on a line from minus one to plus one">' +
+        '<line x1="14" x2="' + (W - 14) + '" y1="16" y2="16" stroke="var(--qd-line)" stroke-width="4" stroke-linecap="round"/>' +
+        '<text x="14" y="38" text-anchor="middle">−1</text><text x="' + x(0) + '" y="38" text-anchor="middle">0</text><text x="' + (W - 14) + '" y="38" text-anchor="middle">+1</text>' +
+        '<circle cx="' + x(exact) + '" cy="16" r="10" fill="none" stroke="var(--qd-b)" stroke-width="3"/>';
+      if (value !== null) line += '<circle cx="' + x(value) + '" cy="16" r="5.5" fill="var(--qd-a)"/>';
+      box.appendChild(el("div", { class: "qdx-line" })).innerHTML = line + "</svg>";
+      box.appendChild(el("p", { class: "qdx-verdict" }, value === null
+        ? "<" + observable + "> of the whole circuit. No cuts yet."
+        : Math.abs(value - exact) < 1e-9
+          ? "The same value, from the pieces alone: <" + observable + ">, difference " + small(Math.abs(value - exact)) + "."
+          : "These should agree: difference " + Math.abs(value - exact).toExponential(1)));
+      return box;
+    }
+    function payoffCost(plan, cuts, prepared) {
+      var box = el("div", { class: "qdx-cost" });
+      var pieces = box.appendChild(el("div", { class: "qdx-pieces" }));
+      plan.fragments.forEach(function (fragment, f) {
+        var piece = pieces.appendChild(el("span", { class: "qdx-piece", title: "Fragment " + (f + 1) }));
+        for (var i = 0; i < plan.widths[f]; i++) piece.appendChild(el("i", { style: "background:" + fragColor(f) }));
+      });
+      var largest = Math.max.apply(null, plan.widths.concat([0]));
+      box.appendChild(el("p", { class: "qd-note" }, !cuts.length
+        ? "The whole circuit needs " + state.n + " qubits at once" + (plan.fragments.length > 1 ? ", in pieces that already do not touch." : ".")
+        : "Largest piece: " + largest + " qubit" + (largest === 1 ? "" : "s") + ", from a circuit of " + state.n + "."));
+      var stats = box.appendChild(el("div", { class: "qd-stats" }));
+      stat(stats, count(plan.subcircuits), plan.subcircuits === 1 ? "circuit to run" : "subcircuits to run");
+      if (plan.optimized !== null && cuts.length) stat(stats, count(plan.optimized), "with optimized=True");
+      stat(stats, gammaText(plan.gamma), "gamma");
+      if (cuts.length) stat(stats, "×" + count(plan.gamma * plan.gamma), "shots, in the worst case");
+      var notes = [], goldenCount = Object.keys(plan.golden).length;
+      if (goldenCount) notes.push((goldenCount > 1 ? goldenCount + " wire cuts are golden" : "This wire cut is golden") + ": the state before it is real, so its Y terms are zero and are left out, with 6 terms and gamma 3.");
+      if (plan.joint && plan.joint.shared) notes.push("Qdislib's default, joint=True, shares ancillas between the " + plan.joint.shared + " Hadamard cuts across one boundary: " + count(plan.joint.subcircuits) + " subcircuits, gamma " + gammaText(plan.joint.gamma) + ". The value is the same.");
+      if (notes.length) box.appendChild(el("p", { class: "qd-note" }, notes.join(" ")));
+      return box;
+    }
+    function drawShots(prepared, plan, exact) {
+      var shots = Math.pow(2, Number(shotSlider.value)), rng = E.mulberry(state.seed * 7919 + shots), draws = [];
+      for (var i = 0; i < 30; i++) draws.push(prepared.draw(shots, rng));
+      var mean = draws.reduce(function (a, b) { return a + b; }, 0) / draws.length;
+      var spread = Math.sqrt(draws.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (draws.length - 1));
+      stat(shotStats, count(shots), "shots per subcircuit");
+      stat(shotStats, num(draws[0], 4), "one run, exact " + num(exact, 4));
+      stat(shotStats, spread.toFixed(4), "spread of 30 runs");
+      stat(shotStats, count(shots * plan.subcircuits), "shots in total, per run");
+      strip.innerHTML = stripPlot(draws, exact);
+    }
+    function drawTerms(plan, cuts, ops) {
+      if (!cuts.length) { termsBody.appendChild(el("p", { class: "qd-note" }, "No cuts yet.")); return; }
+      cuts.forEach(function (cut, index) {
+        var title = cut.kind === "wire"
+          ? "Wire cut on q" + cut.qubit + (plan.golden[index] ? " (golden)" : "")
+          : (cut.kind === "gate" ? "Gate cut of " : "Hadamard cut of ") + shortName(ops[cut.op]) + "_" + (cut.op + 1);
+        termsBody.appendChild(el("p", {}, title));
+        var rows = E.terms(plan, cut, index).map(function (t) {
+          var a, b;
+          if (cut.kind === "wire") { a = t.read === "I" ? "read nothing" : "measure " + t.read; b = "prepare |" + t.prep + "⟩"; }
+          else if (cut.kind === "gate") { a = termName(t.a); b = termName(t.b); }
+          else { a = hadName(t.a.had); b = hadName(t.b.had); }
+          return "<tr><td>" + (t.w >= 0 ? "+" : "−") + Math.abs(t.w).toFixed(4) + "</td><td>" + esc(a) + "</td><td>" + esc(b) + "</td></tr>";
+        }).join("");
+        termsBody.appendChild(el("table", { class: "qdx-t" })).innerHTML = "<thead><tr><th>Weight</th><th>Side 1</th><th>Side 2</th></tr></thead><tbody>" + rows + "</tbody>";
+      });
     }
     function termName(a) {
       return { i: "nothing", z: "Z", m: "measure, sign", "r+": "RZ(π/2)", "r-": "RZ(−π/2)" }[a];
@@ -528,24 +730,54 @@
       return s + "</svg>";
     }
 
-    boardHost.addEventListener("click", function (event) {
-      var t = event.target;
+    /* Tapping */
+    function activate(t) {
       if (t.dataset.obs !== undefined) {
         var q = Number(t.dataset.obs), order = "ZXYI", now = state.observable.charAt(q);
-        var next = order.charAt((order.indexOf(now) + 1) % 4);
-        state.observable = state.observable.slice(0, q) + next + state.observable.slice(q + 1);
+        state.observable = state.observable.slice(0, q) + order.charAt((order.indexOf(now) + 1) % 4) + state.observable.slice(q + 1);
+        state.said = order.charAt((order.indexOf(now) + 1) % 4) === "I" ? "Nothing measured on q" + q + ". Tap the letter again for Z." : "Measuring " + order.charAt((order.indexOf(now) + 1) % 4) + " on q" + q + ". Tap the letter again to change it.";
         render();
       } else if (t.dataset.edge !== undefined) {
         var ops = ordered();
-        toggleWire(wireEdges(ops)[Number(t.dataset.edge)], ops);
+        tapWire(wireEdges(ops)[Number(t.dataset.edge)], ops);
+        render();
+      } else if (t.dataset.op !== undefined) {
+        var list = ordered();
+        tapGate(list[Number(t.dataset.op)], list);
         render();
       } else if (t.dataset.q !== undefined) {
         tapCell(Number(t.dataset.q), Number(t.dataset.c));
       }
+    }
+    boardHost.addEventListener("click", function (event) { activate(event.target); });
+    boardHost.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        keyed = { op: event.target.getAttribute("data-op"), edge: event.target.getAttribute("data-edge"), obs: event.target.getAttribute("data-obs") };
+        activate(event.target);
+      }
+    });
+    auto.addEventListener("click", function () {
+      var ops = ordered(), circuit = buildCircuit(ops), found = E.autoCut(circuit, state.observable);
+      state.cuts = found.map(function (c) { return { kind: "gate", opId: ops[c.op].id }; });
+      state.auto = found.length > 0;
+      if (found.length) {
+        state.said = "Auto cut: every split of the qubits in two, keeping the lowest gamma. A simple rule; qd.find_cut searches further.";
+      } else {
+        state.said = !ops.length ? "Nothing to cut yet: this circuit is empty." : E.plan(circuit, [], state.observable).fragments.length > 1
+          ? "Nothing to cut: this circuit is already in pieces."
+          : "Auto cut found nothing: splitting these qubits in two takes more than " + MAX_CUTS + " gate cuts.";
+      }
+      render();
+    });
+    clear.addEventListener("click", function () { state.cuts = []; state.said = ""; state.auto = false; render(); });
+    edit.addEventListener("toggle", function () {
+      if (edit.open) drawTools();
+      else { state.tool = null; state.pending = null; render(); }
     });
     shotSlider.addEventListener("input", render);
     again.addEventListener("click", function () { state.seed += 1; render(); });
-    presets().chain();
+    EXAMPLES.chain[1]();
     render();
   }
 
@@ -670,27 +902,38 @@
   }
 
   /* ---- 4. Distributions ---- */
-  function bars(host, keys, exact, values, labels) {
-    host.textContent = "";
-    var legend = host.appendChild(el("div", { class: "qd-legend" }));
-    [["var(--qd-a)", labels[0]], ["var(--qd-b)", labels[1]]].forEach(function (x) {
-      var item = legend.appendChild(el("span"));
-      item.appendChild(el("span", { class: "qd-swatch", style: "background:" + x[0] }));
-      item.appendChild(document.createTextNode(x[1]));
-    });
-    var scale = Math.max.apply(null, exact.concat(values).concat([1e-9]));
+  /* Bars for one run, ticks for the exact values. A reconstruction can dip below zero. */
+  function hist(keys, exact, values, o) {
+    var W = o.width || 170, H = o.height || 118, T = 20, B = keys.length <= 4 ? 34 : 4, L = 4, R = 4;
+    var top = o.top, low = o.low, y = function (v) { return T + ((top - v) / (top - low)) * (H - T - B); };
+    var step = (W - L - R) / keys.length, bar = Math.min(Math.max(step - 2, 2), 34), s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' + esc(o.title || "Distribution") + '">';
+    if (o.title) s += '<text class="t" x="' + L + '" y="12">' + esc(o.title) + "</text>";
     keys.forEach(function (key, i) {
-      var row = host.appendChild(el("div", { class: "qd-row" }));
-      row.appendChild(el("code", {}, key));
-      var cell = row.appendChild(el("div"));
-      [["var(--qd-a)", exact[i]], ["var(--qd-b)", values[i]]].forEach(function (x) {
-        cell.appendChild(el("div", { class: "qd-bar", style: "background:" + x[0] + ";width:" + Math.max(0, 100 * x[1] / scale) + "%" }));
-      });
-      row.appendChild(el("span", {}, values[i].toFixed(3)));
+      var v = values[i], x = L + i * step + (step - bar) / 2;
+      var note = key + ": " + (exact ? "exact " + exact[i].toFixed(4) + ", " : "") + "this run " + v.toFixed(4);
+      s += "<g><title>" + esc(note) + "</title>";
+      s += '<rect x="' + (L + i * step) + '" y="' + T + '" width="' + step + '" height="' + (H - T - B) + '" fill="transparent"/>';
+      s += '<rect x="' + x + '" y="' + Math.min(y(0), y(v)) + '" width="' + bar + '" height="' + Math.max(1, Math.abs(y(v) - y(0))) + '" rx="1.5" fill="var(--qd-a)"/>';
+      if (exact) s += '<line x1="' + (x - 0.5) + '" x2="' + (x + bar + 0.5) + '" y1="' + y(exact[i]) + '" y2="' + y(exact[i]) + '" stroke="var(--qd-b)" stroke-width="2.5"/>';
+      s += "</g>";
+      if (keys.length <= 4) {
+        s += '<text x="' + (x + bar / 2) + '" y="' + (H - 18) + '" text-anchor="middle" class="t">' + esc(key) + "</text>";
+        s += '<text x="' + (x + bar / 2) + '" y="' + (H - 5) + '" text-anchor="middle">' + v.toFixed(3) + "</text>";
+      }
     });
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(0) + '" y2="' + y(0) + '" stroke="var(--color-foreground-secondary, #555)" stroke-width="1"/>';
+    return s + "</svg>";
+  }
+  function legendOf(items) {
+    return items.map(function (x) {
+      var mark = x[2] === "tick"
+        ? '<span class="qd-swatch" style="height:3px;vertical-align:4px;background:' + x[0] + '"></span>'
+        : '<span class="qd-swatch" style="background:' + x[0] + '"></span>';
+      return "<span>" + mark + esc(x[1]) + "</span>";
+    }).join("");
   }
   function distributionSection(root) {
-    var data = D.distributions, tab = "full", level = 2, seed = 0, a = 0, b = 7, pair = 10;
+    var data = D.distributions, tab = "full", seed = 0, a = 0, b = 7, pair = 10;
     root.textContent = "";
     var tabs = root.appendChild(el("div", { class: "qdx-tabs" }));
     var body = root.appendChild(el("div"));
@@ -698,18 +941,19 @@
       toggles(tabs, [{ value: "full", label: "Full distribution" }, { value: "marginal", label: "qubits= marginal" }, { value: "big", label: "40 qubits" }], tab, function (v) { tab = v; update(); });
       body.textContent = "";
       if (tab === "full") {
-        var f = data.full;
-        var row = body.appendChild(el("div", { class: "qd-shots" }));
-        var slider = row.appendChild(el("input", { type: "range", min: "0", max: String(f.shots.length - 1), step: "1", value: String(level), "aria-label": "Shots per subcircuit" }));
-        var again = row.appendChild(el("button", { type: "button" }, "Another run (" + (seed + 1) + " of 3)"));
-        var run = f.runs[level][seed];
-        var stats = body.appendChild(el("div", { class: "qd-stats" }));
-        stat(stats, count(f.shots[level]), "shots per subcircuit");
-        stat(stats, run.tvd.toFixed(4), "total variation distance from exact");
-        bars(body.appendChild(el("div")), f.keys, f.exact, run.top, ["exact", "circuit_cutting_sampling"]);
-        body.appendChild(el("p", { class: "qd-note" }, "The 12 likeliest of 256 outcomes, 8 qubits with one gate cut, " + data.cut + ". Stored from real runs."));
-        slider.addEventListener("input", function () { level = Number(slider.value); seed = 0; update(); });
+        var f = data.full, top = 0, low = 0;
+        f.exact.forEach(function (v) { top = Math.max(top, v); });
+        f.runs.forEach(function (level) { level.forEach(function (run) { run.top.forEach(function (v) { top = Math.max(top, v); low = Math.min(low, v); }); }); });
+        body.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendOf([["var(--qd-a)", "circuit_cutting_sampling, one run"], ["var(--qd-b)", "exact", "tick"]]);
+        var grid = body.appendChild(el("div", { class: "qdx-grid" }));
+        f.shots.forEach(function (shots, level) {
+          var run = f.runs[level][seed];
+          grid.appendChild(el("div")).innerHTML = hist(f.keys, f.exact, run.top, { top: top * 1.05, low: low, title: count(shots) + " shots" }) +
+            '<p class="qd-note">distance from exact ' + run.tvd.toFixed(3) + "</p>";
+        });
+        var again = body.appendChild(el("button", { type: "button" }, "Another run (" + (seed + 1) + " of 3)"));
         again.addEventListener("click", function () { seed = (seed + 1) % 3; update(); });
+        body.appendChild(el("p", { class: "qd-note" }, "Shots per subcircuit. Each bar is one of the 12 likeliest of 256 outcomes, from " + f.keys[0] + " on, 8 qubits with one gate cut, " + data.cut + ". All plots share one scale; the distance is total variation over all 256. Stored from real runs."));
       } else if (tab === "marginal") {
         body.appendChild(el("span", { class: "qd-label" }, "Keep two qubits"));
         var pick = body.appendChild(el("div", { class: "qdx-tools" }));
@@ -725,7 +969,8 @@
         var lo = Math.min(a, b), hi = Math.max(a, b), m = data.marginals[lo + "," + hi];
         var code = body.appendChild(el("pre"));
         code.textContent = 'qd.circuit_cutting_sampling(circuit, ["' + data.cut + '"], shots=4096, seed=1, qubits=[' + lo + ", " + hi + "])";
-        bars(body.appendChild(el("div")), ["00", "01", "10", "11"], m.exact, m.run, ["exact", "qubits=[" + lo + ", " + hi + "]"]);
+        body.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendOf([["var(--qd-a)", "qubits=[" + lo + ", " + hi + "]"], ["var(--qd-b)", "exact", "tick"]]);
+        body.appendChild(el("div", { class: "qdx-plot" })).innerHTML = hist(["00", "01", "10", "11"], m.exact, m.run, { width: 340, height: 170, top: Math.max.apply(null, m.exact.concat(m.run)) * 1.05, low: Math.min.apply(null, m.run.concat([0])) });
         body.appendChild(el("p", { class: "qd-note" }, "Each fragment circuit returns only what the marginal reads, so the cost follows the kept qubits. Bit j of a key is qubits[j]. Stored from real runs."));
       } else {
         var big = data.factored;
@@ -738,9 +983,7 @@
         var sl = r.appendChild(el("input", { id: "qdx-pair", type: "range", min: "0", max: "38", step: "1", value: String(pair), "aria-label": "Which neighbouring qubits to read" }));
         lab.textContent = "d.marginal([" + pair + ", " + (pair + 1) + "])";
         var values = big.pairs[pair + "," + (pair + 1)];
-        var host = body.appendChild(el("div"));
-        bars(host, ["00", "01", "10", "11"], values, values, ["contracted when read", "the same"]);
-        host.querySelector(".qd-legend").remove();
+        body.appendChild(el("div", { class: "qdx-plot" })).innerHTML = hist(["00", "01", "10", "11"], null, values, { width: 340, height: 150, top: Math.max.apply(null, values) * 1.05, low: Math.min.apply(null, values.concat([0])) });
         sl.addEventListener("input", function () { pair = Number(sl.value); update(); });
         body.appendChild(el("span", { class: "qd-label" }, "d.most_likely(5)"));
         var pre = body.appendChild(el("pre"));
@@ -752,61 +995,166 @@
   }
 
   /* ---- 5. Error bars ---- */
+  function whisker(x, y1, y2, colour) {
+    return '<line x1="' + x + '" x2="' + x + '" y1="' + y1 + '" y2="' + y2 + '" stroke="' + colour + '" stroke-width="1.5"/>' +
+      '<line x1="' + (x - 3) + '" x2="' + (x + 3) + '" y1="' + y1 + '" y2="' + y1 + '" stroke="' + colour + '" stroke-width="1.5"/>' +
+      '<line x1="' + (x - 3) + '" x2="' + (x + 3) + '" y1="' + y2 + '" y2="' + y2 + '" stroke="' + colour + '" stroke-width="1.5"/>';
+  }
+  /* A few round values on the y axis, faint. */
+  function yGrid(low, high, y, x1, x2) {
+    var span = high - low, unit = Math.pow(10, Math.floor(Math.log10(span))), step = [1, 2, 5, 10].map(function (m) { return m * unit; }).filter(function (d) { return span / d <= 5; })[0];
+    var s = "", digits = step < 0.1 ? 2 : 1;
+    if (step < 0.01) digits = 3;
+    for (var v = Math.ceil(low / step) * step; v <= high + 1e-12; v += step) {
+      s += '<line x1="' + x1 + '" x2="' + x2 + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--qd-line)" stroke-width="1"/>';
+      s += '<text x="' + (x1 - 4) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + v.toFixed(digits) + "</text>";
+    }
+    return s;
+  }
   function errorSection(root) {
-    var data = D.errors, key = "gate", level = 1;
+    var data = D.errors, key = "gate";
     root.textContent = "";
     var tabs = root.appendChild(el("div", { class: "qdx-tabs" }));
-    var row = root.appendChild(el("div", { class: "qdx-row" }));
-    var label = row.appendChild(el("label", { for: "qdx-eshots" }));
-    var slider = row.appendChild(el("input", { id: "qdx-eshots", type: "range", min: "0", max: String(data.shots.length - 1), step: "1", value: String(level), "aria-label": "Shots per subcircuit" }));
-    var stats = root.appendChild(el("div", { class: "qd-stats" }));
-    var plot = root.appendChild(el("div"));
-    root.appendChild(el("p", { class: "qd-note" }, "Each dot is a separate run, with its own seed. The band is the ±1 standard error that one run reported with error=True, from a bootstrap over its shots, at no device cost. Stored from real runs, 24 per point."));
+    root.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendOf([["var(--qd-a)", "one run, with its error=True bar"], ["var(--qd-b)", "24 runs: each a dot, their mean and spread"]]);
+    var plot = root.appendChild(el("div", { class: "qdx-plot" }));
+    var table = root.appendChild(el("div"));
+    root.appendChild(el("p", { class: "qd-note" }, "The purple bar is the ±1 standard error one run reported, from a bootstrap over its shots, at no device cost. The orange bar is how far 24 separate runs really scatter, each with its own seed: when the two match, the reported bar can be trusted. Stored from real runs."));
     function update() {
       toggles(tabs, Object.keys(data.cases).map(function (k) { return { value: k, label: data.cases[k].label }; }), key, function (v) { key = v; update(); });
-      var r = data.cases[key].rows[level];
-      label.textContent = count(data.shots[level]) + " shots per subcircuit";
-      stats.textContent = "";
-      stat(stats, r.reported.toFixed(4), "error=True, from one run");
-      stat(stats, r.spread.toFixed(4), "spread of 24 runs");
-      stat(stats, count(r.total), "shots in one run");
-      var W = 340, H = 92, L = 8, R = 8, extent = Math.max.apply(null, r.values.map(function (v) { return Math.abs(v - data.exact); }).concat([r.reported * 1.3]));
-      var x = function (v) { return L + ((v - data.exact + extent * 1.15) / (2.3 * extent)) * (W - L - R); };
-      var s = '<svg viewBox="0 0 ' + W + " " + H + '" style="max-width:560px" role="img" aria-label="Runs against the reported error">';
-      s += '<rect x="' + x(r.value - r.reported) + '" y="6" width="' + (x(r.value + r.reported) - x(r.value - r.reported)) + '" height="60" fill="var(--qd-b)" opacity="0.2"/>';
-      s += '<line x1="' + x(data.exact) + '" x2="' + x(data.exact) + '" y1="4" y2="68" stroke="var(--qd-b)" stroke-width="2"/>';
-      r.values.forEach(function (v, i) { s += '<circle cx="' + x(v) + '" cy="' + (12 + (i % 8) * 7) + '" r="3.2" fill="var(--qd-a)"/>'; });
-      s += '<text x="' + x(data.exact) + '" y="82" text-anchor="middle">exact ' + num(data.exact, 3) + "</text>";
-      s += '<text x="' + L + '" y="82">' + num(data.exact - extent * 1.15, 3) + "</text>";
-      s += '<text x="' + (W - R) + '" y="82" text-anchor="end">' + num(data.exact + extent * 1.15, 3) + "</text>";
+      var rows = data.cases[key].rows, W = 360, H = 230, L = 44, R = 8, T = 22, B = 40;
+      var points = [data.exact], means = rows.map(function (r) {
+        return r.values.reduce(function (a, v) { return a + v; }, 0) / r.values.length;
+      });
+      rows.forEach(function (r, i) {
+        points = points.concat(r.values, [r.value - r.reported, r.value + r.reported, means[i] - r.spread, means[i] + r.spread]);
+      });
+      var low = Math.min.apply(null, points), high = Math.max.apply(null, points), pad = (high - low) * 0.05;
+      low -= pad; high += pad;
+      var y = function (v) { return T + ((high - v) / (high - low)) * (H - T - B); };
+      var band = (W - L - R) / rows.length;
+      var s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Reported error bars next to the spread of 24 runs, at each number of shots">';
+      s += yGrid(low, high, y, L, W - R);
+      s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(data.exact) + '" y2="' + y(data.exact) + '" stroke="var(--color-foreground-primary, #111)" stroke-width="1.5" stroke-dasharray="5 3"/>';
+      s += '<text class="t" x="' + (W - R) + '" y="14" text-anchor="end">dashed line: exact ' + num(data.exact, 3) + "</text>";
+      rows.forEach(function (r, i) {
+        var c = L + band * (i + 0.5), xa = c - 15, xb = c + 7;
+        r.values.forEach(function (v, j) {
+          s += '<circle cx="' + (c + 19 + (j % 3) * 4) + '" cy="' + y(v) + '" r="1.8" fill="var(--qd-b)" opacity="0.45"/>';
+        });
+        s += "<g><title>" + count(data.shots[i]) + " shots: one run " + num(r.value, 4) + " ±" + r.reported.toFixed(4) + "</title>" + whisker(xa, y(r.value + r.reported), y(r.value - r.reported), "var(--qd-a)") + '<circle cx="' + xa + '" cy="' + y(r.value) + '" r="4" fill="var(--qd-a)"/></g>';
+        s += "<g><title>" + count(data.shots[i]) + " shots: 24 runs, mean " + num(means[i], 4) + ", spread " + r.spread.toFixed(4) + "</title>" + whisker(xb, y(means[i] + r.spread), y(means[i] - r.spread), "var(--qd-b)") + '<circle cx="' + xb + '" cy="' + y(means[i]) + '" r="4" fill="var(--qd-b)"/></g>';
+        s += '<text x="' + c + '" y="' + (H - B + 16) + '" text-anchor="middle">' + count(data.shots[i]) + "</text>";
+      });
+      s += '<text x="' + (L + (W - L - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">shots per subcircuit</text>';
       plot.innerHTML = s + "</svg>";
+      var html = '<table class="qdx-t"><thead><tr><th>Shots</th><th>error=True, one run</th><th>Spread of 24</th><th>Shots in one run</th></tr></thead><tbody>';
+      rows.forEach(function (r, i) {
+        html += "<tr><td>" + count(data.shots[i]) + "</td><td>±" + r.reported.toFixed(4) + "</td><td>" + r.spread.toFixed(4) + "</td><td>" + count(r.total) + "</td></tr>";
+      });
+      table.innerHTML = html + "</tbody></table>";
     }
-    slider.addEventListener("input", function () { level = Number(slider.value); update(); });
     update();
   }
 
   /* ---- 6. Noise ---- */
   function noiseSection(root) {
-    var data = D.noise, level = 2;
+    var data = D.noise, W = 380, H = 240, L = 44, R = 106, T = 14, B = 38, level = 2;
+    var SERIES = [
+      { name: "Uncut", colour: "var(--qdx-plain)", dx: 0, on: true, get: function (r) { return [r.uncut, null]; } },
+      { name: "Gate cuts", colour: "var(--qdx-gate)", dx: -4, on: true, get: function (r) { return r.gate; } },
+      { name: "Hadamard cuts", colour: "var(--qdx-had)", dx: 4, on: true, get: function (r) { return r.hadamard; } }
+    ];
     root.textContent = "";
+    var chips = root.appendChild(el("div", { class: "qdx-tools qdx-series" }));
+    var plot = root.appendChild(el("div", { class: "qdx-plot" }));
     var row = root.appendChild(el("div", { class: "qdx-row" }));
     var label = row.appendChild(el("label", { for: "qdx-noise-p" }));
     var slider = row.appendChild(el("input", { id: "qdx-noise-p", type: "range", min: "0", max: String(data.rows.length - 1), step: "1", value: String(level), "aria-label": "Two-qubit depolarizing error" }));
-    var host = root.appendChild(el("div"));
-    root.appendChild(el("pre", {}, 'noise = NoiseModel()\nnoise.add_all_qubit_quantum_error(depolarizing_error(p, 2), ["cz", "cx"])\nbackend = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"noise_model": noise}))\nqd.gate_cutting(circuit, cut, "ZZZZZZ", backend=backend, shots=' + data.shots + ", seed=1, error=True)"));
-    root.appendChild(el("p", { class: "qd-note" }, "A simulation on 6 qubits, cut at 2 CZ gates into two fragments of 3, with a depolarizing error on two-qubit gates only and " + count(data.shots) + " shots per circuit, stored from real runs. It has no readout or single-qubit noise and no idle time, so it says nothing about any device. Hadamard ancillas add two-qubit gates of their own."));
-    function update() {
-      var r = data.rows[level];
-      label.textContent = "Two-qubit error p = " + r.p;
-      var rows = [["Uncut", r.uncut, null], ["Gate cuts", r.gate[0], r.gate[1]], ["Hadamard cuts", r.hadamard[0], r.hadamard[1]]];
-      var html = '<table class="qdx-t"><thead><tr><th></th><th>&lt;ZZZZZZ&gt;</th><th>Error bar</th><th>Off by</th></tr></thead><tbody>';
-      rows.forEach(function (x) {
-        html += "<tr><td>" + x[0] + "</td><td>" + num(x[1], 4) + "</td><td>" + (x[2] === null ? "" : "±" + x[2].toFixed(4)) + "</td><td>" + Math.abs(x[1] - data.exact).toFixed(4) + "</td></tr>";
+    var readout = root.appendChild(el("div", { class: "qd-stats" }));
+
+    var points = [data.exact];
+    data.rows.forEach(function (r) {
+      SERIES.forEach(function (series) {
+        var v = series.get(r);
+        points.push(v[0] - (v[1] || 0), v[0] + (v[1] || 0));
       });
-      host.innerHTML = html + "<tr><td>Exact</td><td>" + num(data.exact, 4) + "</td><td></td><td></td></tr></tbody></table>";
+    });
+    var low = Math.min(0, Math.min.apply(null, points)), high = Math.max.apply(null, points) * 1.05;
+    var pMax = data.rows[data.rows.length - 1].p;
+    var x = function (p) { return L + 8 + (p / pMax) * (W - L - R - 16); }, y = function (v) { return T + ((high - v) / (high - low)) * (H - T - B); };
+
+    function update() {
+      toggles(chips, SERIES.map(function (series, i) { return { value: i, label: series.name, colour: series.colour }; }), null, function (i) {
+        var others = SERIES.filter(function (series, j) { return j !== i && series.on; });
+        if (SERIES[i].on && !others.length) return;   // one line always stays
+        SERIES[i].on = !SERIES[i].on;
+        update();
+      });
+      Array.prototype.forEach.call(chips.children, function (button, i) {
+        button.setAttribute("aria-pressed", String(SERIES[i].on));
+        button.insertBefore(el("span", { class: "qd-swatch", style: "background:" + SERIES[i].colour }), button.firstChild);
+      });
+      var now = data.rows[level], s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="The value against the two-qubit error, uncut and with cuts">';
+      s += yGrid(low, high, y, L, W - R);
+      s += '<line x1="' + x(now.p) + '" x2="' + x(now.p) + '" y1="' + T + '" y2="' + (H - B) + '" stroke="var(--qd-a)" stroke-width="1" opacity="0.6"/>';
+      s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(data.exact) + '" y2="' + y(data.exact) + '" stroke="var(--color-foreground-primary, #111)" stroke-width="1.5" stroke-dasharray="5 3"/>';
+      data.rows.forEach(function (r, i) {
+        s += '<text x="' + x(r.p) + '" y="' + (H - B + 16) + '" text-anchor="middle"' + (i === level ? ' class="t"' : "") + ">" + r.p + "</text>";
+      });
+      s += '<text x="' + (L + (W - L - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">two-qubit error p</text>';
+      var ends = [{ name: "exact", value: data.exact }];
+      SERIES.forEach(function (series) {
+        if (!series.on) return;
+        var line = data.rows.map(function (r) { return (x(r.p) + series.dx) + "," + y(series.get(r)[0]); }).join(" ");
+        s += '<polyline points="' + line + '" fill="none" stroke="' + series.colour + '" stroke-width="2"/>';
+        data.rows.forEach(function (r, i) {
+          var v = series.get(r), cx = x(r.p) + series.dx;
+          s += "<g><title>" + series.name + ", p = " + r.p + ": " + num(v[0], 4) + (v[1] === null ? "" : " ±" + v[1].toFixed(4)) + "</title>";
+          if (v[1] !== null) s += whisker(cx, y(v[0] + v[1]), y(v[0] - v[1]), series.colour);
+          s += '<circle cx="' + cx + '" cy="' + y(v[0]) + '" r="' + (i === level ? 5 : 3) + '" fill="' + series.colour + '"/></g>';
+        });
+        ends.push({ name: series.name, value: series.get(data.rows[data.rows.length - 1])[0] });
+      });
+      /* Labels at the right of each line, pushed apart when they would touch. */
+      ends.sort(function (a, b) { return y(a.value) - y(b.value); });
+      var at = -Infinity;
+      ends.forEach(function (end) {
+        at = Math.max(y(end.value) + 4, at + 13);
+        s += '<text class="t" x="' + (W - R + 6) + '" y="' + at + '">' + end.name + "</text>";
+      });
+      /* Tap a column to move there */
+      data.rows.forEach(function (r, i) {
+        var before = i ? x(data.rows[i - 1].p) : x(r.p) - 16, after = i < data.rows.length - 1 ? x(data.rows[i + 1].p) : x(r.p) + 16;
+        var from = (before + x(r.p)) / 2, to = (x(r.p) + after) / 2;
+        s += '<rect class="qdx-hit" data-level="' + i + '" x="' + from + '" y="' + T + '" width="' + (to - from) + '" height="' + (H - T - B + 22) + '"/>';
+      });
+      plot.innerHTML = s + "</svg>";
+      label.textContent = "Two-qubit error p = " + now.p;
+      slider.value = String(level);
+      readout.textContent = "";
+      SERIES.forEach(function (series) {
+        if (!series.on) return;
+        var v = series.get(now);
+        stat(readout, num(v[0], 3) + (v[1] === null ? "" : " ±" + v[1].toFixed(3)), series.name + ", off by " + Math.abs(v[0] - data.exact).toFixed(3));
+      });
     }
+    plot.addEventListener("click", function (event) {
+      if (event.target.dataset.level !== undefined) { level = Number(event.target.dataset.level); update(); }
+    });
     slider.addEventListener("input", function () { level = Number(slider.value); update(); });
     update();
+
+    root.appendChild(el("p", { class: "qd-note" }, "<ZZZZZZ>, exact " + num(data.exact, 4) + ", the dashed line. Move along p, tap a place on the plot, or switch a line off. A simulation on 6 qubits, cut at 2 CZ gates into two fragments of 3, with a depolarizing error on two-qubit gates only and " + count(data.shots) + " shots per circuit, stored from real runs. It has no readout or single-qubit noise and no idle time, so it says nothing about any device. Hadamard ancillas add two-qubit gates of their own."));
+    var all = root.appendChild(el("details"));
+    all.appendChild(el("summary", {}, "All the values"));
+    var html = '<table class="qdx-t"><thead><tr><th>p</th><th>Uncut</th><th>Gate cuts</th><th>Hadamard cuts</th></tr></thead><tbody>';
+    data.rows.forEach(function (r) {
+      html += "<tr><td>" + r.p + "</td><td>" + num(r.uncut, 3) + "</td><td>" + num(r.gate[0], 3) + " ±" + r.gate[1].toFixed(3) + "</td><td>" + num(r.hadamard[0], 3) + " ±" + r.hadamard[1].toFixed(3) + "</td></tr>";
+    });
+    all.appendChild(el("div")).innerHTML = html + "</tbody></table>";
+    var code = root.appendChild(el("details"));
+    code.appendChild(el("summary", {}, "The code"));
+    code.appendChild(el("pre", {}, 'noise = NoiseModel()\nnoise.add_all_qubit_quantum_error(depolarizing_error(p, 2), ["cz", "cx"])\nbackend = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"noise_model": noise}))\nqd.gate_cutting(circuit, cut, "ZZZZZZ", backend=backend, shots=' + data.shots + ", seed=1, error=True)"));
   }
 
   /* ---- 7. SDKs ---- */

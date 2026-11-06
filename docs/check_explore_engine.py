@@ -80,12 +80,17 @@ def random_case(rng):
 
 
 def wire_edges(n, ops):
-    """(qubit, from, to) for each pair of consecutive gates on one qubit, sharing only it."""
+    """(qubit, from, to) for what one tap on the page cuts: a line between two gates next to
+    each other on it. Qdislib's (source, target) cuts every line on which the two are next to
+    each other, so a pair that is neighbours on two lines is two wires, and is left out."""
     last, edges = {}, []
     for i, op in enumerate(ops):
+        before = dict(last)
         for q in op["qubits"]:
-            if q in last and len(set(ops[last[q]]["qubits"]) & set(op["qubits"])) == 1:
-                edges.append((q, last[q], i))
+            if q in before:
+                lines = [x for x in op["qubits"] if before.get(x) == before[q]]
+                if len(lines) == 1:
+                    edges.append((q, before[q], i))
             last[q] = i
     return edges
 
@@ -171,7 +176,7 @@ def main():
         ).stdout
     )
     worst = {"exact": 0.0, "value": 0.0, "gamma": 0.0, "joint_gamma": 0.0, "self": 0.0}
-    tally = {"valid": 0, "invalid": 0, "gate": 0, "hadamard": 0, "wire": 0, "mixed": 0, "golden": 0}
+    tally = {"valid": 0, "invalid": 0, "gate": 0, "hadamard": 0, "wire": 0, "mixed": 0, "golden": 0, "wire_on_shared_pair": 0}
     failures, crashes = [], []
     for case, mine in zip(cases, js):
         with warnings.catch_warnings():
@@ -203,6 +208,10 @@ def main():
                 tally[kind] += 1
             tally["mixed"] += len(kinds) > 1
             tally["golden"] += mine.get("golden", 0) > 0
+            tally["wire_on_shared_pair"] += any(
+                c["kind"] == "wire" and set(case["ops"][c["from"]]["qubits"]) == set(case["ops"][c["to"]]["qubits"])
+                for c in case["cuts"]
+            )
         if problems:
             failures.append((case, problems))
     print(f"{count} circuits: {tally}")

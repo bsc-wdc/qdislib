@@ -296,7 +296,7 @@ def distribution_section():
     cut = {"gate": ["CZ_12"]}
     exact = exact_distribution(qc)
     keys = sorted(exact, key=lambda b: -exact[b])[:12]
-    shots_levels = [256, 1024, 4096, 16384, 65536]
+    shots_levels = [256, 1024, 4096, 16384]
     full = {"keys": keys, "exact": [round(exact[k], 4) for k in keys], "shots": shots_levels, "runs": []}
     for shots in shots_levels:
         runs = []
