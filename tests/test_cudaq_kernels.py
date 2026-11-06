@@ -52,6 +52,209 @@ if CUDAQ_AVAILABLE:
         b = cudaq.qvector(2)
         x(a[1])
 
+    @cudaq.kernel
+    def plain():
+        q = cudaq.qvector(3)
+        ry(0.4, q[0])
+        x.ctrl(q[0], q[1])
+        ry(0.3, q[1])
+        z.ctrl(q[1], q[2])
+        ry(0.5, q[2])
+
+    @cudaq.kernel
+    def final_each():
+        q = cudaq.qvector(3)
+        ry(0.4, q[0])
+        x.ctrl(q[0], q[1])
+        ry(0.3, q[1])
+        z.ctrl(q[1], q[2])
+        ry(0.5, q[2])
+        mz(q[0])
+        mz(q[1])
+        mz(q[2])
+
+    @cudaq.kernel
+    def final_all():
+        q = cudaq.qvector(3)
+        ry(0.4, q[0])
+        x.ctrl(q[0], q[1])
+        ry(0.3, q[1])
+        z.ctrl(q[1], q[2])
+        ry(0.5, q[2])
+        mz(q)
+
+    @cudaq.kernel
+    def final_assigned():
+        q = cudaq.qvector(3)
+        ry(0.4, q[0])
+        x.ctrl(q[0], q[1])
+        ry(0.3, q[1])
+        z.ctrl(q[1], q[2])
+        ry(0.5, q[2])
+        m = mz(q)
+
+    @cudaq.kernel
+    def final_part():
+        q = cudaq.qvector(2)
+        x(q[1])
+        mz(q[1])
+
+    @cudaq.kernel
+    def measured_before_another_qubit():
+        q = cudaq.qvector(2)
+        x(q[0])
+        mz(q[0])
+        x(q[1])
+
+    @cudaq.kernel
+    def final_two_registers():
+        a = cudaq.qvector(1)
+        b = cudaq.qvector(1)
+        x(b[0])
+        mz(a)
+        mz(b)
+
+    @cudaq.kernel
+    def mid_circuit():
+        q = cudaq.qvector(2)
+        h(q[0])
+        m = mz(q[0])
+        h(q[0])
+        x.ctrl(q[0], q[1])
+
+    @cudaq.kernel
+    def gate_after_whole_register():
+        q = cudaq.qvector(2)
+        h(q[0])
+        mz(q)
+        h(q[1])
+
+    @cudaq.kernel
+    def x_basis():
+        q = cudaq.qvector(1)
+        h(q[0])
+        mx(q[0])
+
+
+@unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq not installed")
+class CudaqMeasurementsTest(BaseTimedTestCase):
+    def test_final_measurements_do_not_change_the_answer(self):
+        import Qdislib as qd
+
+        exact = qd.analytical_solution(plain, "ZZZ")
+        self.assertAlmostEqual(exact, 0.83838664, places=6)
+        for kernel in (final_each, final_all, final_assigned):
+            with self.subTest(kernel=kernel.name):
+                for _ in range(8):  # get_state collapsed: +-1 at random
+                    self.assertAlmostEqual(
+                        qd.analytical_solution(kernel, "ZZZ"), exact, places=6
+                    )
+                self.assertAlmostEqual(
+                    qd.gate_cutting(kernel, ["CZ_4"], "ZZZ", shots=None),
+                    exact,
+                    places=6,
+                )
+                for run in (
+                    lambda: qd.gate_cutting(
+                        kernel, ["CZ_4"], "ZZZ", shots=8000, seed=1
+                    ),
+                    lambda: qd.wire_cutting(
+                        kernel, [("RY_3", "CZ_4")], "ZZZ", shots=8000, seed=1
+                    ),
+                    lambda: qd.gate_cutting_hadamard(
+                        kernel, ["CZ_4"], "ZZZ", shots=8000, seed=1
+                    ),
+                ):
+                    self.assertAlmostEqual(run(), exact, delta=0.15)
+
+    def test_they_are_not_a_gate_to_cut(self):
+        from Qdislib.utils.backends import convert_to_dag, iter_gates
+
+        dag = convert_to_dag(final_each)
+        self.assertEqual(
+            [data["gate"] for _, data in dag.nodes(data=True)],
+            ["ry", "cx", "ry", "cz", "ry"],
+        )
+        self.assertEqual(
+            [qubits for _, qubits in iter_gates(final_each)][-3:], [(), (), ()]
+        )
+
+    def test_a_native_run_reads_every_qubit(self):
+        import Qdislib as qd
+
+        # sampled as it is, only the measured qubit makes it into the keys
+        self.assertEqual(qd.expectation_value([final_part, "ZI"], shots=100), 1.0)
+        self.assertEqual(qd.expectation_value([final_part, "IZ"], shots=100), -1.0)
+        self.assertAlmostEqual(qd.analytical_solution(final_part, "IZ"), -1.0)
+        self.assertEqual(
+            qd.expectation_value([final_two_registers, "IZ"], shots=100), -1.0
+        )
+
+    def test_a_measured_qubit_followed_by_gates_on_others_only(self):
+        import Qdislib as qd
+        from Qdislib.utils.backends import convert_to_dag
+
+        dag = convert_to_dag(measured_before_another_qubit)
+        # the numbering keeps the measurement's place, as in the other SDKs
+        self.assertEqual(list(dag.nodes), ["X_1", "X_3"])
+        self.assertAlmostEqual(
+            qd.analytical_solution(measured_before_another_qubit, "ZZ"), 1.0
+        )
+        self.assertEqual(
+            qd.gate_cutting(measured_before_another_qubit, [], "ZZ", shots=100), 1.0
+        )
+
+    def test_a_gate_after_a_measurement_is_refused(self):
+        import Qdislib as qd
+
+        for kernel in (mid_circuit, gate_after_whole_register):
+            for run in (
+                lambda: qd.analytical_solution(kernel, "ZI"),
+                lambda: qd.gate_cutting(kernel, [], "ZI", shots=None),
+                lambda: qd.gate_cutting(kernel, [], "ZI", shots=100),
+                lambda: qd.expectation_value([kernel, "ZI"], shots=100),
+            ):
+                with self.subTest(kernel=kernel.name):
+                    with self.assertRaisesRegex(ValueError, "after a measurement"):
+                        run()
+
+    def test_another_basis_is_refused(self):
+        import Qdislib as qd
+
+        for run in (
+            lambda: qd.analytical_solution(x_basis, "Z"),
+            lambda: qd.gate_cutting(x_basis, [], "Z", shots=100),
+            lambda: qd.expectation_value([x_basis, "Z"], shots=100),
+        ):
+            with self.assertRaisesRegex(ValueError, "the Z basis"):
+                run()
+
+    def test_a_cut_kernel_keeps_its_own_measurements(self):
+        import Qdislib as qd
+
+        exact = qd.analytical_solution(plain, "ZZZ")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for observable in ("ZZZ", "ZIZ"):
+                exact = qd.analytical_solution(plain, observable)
+                self.assertAlmostEqual(
+                    qd.gate_cutting(plain, ["CZ_4"], observable, shots=8000, seed=1),
+                    exact,
+                    delta=0.15,
+                )
+                self.assertAlmostEqual(
+                    qd.gate_cutting(
+                        plain,
+                        ["CZ_4"],
+                        observable,
+                        shots=8000,
+                        seed=1,
+                        method="automatic",
+                    ),
+                    exact,
+                    delta=0.15,
+                )
+
 
 @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq not installed")
 class CudaqRegistersTest(BaseTimedTestCase):

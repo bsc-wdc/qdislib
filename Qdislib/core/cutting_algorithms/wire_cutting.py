@@ -2356,9 +2356,10 @@ def _counts_cudaq(kernel, shots=1024, target=None):
     :return: A ``{bitstring: count}`` dict.
     """
     from Qdislib.core.backend.cudaq_backend import select_cudaq_target
+    from Qdislib.utils.graph_cudaq import cudaq_without_measurements
 
     select_cudaq_target(target)
-    freq = cudaq.sample(kernel, shots_count=shots)
+    freq = cudaq.sample(cudaq_without_measurements(kernel), shots_count=shots)
     return {str(key): int(value) for key, value in freq.items()}
 
 
