@@ -197,3 +197,9 @@ class RandomGraphTest(BaseTimedTestCase):
         random.seed(123)
         qd.generate_random_graph(20, seed=99)
         self.assertEqual(random.random(), expected)
+
+    def test_random_graph_of_no_nodes(self):
+        import Qdislib as qd
+
+        self.assertEqual(qd.generate_random_graph(0).number_of_nodes(), 0)
+        self.assertEqual(qd.generate_random_graph(1).number_of_nodes(), 1)

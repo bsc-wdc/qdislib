@@ -1119,6 +1119,9 @@ def find_cut(
             return [{"cut": best, "kind": "gate", "score": score}][:top_n]
         return best
 
+    if not (gate_cut or wire_cut):
+        raise ValueError("Enable at least one of wire_cut or gate_cut.")
+
     # Ranked mode: return the top_n candidate cuts (best score first) across
     # the enabled strategies, each as {"cut", "kind", "score"}, instead of the
     # single winner. Lets the caller compare options (and cost them with
@@ -1178,28 +1181,13 @@ def find_cut(
             forbidden_qubits=forbidden_qubits,
         )
 
-    if gate_cut and wire_cut:
-        cut_gate = compss_wait_on(cut_gate)
-        score_gate = compss_wait_on(score_gate)
-        cut_wire = compss_wait_on(cut_wire)
-        score_wire = compss_wait_on(score_wire)
-    elif gate_cut:
-        cut_gate = compss_wait_on(cut_gate)
-        score_gate = compss_wait_on(score_gate)
-    elif wire_cut:
-        cut_wire = compss_wait_on(cut_wire)
-        score_wire = compss_wait_on(score_wire)
-    else:
-        raise ValueError("Enable at least one of wire_cut or gate_cut.")
-
-    if wire_cut and gate_cut:
-        best = cut_gate if score_gate <= score_wire else cut_wire
-    elif gate_cut:
-        best = cut_gate
-    elif wire_cut:
-        best = cut_wire
-    else:
-        raise ValueError("Enable at least one of wire_cut or gate_cut.")
+    # Waiting only now: under PyCOMPSs the two searches run side by side.
+    if gate_cut:
+        best, best_score = compss_wait_on(cut_gate), compss_wait_on(score_gate)
+    if wire_cut:
+        cut_wire, score_wire = compss_wait_on(cut_wire), compss_wait_on(score_wire)
+        if not gate_cut or score_wire < best_score:
+            best = cut_wire
 
     if not best:
         logger.warning(

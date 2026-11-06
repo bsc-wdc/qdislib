@@ -22,6 +22,16 @@
 from tests import BaseTimedTestCase
 
 
+def _chain_for_kinds():
+    from qibo import gates, models
+
+    circuit = models.Circuit(3)
+    circuit.add(gates.H(0))
+    circuit.add(gates.CZ(0, 1))
+    circuit.add(gates.CZ(1, 2))
+    return circuit
+
+
 class CircuitTest(BaseTimedTestCase):
 
     def test_optimal_cut_wire_cut(self):
@@ -94,6 +104,14 @@ class CircuitTest(BaseTimedTestCase):
             self.assertTrue(True)
         else:
             self.assertTrue(False)
+
+    def test_no_kind_of_cut_enabled_is_refused_in_every_mode(self):
+        from Qdislib.core.find_cut.find_cut import find_cut
+
+        circuit = _chain_for_kinds()
+        for options in ({}, {"top_n": 3}):
+            with self.assertRaisesRegex(ValueError, "Enable at least one"):
+                find_cut(circuit, gate_cut=False, wire_cut=False, **options)
 
     def test_zero_budgets_are_limits_not_none(self):
         """bsc-wdc/qdislib#15: max_cuts=0 allows no cut; max_qubits=0 is rejected."""

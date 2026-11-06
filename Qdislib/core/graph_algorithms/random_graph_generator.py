@@ -30,11 +30,18 @@ def generate_random_graph(
 ) -> networkx.Graph:
     """Generate a random undirected graph with a specified number of nodes.
 
+    The graph is always connected: random edges are added until it is, so it can
+    have more edges than ``probability`` alone gives.
+
     :param num_nodes: The number of nodes in the graph.
     :param probability: The probability of creating an edge between any pair of nodes.
-    :param seed: Random seed.
+    :param seed: Random seed (the same seed gives the same graph).
     :param draw: Plot the generated random graph (requires matplotlib).
-    :return: The generated graph with num_nodes nodes.
+    :return: The generated :class:`networkx.Graph`, nodes ``0..num_nodes-1``.
+
+    Example::
+
+        graph = qd.generate_random_graph(6, probability=0.3, seed=1)
     """
     # Use a local RNG so we don't perturb the global ``random`` state.
     rng = random.Random(seed)
@@ -53,11 +60,10 @@ def generate_random_graph(
 
     # Ensure the graph is connected (Optional step)
     # This step ensures that the generated graph is a single connected component
-    if not networkx.is_connected(random_graph) and num_nodes > 1:
-        # Keep adding random edges until the graph becomes connected
-        while not networkx.is_connected(random_graph):
-            u, v = rng.sample(range(num_nodes), 2)
-            random_graph.add_edge(u, v)
+    # (no question for fewer than two nodes: networkx refuses it for the empty graph)
+    while num_nodes > 1 and not networkx.is_connected(random_graph):
+        u, v = rng.sample(range(num_nodes), 2)
+        random_graph.add_edge(u, v)
 
     if draw:
         import matplotlib.pyplot as plt  # lazy: only needed when plotting
