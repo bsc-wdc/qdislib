@@ -46,16 +46,16 @@ article h2 a.headerlink {
  * colours, with text in the opposite one. code.literal is what Furo's own rule
  * selects, so a plainer selector loses to it. */
 article h2 code.literal {
-    color: #111111;
+    color: #555555;
     background: #ffffff;
     border: none;
 }
 article h2 code.literal .pre {
-    color: #111111;
+    color: #555555;
 }
 body[data-theme="dark"] article h2 code.literal {
     color: #ffffff;
-    background: #1a1c1e;
+    background: #4a4d52;
 }
 body[data-theme="dark"] article h2 code.literal .pre {
     color: #ffffff;
@@ -63,7 +63,7 @@ body[data-theme="dark"] article h2 code.literal .pre {
 @media (prefers-color-scheme: dark) {
     body:not([data-theme="light"]) article h2 code.literal {
         color: #ffffff;
-        background: #1a1c1e;
+        background: #4a4d52;
     }
     body:not([data-theme="light"]) article h2 code.literal .pre {
         color: #ffffff;

@@ -18,7 +18,14 @@ Qdislib
         circuit.cz(q, q + 1)
 
     cut = qd.find_cut(circuit, max_qubits=5, wire_cut=False)    # ['CZ_15']: two fragments
+
+    # In one call
     print(qd.gate_cutting(circuit, cut, shots=8192, seed=1, error=True))
+
+    # Or in three steps, to run the subcircuits where you want
+    subcircuits = qd.gate_cutting_subcircuits(circuit, cut)
+    values = [qd.expectation_value(s, shots=8192, seed=1) for s in subcircuits]
+    print(subcircuits.reconstruct(values))
 
 Use it to run a circuit too wide for your device or simulator, when a few cuts split it. Each cut multiplies the shots a given precision needs, by ``gamma**2``, so the number of cuts is what limits it: ``qd.cutting_overhead`` tells you the cost before anything runs.
 
@@ -26,7 +33,7 @@ Use it to run a circuit too wide for your device or simulator, when a few cuts s
 
    New to Qdislib? :doc:`Try it in your browser <try>`, with nothing to install, or :doc:`read the SC poster <poster>`.
 
-.. grid:: 1 2 3 3
+.. grid:: 1 2 4 4
     :gutter: 3
 
     .. grid-item-card:: Quickstart
@@ -64,6 +71,18 @@ Use it to run a circuit too wide for your device or simulator, when a few cuts s
         :link-type: doc
 
         What changed, and how to move from 1.x.
+
+    .. grid-item-card:: Cheat sheet
+        :link: Qdislib_cheatsheet.pdf
+        :link-type: url
+
+        The main calls on two pages (PDF).
+
+    .. grid-item-card:: Previous paper
+        :link: https://dl.acm.org/doi/10.1145/3731599.3767547
+        :link-type: url
+
+        Distributed circuit cutting for quantum-HPC workflows (SC '25 Workshops).
 
 What it does
 ------------
