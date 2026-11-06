@@ -20,9 +20,14 @@
 """The pluggable backend layer: registry, converter, and QdBackEnd routing."""
 
 import importlib.util
+import types
 import unittest
+from unittest import mock
 
 from tests import BaseTimedTestCase
+
+from Qdislib.core.backend import registry
+from Qdislib.core.backend.base_backend import BaseBackend, SampleJobResult
 
 QIBO_AVAILABLE = importlib.util.find_spec("qibo") is not None
 QISKIT_AVAILABLE = importlib.util.find_spec("qiskit") is not None
@@ -66,6 +71,86 @@ class RegistryTest(BaseTimedTestCase):
 
 
 @unittest.skipUnless(QIBO_AVAILABLE and QISKIT_AVAILABLE, "qibo+qiskit required")
+class _Works(BaseBackend):
+    """Samples anything."""
+
+    def __init__(self, config):
+        super().__init__(config.extra.get("name", "WORKS"), config)
+
+    def _execute_samples(self, circuit, transpile, shots, job):
+        return SampleJobResult({"0": shots}, self.name, shots, job.job_id)
+
+
+class _Fails(_Works):
+    def _execute_samples(self, circuit, transpile, shots, job):
+        raise RuntimeError("the device is down")
+
+    def _execute_estimator(self, circuit, transpile, shots, observable, job):
+        raise RuntimeError("the device is down")
+
+
+class QdBackEndRoutingTest(BaseTimedTestCase):
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.dict(registry._BACKEND_REGISTRY)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        import Qdislib as qd
+
+        self.qd = qd
+        qd.register_backend("WORKS", __name__, "_Works")
+        qd.register_backend("FAILS", __name__, "_Fails")
+
+    def _circuit(self, width):
+        return types.SimpleNamespace(num_qubits=width)
+
+    def test_a_failure_goes_on_to_the_next_backend_and_empties_its_queue(self):
+        unified = self.qd.QdBackEnd(
+            {"FAILS": {"num_qubits": 5}, "WORKS": {"num_qubits": 5}}
+        )
+        result = unified.sample_circuit(self._circuit(2), shots=7)
+        self.assertEqual(result.counts, {"0": 7})
+        self.assertEqual([b.queue_length for b in unified.backends], [0, 0])
+
+    def test_the_last_failure_is_the_cause_when_all_fail(self):
+        unified = self.qd.QdBackEnd({"FAILS": {"num_qubits": 5}})
+        with self.assertRaisesRegex(RuntimeError, "No backend could sample") as caught:
+            unified.sample_circuit(self._circuit(2))
+        self.assertIn("down", str(caught.exception.__cause__))
+        with self.assertRaisesRegex(
+            RuntimeError, "No backend could estimate"
+        ) as caught:
+            unified.get_expectation_value(self._circuit(2), "ZZ")
+        self.assertIn("down", str(caught.exception.__cause__))
+
+    def test_a_backend_without_estimator_is_skipped(self):
+        unified = self.qd.QdBackEnd({"WORKS": {"num_qubits": 5}})
+        with self.assertRaisesRegex(RuntimeError, "Last error: None"):
+            unified.get_expectation_value(self._circuit(2), "ZZ")
+
+    def test_too_wide_and_unknown_names_are_refused(self):
+        unified = self.qd.QdBackEnd({"WORKS": {"num_qubits": 2}})
+        with self.assertRaisesRegex(ValueError, "large enough"):
+            unified.sample_circuit(self._circuit(3))
+        with self.assertRaisesRegex(ValueError, "not found"):
+            unified.sample_circuit(self._circuit(1), backend_name="NOPE")
+
+    def test_the_shortest_queue_goes_first(self):
+        unified = self.qd.QdBackEnd(
+            {
+                "WORKS": {"num_qubits": 5, "name": "A"},
+                "FAILS": {"num_qubits": 5, "name": "B"},
+            }
+        )
+        unified.backends[0]._enqueue("samples", 1, 1)
+        order = unified._select_backends(self._circuit(1), None)
+        self.assertEqual([b.name for b in order], ["B", "A"])
+
+    def test_a_width_not_stated_is_the_default(self):
+        backend = self.qd.build_backend("WORKS", self.qd.BackendConfig())
+        self.assertEqual(backend.num_qubits, registry.DEFAULT_NUM_QUBITS)
+
+
 class ConverterTest(BaseTimedTestCase):
     def test_roundtrip_and_num_qubits(self):
         from Qdislib.core.backend import CircuitConverter

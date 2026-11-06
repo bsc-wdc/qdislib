@@ -222,8 +222,8 @@ def _pauli_local_terms(u):
     unavailable."""
     u = np.asarray(u, dtype=complex)
     terms = []
-    for pn, p in _PAULI.items():
-        for qn, q in _PAULI.items():
+    for p in _PAULI.values():
+        for q in _PAULI.values():
             kron = np.kron(p, q)
             coeff = np.trace(kron.conj().T @ u) / 4
             if abs(coeff) < 1e-12:
@@ -265,7 +265,7 @@ def _two_qubit_matrix(gate_name, params=()):
     except Exception as exc:  # noqa: BLE001
         raise NotImplementedError(
             f"cannot build a two-qubit matrix for {gate_name!r}: {exc}"
-        )
+        ) from exc
     if matrix.shape != (4, 4):
         raise NotImplementedError(
             f"Hadamard-test cut needs a two-qubit gate; {gate_name!r} is {matrix.shape}"
