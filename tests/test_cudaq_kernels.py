@@ -135,6 +135,86 @@ if CUDAQ_AVAILABLE:
         h(q[0])
         mx(q[0])
 
+    @cudaq.kernel
+    def adjoint_t():
+        q = cudaq.qvector(1)
+        h(q[0])
+        t.adj(q[0])
+        h(q[0])
+
+    @cudaq.kernel
+    def adjoint_s():
+        q = cudaq.qvector(1)
+        h(q[0])
+        s.adj(q[0])
+        h(q[0])
+
+    @cudaq.kernel
+    def adjoints_cut():
+        q = cudaq.qvector(2)
+        h(q[0])
+        t.adj(q[0])
+        h(q[0])
+        s.adj(q[1])
+        h(q[1])
+        z.ctrl(q[0], q[1])
+        h(q[1])
+
+    @cudaq.kernel
+    def adjoints_of_paulis():
+        q = cudaq.qvector(1)
+        x.adj(q[0])
+        h.adj(q[0])
+        z.adj(q[0])
+        y.adj(q[0])
+        h(q[0])
+
+
+@unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq not installed")
+class CudaqAdjointsTest(BaseTimedTestCase):
+    def test_every_adjoint_a_kernel_can_write(self):
+        import Qdislib as qd
+
+        for kernel, observable, cut in (
+            (adjoint_t, "Z", []),
+            (adjoint_s, "Z", []),
+            (adjoints_cut, "ZZ", []),
+            (adjoints_cut, "ZZ", ["CZ_6"]),
+        ):
+            with self.subTest(kernel=kernel.name, cut=cut):
+                exact = qd.analytical_solution(kernel, observable)
+                self.assertAlmostEqual(
+                    qd.gate_cutting(kernel, cut, observable, shots=None), exact
+                )
+                self.assertAlmostEqual(
+                    qd.gate_cutting(kernel, cut, observable, shots=40000, seed=1),
+                    exact,
+                    delta=0.05,
+                )
+
+    def test_the_self_adjoint_ones(self):
+        import Qdislib as qd
+
+        # read from the source: CUDA-Q itself does not compile h.adj in a kernel
+        self.assertAlmostEqual(
+            qd.gate_cutting(adjoints_of_paulis, [], "Z", shots=None), -1.0
+        )
+        self.assertEqual(
+            qd.gate_cutting(adjoints_of_paulis, [], "Z", shots=100, seed=1), -1.0
+        )
+
+    def test_they_build_as_the_adjoint(self):
+        import numpy as np
+
+        from Qdislib.utils.backends import convert_to_dag
+        from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
+
+        kernel, _ = dag_to_circuit_cudaq_kernel(convert_to_dag(adjoint_t), 1)
+        state = np.asarray(cudaq.get_state(kernel), dtype=complex)
+        want = np.asarray(cudaq.get_state(adjoint_t), dtype=complex)
+        self.assertTrue(np.allclose(state, want))
+        self.assertAlmostEqual(abs(state[0]) ** 2 - abs(state[1]) ** 2, 2**-0.5)
+
 
 @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq not installed")
 class CudaqMeasurementsTest(BaseTimedTestCase):

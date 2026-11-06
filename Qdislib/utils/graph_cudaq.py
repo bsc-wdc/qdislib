@@ -381,7 +381,7 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
                 qubits = tuple(qubits[k] for k in positions)
 
             # --- Common 1-qubit gates ---
-            if gate in ["H", "X", "Y", "Z", "T", "S", "SDG"]:
+            if gate in ["H", "X", "Y", "Z", "T", "S", "SDG", "TDG"]:
                 for qb in qubits:
                     getattr(kernel, gate.lower())(q[qb])
 
