@@ -29,10 +29,8 @@ across the cutting algorithms.
 import logging
 
 from Qdislib.utils.sdks import sdk_names as _sdk_names
-from Qdislib.utils.graph_qibo import _final_measurements, circuit_qibo_to_dag
-from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
-from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
-from Qdislib.utils.graph_pennylane import circuit_pennylane_to_dag, PennylaneCircuit
+from Qdislib.utils.graph_qibo import _final_measurements
+from Qdislib.utils.graph_pennylane import PennylaneCircuit
 from Qdislib.utils.runtime import task, compss_wait_on, pycompss_available
 from Qdislib.utils.circuit_cache import (
     semantic_key,
@@ -56,12 +54,6 @@ try:
     from cudaq.kernel.kernel_decorator import PyKernelDecorator
 except ImportError:
     PyKernelDecorator = type("PyKernelDecorator", (), {})
-try:
-    from pennylane.tape import QuantumScript as PennylaneScript
-    from pennylane import QNode as PennylaneQNode
-except ImportError:
-    PennylaneScript = type("PennylaneScript", (), {})
-    PennylaneQNode = type("PennylaneQNode", (), {})
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +67,6 @@ __all__ = [
     "CutSubcircuits",
     "CombinedCutSubcircuits",
 ]
-
-#: Mapping from a circuit's SDK class to the converter that turns it into a DAG.
 
 
 def convert_to_dag(circuit, observables=None):
@@ -846,7 +836,8 @@ def expectation_value(
     # Native circuits only occur in serial, so under COMPSs anything that is not a
     # concrete native circuit is such a future: hand it to a task that resolves it.
     if pycompss_available and not isinstance(
-        subcircuit, (QiboCircuit, QuantumCircuit, list, tuple)
+        subcircuit,
+        (QiboCircuit, QuantumCircuit, PennylaneCircuit, PyKernelDecorator, list, tuple),
     ):
         if backend is None and seed is None:
             return _evaluate_subcircuit(subcircuit, shots, cache, cache_mode)

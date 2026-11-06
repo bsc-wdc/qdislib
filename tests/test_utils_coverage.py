@@ -63,6 +63,20 @@ class LogLevelFromEnvironmentTest(BaseTimedTestCase):
             qd.set_log_level("VERBOSE")
 
 
+class NativeFormsTest(BaseTimedTestCase):
+    @unittest.skipUnless(importlib.util.find_spec("pennylane"), "pennylane required")
+    def test_a_native_pennylane_circuit_with_pycompss_installed(self):
+        # with PyCOMPSs installed it was taken for the future of a Subcircuit
+        from unittest import mock
+
+        import Qdislib as qd
+        from Qdislib.utils.graph_pennylane import PennylaneCircuit
+
+        circuit = PennylaneCircuit([("X", (0,), [])], 1)
+        with mock.patch("Qdislib.utils.backends.pycompss_available", True):
+            self.assertEqual(qd.expectation_value(circuit, shots=10, seed=1), -1.0)
+
+
 class RuntimeShimTest(BaseTimedTestCase):
     """The PyCOMPSs shim must provide working no-op fallbacks when absent."""
 
