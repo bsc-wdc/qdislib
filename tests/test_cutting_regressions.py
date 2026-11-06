@@ -852,5 +852,56 @@ class NativeExactRunTest(BaseTimedTestCase):
             )
 
 
+class WireCutRightAfterACutGateTest(BaseTimedTestCase):
+    """A term of a gate cut can leave a qubit with no gate at all in a fragment, whose
+    wire cut still reads it: it is in |0>, so the reading is +1."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(3)
+        qc.rzz(1.195, 0, 2)
+        qc.x(0)
+        qc.rz(1.771, 2)
+        qc.ry(0.7, 2)
+        return qc
+
+    def _exact(self, qc, observable):
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+
+        operator = SparsePauliOp(observable[::-1])
+        return float(Statevector(qc).expectation_value(operator).real)
+
+    def test_expectation_values(self):
+        import Qdislib as qd
+
+        qc = self._circuit()
+        cuts = {"gate": ["RZZ_1"], "wire": [("RZZ_1", "RZ_3")]}
+        for observable in ("ZZZ", "ZIZ", "IZZ", "ZZI", "IIZ", "ZIX", "XZZ"):
+            exact = self._exact(qc, observable)
+            value = qd.circuit_cutting(qc, cuts, observable, shots=None)
+            self.assertAlmostEqual(value, exact, places=8, msg=observable)
+        value = qd.circuit_cutting(qc, cuts, "ZIZ", shots=20000, seed=1)
+        self.assertAlmostEqual(value, self._exact(qc, "ZIZ"), delta=0.15)
+
+    def test_a_distribution_and_a_marginal(self):
+        from qiskit.quantum_info import Statevector
+
+        import Qdislib as qd
+
+        qc = self._circuit()
+        cuts = {"gate": ["RZZ_1"], "wire": [("RZZ_1", "RZ_3")]}
+        exact = {k[::-1]: p for k, p in Statevector(qc).probabilities_dict().items()}
+        got = qd.circuit_cutting_sampling(qc, cuts, shots=None)
+        for key, probability in exact.items():
+            self.assertAlmostEqual(got.get(key, 0.0), probability, places=8, msg=key)
+        marginal = qd.circuit_cutting_sampling(qc, cuts, shots=None, qubits=[2, 0])
+        for bits, value in marginal.items():
+            expected = sum(
+                p for k, p in exact.items() if k[2] == bits[0] and k[0] == bits[1]
+            )
+            self.assertAlmostEqual(value, expected, places=8, msg=bits)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -34,7 +34,7 @@ _PALETTE = (
     "#79706E",
     "#BAB0AC",
 )
-_GATE_CUT = "#D62728"  # measure-and-prepare gate cut
+_GATE_CUT = "#0B6E3A"  # measure-and-prepare gate cut: darker than the green fragment
 _HADAMARD_CUT = "#6A3D9A"  # Hadamard gate cut
 _WIRE_CUT = "#D62728"
 _INVALID = "#222222"
@@ -74,7 +74,7 @@ def draw_cut(circuit, cuts, filename=None, *, hadamard=False, ax=None, show=None
     order, each with its index above it (gate ``CZ`` numbered 7 is ``"CZ_7"``, the
     name to cut). The qubit lines and gates take the colour of the fragment they
     end up in, so you see the independent pieces the cut produces. A
-    measure-and-prepare gate cut is a red dashed gate with ``✂``, a Hadamard gate cut
+    measure-and-prepare gate cut is a green dashed gate with ``✂``, a Hadamard gate cut
     a purple one, a wire cut a red ``✂`` on the wire. A cut that does not separate
     its two sides is drawn in black with ``✗`` and named in the title (it would be
     refused by the cutting functions). The title gives the number of fragments,
@@ -344,10 +344,9 @@ def draw_cut(circuit, cuts, filename=None, *, hadamard=False, ax=None, show=None
                     [],
                     [],
                     color=colour_,
-                    ls=(0, (3, 2)),
-                    lw=2,
+                    ls="none",
                     marker="$✂$",
-                    markersize=11,
+                    markersize=14,
                     label=label,
                 )
             )
@@ -357,10 +356,9 @@ def draw_cut(circuit, cuts, filename=None, *, hadamard=False, ax=None, show=None
                 [],
                 [],
                 color=_INVALID,
-                ls=(0, (3, 2)),
-                lw=2,
+                ls="none",
                 marker="$✗$",
-                markersize=9,
+                markersize=12,
                 label="not a valid cut",
             )
         )
