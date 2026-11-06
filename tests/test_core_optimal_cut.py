@@ -240,6 +240,32 @@ class MetisWeightsTest(BaseTimedTestCase):
         self.assertEqual(_metis_partition(graph, 2, None, 1), ([], []))
 
 
+class FindCutSkipsWhatCannotBeCutTest(BaseTimedTestCase):
+    """A candidate pair of gates not next to each other on any qubit is no wire cut: the
+    search leaves it out, and does not stop with its error."""
+
+    def test_a_candidate_that_is_no_wire_cut_is_skipped(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(8)
+        qc.ry(0.6, range(8))
+        for q in range(0, 7, 2):
+            qc.cz(q, q + 1)
+        for q in range(1, 7, 2):
+            qc.cz(q, q + 1)
+        qc.ry(0.5, range(8))
+        for q in range(0, 7, 2):
+            qc.cz(q, q + 1)
+        for q in range(1, 7, 2):
+            qc.cz(q, q + 1)
+        for seed in (0, 1, 2):
+            self.assertEqual(
+                qd.find_cut(qc, max_qubits=2, seed=seed, gate_cut=False), []
+            )
+
+
 class MetisMissingTest(BaseTimedTestCase):
     """pymetis has no wheel on Linux arm64 and Windows: find_cut runs without it."""
 

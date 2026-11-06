@@ -123,6 +123,51 @@ class RandomCutsTest(BaseTimedTestCase):
         self.assertGreater(compared, 200)  # the test has to keep testing something
         self.assertEqual(wrong, [], f"{len(wrong)} of {compared} gave a wrong value")
 
+    def test_what_find_cut_returns_gives_the_circuits_value(self):
+        from qiskit import QuantumCircuit
+        from qiskit.quantum_info import SparsePauliOp, Statevector
+
+        import Qdislib as qd
+
+        rng = random.Random(SEED + 1)
+        checked, wrong = 0, []
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for number in range(40):
+                width, layers = rng.randint(4, 7), rng.randint(1, 3)
+                circuit = QuantumCircuit(width)
+                for _ in range(layers):
+                    for line in range(width):
+                        circuit.ry(rng.uniform(0.1, 3.0), line)
+                    for start in (0, 1):
+                        for line in range(start, width - 1, 2):
+                            circuit.cz(line, line + 1)
+                observable = "Z" * width
+                exact = float(
+                    Statevector(circuit)
+                    .expectation_value(SparsePauliOp(observable))
+                    .real
+                )
+                for max_qubits in range(2, width):
+                    for kind, options in (
+                        ("gate", {"wire_cut": False}),
+                        ("wire", {"gate_cut": False}),
+                    ):
+                        cut = qd.find_cut(
+                            circuit, max_qubits=max_qubits, seed=number, **options
+                        )
+                        cost = qd.cutting_overhead(circuit, {kind: cut})
+                        if not cut or cost["subcircuits"] > 300:
+                            continue  # nothing found, or too long for this test
+                        checked += 1
+                        value = qd.circuit_cutting(
+                            circuit, {kind: cut}, observable, shots=None
+                        )
+                        if abs(value - exact) > TOLERANCE:
+                            wrong.append((number, kind, max_qubits, cut, value, exact))
+        self.assertGreater(checked, 20)
+        self.assertEqual(wrong, [], f"{len(wrong)} of {checked} gave a wrong value")
+
 
 if __name__ == "__main__":
     unittest.main()
