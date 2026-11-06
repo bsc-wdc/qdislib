@@ -147,6 +147,8 @@ def canonical(name, params=(), sdk=None):
     if upper == "U2":  # u2(phi, lam) = U(pi/2, phi, lam)
         return "u", (math.pi / 2,) + params
     if upper == "CU3":
+        if not params:  # only the name is asked for (resolve_cuts)
+            return "cu", params
         theta, phi, lam = (float(p) for p in params[:3])
         if sdk in _OPENQASM_SDKS:
             return "cu", (theta, phi, lam, 0.0)
@@ -258,14 +260,14 @@ def _gate_names(circuit):
             sdk = None
         else:
             from Qdislib.utils.backends import iter_gates
+            from Qdislib.utils.sdks import sdk_of
 
             ids = {
                 f"{name}_{index}"
                 for index, (name, qubits) in enumerate(iter_gates(circuit), 1)
                 if qubits
             }
-            module = type(circuit).__module__
-            sdk = next((s for s in _OPENQASM_SDKS if module.startswith(s)), None)
+            sdk = sdk_of(circuit).name
     except Exception:  # noqa: BLE001 -- an unknown circuit type: leave names alone
         return None
     by_index = {}

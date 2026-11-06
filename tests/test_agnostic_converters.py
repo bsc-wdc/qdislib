@@ -141,5 +141,44 @@ class AgnosticConverterTest(BaseTimedTestCase):
             self.assertGreater(_fidelity(self._ref(c), sv), 1 - 1e-6, label)
 
 
+def _subclassed(num_qubits):
+    """A circuit of a class from another package (qiskit-nature's ansatzes, a
+    user's own)."""
+    from qiskit import QuantumCircuit
+
+    class MyCircuit(QuantumCircuit):
+        pass
+
+    return MyCircuit(num_qubits)
+
+
+@unittest.skipUnless(_HAS("qiskit") and _HAS("qiskit_aer"), "qiskit required")
+class SubclassedCircuitTest(BaseTimedTestCase):
+    def _circuit(self):
+        circuit = _subclassed(3)
+        circuit.h(0)
+        circuit.cx(0, 1)
+        circuit.cz(1, 2)
+        circuit.ry(0.4, 2)
+        return circuit
+
+    def test_is_read_as_a_circuit_of_its_sdk(self):
+        import Qdislib as qd
+
+        circuit = self._circuit()
+        exact = qd.analytical_solution(circuit, "ZZZ")
+        self.assertAlmostEqual(
+            qd.circuit_cutting(circuit, ["CZ_3"], "ZZZ", shots=None), exact, places=9
+        )
+        self.assertEqual(qd.find_cut(circuit, max_cuts=0), [])
+
+    def test_native_form_of_expectation_value(self):
+        import Qdislib as qd
+
+        circuit = _subclassed(1)
+        circuit.x(0)
+        self.assertEqual(qd.expectation_value(circuit, shots=100, seed=1), -1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

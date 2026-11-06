@@ -2198,7 +2198,7 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     if subcirc is None:
         return None
 
-    if type(subcirc) != qibo.models.circuit.Circuit:
+    if not isinstance(subcirc, qibo.models.Circuit):
         observables = subcirc[1]
         subcirc = subcirc[0]
     else:
@@ -2346,7 +2346,7 @@ def _expec_value_qiskit(
     if qc is None:
         return None
 
-    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
+    if not isinstance(qc, qiskit.QuantumCircuit):
         observables = qc[1]
         qc = qc[0]
     else:
@@ -2427,7 +2427,7 @@ def _expec_value_qiskit_qpu(
     if qc is None:
         return None
 
-    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
+    if not isinstance(qc, qiskit.QuantumCircuit):
         observables = qc[1]
         qc = qc[0]
     else:
@@ -2462,7 +2462,7 @@ def _expec_value_qiskit_gpu(qc, shots=1024, method="automatic"):
     if qc is None:
         return None
 
-    if type(qc) != qiskit.circuit.quantumcircuit.QuantumCircuit:
+    if not isinstance(qc, qiskit.QuantumCircuit):
         observables = qc[1]
         subcirc = qc[0]
         qc = subcirc

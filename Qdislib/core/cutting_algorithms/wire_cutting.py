@@ -2356,7 +2356,7 @@ def _expec_value_qibo(
     if subcirc is None:
         return None
 
-    if type(subcirc) != qibo.models.circuit.Circuit:
+    if not isinstance(subcirc, qibo.models.Circuit):
         observables = subcirc[1]
         qc = subcirc[0]
     else:
@@ -2745,7 +2745,7 @@ def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
     if subcirc is None:
         return None
 
-    if type(subcirc) != qibo.models.circuit.Circuit:
+    if not isinstance(subcirc, qibo.models.Circuit):
         observables = subcirc[1]
         subcirc = subcirc[0]
     else:
