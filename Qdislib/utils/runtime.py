@@ -25,7 +25,7 @@ Exposes the PyCOMPSs decorators and helpers (``task``, ``compss_wait_on``,
 installed, and transparent no-op fallbacks for serial execution otherwise.
 
 Centralising this here means the "PyCOMPSs not installed" handling lives in one
-place (instead of being duplicated in every module), the warning is emitted once,
+place (instead of being duplicated in every module), the message is logged once,
 and tests can obtain a working ``compss_wait_on`` without importing ``pycompss``
 directly.
 """
@@ -54,7 +54,7 @@ try:
 
     pycompss_available = True
 except ImportError:
-    logger.warning("PyCOMPSs is not installed; running serially (no parallelism).")
+    logger.info("PyCOMPSs is not installed; running serially (no parallelism).")
 
     pycompss_available = False
 

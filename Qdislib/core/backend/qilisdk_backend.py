@@ -71,7 +71,7 @@ class QiliSDKBackend(BaseBackend):
 
         if importlib.util.find_spec("qilisdk") is None:
             raise ImportError(
-                "QiliSDKBackend requires QiliSDK. Install with:  pip install qilisdk"
+                "QiliSDKBackend requires QiliSDK, on Python 3.11 or later. Install with:  pip install qilisdk"
             )
         self._gpu: bool = bool(config.extra.get("gpu", False))
 

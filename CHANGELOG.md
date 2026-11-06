@@ -281,6 +281,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`pip install "qdislib[qiskit]"` reports no dependency conflict on Google Colab.** Recent
   `ibm-cloud-sdk-core`, under `qiskit-ibm-runtime`, needs `python-dateutil>=3`, while packages
   preinstalled on Colab need `<3`. The `qiskit` extra now caps `python-dateutil` below 3.
+- **`qdislib[all]` and `qdislib[qilisdk]` install on Python 3.10.** QiliSDK has no wheels
+  there, so they failed; they now leave it out, and it needs Python 3.11 or later.
+- **No warning for running without PyCOMPSs.** It is what most people do, so the message is
+  now at info level.
 - **Cuts on a repeated qubit pair could give a wrong value, with no error.** With two gates
   on one pair and a gate between them on one line, cutting the later gate first took the
   earlier one as that line's neighbour, and the line was lost: gate or Hadamard cuts not

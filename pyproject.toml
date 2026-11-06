@@ -105,7 +105,7 @@ metis = ["pymetis>=2023.1"]
 qpu = ["qililab"]
 # QiliSDK (Qilimanjaro): its circuits are read and subcircuits written in it;
 # backend="qilisdk" runs them on its QiliSim simulator.
-qilisdk = ["qilisdk>=0.3.1"]
+qilisdk = ["qilisdk>=0.3.1; python_version >= '3.11'"]   # no wheels for Python 3.10
 all = ["Qdislib[qibo,qiskit,cudaq,pennylane,qilisdk,cache]"]
 ci = [
   "pycodestyle",

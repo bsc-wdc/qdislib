@@ -14,7 +14,7 @@ You also need **at least one quantum SDK**, installed as an optional extra. Use 
 * `pip install "qdislib[qibo]"` : Qibo
 * `pip install "qdislib[cudaq]"` : CUDA-Q
 * `pip install "qdislib[pennylane]"` : PennyLane
-* `pip install "qdislib[qilisdk]"` : QiliSDK
+* `pip install "qdislib[qilisdk]"` : QiliSDK, on Python 3.11 or later
 * `pip install "qdislib[cache]"` : PyZX and LMDB, for the semantic cache keys and the on-disk cache
 * `pip install "qdislib[all]"` : all of the above: about 3.3 GB, mostly NVIDIA libraries for CUDA-Q, so most people do not want it
 * `pip install "qdislib[iqm]"` : IQM hardware (not part of `[all]`)

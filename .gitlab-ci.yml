@@ -148,6 +148,8 @@ test:cudaq:
   stage: test
   allow_failure: true
   script:
-    - uv pip install ".[all,ci]"
+    # Not [all]: QiliSDK's wheels need AVX2, which this runner's CPU lacks, so its first
+    # test would kill the whole unittest process. Its tests skip without it.
+    - uv pip install ".[qibo,qiskit,cudaq,pennylane,cache,ci]"
     - !reference [.preload_openmp, script]
     - python -m unittest discover -s tests/ -v
