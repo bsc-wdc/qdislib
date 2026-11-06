@@ -285,6 +285,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   there, so they failed; they now leave it out, and it needs Python 3.11 or later.
 - **No warning for running without PyCOMPSs.** It is what most people do, so the message is
   now at info level.
+- **`import Qdislib` hides CUDA-Q's two notices when it loads CUDA-Q:** that `cudaq-logical`
+  is in preview and that `sample` and `observe` will change. Any other warning from it shows.
 - **Cuts on a repeated qubit pair could give a wrong value, with no error.** With two gates
   on one pair and a gate between them on one line, cutting the later gate first took the
   earlier one as that line's neighbour, and the line was lost: gate or Hadamard cuts not

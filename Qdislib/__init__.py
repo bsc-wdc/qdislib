@@ -20,6 +20,7 @@
 """Main Quantum Distributed Library package."""
 
 import logging
+import warnings
 
 __version__ = "2.0.0"
 
@@ -27,6 +28,22 @@ __version__ = "2.0.0"
 # stays silent unless the host application configures logging itself. Diagnostic
 # output is opt-in via qd.set_log_level(...) or the QDISLIB_LOG_LEVEL env var.
 logging.getLogger(__name__).addHandler(logging.NullHandler())
+
+# Importing Qdislib loads CUDA-Q when it is installed, which prints two notices of its
+# own at that moment, also for someone who never uses it. Only those two are hidden.
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore", message="cudaq-logical is in preview", category=UserWarning
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message="The CUDA-Q `sample` and `observe` algorithmic primitives will change",
+        category=FutureWarning,
+    )
+    try:
+        import cudaq as _cudaq  # noqa: F401
+    except ImportError:
+        pass
 
 from Qdislib.utils import logging_config as _logging_config
 
