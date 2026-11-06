@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [2.0.0] - 2026-11-06
+### Thanks
+- **David Ryan** ([@ddri](https://github.com/ddri), [Marqov](https://marqov.ai/)) reported
+  the fifteen bugs bsc-wdc/qdislib#2 to #17 and contributed two pull requests:
+  bsc-wdc/qdislib#5 (global qubit indices of multi-register Qiskit circuits, merged with
+  its authorship) and bsc-wdc/qdislib#1. The fixes of bsc-wdc/qdislib#1 reached earlier
+  releases rewritten and without credit, which this corrects: the double count of
+  multi-component circuits, X/Y observables on Qiskit without changing the input, shots
+  reaching `wire_cutting`'s circuits, `qpu_dict=None`, `find_cut`'s search on small graphs
+  and Qiskit input, the `U3`/`U2`/`U1` rebuild and `analytical_solution` on newer Qibo.
+  Its regression tests are in `tests/test_cutting_bugs.py`, under his name.
 ### Added
 - **Packing built into the IBM backend and the engine.** With `pack=True` in its
   config, the IBM backend runs each group of `circuits_per_task` subcircuits side by
