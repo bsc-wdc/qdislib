@@ -60,7 +60,7 @@ What counts as the same circuit
   shots. It is computed on the master without building the circuit, so a hit never becomes a task, and it never matches a
   different circuit.
 - ``"semantic"``: also equivalent circuits, by a ZX-reduced graph hash computed in the task (``pip install "qdislib[cache]"`` for
-  PyZX). ZX reduction is not a canonical form, so an equivalent circuit can still be missed. It is then run, not served wrongly.
+  PyZX). ZX reduction is not a canonical form, so an equivalent circuit can still be missed, and is then run. The hash also looks only a few steps around each node, so two different circuits can, rarely, share a key, and the second then gets the first one's result, with no error. Qdislib warns about this once. Use ``"exact"`` where a wrong value would matter.
 
 .. warning::
 
