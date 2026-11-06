@@ -39,17 +39,28 @@
     b.classList.add("qdx-flash");
     setTimeout(function () { b.classList.remove("qdx-flash"); }, 220);
   });
-  /* A code box with a button that copies it. Selects the text where the clipboard is refused. */
+  /* A code box with a copy icon inside it, as in an editor. Selects the text where the
+     clipboard is refused. */
+  var COPY_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5"/></svg>';
+  var DONE_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>';
   function codeBox(parent) {
     var box = parent.appendChild(el("div", { class: "qdx-code" }));
-    var button = box.appendChild(el("button", { type: "button", "aria-pressed": "false" }, "Copy"));
     var pre = box.appendChild(el("pre"));
+    var button = box.appendChild(el("button", { type: "button", class: "qdx-copy", "aria-label": "Copy the code", title: "Copy", "aria-pressed": "false" }));
+    button.innerHTML = COPY_ICON;
     var timer;
-    function said(text) {
-      button.textContent = text;
+    function said(label) {
+      button.innerHTML = DONE_ICON;
+      button.setAttribute("aria-label", label);
+      button.setAttribute("title", label);
       button.setAttribute("aria-pressed", "true");
       clearTimeout(timer);
-      timer = setTimeout(function () { button.textContent = "Copy"; button.setAttribute("aria-pressed", "false"); }, 1600);
+      timer = setTimeout(function () {
+        button.innerHTML = COPY_ICON;
+        button.setAttribute("aria-label", "Copy the code");
+        button.setAttribute("title", "Copy");
+        button.setAttribute("aria-pressed", "false");
+      }, 1600);
     }
     function select() {
       var range = document.createRange(), selection = window.getSelection();
@@ -380,7 +391,7 @@
     var doneEditing = editBody.appendChild(el("button", { type: "button" }, "Back to cutting"));
     doneEditing.addEventListener("click", function () { state.tool = null; state.pending = null; edit.open = false; render(); });
 
-    var boardHost = root.appendChild(el("div"));
+    var boardHost = root.appendChild(el("div", { id: "qdx-play-board" }));
     var legend = root.appendChild(el("div", { class: "qd-legend" }));
     legend.innerHTML = legendHtml();
     root.appendChild(el("p", { class: "qd-note" }, "The letters at the end of the lines are what is measured. Tap one to change it: Z, X, Y, or I for nothing."));
@@ -583,6 +594,9 @@
         }
       });
       board(boardHost, svg, true);
+      /* The box follows the circuit: narrower or wider, shorter or taller, as it changes. */
+      var drawn = LEFT + (edit.open ? COLS : Math.max(5, Math.max.apply(null, cols.concat([0])) + 1)) * CELL + 50;
+      boardHost.style.width = "min(100%, " + Math.round(drawn * 1.35) + "px)";
       if (keyed) {  /* with a keyboard, stay on the same place */
         Array.prototype.some.call(boardHost.querySelectorAll(".qdx-hit"), function (node) {
           if (node.getAttribute("data-op") === keyed.op && node.getAttribute("data-edge") === keyed.edge && node.getAttribute("data-obs") === keyed.obs) { node.focus(); return true; }
