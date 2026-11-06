@@ -301,6 +301,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CUDA-Q kernels:** several registers read the right qubits; final `mz` is stripped
   everywhere; a gate after a measurement, `mx`, `my` and `qvector(state)` raise a readable
   error instead of a wrong value; `t.adj` runs with shots; a bare kernel runs with shots.
+- **A wire cut right after a cut gate on the same qubit** raised `ValueError: 2 is not in list`
+  when a term of the gate cut left that qubit with no gate.
 - **The deprecated `method=` and `qpu=` paths** check the observable as the main path does,
   and their samplers keep a bit per qubit.
 - **`QdBackEnd.sample_circuit`** returns qubit-0-first keys on every backend.
