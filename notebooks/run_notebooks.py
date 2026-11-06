@@ -33,6 +33,7 @@ from nbclient import NotebookClient
 from nbformat.v4 import new_output
 
 ROOT = pathlib.Path(__file__).resolve().parent
+LIBRARY_WARNING = re.compile(r"^\S*/site-packages/(\S+: \w*Warning: .*\n)  .*\n", re.MULTILINE)
 LOCAL_PATH = re.compile(r"/(Users|home|private|tmp|gpfs|root|opt)/[\w.-]+|site-packages")
 RUN_UNDER_COMPSS = {"09_distributed_and_qpu.ipynb", "Qdislib_try_it.ipynb"}
 
@@ -65,6 +66,9 @@ def clean(notebook):
             if "compss-start" in tags and "PyCOMPSs is not installed" not in str(cell.outputs):
                 cell.outputs = [new_output("stream", name="stdout", text="PyCOMPSs runtime started.\n")]
         for output in cell.outputs:
+            if output.get("name") == "stderr":
+                # a library warning, as a reader would see it, without this machine's path
+                output.text = LIBRARY_WARNING.sub(r"\1", output.text)
             text = output.get("text", "")
             data = output.get("data", {})
             text += "".join(str(data.get(kind, "")) for kind in ("text/plain", "text/html"))
