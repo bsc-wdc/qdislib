@@ -33,7 +33,7 @@ Each cut multiplies the work, so Qdislib has several ways to multiply it by less
 Finding cuts
 ------------
 
-Pick a circuit and a device size, and see what :func:`~Qdislib.find_cut` chooses. *Stored from real runs.*
+Pick a circuit and a device size, and compare the options :func:`~Qdislib.find_cut` ranks. *Stored from real runs.*
 
 .. raw:: html
 
@@ -42,7 +42,7 @@ Pick a circuit and a device size, and see what :func:`~Qdislib.find_cut` chooses
 Planning a run
 --------------
 
-What a number of cuts costs for each kind of cut, before anything runs. *Stored from* :func:`~Qdislib.cutting_overhead` *and* :func:`~Qdislib.shots_for`.
+What a number of cuts costs for each kind of cut, before anything runs: the subcircuits, and the shots for an almost exact result. *Stored from* :func:`~Qdislib.cutting_overhead` *and* :func:`~Qdislib.shots_for`.
 
 .. raw:: html
 
@@ -69,7 +69,7 @@ Error bars
 Noise
 -----
 
-An Aer noise model on the cut and the uncut circuit. *Stored from real runs.*
+How each kind of cut behaves as noise grows, next to the uncut circuit. *Stored from real Aer runs.*
 
 .. raw:: html
 
@@ -87,7 +87,7 @@ The same circuit and cut in five SDKs. *Each snippet was run; its results are st
 Packing on a QPU
 ----------------
 
-:func:`qd.pack <Qdislib.pack>` runs several subcircuits side by side, on groups of a device's qubits. *Stored from a real call on a fake device.*
+:func:`qd.pack <Qdislib.pack>` runs several subcircuits side by side, on groups of a device's qubits. *Stored from real calls on fake devices: calibration snapshots, not live ones.*
 
 .. raw:: html
 

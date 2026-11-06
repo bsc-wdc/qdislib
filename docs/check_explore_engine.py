@@ -45,6 +45,7 @@ const out = cases.map((c) => {
   r.invalid = plan.invalid.length > 0;
   if (!r.invalid) {
     r.fragments = plan.fragments.length;
+    r.widths = plan.widths.slice().sort((x, y) => x - y);
     r.configurations = plan.configurations;
     r.subcircuits = plan.subcircuits;
     r.gamma = plan.gamma;
@@ -152,6 +153,10 @@ def qdislib_result(case):
     out["invalid"] = False
     out["subcircuits"] = len(subs)
     out["fragments"] = len(subs.plan.fragments)
+    widths = {}
+    for s in subs:
+        widths[str(s).split("fragment ")[1].split(",")[0]] = s.num_qubits
+    out["widths"] = sorted(widths.values())
     out["configurations"] = subs.plan.num_configurations
     out["gamma"] = subs.plan.gamma()
     out["value"] = float(qd.circuit_cutting(qc, spec, observable, shots=None, joint=False))
@@ -196,7 +201,7 @@ def main():
                 worst[key] = max(worst[key], difference)
                 if difference > 1e-9:
                     problems.append(f"{key}: {mine[key]} against {theirs[key]}")
-        for key in ("invalid", "subcircuits", "fragments", "configurations", "optimized", "joint_subcircuits"):
+        for key in ("invalid", "subcircuits", "fragments", "widths", "configurations", "optimized", "joint_subcircuits"):
             if key in theirs and mine.get(key) != theirs[key]:
                 problems.append(f"{key}: {mine.get(key)} against {theirs[key]}")
         kinds = {c["kind"] for c in case["cuts"]}

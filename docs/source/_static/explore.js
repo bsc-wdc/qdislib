@@ -53,6 +53,16 @@
     button.innerHTML = COPY_ICON;
     return pre;
   }
+  /* The page's dropdown: the circuit picker's look, for every list of things to pick. */
+  function picker(root, id, label, items, value, onChange) {
+    var row = root.appendChild(el("div", { class: "qdx-start" }));
+    row.appendChild(el("label", { for: id }, label));
+    var menu = row.appendChild(el("select", { id: id }));
+    items.forEach(function (item) { menu.appendChild(el("option", { value: item.value }, item.label)); });
+    menu.value = value;
+    menu.addEventListener("change", function () { onChange(menu.value); });
+    return menu;
+  }
   function fragColor(f) { return "var(--qdx-f" + (f % 8) + ")"; }
   function shortName(op) { return op.name.toUpperCase(); }
 
@@ -148,7 +158,6 @@
       s += scissors(cx, y(cut.qubit), cutColour("wire"), 12, o.keys ? "xw" + cut.qubit + ":" + cut.from : null);
     });
     if (o.ends) {
-      s += '<text class="i" x="' + (W - 4) + '" y="11" text-anchor="end">measured</text>';
       o.ends.forEach(function (letter, q) {
         s += '<g class="qdx-obs"><rect x="' + (W - 34) + '" y="' + (y(q) - 13) + '" width="26" height="26" rx="6"/><text class="q" x="' + (W - 21) + '" y="' + (y(q) + 4.5) + '" text-anchor="middle">' + esc(letter) + "</text></g>";
       });
@@ -385,7 +394,7 @@
     var shotStats = shotBody.appendChild(el("div", { class: "qd-stats" }));
     var strip = shotBody.appendChild(el("div"));
     shotBody.appendChild(el("p", { class: "qd-note" },
-      "Shots are simulated here: each distinct fragment circuit gives a +1 or −1 per shot, drawn with its exact probability. Dots are 30 independent runs."));
+      "Slide to more shots and the dots close in on the exact value: the axis stays the same, set by the fewest shots. Shots are simulated here: each distinct fragment circuit gives a +1 or −1 per shot, drawn with its exact probability. Dots are 30 independent runs."));
 
     var how = root.appendChild(el("details"));
     how.appendChild(el("summary", {}, "How it works"));
@@ -654,16 +663,27 @@
       if (notes.length) box.appendChild(el("p", { class: "qd-note" }, notes.join(" ")));
       return box;
     }
+    /* The axis stays put along the slider, set by the fewest shots, so the spread is seen to
+       shrink. It belongs to the circuit and its cuts, not to one draw. */
+    var axis = { key: null, extent: 1 };
+    function axisFor(prepared, exact, key) {
+      if (axis.key === key) return axis.extent;
+      var rng = E.mulberry(7919), most = 1e-3, fewest = Math.pow(2, Number(shotSlider.min));
+      for (var i = 0; i < 60; i++) most = Math.max(most, Math.abs(prepared.draw(fewest, rng) - exact));
+      axis = { key: key, extent: most };
+      return most;
+    }
     function drawShots(prepared, plan, exact) {
       var shots = Math.pow(2, Number(shotSlider.value)), rng = E.mulberry(state.seed * 7919 + shots), draws = [];
       for (var i = 0; i < 30; i++) draws.push(prepared.draw(shots, rng));
+      var extent = axisFor(prepared, exact, JSON.stringify([state.ops, state.cuts, state.observable]));
       var mean = draws.reduce(function (a, b) { return a + b; }, 0) / draws.length;
       var spread = Math.sqrt(draws.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (draws.length - 1));
       stat(shotStats, count(shots), "shots per subcircuit");
       stat(shotStats, num(draws[0], 4), "one run, exact " + num(exact, 4));
       stat(shotStats, spread.toFixed(4), "spread of 30 runs");
       stat(shotStats, count(shots * plan.subcircuits), "shots in total, per run");
-      strip.innerHTML = stripPlot(draws, exact);
+      strip.innerHTML = stripPlot(draws, exact, extent);
     }
     function drawTerms(plan, cuts, ops) {
       if (!cuts.length) { termsBody.appendChild(el("p", { class: "qd-note" }, "No cuts yet.")); return; }
@@ -723,16 +743,15 @@
       lines.push('print(qd.analytical_solution(qc, "' + observable + '"))');
       return lines.join("\n");
     }
-    function stripPlot(draws, exact) {
-      var W = 340, H = 64, L = 8, R = 8;
-      var extent = Math.max.apply(null, draws.map(function (d) { return Math.abs(d - exact); }).concat([1e-3]));
-      var x = function (v) { return L + ((v - exact + extent * 1.15) / (2.3 * extent)) * (W - L - R); };
-      var s = '<svg viewBox="0 0 ' + W + " " + H + '" style="max-width:560px" role="img" aria-label="30 runs against the exact value">';
+    function stripPlot(draws, exact, extent) {
+      var W = 340, H = 64, L = 8, R = 8, span = extent * 1.15;
+      var x = function (v) { return L + ((Math.max(-span, Math.min(span, v - exact)) + span) / (2 * span)) * (W - L - R); };
+      var s = '<svg viewBox="0 0 ' + W + " " + H + '" style="max-width:560px" role="img" aria-label="30 runs against the exact value, on an axis that stays the same at every number of shots">';
       s += '<line x1="' + x(exact) + '" x2="' + x(exact) + '" y1="6" y2="42" stroke="var(--qd-b)" stroke-width="2"/>';
       draws.forEach(function (d, i) { s += '<circle cx="' + x(d) + '" cy="' + (12 + (i % 5) * 6) + '" r="3.2" fill="var(--qd-a)" opacity="0.8"/>'; });
       s += '<text x="' + x(exact) + '" y="56" text-anchor="middle">exact ' + num(exact, 3) + "</text>";
-      s += '<text x="' + L + '" y="56">' + num(exact - extent * 1.15, 3) + "</text>";
-      s += '<text x="' + (W - R) + '" y="56" text-anchor="end">' + num(exact + extent * 1.15, 3) + "</text>";
+      s += '<text x="' + L + '" y="56">' + num(exact - span, 3) + "</text>";
+      s += '<text x="' + (W - R) + '" y="56" text-anchor="end">' + num(exact + span, 3) + "</text>";
       return s + "</svg>";
     }
 
@@ -826,87 +845,103 @@
 
   /* ---- 2. find_cut ---- */
   function findCutSection(root) {
-    var data = D.find_cut, family = data[0].key, kind = "mixed", max = 4;
+    var data = D.find_cut, family = data[0].key, kind = "gate", max = 4, pick = 0;
     root.textContent = "";
-    root.appendChild(el("span", { class: "qd-label" }, "A circuit"));
-    var familyBox = root.appendChild(el("div", { class: "qd-choices qd-methods" }));
-    root.appendChild(el("span", { class: "qd-label" }, "What find_cut may use"));
+    picker(root, "qdx-find-circuit", "Circuit", data.map(function (x) { return { value: x.key, label: x.label }; }), family, function (v) { family = v; pick = 0; update(); });
     var kindBox = root.appendChild(el("div", { class: "qd-choices qd-cuts" }));
     var row = root.appendChild(el("div", { class: "qdx-row" }));
     var label = row.appendChild(el("label", { for: "qdx-max" }));
     var slider = row.appendChild(el("input", { id: "qdx-max", type: "range", step: "1", "aria-label": "max_qubits" }));
-    var host = root.appendChild(el("div"));
+    var list = root.appendChild(el("div", { class: "qdx-options" }));
+    var host = root.appendChild(el("div", { id: "qdx-find-board" }));
     root.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendHtml();
-    var stats = root.appendChild(el("div", { class: "qd-stats" }));
     var code = codeCell(root);
     var note = root.appendChild(el("p", { class: "qd-note" }));
 
+    function planOf(f, run) {
+      return E.plan({ n: f.n, ops: f.ops }, run.cuts.map(function (c) { return Object.assign({}, c); }), new Array(f.n + 1).join("Z"));
+    }
+    function nameCut(run) {
+      var parts = [];
+      ["gate", "hadamard", "wire"].forEach(function (key) {
+        (run.spec[key] || []).forEach(function (cut) { parts.push(Array.isArray(cut) ? cut.join(" → ") : cut); });
+      });
+      return parts.join(", ");
+    }
+    /* One number with a thin bar, on the scale of the options shown. */
+    function measure(value, text, largest, caption) {
+      var share = largest > 0 ? 100 * value / largest : 0;
+      return '<span class="qdx-measure"><b>' + esc(text) + "</b><span>" + esc(caption) + '</span><i style="width:' + Math.max(3, share) + '%"></i></span>';
+    }
     function update() {
       var f = data.filter(function (x) { return x.key === family; })[0];
-      toggles(familyBox, data.map(function (x) { return { value: x.key, label: x.label }; }), family, function (v) { family = v; update(); });
-      toggles(kindBox, [{ value: "gate", label: "Gate" }, { value: "wire", label: "Wire" }, { value: "mixed", label: "Any, by cost" }], kind, function (v) { kind = v; update(); });
+      toggles(kindBox, [{ value: "gate", label: "Gate" }, { value: "wire", label: "Wire" }, { value: "mixed", label: "Any, by cost" }], kind, function (v) { kind = v; pick = 0; update(); });
       slider.min = "2"; slider.max = String(f.n - 1);
       max = Math.min(max, f.n - 1);
       slider.value = String(max);
       label.textContent = "max_qubits = " + max;
-      var run = f.runs[kind + ":" + max];
-      var cuts = run.cuts || [];
-      var plan = E.plan({ n: f.n, ops: f.ops }, cuts.map(function (c) { return Object.assign({}, c); }), new Array(f.n + 1).join("Z"));
-      var cols = columns(f.n, f.ops);
-      board(host, drawCircuit({ n: f.n, ops: f.ops, cols: cols, cuts: cuts, plan: plan, width: Math.max.apply(null, cols) + 1, aria: f.label }), true);
-      stats.textContent = "";
-      if (cuts.length) {
-        stat(stats, String(cuts.length), cuts.length === 1 ? "cut" : "cuts");
-        stat(stats, String(run.fragments), "fragments");
-        stat(stats, count(run.subcircuits), "subcircuits");
-        stat(stats, gammaText(run.gamma), "gamma");
+      var runs = f.runs[kind + ":" + max];
+      pick = Math.min(pick, Math.max(runs.length - 1, 0));
+      list.textContent = "";
+      if (runs.length) {
+        var widest = runs.map(function (run) { return Math.max.apply(null, planOf(f, run).widths); });
+        var mostSubs = Math.max.apply(null, runs.map(function (run) { return Math.log(run.subcircuits + 1); }));
+        var mostGamma = Math.max.apply(null, runs.map(function (run) { return Math.log(run.gamma + 1); }));
+        var mostWide = Math.max.apply(null, widest);
+        runs.forEach(function (run, i) {
+          var b = list.appendChild(el("button", { type: "button", class: "qdx-option", "aria-pressed": String(i === pick) }));
+          b.innerHTML = '<span class="qdx-option-name">' + (runs.length > 1 ? "<b>" + (i + 1) + ".</b> " : "") + esc(nameCut(run)) + "</span>" +
+            '<span class="qdx-measures">' +
+            measure(Math.log(run.subcircuits + 1), count(run.subcircuits), mostSubs, "subcircuits") +
+            measure(Math.log(run.gamma + 1), gammaText(run.gamma), mostGamma, "gamma") +
+            measure(widest[i], String(widest[i]), mostWide, "largest piece") + "</span>";
+          b.addEventListener("click", function () { pick = i; update(); });
+        });
       } else {
-        stat(stats, "none", "find_cut found no cut within this limit");
+        list.appendChild(el("p", { class: "qd-note" }, "find_cut found no cut within this limit."));
       }
-      var options = kind === "mixed" ? "mixed=True" : kind === "gate" ? "wire_cut=False" : "gate_cut=False";
-      code.textContent = "qd.find_cut(circuit, max_qubits=" + max + ", " + options + ", seed=0)\n# " + (cuts.length ? JSON.stringify(run.spec) : "[]");
-      note.textContent = run.difference !== undefined
-        ? "Reconstructed with shots=None, this cut differs from the uncut value by " + small(run.difference) + ". Stored from a real run."
-        : cuts.length ? "Stored from a real run. Too many configurations to reconstruct here." : "Stored from a real run.";
+      var run = runs[pick], cuts = run ? run.cuts : [], plan = run ? planOf(f, run) : E.plan({ n: f.n, ops: f.ops }, [], new Array(f.n + 1).join("Z"));
+      var cols = columns(f.n, f.ops);
+      var columnsUsed = Math.max.apply(null, cols) + 1;
+      board(host, drawCircuit({ n: f.n, ops: f.ops, cols: cols, cuts: cuts, plan: plan, width: columnsUsed, aria: f.label }), true);
+      /* The box follows the circuit, as in the playground. */
+      host.style.width = "min(100%, " + (LEFT + columnsUsed * CELL + 12) + "px)";
+      var options = kind === "mixed" ? "mixed=True" : kind === "gate" ? "wire_cut=False, top_n=5" : "gate_cut=False, top_n=5";
+      code.textContent = "qd.find_cut(circuit, max_qubits=" + max + ", " + options + ", seed=0)";
+      var words = runs.length > 1 ? "The options as top_n ranks them, best first, and the first is what find_cut returns without it. Tap one to draw it. " : kind === "mixed" ? "With mixed=True, find_cut gives one answer, the cheapest it finds. " : "";
+      note.textContent = words + (run && run.difference !== undefined ? "Reconstructed with shots=None, the first differs from the uncut value by " + small(run.difference) + ". " : "") + "Bars are on the scale of the options shown, subcircuits and gamma logarithmic. The largest piece is in qubits, computed here from the cut. Stored from real runs.";
     }
-    slider.addEventListener("input", function () { max = Number(slider.value); update(); });
+    slider.addEventListener("input", function () { max = Number(slider.value); pick = 0; update(); });
     update();
   }
 
   /* ---- 3. Planner ---- */
   function plannerSection(root) {
-    var data = D.planner, k = 3, exp = 2;
+    var data = D.planner, k = 3;
     root.textContent = "";
-    var row1 = root.appendChild(el("div", { class: "qdx-row" }));
-    var label1 = row1.appendChild(el("label", { for: "qdx-k" }));
-    var s1 = row1.appendChild(el("input", { id: "qdx-k", type: "range", min: "1", max: String(data.cuts.length), step: "1", value: String(k), "aria-label": "Number of cuts" }));
-    var row2 = root.appendChild(el("div", { class: "qdx-row" }));
-    var label2 = row2.appendChild(el("label", { for: "qdx-eps" }));
-    var s2 = row2.appendChild(el("input", { id: "qdx-eps", type: "range", min: "1", max: "3", step: "0.25", value: String(exp), "aria-label": "Target precision" }));
+    var row = root.appendChild(el("div", { class: "qdx-row" }));
+    var label = row.appendChild(el("label", { for: "qdx-k" }));
+    var slider = row.appendChild(el("input", { id: "qdx-k", type: "range", min: "1", max: String(data.cuts.length), step: "1", value: String(k), "aria-label": "Number of cuts" }));
     var table = root.appendChild(el("table", { class: "qdx-t" }));
     root.appendChild(el("p", { class: "qd-note" },
-      "Stored from qd.cutting_overhead and qd.shots_for, with delta = " + data.delta + ". The shots are Hoeffding's worst case for any circuit with this cut, usually far more than a run needs: see the error bars below."));
+      "An almost exact result: within ±" + data.epsilon + " of the true value, with probability " + (1 - data.delta) + ". The shots are what qd.shots_for(circuit, cuts, epsilon=" + data.epsilon + ") returns, 2 (gamma / epsilon)² ln(2 / delta), about " + (2 * Math.log(2 / data.delta)).toFixed(1) + " (gamma / epsilon)²: so gamma drives them. It holds for any circuit with this cut, so a real run can need fewer. Stored from qd.cutting_overhead and qd.shots_for."));
     function update() {
-      var epsilon = Math.pow(10, -exp);
-      label1.textContent = "Cuts: " + k;
-      label2.textContent = "Target error: " + (epsilon < 0.01 ? epsilon.toFixed(4) : epsilon.toFixed(3));
-      var scale = Math.pow(data.epsilon / epsilon, 2);
-      var html = "<thead><tr><th>Cut</th><th>Subcircuits</th><th>gamma</th><th>Shots, worst case</th></tr></thead><tbody>";
+      label.textContent = "Cuts: " + k;
+      var html = "<thead><tr><th>Cut</th><th>Subcircuits</th><th>gamma</th><th>Shots for ±" + data.epsilon + "</th></tr></thead><tbody>";
       Object.keys(data.kinds).forEach(function (key) {
         var kind = data.kinds[key], r = kind.rows[k - 1];
-        html += "<tr><td>" + esc(kind.label) + "</td><td>" + count(r.subcircuits) + "</td><td>" + gammaText(r.gamma) + "</td><td>" + count(r.shots * scale) + "</td></tr>";
+        html += "<tr><td>" + esc(kind.label) + "</td><td>" + count(r.subcircuits) + "</td><td>" + gammaText(r.gamma) + "</td><td>" + count(r.shots) + "</td></tr>";
       });
       table.innerHTML = html + "</tbody>";
     }
-    s1.addEventListener("input", function () { k = Number(s1.value); update(); });
-    s2.addEventListener("input", function () { exp = Number(s2.value); update(); });
+    slider.addEventListener("input", function () { k = Number(slider.value); update(); });
     update();
   }
 
   /* ---- 4. Distributions ---- */
   /* Bars for one run, ticks for the exact values. A reconstruction can dip below zero. */
   function hist(keys, exact, values, o) {
-    var W = o.width || 170, H = o.height || 118, T = 20, B = keys.length <= 4 ? 34 : 4, L = 4, R = 4;
+    var W = o.width || 170, H = o.height || 118, T = 20, B = keys.length <= 4 ? 20 : 4, L = 4, R = 4;
     var top = o.top, low = o.low, y = function (v) { return T + ((top - v) / (top - low)) * (H - T - B); };
     var step = (W - L - R) / keys.length, bar = Math.min(Math.max(step - 2, 2), 34), s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="' + esc(o.title || "Distribution") + '">';
     if (o.title) s += '<text class="t" x="' + L + '" y="12">' + esc(o.title) + "</text>";
@@ -919,12 +954,21 @@
       if (exact) s += '<line x1="' + (x - 0.5) + '" x2="' + (x + bar + 0.5) + '" y1="' + y(exact[i]) + '" y2="' + y(exact[i]) + '" stroke="var(--qd-b)" stroke-width="2.5"/>';
       s += "</g>";
       if (keys.length <= 4) {
-        s += '<text x="' + (x + bar / 2) + '" y="' + (H - 18) + '" text-anchor="middle" class="t">' + esc(key) + "</text>";
-        s += '<text x="' + (x + bar / 2) + '" y="' + (H - 5) + '" text-anchor="middle">' + v.toFixed(3) + "</text>";
+        s += '<text x="' + (x + bar / 2) + '" y="' + (H - 5) + '" text-anchor="middle">' + esc(key) + "</text>";
       }
     });
     s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(0) + '" y2="' + y(0) + '" stroke="var(--color-foreground-secondary, #555)" stroke-width="1"/>';
     return s + "</svg>";
+  }
+  /* About three plots at different shots, on one scale, a little larger than the full ones. */
+  function shotPlots(host, shots, runs, exact) {
+    var keys = ["00", "01", "10", "11"], all = [0].concat(exact || []), width = window.matchMedia("(max-width: 600px)").matches ? 120 : 170;
+    runs.forEach(function (run) { all = all.concat(run); });
+    var top = Math.max.apply(null, all) * 1.05, low = Math.min.apply(null, all);
+    var grid = host.appendChild(el("div", { class: "qdx-grid qdx-grid3" }));
+    shots.forEach(function (count_, i) {
+      grid.appendChild(el("div")).innerHTML = hist(keys, exact, runs[i], { width: width, top: top, low: low, title: count(count_) + " shots" });
+    });
   }
   function legendOf(items) {
     return items.map(function (x) {
@@ -972,7 +1016,7 @@
         var code = codeCell(body);
         code.textContent = 'qd.circuit_cutting_sampling(circuit, ["' + data.cut + '"], shots=4096, seed=1, qubits=[' + lo + ", " + hi + "])";
         body.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendOf([["var(--qd-a)", "qubits=[" + lo + ", " + hi + "]"], ["var(--qd-b)", "exact", "tick"]]);
-        body.appendChild(el("div", { class: "qdx-plot" })).innerHTML = hist(["00", "01", "10", "11"], m.exact, m.run, { width: 340, height: 170, top: Math.max.apply(null, m.exact.concat(m.run)) * 1.05, low: Math.min.apply(null, m.run.concat([0])) });
+        shotPlots(body, data.small_shots, m.runs, m.exact);
         body.appendChild(el("p", { class: "qd-note" }, "Each fragment circuit returns only what the marginal reads, so the cost follows the kept qubits. Bit j of a key is qubits[j]. Stored from real runs."));
       } else {
         var big = data.factored;
@@ -985,7 +1029,8 @@
         var sl = r.appendChild(el("input", { id: "qdx-pair", type: "range", min: "0", max: "38", step: "1", value: String(pair), "aria-label": "Which neighbouring qubits to read" }));
         lab.textContent = "d.marginal([" + pair + ", " + (pair + 1) + "])";
         var values = big.pairs[pair + "," + (pair + 1)];
-        body.appendChild(el("div", { class: "qdx-plot" })).innerHTML = hist(["00", "01", "10", "11"], null, values, { width: 340, height: 150, top: Math.max.apply(null, values) * 1.05, low: Math.min.apply(null, values.concat([0])) });
+        body.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendOf([["var(--qd-a)", "one run"], ["var(--qd-b)", "exact, with shots=None", "tick"]]);
+        shotPlots(body, data.small_shots, data.small_shots.map(function (n) { return big.sampled[n][pair + "," + (pair + 1)]; }), values);
         sl.addEventListener("input", function () { pair = Number(sl.value); update(); });
         body.appendChild(el("span", { class: "qd-label" }, "d.most_likely(5)"));
         var pre = codeCell(body);
@@ -1004,7 +1049,7 @@
   }
   /* A few round values on the y axis, faint. */
   function yGrid(low, high, y, x1, x2) {
-    var span = high - low, unit = Math.pow(10, Math.floor(Math.log10(span))), step = [1, 2, 5, 10].map(function (m) { return m * unit; }).filter(function (d) { return span / d <= 5; })[0];
+    var span = high - low, unit = Math.pow(10, Math.floor(Math.log10(span)) - 1), step = [1, 2, 5, 10].map(function (m) { return m * unit; }).filter(function (d) { return span / d <= 5; })[0];
     var s = "", digits = step < 0.1 ? 2 : 1;
     if (step < 0.01) digits = 3;
     for (var v = Math.ceil(low / step) * step; v <= high + 1e-12; v += step) {
@@ -1018,7 +1063,7 @@
     root.textContent = "";
     var tabs = root.appendChild(el("div", { class: "qdx-tabs" }));
     root.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendOf([["var(--qd-a)", "one run, with its error=True bar"], ["var(--qd-b)", "24 runs: each a dot, their mean and spread"]]);
-    var plot = root.appendChild(el("div", { class: "qdx-plot" }));
+    var plot = root.appendChild(el("div", { class: "qdx-plot qdx-plot-small" }));
     var table = root.appendChild(el("div"));
     root.appendChild(el("p", { class: "qd-note" }, "The purple bar is the ±1 standard error one run reported, from a bootstrap over its shots, at no device cost. The orange bar is how far 24 separate runs really scatter, each with its own seed: when the two match, the reported bar can be trusted. Stored from real runs."));
     function update() {
@@ -1060,103 +1105,65 @@
 
   /* ---- 6. Noise ---- */
   function noiseSection(root) {
-    var data = D.noise, W = 380, H = 240, L = 44, R = 106, T = 14, B = 38, level = 2;
+    var data = D.noise, W = 380, H = 240, L = 44, R = 106, T = 14, B = 38;
     var SERIES = [
-      { name: "Uncut", colour: "var(--qdx-plain)", dx: 0, on: true, get: function (r) { return [r.uncut, null]; } },
-      { name: "Gate cuts", colour: "var(--qdx-gate)", dx: -4, on: true, get: function (r) { return r.gate; } },
-      { name: "Hadamard cuts", colour: "var(--qdx-had)", dx: 4, on: true, get: function (r) { return r.hadamard; } }
+      { name: "Uncut", colour: "var(--qdx-plain)", dx: 0, get: function (r) { return r.uncut; } },
+      { name: "Gate cut", colour: "var(--qdx-gate)", dx: -3, get: function (r) { return r.gate; } },
+      { name: "Hadamard cut", colour: "var(--qdx-had)", dx: 3, get: function (r) { return r.hadamard; } },
+      { name: "Wire cut", colour: "var(--qdx-wire)", dx: 6, get: function (r) { return r.wire; } }
     ];
     root.textContent = "";
-    var chips = root.appendChild(el("div", { class: "qdx-tools qdx-series" }));
-    var plot = root.appendChild(el("div", { class: "qdx-plot" }));
-    var row = root.appendChild(el("div", { class: "qdx-row" }));
-    var label = row.appendChild(el("label", { for: "qdx-noise-p" }));
-    var slider = row.appendChild(el("input", { id: "qdx-noise-p", type: "range", min: "0", max: String(data.rows.length - 1), step: "1", value: String(level), "aria-label": "Two-qubit depolarizing error" }));
-    var readout = root.appendChild(el("div", { class: "qd-stats" }));
-
+    root.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendOf(SERIES.map(function (x) { return [x.colour, x.name]; }));
     var points = [data.exact];
     data.rows.forEach(function (r) {
       SERIES.forEach(function (series) {
         var v = series.get(r);
-        points.push(v[0] - (v[1] || 0), v[0] + (v[1] || 0));
+        points.push(v[0] - v[1], v[0] + v[1]);
       });
     });
     var low = Math.min(0, Math.min.apply(null, points)), high = Math.max.apply(null, points) * 1.05;
     var pMax = data.rows[data.rows.length - 1].p;
     var x = function (p) { return L + 8 + (p / pMax) * (W - L - R - 16); }, y = function (v) { return T + ((high - v) / (high - low)) * (H - T - B); };
-
-    function update() {
-      toggles(chips, SERIES.map(function (series, i) { return { value: i, label: series.name, colour: series.colour }; }), null, function (i) {
-        var others = SERIES.filter(function (series, j) { return j !== i && series.on; });
-        if (SERIES[i].on && !others.length) return;   // one line always stays
-        SERIES[i].on = !SERIES[i].on;
-        update();
-      });
-      Array.prototype.forEach.call(chips.children, function (button, i) {
-        button.setAttribute("aria-pressed", String(SERIES[i].on));
-        button.insertBefore(el("span", { class: "qd-swatch", style: "background:" + SERIES[i].colour }), button.firstChild);
-      });
-      var now = data.rows[level], s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="The value against the two-qubit error, uncut and with cuts">';
-      s += yGrid(low, high, y, L, W - R);
-      s += '<line x1="' + x(now.p) + '" x2="' + x(now.p) + '" y1="' + T + '" y2="' + (H - B) + '" stroke="var(--qd-a)" stroke-width="1" opacity="0.6"/>';
-      s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(data.exact) + '" y2="' + y(data.exact) + '" stroke="var(--color-foreground-primary, #111)" stroke-width="1.5" stroke-dasharray="5 3"/>';
-      data.rows.forEach(function (r, i) {
-        s += '<text x="' + x(r.p) + '" y="' + (H - B + 16) + '" text-anchor="middle"' + (i === level ? ' class="t"' : "") + ">" + r.p + "</text>";
-      });
-      s += '<text x="' + (L + (W - L - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">two-qubit error p</text>';
-      var ends = [{ name: "exact", value: data.exact }];
-      SERIES.forEach(function (series) {
-        if (!series.on) return;
-        var line = data.rows.map(function (r) { return (x(r.p) + series.dx) + "," + y(series.get(r)[0]); }).join(" ");
-        s += '<polyline points="' + line + '" fill="none" stroke="' + series.colour + '" stroke-width="2"/>';
-        data.rows.forEach(function (r, i) {
-          var v = series.get(r), cx = x(r.p) + series.dx;
-          s += "<g><title>" + series.name + ", p = " + r.p + ": " + num(v[0], 4) + (v[1] === null ? "" : " ±" + v[1].toFixed(4)) + "</title>";
-          if (v[1] !== null) s += whisker(cx, y(v[0] + v[1]), y(v[0] - v[1]), series.colour);
-          s += '<circle cx="' + cx + '" cy="' + y(v[0]) + '" r="' + (i === level ? 5 : 3) + '" fill="' + series.colour + '"/></g>';
-        });
-        ends.push({ name: series.name, value: series.get(data.rows[data.rows.length - 1])[0] });
-      });
-      /* Labels at the right of each line, pushed apart when they would touch. */
-      ends.sort(function (a, b) { return y(a.value) - y(b.value); });
-      var at = -Infinity;
-      ends.forEach(function (end) {
-        at = Math.max(y(end.value) + 4, at + 13);
-        s += '<text class="t" x="' + (W - R + 6) + '" y="' + at + '">' + end.name + "</text>";
-      });
-      /* Tap a column to move there */
-      data.rows.forEach(function (r, i) {
-        var before = i ? x(data.rows[i - 1].p) : x(r.p) - 16, after = i < data.rows.length - 1 ? x(data.rows[i + 1].p) : x(r.p) + 16;
-        var from = (before + x(r.p)) / 2, to = (x(r.p) + after) / 2;
-        s += '<rect class="qdx-hit" data-level="' + i + '" x="' + from + '" y="' + T + '" width="' + (to - from) + '" height="' + (H - T - B + 22) + '"/>';
-      });
-      plot.innerHTML = s + "</svg>";
-      label.textContent = "Two-qubit error p = " + now.p;
-      slider.value = String(level);
-      readout.textContent = "";
-      SERIES.forEach(function (series) {
-        if (!series.on) return;
-        var v = series.get(now);
-        stat(readout, num(v[0], 3) + (v[1] === null ? "" : " ±" + v[1].toFixed(3)), series.name + ", off by " + Math.abs(v[0] - data.exact).toFixed(3));
-      });
-    }
-    plot.addEventListener("click", function (event) {
-      if (event.target.dataset.level !== undefined) { level = Number(event.target.dataset.level); update(); }
+    var s = '<svg viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="The value against the noise strength, uncut and with each kind of cut">';
+    s += yGrid(low, high, y, L, W - R);
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(data.exact) + '" y2="' + y(data.exact) + '" stroke="var(--color-foreground-primary, #111)" stroke-width="1.5" stroke-dasharray="5 3"/>';
+    data.rows.forEach(function (r) {
+      if (r.p !== 0.005) s += '<text x="' + x(r.p) + '" y="' + (H - B + 16) + '" text-anchor="middle">' + r.p + "</text>";
     });
-    slider.addEventListener("input", function () { level = Number(slider.value); update(); });
-    update();
-
-    root.appendChild(el("p", { class: "qd-note" }, "<ZZZZZZ>, exact " + num(data.exact, 4) + ", the dashed line. Move along p, tap a place on the plot, or switch a line off. A simulation on 6 qubits, cut at 2 CZ gates into two fragments of 3, with a depolarizing error on two-qubit gates only and " + count(data.shots) + " shots per circuit, stored from real runs. It has no readout or single-qubit noise and no idle time, so it says nothing about any device. Hadamard ancillas add two-qubit gates of their own."));
+    s += '<text x="' + (L + (W - L - R) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">noise strength p</text>';
+    var ends = [{ name: "exact", value: data.exact }];
+    SERIES.forEach(function (series) {
+      var line = data.rows.map(function (r) { return (x(r.p) + series.dx) + "," + y(series.get(r)[0]); }).join(" ");
+      s += '<polyline points="' + line + '" fill="none" stroke="' + series.colour + '" stroke-width="2"/>';
+      data.rows.forEach(function (r) {
+        var v = series.get(r), cx = x(r.p) + series.dx;
+        s += "<g><title>" + series.name + ", p = " + r.p + ": " + num(v[0], 4) + " ±" + v[1].toFixed(4) + "</title>";
+        s += whisker(cx, y(v[0] + v[1]), y(v[0] - v[1]), series.colour);
+        s += '<circle cx="' + cx + '" cy="' + y(v[0]) + '" r="3" fill="' + series.colour + '"/></g>';
+      });
+      ends.push({ name: series.name, value: series.get(data.rows[data.rows.length - 1])[0] });
+    });
+    /* Labels at the right of each line, pushed apart when they would touch. */
+    ends.sort(function (a, b) { return y(a.value) - y(b.value); });
+    var at = -Infinity;
+    ends.forEach(function (end) {
+      at = Math.max(y(end.value) + 4, at + 13);
+      s += '<text class="t" x="' + (W - R + 8) + '" y="' + at + '">' + end.name + "</text>";
+    });
+    root.appendChild(el("div", { class: "qdx-plot qdx-plot-small" })).innerHTML = s + "</svg>";
+    root.appendChild(el("p", { class: "qdx-verdict" }, "As noise grows, every line falls away from the exact value. Here the gate and wire cuts stay close to the uncut circuit, within about their error bars. The Hadamard cut falls fastest: its ancillas add two-qubit gates of their own."));
+    root.appendChild(el("p", { class: "qd-note" }, "<ZZZZZZ> on 6 qubits, cut once at " + data.gate + " into two pieces, exact " + num(data.exact, 4) + ", the dashed line. The model is on device gates: a depolarizing error p on each cz, p / 10 on each sx and x, none on rz, and a readout error p / 2. The backend compiles every circuit to these gates, so the noise reaches them all. All three cuts have gamma 3 here, as this wire is a golden cut point. " + count(data.shots) + " shots per circuit; bars are \u00b11 standard error. A simulation with a simple model, stored from real Aer runs: it says nothing about any device."));
     var all = root.appendChild(el("details"));
     all.appendChild(el("summary", {}, "All the values"));
-    var html = '<table class="qdx-t"><thead><tr><th>p</th><th>Uncut</th><th>Gate cuts</th><th>Hadamard cuts</th></tr></thead><tbody>';
+    var html = '<table class="qdx-t"><thead><tr><th>p</th><th>Uncut</th><th>Gate cut</th><th>Hadamard cut</th><th>Wire cut</th></tr></thead><tbody>';
+    var cell = function (v) { return num(v[0], 3) + " ±" + v[1].toFixed(3); };
     data.rows.forEach(function (r) {
-      html += "<tr><td>" + r.p + "</td><td>" + num(r.uncut, 3) + "</td><td>" + num(r.gate[0], 3) + " ±" + r.gate[1].toFixed(3) + "</td><td>" + num(r.hadamard[0], 3) + " ±" + r.hadamard[1].toFixed(3) + "</td></tr>";
+      html += "<tr><td>" + r.p + "</td><td>" + cell(r.uncut) + "</td><td>" + cell(r.gate) + "</td><td>" + cell(r.hadamard) + "</td><td>" + cell(r.wire) + "</td></tr>";
     });
     all.appendChild(el("div")).innerHTML = html + "</tbody></table>";
     var code = root.appendChild(el("details"));
     code.appendChild(el("summary", {}, "The code"));
-    codeCell(code, 'noise = NoiseModel()\nnoise.add_all_qubit_quantum_error(depolarizing_error(p, 2), ["cz", "cx"])\nbackend = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"noise_model": noise}))\nqd.gate_cutting(circuit, cut, "ZZZZZZ", backend=backend, shots=' + data.shots + ", seed=1, error=True)");
+    codeCell(code, 'noise = NoiseModel(basis_gates=["cz", "sx", "x", "rz"])\nnoise.add_all_qubit_quantum_error(depolarizing_error(p, 2), ["cz"])\nnoise.add_all_qubit_quantum_error(depolarizing_error(p / 10, 1), ["sx", "x"])\nnoise.add_all_qubit_readout_error(ReadoutError([[1 - p / 2, p / 2], [p / 2, 1 - p / 2]]))\nbackend = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"noise_model": noise}))\nqd.gate_cutting(circuit, ["' + data.gate + '"], "ZZZZZZ", backend=backend, shots=' + data.shots + ', seed=1, error=True)\nqd.gate_cutting_hadamard(circuit, ["' + data.gate + '"], "ZZZZZZ", backend=backend, shots=' + data.shots + ', seed=1, error=True)\nqd.wire_cutting(circuit, [("' + data.wire[0] + '", "' + data.wire[1] + '")], "ZZZZZZ", backend=backend, shots=' + data.shots + ", seed=1, error=True)");
   }
 
   /* ---- 7. SDKs ---- */
@@ -1182,8 +1189,15 @@
 
   /* ---- 8. pack ---- */
   function packSection(root) {
-    var data = D.pack, buffer = "1", job = 0;
+    var all = D.pack, data = all.devices.filter(function (d) { return d.key === "montreal"; })[0], buffer = "1", job = 0;
     root.textContent = "";
+    picker(root, "qdx-pack-device", "Layout", all.devices.map(function (d) {
+      return { value: d.key, label: d.device + ": " + d.family + ", " + d.qubits + " qubits" };
+    }), data.key, function (v) {
+      data = all.devices.filter(function (d) { return d.key === v; })[0];
+      job = 0;
+      update();
+    });
     root.appendChild(el("span", { class: "qd-label" }, "Idle qubits between groups: buffer="));
     var bufferBox = root.appendChild(el("div", { class: "qd-choices qd-cuts" }));
     var row = root.appendChild(el("div", { class: "qdx-row" }));
@@ -1192,40 +1206,43 @@
     var stats = root.appendChild(el("div", { class: "qd-stats" }));
     var map = root.appendChild(el("div", { class: "qdx-map" }));
     var chipBox = root.appendChild(el("div", { class: "qd-legend" }));
-    root.appendChild(el("p", { class: "qd-note" }, "qd.pack on a fake device, " + data.device + ", a published calibration snapshot of " + data.qubits + " qubits: the " + data.circuits + " subcircuits of a 6-qubit circuit with one cut. Each colour is one subcircuit's group. Placement only, stored from a real call; nothing ran on any device."));
+    var packNote = root.appendChild(el("p", { class: "qd-note" }));
+    var COLOURS = ["#3f6fa8", "#c8640a", "#2e8b57", "#a8326a", "#7a6a1e", "#5a4fb0", "#2b8a99", "#8a4b2a", "#b0413e", "#4a7c1f", "#8e44ad", "#546e7a"];
     function update() {
       var run = data.runs[buffer];
       toggles(bufferBox, Object.keys(data.runs).map(function (b) { return { value: b, label: b }; }), buffer, function (v) { buffer = v; job = 0; update(); });
+      row.style.display = run.jobs.length > 1 ? "" : "none";
+      packNote.textContent = "qd.pack on " + data.device + ", a fake device: a published calibration snapshot of " + data.qubits + " qubits, not a live one. The " + all.circuits + " subcircuits of a 6-qubit circuit with one cut. Each colour is one subcircuit's group. Placement only, stored from a real call; nothing ran on any device.";
       slider.max = String(run.jobs.length - 1);
       job = Math.min(job, run.jobs.length - 1);
       slider.value = String(job);
       label.textContent = "Job " + (job + 1) + " of " + run.jobs.length;
       stats.textContent = "";
-      stat(stats, String(run.jobs.length), "jobs for " + data.circuits + " subcircuits");
+      stat(stats, String(run.jobs.length), "jobs for " + all.circuits + " subcircuits");
       stat(stats, String(run.regions.length), "groups of qubits on the device");
       stat(stats, String(run.jobs[job].length), "subcircuits in this job");
       var xs = [], ys = [];
       Object.keys(data.points).forEach(function (q) { xs.push(data.points[q][0]); ys.push(data.points[q][1]); });
       var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs), minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
-      var W = 340, H = 300, P = 16;
-      var px = function (q) { var p = data.points[q]; return [P + (p[0] - minX) / (maxX - minX) * (W - 2 * P), P + (p[1] - minY) / (maxY - minY) * (H - 2 * P)]; };
+      var large = data.qubits > 40, W = large ? 640 : 340, H = large ? 580 : data.qubits < 10 ? 170 : 300, P = 16;
+      var px = function (q) { var p = data.points[q]; return [P + (p[0] - minX) / ((maxX - minX) || 1) * (W - 2 * P), P + (p[1] - minY) / ((maxY - minY) || 1) * (H - 2 * P)]; };
       var owner = {};
       run.jobs[job].forEach(function (slot, i) { slot.qubits.forEach(function (q) { owner[q] = i; }); });
-      var s = '<svg viewBox="0 0 ' + W + " " + H + '" style="max-width:520px;margin:auto" role="img" aria-label="The device, with this job\'s groups of qubits">';
+      var s = '<svg viewBox="0 0 ' + W + " " + H + '" style="max-width:' + (large ? 700 : 520) + 'px;margin:auto" role="img" aria-label="The device, with this job\'s groups of qubits">';
       data.edges.forEach(function (e) {
         var a = px(e[0]), b = px(e[1]);
         s += '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="var(--qd-line)" stroke-width="2"/>';
       });
       Object.keys(data.points).forEach(function (q) {
         var p = px(q), on = owner[q] !== undefined;
-        s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="9.5" fill="' + (on ? fragColor(owner[q]) : "var(--color-background-primary, #fff)") + '" stroke="' + (on ? "none" : "var(--color-foreground-secondary, #777)") + '"/>';
+        s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="9.5" fill="' + (on ? COLOURS[owner[q] % COLOURS.length] : "var(--color-background-primary, #fff)") + '" stroke="' + (on ? "none" : "var(--color-foreground-secondary, #777)") + '"/>';
         s += '<text x="' + p[0] + '" y="' + (p[1] + 3) + '" text-anchor="middle" style="fill:' + (on ? "#fff" : "var(--color-foreground-secondary, #555)") + '">' + q + "</text>";
       });
       map.innerHTML = s + "</svg>";
       chipBox.textContent = "";
       run.jobs[job].forEach(function (slot, i) {
         var item = chipBox.appendChild(el("span"));
-        item.appendChild(el("span", { class: "qd-swatch", style: "background:" + fragColor(i) }));
+        item.appendChild(el("span", { class: "qd-swatch", style: "background:" + COLOURS[i % COLOURS.length] }));
         item.appendChild(document.createTextNode("subcircuit " + slot.circuit + ": " + slot.qubits.join(", ")));
       });
     }

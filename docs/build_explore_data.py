@@ -67,6 +67,9 @@ def tvd(a, b):
 
 
 # --------------------------------------------------------------------- find_cut
+TOP_N = 5
+
+
 def family_chain():
     qc = QuantumCircuit(10)
     for q in range(10):
@@ -112,12 +115,64 @@ def family_ladder():
     return qc
 
 
+def family_ring():
+    qc = QuantumCircuit(8)
+    for q in range(8):
+        qc.ry(0.5 + 0.05 * q, q)
+    for q in range(8):
+        qc.cz(q, (q + 1) % 8)
+    qc.rx(0.3, range(8))
+    return qc
+
+
+def family_star():
+    qc = QuantumCircuit(7)
+    for q in range(7):
+        qc.ry(0.4 + 0.08 * q, q)
+    for q in range(1, 7):
+        qc.cz(0, q)
+    qc.rx(0.3, range(7))
+    return qc
+
+
+def family_random():
+    rng = np.random.default_rng(12)
+    qc = QuantumCircuit(8)
+    for q in range(8):
+        qc.ry(float(rng.uniform(0.2, 2.5)), q)
+    for _ in range(14):
+        a, b = (int(q) for q in rng.choice(8, 2, replace=False))
+        if abs(a - b) > 3:
+            b = a + 1 if a < 7 else a - 1
+        qc.cz(a, b)
+        qc.rx(float(rng.uniform(0.2, 2.5)), a)
+    return qc
+
+
+def find_cut_row(qc, spec, reconstruct):
+    """One option: its spec for the page, and its cost from Qdislib."""
+    row = {"spec": {k: v for k, v in spec.items() if v}}
+    if not any(spec.values()):
+        return row
+    cost = qd.cutting_overhead(qc, spec)
+    row.update(cost, cuts=engine_cuts(qc, spec))
+    if reconstruct and cost["configurations"] <= 10**7 and cost["fragments"] <= 8:
+        value = qd.circuit_cutting(qc, spec, "Z" * qc.num_qubits, shots=None)
+        row["difference"] = abs(float(value) - float(qd.analytical_solution(qc, "Z" * qc.num_qubits)))
+    return row
+
+
 def find_cut_section():
+    """For each circuit, limit and kind, find_cut's ranked options (top_n), best first. With
+    mixed=True find_cut gives one answer: it has no ranked form."""
     families = {
         "chain": ("A chain of CZ gates", family_chain),
-        "qaoa": ("A QAOA ring of rzz(0.6) gates", family_qaoa),
+        "ring": ("A ring of CZ gates", family_ring),
+        "ladder": ("A ladder: two layers of CZ gates", family_ladder),
         "blocks": ("Two blocks, joined by weak gates", family_blocks),
-        "ladder": ("Two layers of CZ gates", family_ladder),
+        "qaoa": ("A QAOA ring of rzz(0.6) gates", family_qaoa),
+        "star": ("A star: one qubit joined to all", family_star),
+        "random": ("A random circuit, seed 12", family_random),
     }
     out = []
     for key, (label, make) in families.items():
@@ -126,20 +181,20 @@ def find_cut_section():
         for kind, options in (
             ("gate", {"wire_cut": False}),
             ("wire", {"gate_cut": False}),
-            ("mixed", {"mixed": True, "time_limit": 3}),
         ):
             for max_qubits in range(2, qc.num_qubits):
-                found = qd.find_cut(qc, max_qubits=max_qubits, seed=0, **options)
-                spec = found if isinstance(found, dict) else ({"gate": found} if kind == "gate" else {"wire": found})
-                run = {"spec": {k: v for k, v in spec.items() if v}}
-                if any(spec.values()):
-                    cost = qd.cutting_overhead(qc, spec)
-                    run.update(cost, cuts=engine_cuts(qc, spec))
-                    if cost["configurations"] <= 10**7 and cost["fragments"] <= 8:
-                        value = qd.circuit_cutting(qc, spec, "Z" * qc.num_qubits, shots=None)
-                        run["difference"] = abs(float(value) - float(qd.analytical_solution(qc, "Z" * qc.num_qubits)))
-                entry["runs"][f"{kind}:{max_qubits}"] = run
+                found = qd.find_cut(qc, max_qubits=max_qubits, seed=0, top_n=TOP_N, **options)
+                first = qd.find_cut(qc, max_qubits=max_qubits, seed=0, **options)
+                rows = [find_cut_row(qc, {kind: option["cut"]}, i == 0) for i, option in enumerate(found) if option["cut"]]
+                # top_n's first is what find_cut itself returns: the page says so
+                assert not rows or found[0]["cut"] == first, (key, kind, max_qubits, found[0]["cut"], first)
+                entry["runs"][f"{kind}:{max_qubits}"] = rows
             print("find_cut", key, kind, flush=True)
+        for max_qubits in range(2, qc.num_qubits):
+            found = qd.find_cut(qc, max_qubits=max_qubits, seed=0, mixed=True, time_limit=3)
+            row = find_cut_row(qc, found, True)
+            entry["runs"][f"mixed:{max_qubits}"] = [row] if "cuts" in row else []
+        print("find_cut", key, "mixed", flush=True)
         out.append(entry)
     return out
 
@@ -291,6 +346,9 @@ def big_circuit(n=40):
     return qc
 
 
+SMALL_SHOTS = [256, 1024, 4096]
+
+
 def distribution_section():
     qc = dist_circuit()
     cut = {"gate": ["CZ_12"]}
@@ -306,12 +364,15 @@ def distribution_section():
         full["runs"].append(runs)
     print("distributions: full", flush=True)
     marginals = {}
+    order = ["00", "01", "10", "11"]
     for a in range(8):
         for b in range(a + 1, 8):
-            d = qd.circuit_cutting_sampling(qc, cut, shots=4096, seed=1, qubits=[a, b])
             e = exact_distribution(qc, [a, b])
-            order = ["00", "01", "10", "11"]
-            marginals[f"{a},{b}"] = {"run": [round(float(d.get(k, 0.0)), 4) for k in order], "exact": [round(e.get(k, 0.0), 4) for k in order]}
+            runs = []
+            for shots in SMALL_SHOTS:
+                d = qd.circuit_cutting_sampling(qc, cut, shots=shots, seed=1, qubits=[a, b])
+                runs.append([round(float(d.get(k, 0.0)), 4) for k in order])
+            marginals[f"{a},{b}"] = {"runs": runs, "exact": [round(e.get(k, 0.0), 4) for k in order]}
     print("distributions: marginals", flush=True)
     big = big_circuit()
     big_cut = {"gate": ["CZ_53", "CZ_66"]}
@@ -320,7 +381,11 @@ def distribution_section():
     d = qd.circuit_cutting_sampling(big, big_cut, shots=None)
     elapsed = time.time() - start
     exact_pairs = {q: d.marginal([q, q + 1]) for q in range(39)}
-    pairs = {f"{q},{q + 1}": [round(float(exact_pairs[q].get(k, 0.0)), 4) for k in ("00", "01", "10", "11")] for q in range(39)}
+    pairs = {f"{q},{q + 1}": [round(float(exact_pairs[q].get(k, 0.0)), 4) for k in order] for q in range(39)}
+    sampled = {}
+    for shots in SMALL_SHOTS:
+        run = qd.circuit_cutting_sampling(big, big_cut, shots=shots, seed=1)
+        sampled[str(shots)] = {f"{q},{q + 1}": [round(float(run.marginal([q, q + 1]).get(k, 0.0)), 4) for k in order] for q in range(39)}
     head = QuantumCircuit(10)
     for instruction in big.data:
         indices = [big.find_bit(q).index for q in instruction.qubits]
@@ -337,10 +402,11 @@ def distribution_section():
         "subcircuits": cost["subcircuits"],
         "most_likely": {k: round(v, 8) for k, v in d.most_likely(5).items()},
         "pairs": pairs,
+        "sampled": sampled,
         "check": check,
     }
     print("distributions: factored", factored["text"], "check", check, flush=True)
-    return {"cut": "CZ_12", "n": 8, "ops": ops_of(qc), "cuts": engine_cuts(qc, cut), "full": full, "marginals": marginals, "factored": factored}
+    return {"cut": "CZ_12", "n": 8, "ops": ops_of(qc), "cuts": engine_cuts(qc, cut), "full": full, "small_shots": SMALL_SHOTS, "marginals": marginals, "factored": factored}
 
 
 # ------------------------------------------------------------------- error bars
@@ -373,43 +439,79 @@ def error_section():
 
 
 # ------------------------------------------------------------------------ noise
-def noise_section():
-    from qiskit_aer import AerSimulator
-    from qiskit_aer.noise import NoiseModel, depolarizing_error
+NOISE_LEVELS = [0.0, 0.005, 0.01, 0.02, 0.03, 0.05]
 
+
+def noise_model(p):
+    """On device gates, so the backend compiles every circuit to them and nothing runs clean:
+    depolarizing p on cz, p / 10 on sx and x, and a readout error of p / 2. rz has no error."""
+    from qiskit_aer.noise import NoiseModel, ReadoutError, depolarizing_error
+
+    noise = NoiseModel(basis_gates=["cz", "sx", "x", "rz"])
+    if p:
+        noise.add_all_qubit_quantum_error(depolarizing_error(p, 2), ["cz"])
+        noise.add_all_qubit_quantum_error(depolarizing_error(p / 10, 1), ["sx", "x"])
+        noise.add_all_qubit_readout_error(ReadoutError([[1 - p / 2, p / 2], [p / 2, 1 - p / 2]]))
+    return noise
+
+
+def noise_circuit():
+    """Two blocks of 3 qubits joined by one CZ, with the block on the right all after it: the
+    same place to cut for all three kinds, a gate cut of that CZ or the wire just after it."""
     qc = QuantumCircuit(6)
     for q, a in enumerate([0.3, 0.2, 0.25, 0.15, 0.3, 0.2]):
         qc.ry(a, q)
-    for q in range(5):
-        qc.cz(q, q + 1)
+    qc.cz(0, 1)
+    qc.cz(1, 2)
+    qc.cz(2, 3)
+    middle = len(qc.data)
+    qc.ry(0.25, 3)
+    after = len(qc.data)
+    qc.cz(3, 4)
+    qc.cz(4, 5)
     qc.ry(0.25, range(6))
-    for q in range(5):
-        qc.cz(q, q + 1)
-    cut = ["CZ_9", "CZ_20"]
+    qc.cz(0, 1)
+    qc.cz(1, 2)
+    qc.cz(3, 4)
+    qc.cz(4, 5)
+    return qc, f"CZ_{middle}", (f"CZ_{middle}", f"RY_{after}")
+
+
+def noise_section():
+    from qiskit import transpile
+    from qiskit_aer import AerSimulator
+
+    qc, gate, wire = noise_circuit()
     observable = "Z" * 6
     exact = float(qd.analytical_solution(qc, observable))
+    # all three kinds, noiseless and exact: the cut is the right one
+    for value in (
+        qd.gate_cutting(qc, [gate], observable, shots=None),
+        qd.gate_cutting_hadamard(qc, [gate], observable, shots=None),
+        qd.wire_cutting(qc, [wire], observable, shots=None),
+    ):
+        assert abs(float(value) - exact) < 1e-9
     shots = 8000
-    levels = [0.0, 0.01, 0.03, 0.06, 0.1]
     rows = []
-    for p in levels:
-        noise = NoiseModel()
-        if p:
-            noise.add_all_qubit_quantum_error(depolarizing_error(p, 2), ["cz", "cx"])
+    for p in NOISE_LEVELS:
+        noise = noise_model(p)
         backend = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"noise_model": noise}))
+        simulator = AerSimulator(noise_model=noise, seed_simulator=1)
         measured = qc.copy()
         measured.measure_all()
-        counts = AerSimulator(noise_model=noise, seed_simulator=1).run(measured, shots=shots).result().get_counts()
+        counts = simulator.run(transpile(measured, backend=simulator, optimization_level=0), shots=shots).result().get_counts()
         uncut = sum((-1) ** key.count("1") * c for key, c in counts.items()) / shots
-        row = {"p": p, "uncut": round(uncut, 4)}
+        row = {"p": p, "uncut": [round(uncut, 4), round(((1 - uncut**2) / shots) ** 0.5, 4)]}
         for key, run in (
-            ("gate", lambda **k: qd.gate_cutting(qc, cut, observable, **k)),
-            ("hadamard", lambda **k: qd.gate_cutting_hadamard(qc, cut, observable, joint=True, **k)),
+            ("gate", lambda **k: qd.gate_cutting(qc, [gate], observable, **k)),
+            ("hadamard", lambda **k: qd.gate_cutting_hadamard(qc, [gate], observable, **k)),
+            ("wire", lambda **k: qd.wire_cutting(qc, [wire], observable, **k)),
         ):
             value = run(backend=backend, shots=shots, seed=1, error=True)
             row[key] = [round(float(value), 4), round(value.error, 4)]
         rows.append(row)
         print("noise", row, flush=True)
-    return {"exact": round(exact, 4), "shots": shots, "rows": rows, "n": 6, "ops": ops_of(qc), "cuts": engine_cuts(qc, {"gate": cut})}
+    return {"exact": round(exact, 4), "shots": shots, "rows": rows, "gate": gate, "wire": list(wire), "n": 6, "ops": ops_of(qc), "cuts": engine_cuts(qc, {"gate": [gate]})}
 
 
 # -------------------------------------------------------------------------- SDKs
@@ -523,13 +625,19 @@ def sdk_section():
 
 
 # ------------------------------------------------------------------------- pack
+PACK_DEVICES = {
+    "manila": ("FakeManilaV2", "a small 5-qubit chip"),
+    "guadalupe": ("FakeGuadalupeV2", "a small Falcon"),
+    "montreal": ("FakeMontrealV2", "Falcon"),
+    "sherbrooke": ("FakeSherbrooke", "Eagle"),
+    "torino": ("FakeTorino", "Heron"),
+}
+
+
 def pack_section():
     import networkx as nx
-    from qiskit_ibm_runtime.fake_provider import FakeMontrealV2
+    from qiskit_ibm_runtime import fake_provider
 
-    backend = FakeMontrealV2()
-    graph = nx.Graph(list({tuple(sorted(edge)) for edge in backend.coupling_map.get_edges()}))
-    layout = nx.kamada_kawai_layout(graph, weight=None)
     qc = QuantumCircuit(6)
     for q, a in enumerate([0.8, 0.5, 0.6, 0.4, 0.3, 0.7]):
         qc.ry(a, q)
@@ -542,27 +650,38 @@ def pack_section():
         c = c.copy()
         c.measure_all()
         circuits.append(c)
-    out = {
-        "device": backend.name,
-        "qubits": backend.num_qubits,
-        "edges": [list(edge) for edge in graph.edges],
-        "points": {str(q): [round(float(p[0]), 3), round(float(p[1]), 3)] for q, p in layout.items()},
-        "circuits": len(circuits),
-        "widths": [c.num_qubits for c in circuits],
-        "runs": {},
-    }
-    for buffer in (0, 1, 2):
-        packed = qd.pack(circuits, backend, buffer=buffer, max_error=0.1, max_readout_error=0.2, seeds=2, optimization_level=1)
-        jobs = {}
-        for index, (job, _, qubits) in enumerate(packed.slots):
-            jobs.setdefault(job, []).append({"circuit": index, "qubits": [int(q) for q in qubits]})
-        out["runs"][str(buffer)] = {
-            "text": repr(packed),
-            "jobs": [jobs[k] for k in sorted(jobs)],
-            "regions": [[int(q) for q in region] for region in packed.regions],
-            "two_qubit_gates": [int(x) for x in packed.two_qubit_gates],
+    out = {"circuits": len(circuits), "widths": [c.num_qubits for c in circuits], "devices": []}
+    for key, (name, family) in PACK_DEVICES.items():
+        start = time.time()
+        backend = getattr(fake_provider, name)()
+        graph = nx.Graph(list({tuple(sorted(edge)) for edge in backend.coupling_map.get_edges()}))
+        layout = nx.kamada_kawai_layout(graph, weight=None)
+        device = {
+            "key": key,
+            "family": family,
+            "device": backend.name,
+            "qubits": backend.num_qubits,
+            "edges": [list(edge) for edge in graph.edges],
+            "points": {str(q): [round(float(p[0]), 3), round(float(p[1]), 3)] for q, p in layout.items()},
+            "runs": {},
         }
-        print("pack", buffer, repr(packed), flush=True)
+        for buffer in (0, 1, 2):
+            try:
+                packed = qd.pack(circuits, backend, buffer=buffer, max_error=0.1, max_readout_error=0.2, seeds=2, optimization_level=1)
+            except ValueError as error:  # the device cannot hold them with this buffer
+                device["runs"][str(buffer)] = {"refused": str(error)}
+                print("pack", key, buffer, "refused:", error, flush=True)
+                continue
+            jobs = {}
+            for index, (job, _, qubits) in enumerate(packed.slots):
+                jobs.setdefault(job, []).append({"circuit": index, "qubits": [int(q) for q in qubits]})
+            device["runs"][str(buffer)] = {
+                "text": repr(packed),
+                "jobs": [jobs[k] for k in sorted(jobs)],
+                "regions": [[int(q) for q in region] for region in packed.regions],
+            }
+            print("pack", key, buffer, repr(packed), round(time.time() - start), "s", flush=True)
+        out["devices"].append(device)
     return out
 
 
