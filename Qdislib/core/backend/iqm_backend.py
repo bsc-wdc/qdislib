@@ -29,6 +29,7 @@ from Qdislib.core.backend.base_backend import (
     SupportedCircuit,
     SampleJobResult,
     ExpectationJobResult,
+    qubit0_first,
 )
 from Qdislib.core.backend.circuit_converter import CircuitConverter
 
@@ -116,7 +117,7 @@ class IQMBackend(BaseBackend):
     def _execute_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int, job: Job
     ) -> SampleJobResult:
-        counts = self._counts(circuit, transpile, shots)
+        counts = qubit0_first(self._counts(circuit, transpile, shots))
         return SampleJobResult(
             counts=counts, backend_name=self.name, shots=shots, job_id=job.job_id
         )

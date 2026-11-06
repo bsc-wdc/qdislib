@@ -32,6 +32,7 @@ from Qdislib.core.backend.base_backend import (
     SupportedCircuit,
     SampleJobResult,
     ExpectationJobResult,
+    qubit0_first,
 )
 from Qdislib.core.backend.circuit_converter import CircuitConverter
 
@@ -210,7 +211,7 @@ class AerBackend(BaseBackend):
         aer_job = self._simulator.run([prepared], shots=shots)
         counts = aer_job.result().get_counts()
         return SampleJobResult(
-            counts=counts,
+            counts=qubit0_first(counts),
             backend_name=self.name,
             shots=shots,
             job_id=job.job_id,

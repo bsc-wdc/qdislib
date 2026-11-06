@@ -122,7 +122,8 @@ class Job:
 
 @dataclass
 class SampleJobResult:
-    """Result of a sampling run: measurement counts plus provenance metadata."""
+    """Result of a sampling run: measurement counts, with qubit-0-first keys whichever
+    backend ran it (``key[i]`` is qubit ``i``), plus provenance metadata."""
 
     counts: dict[str, int]
     backend_name: str
@@ -173,6 +174,12 @@ def sample_with_qiskit(dag: Any, num_qubits: int, run) -> dict[str, int]:
         bits = key.split()[0][::-1]
         out[bits] = out.get(bits, 0) + count
     return marginalize_identity_qubits(out, observables)
+
+
+def qubit0_first(counts: dict[str, int]) -> dict[str, int]:
+    """Qiskit's counts (qubit 0 the last bit) with the keys :class:`SampleJobResult`
+    holds: each key reversed."""
+    return {key[::-1]: count for key, count in counts.items()}
 
 
 def terminal_cut_points(dag) -> bool:
