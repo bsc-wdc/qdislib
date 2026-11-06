@@ -29,6 +29,40 @@ from tests import BaseTimedTestCase
 QIBO_AVAILABLE = importlib.util.find_spec("qibo") is not None
 
 
+class ExceptionsTest(BaseTimedTestCase):
+    def test_a_pickled_exception_keeps_its_message(self):
+        # what happens to an exception raised in a PyCOMPSs task
+        import pickle
+
+        from Qdislib.utils.exceptions import InvalidCutError
+
+        error = InvalidCutError("bad cut")
+        again = pickle.loads(pickle.dumps(error))
+        self.assertIsInstance(again, InvalidCutError)
+        self.assertEqual(str(again), str(error))
+
+
+class LogLevelFromEnvironmentTest(BaseTimedTestCase):
+    def test_a_bad_level_does_not_stop_the_import(self):
+        import warnings
+        from unittest import mock
+
+        from Qdislib.utils import logging_config
+
+        with mock.patch.dict(os.environ, {"QDISLIB_LOG_LEVEL": "VERBOSE"}):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                logging_config._WARNED.clear()
+                logging_config._init_from_env()
+        self.assertTrue(any("VERBOSE" in str(w.message) for w in caught))
+
+    def test_set_log_level_rejects_a_bad_level(self):
+        import Qdislib as qd
+
+        with self.assertRaises(ValueError):
+            qd.set_log_level("VERBOSE")
+
+
 class RuntimeShimTest(BaseTimedTestCase):
     """The PyCOMPSs shim must provide working no-op fallbacks when absent."""
 

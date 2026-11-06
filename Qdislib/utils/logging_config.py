@@ -70,6 +70,7 @@ def set_log_level(level):
 
     :param level: A level name (``"DEBUG"``, ``"INFO"``, ``"WARNING"``, ...) or a
         :mod:`logging` level constant.
+    :raises ValueError: For an unknown level name.
     :return: The configured package logger.
     """
     logger = logging.getLogger(_PACKAGE_LOGGER)
@@ -85,7 +86,13 @@ def set_log_level(level):
 
 
 def _init_from_env():
-    """Apply ``QDISLIB_LOG_LEVEL`` if it is set (called once at package import)."""
+    """Apply ``QDISLIB_LOG_LEVEL`` if it is set (called once at package import).
+
+    A mistyped value in a job script warns instead of raising: the library has to
+    import whatever the environment says about its logging."""
     level = os.environ.get("QDISLIB_LOG_LEVEL")
     if level:
-        set_log_level(level)
+        try:
+            set_log_level(level)
+        except ValueError:
+            warn_once(f"QDISLIB_LOG_LEVEL={level!r} is not a logging level; ignored.")
