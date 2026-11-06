@@ -64,6 +64,12 @@ def _emit_qiskit_gate(circuit, gate_name, params, qubits):
         matrix = reverse_qubit_order(params[0])
         circuit.append(UnitaryGate(matrix, check_input=False), list(qubits))
         return
+    if name == "fsim":  # Qiskit has none: exp(-i theta (XX + YY) / 2), then the phase
+        theta, phi = params
+        circuit.rxx(theta, *qubits)
+        circuit.ryy(theta, *qubits)
+        circuit.cp(-phi, *qubits)
+        return
     getattr(circuit, name)(*params, *qubits)
 
 

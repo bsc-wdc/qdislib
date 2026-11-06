@@ -467,26 +467,54 @@ def draw_to_circuit(
     return circuit
 
 
+#: qsim's gates (its ``lib/gates_qsim.h``) as qibo gates, up to a global phase:
+#: ``name -> (qubits, angles, the gates for those qubits and angles)``.
+_QSIM_GATES = {
+    "id1": (1, 0, lambda q, _: [gates.I(q[0])]),
+    "h": (1, 0, lambda q, _: [gates.H(q[0])]),
+    "t": (1, 0, lambda q, _: [gates.T(q[0])]),
+    "s": (1, 0, lambda q, _: [gates.S(q[0])]),
+    "x": (1, 0, lambda q, _: [gates.X(q[0])]),
+    "y": (1, 0, lambda q, _: [gates.Y(q[0])]),
+    "z": (1, 0, lambda q, _: [gates.Z(q[0])]),
+    "x_1_2": (1, 0, lambda q, _: [gates.RX(q[0], np.pi / 2)]),
+    "y_1_2": (1, 0, lambda q, _: [gates.RY(q[0], np.pi / 2)]),
+    # the square root of (X + Y) / sqrt(2): a pi/2 turn about that axis
+    "hz_1_2": (1, 0, lambda q, _: [gates.U3(q[0], np.pi / 2, -np.pi / 4, np.pi / 4)]),
+    "rx": (1, 1, lambda q, a: [gates.RX(q[0], a[0])]),
+    "ry": (1, 1, lambda q, a: [gates.RY(q[0], a[0])]),
+    "rz": (1, 1, lambda q, a: [gates.RZ(q[0], a[0])]),
+    # a turn of a[1] about the axis at angle a[0] in the XY plane
+    "rxy": (
+        1,
+        2,
+        lambda q, a: [gates.U3(q[0], a[1], a[0] - np.pi / 2, np.pi / 2 - a[0])],
+    ),
+    "id2": (2, 0, lambda q, _: [gates.I(q[0]), gates.I(q[1])]),
+    "cz": (2, 0, lambda q, _: [gates.CZ(q[0], q[1])]),
+    "cnot": (2, 0, lambda q, _: [gates.CNOT(q[0], q[1])]),
+    "sw": (2, 0, lambda q, _: [gates.SWAP(q[0], q[1])]),
+    "is": (2, 0, lambda q, _: [gates.iSWAP(q[0], q[1])]),
+    "fs": (2, 2, lambda q, a: [gates.fSim(q[0], q[1], a[0], a[1])]),
+    "cp": (2, 1, lambda q, a: [gates.CU1(q[0], q[1], -a[0])]),  # qsim's is exp(-i phi)
+}
+
+
 def parse_qsim(fname: str, depth: int = 22):
-    """Produces a Qibo :class:`Circuit` based on a .qsim description of a circuit.
+    """A Qibo :class:`Circuit` from a qsim input file, the same unitary up to a
+    global phase. The angles are qsim's, in radians.
 
-    The result has the circuit's *structure*, for cut-finding benchmarks: it is not
-    the same unitary. ``hz_1_2`` becomes ``H``, ``fs`` a ``CZ``, and an ``rz`` angle is
-    divided by pi.
+    The file starts with the number of qubits; each other line is ``<time> <gate>
+    <qubits> [angles]``. Gates at time ``depth`` or later are left out. Its ``fs``
+    gates stay Qibo's ``fSim``, which a cut runs on Qibo and Qiskit.
 
-    This function parses a .qsim file to create a quantum circuit based on the gate instructions
-    provided in the file. The .qsim file should contain gate operations for the quantum circuit.
-    The file should start with the number of qubits, followed by a series of lines specifying
-    gate operations in the format: `<moment> <gate> <qubit> [additional parameters]`. The function
-    also allows setting a `depth` parameter to limit the number of moments to process.
-
-    :param fname: Path to the .qsim file containing the quantum circuit description.
-    :param depth: Maximum number of moments (steps) to process from the .qsim file. Default is 22.
-
-    :return: A :class:`models.Circuit` object from Qibo containing the parsed gate operations.
-
-    :raises ValueError: If the first line of the .qsim file cannot be converted to an integer
-                        representing the number of qubits.
+    :param fname: Path to the .qsim file.
+    :param depth: Gates from this time on are left out. Default is 22.
+    :raises ValueError: If the first line is not the number of qubits, a line does not
+        have its gate's qubits and angles, or a gate is not one of ``id1 h t s x y z
+        x_1_2 y_1_2 hz_1_2 rx ry rz rxy id2 cz cnot sw is fs cp`` (measurements,
+        ``mat1``, ``mat2`` and controlled gates are refused, not dropped).
+    :return: A :class:`models.Circuit` from Qibo.
 
     :example:
 
@@ -499,7 +527,7 @@ def parse_qsim(fname: str, depth: int = 22):
         1 x_1_2 1
         2 rz 2 1.0
         3 hz_1_2 0
-        4 fs 1 2
+        4 fs 1 2 0.5 0.1
 
     You can parse this file and create a circuit like this:
 
@@ -507,10 +535,7 @@ def parse_qsim(fname: str, depth: int = 22):
 
         import Qdislib as qd
 
-        # Parse the .qsim file to create a quantum circuit
         circuit = qd.parse_qsim("path_to_qsim_file.qsim", depth=10)
-
-        # Print the resulting circuit
         print(circuit.draw())
     """
 
@@ -521,36 +546,28 @@ def parse_qsim(fname: str, depth: int = 22):
 
     try:
         qcount = int(lines.pop(0))
-    except ValueError as exc:
+    except (IndexError, ValueError) as exc:
         raise ValueError("First line should be qubit count") from exc
 
     c = models.Circuit(qcount)
 
-    for l in lines:
-        l = l.strip()
-        if l == "":
+    for line in lines:
+        fields = line.split()
+        if not fields:
             continue
-        gdesc = l.split(" ")
-
-        q = int(gdesc[2])
-        moment = int(gdesc[0])
-        if moment >= depth:
-            break
-
-        if gdesc[1] == "rz":
-            phase = float(gdesc[3]) / np.pi
-            c.add(gates.RZ(q, phase))
-        elif gdesc[1] == "hz_1_2":
-            c.add(gates.H(q))
-        elif gdesc[1] == "x_1_2":
-            # x_1_2 is the sqrt-X gate (X**0.5), i.e. a pi/2 rotation about X.
-            c.add(gates.RX(q, theta=np.pi / 2))
-        elif gdesc[1] == "y_1_2":
-            # y_1_2 is the sqrt-Y gate (Y**0.5), i.e. a pi/2 rotation about Y.
-            c.add(gates.RY(q, theta=np.pi / 2))
-        elif gdesc[1] == "fs":
-            q1 = int(gdesc[3])
-            # theta = float(gdesc[4]) / np.pi
-            # phi = float(gdesc[5]) / np.pi
-            c.add(gates.CZ(q, q1))
+        # qsim only orders the gates of each qubit: a later line can have an earlier time
+        if len(fields) < 2:
+            raise ValueError(f"{fname}: cannot read the line {line!r}")
+        if int(fields[0]) >= depth:
+            continue
+        if fields[1] not in _QSIM_GATES:
+            raise ValueError(f"{fname}: cannot read the qsim gate in {line!r}")
+        qubits, angles, build = _QSIM_GATES[fields[1]]
+        if len(fields) != 2 + qubits + angles:
+            raise ValueError(
+                f"{fname}: {fields[1]} takes {qubits} qubit(s) and {angles} angle(s), "
+                f"in {line!r}"
+            )
+        on = [int(q) for q in fields[2 : 2 + qubits]]
+        c.add(build(on, [float(a) for a in fields[2 + qubits :]]))
     return c
