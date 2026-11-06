@@ -1,5 +1,0 @@
-# For mybinder.org. A binder/ directory also makes repo2docker ignore the root
-# Dockerfile, which is the COMPSs image and has no Jupyter set up for Binder.
-# The notebooks then run against this commit's Qdislib, not the one on PyPI.
-.[qibo,qiskit,cache]
-ipywidgets
