@@ -416,9 +416,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration (6**g * 8**w). Its counts now come from closed forms (0.04 s for 12
   CZ cuts, against minutes).
 ### Changed
-- **A reader waits longer for a reserved cache key:** up to six hours, or
-  `$QDISLIB_PENDING_TIMEOUT` seconds, since a fragment can take that long. A value that never
+- **A reader waits longer for a reserved cache key:** ten minutes, or
+  `$QDISLIB_PENDING_TIMEOUT` seconds for fragments that take longer. A value that never
   appears raises, and its placeholder is removed.
+- **A Redis password comes from `$QDISLIB_REDIS_PASSWORD`,** set where the tasks run. A store
+  no longer carries it in its pickle, since PyCOMPSs writes task arguments to files, and a
+  password in a `redis://` URL is refused.
+- **A semantic cache key warns once:** it can, rarely, give two different circuits the same
+  key and so the wrong result. `cache_key="exact"`, the default of the cutting functions,
+  cannot.
 - **Counts-mode cache entries are per shot count:** one simulation serves all observables at
   the same shots.
 - **A CUDA-Q kernel with `mz`** is rebuilt without it, so its seeded values change, and one

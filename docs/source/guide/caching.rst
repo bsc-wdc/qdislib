@@ -62,6 +62,16 @@ What counts as the same circuit
 - ``"semantic"``: also equivalent circuits, by a ZX-reduced graph hash computed in the task (``pip install "qdislib[cache]"`` for
   PyZX). ZX reduction is not a canonical form, so an equivalent circuit can still be missed. It is then run, not served wrongly.
 
+.. warning::
+
+   ``"semantic"`` can, rarely, give two different circuits the same key, and the second then
+   gets the first one's result, with no error. Its hash only looks a few steps around each ZX
+   node, so layered circuits that repeat a block are the likeliest. Qdislib warns once when it
+   is used. Use ``"exact"`` where a wrong value would matter.
+
+A Redis store takes its password from ``$QDISLIB_REDIS_PASSWORD``, set where the tasks run, and
+refuses one in a ``redis://`` URL: PyCOMPSs writes task arguments to files.
+
 A shot result is reused by later runs: the key holds the backend and the shots, not the seed, so a repeated run returns the same
 samples and costs no device time. ``cache_refresh=True`` runs every circuit again and replaces what is stored, for fresh samples,
 for instance to repeat a run for error bars. An exact result is the same on every simulator and is shared between them. Fragments
@@ -82,6 +92,6 @@ The three-step workflow
 Under PyCOMPSs, on the paths that take ``cache_mode`` (``expectation_value`` on a native
 circuit or a list's subcircuit, and the deprecated cut options), a task that finds a
 circuit reserved by another waits for its result. ``$QDISLIB_PENDING_TIMEOUT`` on the
-workers is how long, in seconds (default 21600, six hours): past it the run raises and
+workers is how long, in seconds (default 600, ten minutes): past it the run raises and
 the reservation is removed, so one left by a killed run costs at most that wait. Raise
 it for fragments that take longer.

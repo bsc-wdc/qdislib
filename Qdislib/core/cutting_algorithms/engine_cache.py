@@ -33,7 +33,8 @@ Two keys:
   and the shots. Computed on the master without building the circuit, so a hit
   never becomes a task, and it cannot match a different circuit.
 - ``"semantic"``: also matches circuits that differ but are equivalent, by
-  :func:`~Qdislib.utils.circuit_cache.semantic_key` (ZX), computed in the task.
+  :func:`~Qdislib.utils.circuit_cache.semantic_key` (ZX), computed in the task. It can,
+  rarely, match two circuits that are not equivalent, and gives a warning.
 
 A shot run's result is reused by later runs (the key holds the backend, its options
 and the shots, not the seed), which saves the most device time; ``cache_refresh=True``
@@ -138,7 +139,10 @@ def _store(spec):
                 if url.username:
                     kwargs["username"] = url.username
                 if url.password:
-                    kwargs["password"] = url.password
+                    raise ValueError(
+                        "A password in a Redis URL would reach the files PyCOMPSs writes "
+                        "for its tasks: set $QDISLIB_REDIS_PASSWORD instead."
+                    )
                 if url.scheme == "rediss":
                     kwargs["ssl"] = True
             _STORES[spec] = cc.default_circuit_cache("redis", **kwargs)
@@ -163,8 +167,9 @@ class use_cache:  # noqa: N801 -- used as a function and as a context manager
     that call).
 
     :param store: ``True``, ``"memory"``, ``"lmdb:<path>"``, ``"redis"``,
-        ``"redis[s]://[user:password@]host:port/db"``, a ``CircuitCache`` object, or
-        ``None`` (off). ``"memory"`` is one process's memory, refused under PyCOMPSs.
+        ``"redis[s]://[user@]host:port/db"``, a ``CircuitCache`` object, or
+        ``None`` (off). ``"memory"`` is one process's memory, refused under PyCOMPSs. A Redis password comes from
+        ``$QDISLIB_REDIS_PASSWORD``, never from the URL.
     :param key: ``"exact"`` (default) or ``"semantic"`` (see the module).
     :raises ValueError: For an unknown ``key`` or store.
     :raises TypeError: For a ``store`` of another type.

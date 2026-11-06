@@ -323,9 +323,9 @@ class EngineCacheTest(BaseTimedTestCase):
             with mock.patch(
                 "Qdislib.utils.circuit_cache.default_circuit_cache"
             ) as build:
-                engine_cache._store("redis://me:secret@host:7000/3")
+                engine_cache._store("redis://me@host:7000/3")
         build.assert_called_once_with(
-            "redis", host="host", port=7000, db=3, username="me", password="secret"
+            "redis", host="host", port=7000, db=3, username="me"
         )
 
     def test_a_tls_redis_url(self):
@@ -333,16 +333,17 @@ class EngineCacheTest(BaseTimedTestCase):
             with mock.patch(
                 "Qdislib.utils.circuit_cache.default_circuit_cache"
             ) as build:
-                engine_cache._store("rediss://me:secret@host:7000/3")
+                engine_cache._store("rediss://me@host:7000/3")
         build.assert_called_once_with(
-            "redis",
-            host="host",
-            port=7000,
-            db=3,
-            username="me",
-            password="secret",
-            ssl=True,
+            "redis", host="host", port=7000, db=3, username="me", ssl=True
         )
+
+    def test_a_password_in_a_url_is_refused_and_not_printed(self):
+        # a store goes to PyCOMPSs tasks, whose arguments are written to files
+        with mock.patch.dict(engine_cache._STORES, clear=True):
+            with self.assertRaisesRegex(ValueError, "QDISLIB_REDIS_PASSWORD") as caught:
+                engine_cache._store("redis://me:s3cret@host:7000/3")
+        self.assertNotIn("s3cret", str(caught.exception))
 
     def test_a_refused_url_does_not_print_its_password(self):
         for spec in (

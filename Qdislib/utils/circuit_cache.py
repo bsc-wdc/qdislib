@@ -304,7 +304,18 @@ def semantic_key(circuit, software=None):
     :return: A stable hash string, or ``None`` when the key cannot be computed
         (PyZX missing, an unsupported gate/backend) -- in which case the caller
         should simulate without caching. This function never raises.
+
+    The hash only looks a few steps around each ZX node, so two different circuits can
+    share a key, and the second gets the first one's result: rarely, but with no error.
+    Layered circuits that repeat a block are the likeliest. Use ``cache_key="exact"``
+    where a wrong value would matter.
     """
+    from Qdislib.utils.logging_config import warn_once
+
+    warn_once(
+        "A semantic cache key can, rarely, give two different circuits the same key, and "
+        'the second the first one\'s result. Use cache_key="exact" where that matters.'
+    )
     if not pyzx_available:
         logger.warning(
             "PyZX is not installed; circuit caching is disabled "
@@ -550,17 +561,27 @@ class RedisCircuitCache(CircuitCache):
     is Redis but the run is *not* under PyCOMPSs; under PyCOMPSs prefer
     :class:`RedisPSCOCircuitCache`, which uses the COMPSs storage layer. The
     client is created lazily and not pickled, so the store ships to a worker by
-    its connection settings.
+    its connection settings. Its password does not ship: PyCOMPSs writes task arguments
+    to files. Set ``$QDISLIB_REDIS_PASSWORD`` where the tasks run.
 
     :param host: The Redis host.
     :param port: Its port.
     :param db: The database number.
     :param prefix: Put in front of every key.
-    :param kwargs: For ``redis.Redis`` (``username``, ``password``, ``ssl``...).
+    :param password: The server's password; ``None`` reads ``$QDISLIB_REDIS_PASSWORD``.
+    :param kwargs: For ``redis.Redis`` (``username``, ``ssl``...).
     :raises ImportError: If ``redis`` is not installed.
     """
 
-    def __init__(self, host="localhost", port=6379, db=0, prefix="qdislib:", **kwargs):
+    def __init__(
+        self,
+        host="localhost",
+        port=6379,
+        db=0,
+        prefix="qdislib:",
+        password=None,
+        **kwargs,
+    ):
         if not redis_available:
             raise ImportError(
                 "RedisCircuitCache requires the 'redis' package "
@@ -571,12 +592,15 @@ class RedisCircuitCache(CircuitCache):
         self.db = db
         self.prefix = prefix
         self._kwargs = kwargs
+        self._password = password
         self._client = None
 
     def _conn(self):
         if self._client is None:
+            password = self._password or os.environ.get("QDISLIB_REDIS_PASSWORD")
+            secret = {"password": password} if password else {}
             self._client = _redis.Redis(
-                host=self.host, port=self.port, db=self.db, **self._kwargs
+                host=self.host, port=self.port, db=self.db, **self._kwargs, **secret
             )
         return self._client
 
@@ -593,6 +617,7 @@ class RedisCircuitCache(CircuitCache):
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_client"] = None  # the live connection is not picklable
+        state["_password"] = None  # task arguments are written to files
         return state
 
     def __setstate__(self, state):
@@ -811,9 +836,10 @@ def is_pending(value):
     return isinstance(value, dict) and value.get("__qdislib_pending__") is True
 
 
-#: How long a reader waits, by default, for the task that reserved a key: a fragment
-#: can take hours. Set ``QDISLIB_PENDING_TIMEOUT`` (seconds) for another limit.
-_PENDING_TIMEOUT = 6 * 3600.0
+#: How long a reader waits, by default, for the task that reserved a key. A placeholder
+#: left by a killed run holds a worker core for this long, so it is short: fragments
+#: that take longer need ``QDISLIB_PENDING_TIMEOUT`` (seconds).
+_PENDING_TIMEOUT = 600.0
 #: Past this many seconds, a reader says what it is waiting for (once).
 _PENDING_NOTICE = 60.0
 #: The longest pause between two looks at the store.
@@ -847,7 +873,7 @@ class PendingResult:
     dependencies do not guarantee the owning task has finished by then: the reading
     task depends on its own configuration's tasks, not on the owner, which may be a
     long fragment still running. So it waits: for ``$QDISLIB_PENDING_TIMEOUT`` seconds
-    (six hours by default), looking at the store less and less often. A value that
+    (ten minutes by default), looking at the store less and less often. A value that
     never appears (the owning task failed, or a killed run left the placeholder)
     raises, and the placeholder is removed so the next run computes it.
 
