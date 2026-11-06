@@ -344,10 +344,9 @@ def draw_cut(circuit, cuts, filename=None, *, hadamard=False, ax=None, show=None
                     [],
                     [],
                     color=colour_,
-                    ls=(0, (3, 2)),
-                    lw=2,
+                    ls="none",
                     marker="$✂$",
-                    markersize=11,
+                    markersize=14,
                     label=label,
                 )
             )
@@ -357,10 +356,9 @@ def draw_cut(circuit, cuts, filename=None, *, hadamard=False, ax=None, show=None
                 [],
                 [],
                 color=_INVALID,
-                ls=(0, (3, 2)),
-                lw=2,
+                ls="none",
                 marker="$✗$",
-                markersize=9,
+                markersize=12,
                 label="not a valid cut",
             )
         )
