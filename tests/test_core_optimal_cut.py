@@ -238,3 +238,58 @@ class MetisWeightsTest(BaseTimedTestCase):
         self.assertEqual(len(cut), 2)
         # the budget counts the gates cut
         self.assertEqual(_metis_partition(graph, 2, None, 1), ([], []))
+
+
+class MetisMissingTest(BaseTimedTestCase):
+    """pymetis has no wheel on Linux arm64 and Windows: find_cut runs without it."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(6)
+        for q in range(6):
+            qc.ry(0.3 + 0.1 * q, q)
+        for q in range(5):
+            qc.cz(q, q + 1)
+        for q in range(6):
+            qc.ry(0.2 * q, q)
+        return qc
+
+    def test_find_cut_works_says_so_and_the_cut_is_right(self):
+        import sys
+        from unittest import mock
+
+        import Qdislib as qd
+        from Qdislib.utils import logging_config
+
+        qc = self._circuit()
+        exact = qd.analytical_solution(qc, "Z" * 6)
+        logging_config._WARNED.clear()
+        with mock.patch.dict(sys.modules, {"pymetis": None}):
+            with self.assertWarnsRegex(Warning, "pymetis"):
+                cut = qd.find_cut(qc, max_qubits=4, wire_cut=False, seed=0)
+            wire = qd.find_cut(qc, max_qubits=4, gate_cut=False, seed=0)
+        self.assertTrue(cut)
+        self.assertTrue(wire)
+        value = qd.gate_cutting(qc, cut, "Z" * 6, shots=None)
+        self.assertAlmostEqual(value, exact, places=8)
+        value = qd.wire_cutting(qc, wire, "Z" * 6, shots=None)
+        self.assertAlmostEqual(value, exact, places=8)
+
+    def test_a_platform_without_a_wheel_does_not_require_it(self):
+        import os
+
+        from packaging.requirements import Requirement
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "requirements.txt"), encoding="utf-8") as handle:
+            lines = [l.strip() for l in handle if l.strip().startswith("pymetis")]
+        marker = Requirement(lines[0]).marker
+        env = {"sys_platform": "linux", "platform_machine": "x86_64"}
+        self.assertTrue(marker.evaluate(env))
+        env = {"sys_platform": "darwin", "platform_machine": "arm64"}
+        self.assertTrue(marker.evaluate(env))
+        env = {"sys_platform": "linux", "platform_machine": "aarch64"}
+        self.assertFalse(marker.evaluate(env))
+        env = {"sys_platform": "win32", "platform_machine": "AMD64"}
+        self.assertFalse(marker.evaluate(env))

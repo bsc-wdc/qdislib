@@ -93,6 +93,9 @@ iqm = ["iqm-client[qiskit]>=35"]   # IQM hardware backend (Qdislib.core.backend.
 # ZX/Weisfeiler-Lehman key; lmdb is the persistent on-disk store. The BSC
 # COMPSs PSCO/Redis store used under PyCOMPSs comes from the COMPSs runtime.
 cache = ["pyzx", "lmdb"]
+# METIS for find_cut, where it is not installed by default (Linux on arm64, Windows): it
+# has no wheel there, so this needs a C compiler. find_cut runs without it.
+metis = ["pymetis>=2023.1"]
 # QPU listener (Qdislib.utils.qpu_bridge.run_qpu_listener) — the quantum-cluster
 # side. Deliberately NOT in `all`: qililab is only needed on the QPU host, and
 # the classical/CI side imports Qdislib without it.

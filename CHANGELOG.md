@@ -394,6 +394,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration (6**g * 8**w). Its counts now come from closed forms (0.04 s for 12
   CZ cuts, against minutes).
 ### Changed
+- **`pymetis` is no longer installed on Linux arm64 or Windows**, where it has no wheel and
+  `pip install qdislib` failed without a C compiler. `find_cut` runs without it and says so,
+  though a wire cut can come out larger; the `metis` extra adds it. Nothing changes elsewhere.
 - **`QDISLIB_SUBCIRCUITS_DIR` is required for the QPU bridge** (or `directory=`). Its
   default was a personal path.
 - **`AerBackend(use_gpu=True)` raises on a node without a GPU**, where it silently ran on
