@@ -77,6 +77,9 @@ qiskit = [
   "qiskit>=1.1.0",
   "qiskit_aer>=0.15.1",
   "qiskit-ibm-runtime>=0.20.0",   # only needed for the IBM Quantum QPU path
+  # ibm-cloud-sdk-core, under the runtime, needs python-dateutil>=3 from 3.28.1, which
+  # conflicts with packages preinstalled on Google Colab (<3). Remove once they accept 3.
+  "python-dateutil<3",
 ]
 cudaq = ["cudaq"]   # unpinned: the cudaq meta-package selects a CUDA/CPU variant per platform, and a hard pin can request an unpublished one
 # PennyLane >=0.40 requires numpy>=2, so it was held at <0.40 only to keep
