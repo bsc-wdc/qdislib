@@ -759,5 +759,98 @@ class QiboCircuitLeftAloneTest(BaseTimedTestCase):
         self.assertEqual(qd.expectation_value([measured(), "ZI"], shots=200), -1.0)
 
 
+class NativeExactRunTest(BaseTimedTestCase):
+    """expectation_value(native, shots=None): the exact value, on every SDK."""
+
+    def _check(self, make, software):
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        for observable in ("ZI", "IZ", "ZZ", "II"):
+            with self.subTest(software=software, observable=observable):
+                exact = qd.analytical_solution(make(), observable)
+                value = qd.expectation_value([make(), observable], shots=None)
+                self.assertAlmostEqual(value, exact)
+                store = InMemoryCircuitCache()
+                for _ in range(2):  # an exact run's entry, shared
+                    value = qd.expectation_value(
+                        [make(), observable], shots=None, cache=store
+                    )
+                    self.assertAlmostEqual(value, exact)
+
+    @unittest.skipUnless(QIBO, "qibo required")
+    def test_qibo(self):
+        from qibo import gates, models
+
+        def make():
+            circuit = models.Circuit(2)
+            circuit.add(gates.RY(0, 0.7))
+            circuit.add(gates.CNOT(0, 1))
+            circuit.add(gates.RY(1, 0.2))
+            return circuit
+
+        self._check(make, "qibo")
+
+    @unittest.skipUnless(QISKIT, "qiskit required")
+    def test_qiskit(self):
+        from qiskit import QuantumCircuit
+
+        def make():
+            qc = QuantumCircuit(2)
+            qc.ry(0.7, 0)
+            qc.cx(0, 1)
+            qc.ry(0.2, 1)
+            return qc
+
+        self._check(make, "qiskit")
+
+    @unittest.skipUnless(QISKIT, "qiskit required")
+    def test_a_bare_circuit_reads_z_on_every_qubit(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3)
+        qc.x(0)
+        self.assertAlmostEqual(qd.expectation_value(qc, shots=None), -1.0)
+
+    @unittest.skipUnless(QISKIT, "qiskit required")
+    def test_a_cut_measurement_as_with_shots(self):
+        from qiskit import ClassicalRegister, QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(2)
+        qc.add_register(ClassicalRegister(2, "c"))
+        qc.ry(0.7, 0)
+        qc.measure(0, 0)
+        qc.cx(0, 1)
+        for observable in ("ZI", "IZ", "ZZ"):
+            with self.subTest(observable=observable):
+                self.assertAlmostEqual(
+                    qd.expectation_value([qc, observable], shots=None),
+                    qd.expectation_value([qc, observable], shots=200000, seed=1),
+                    delta=0.02,
+                )
+
+    @unittest.skipUnless(QISKIT, "qiskit required")
+    def test_what_it_cannot_read_says_so(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        with self.assertRaisesRegex(ValueError, "Unsupported observable"):
+            qd.expectation_value([qc, "XZ"], shots=None)
+        with self.assertRaisesRegex(ValueError, "letters"):
+            qd.expectation_value([qc, "Z"], shots=None)
+        with self.assertRaisesRegex(ValueError, "counts"):
+            qd.expectation_value(
+                qc, shots=None, cache=InMemoryCircuitCache(), cache_mode="counts"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
