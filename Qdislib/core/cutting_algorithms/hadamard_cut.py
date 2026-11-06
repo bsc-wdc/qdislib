@@ -246,11 +246,28 @@ def _general_local_terms(u):
         return _pauli_local_terms(u)
 
 
+def _qiskit_gate_matrix(gate_name, params=()):
+    """A two-qubit gate's matrix from Qiskit, first qubit most significant."""
+    from qiskit import QuantumCircuit
+    from qiskit.quantum_info import Operator
+
+    from Qdislib.utils.graph_qiskit import _emit_qiskit_gate
+
+    circuit = QuantumCircuit(2)
+    _emit_qiskit_gate(circuit, gate_name, params, (0, 1))
+    return Operator(circuit).reverse_qargs().data
+
+
 def _two_qubit_matrix(gate_name, params=()):
     """The 4x4 unitary of a named two-qubit gate (any vocabulary; for the general
-    cut path)."""
+    cut path): the matrix of a dense gate, else qibo's, else the OpenQASM table's,
+    else Qiskit's, so a Qiskit-only install cuts what it can write.
+
+    :raises NotImplementedError: For what is not a two-qubit gate, or what none of
+        them knows.
+    """
     from Qdislib.utils.gates import GATES, canonical
-    from Qdislib.utils.graph_qibo import gate_matrix
+    from Qdislib.utils.graph_qibo import gate_matrix, qibo_available
     from Qdislib.utils.statevector import gate_unitary
 
     name = canonical(gate_name, params)[0]
@@ -258,16 +275,27 @@ def _two_qubit_matrix(gate_name, params=()):
         raise NotImplementedError(
             f"Hadamard-test cut needs a two-qubit gate; {gate_name!r} is not one"
         )
-    try:
-        matrix = None
-        if name == "unitary":
-            matrix = gate_unitary(gate_name, params)
-        if matrix is None:
-            matrix = gate_matrix(gate_name, params, 2)
-    except Exception as exc:  # noqa: BLE001
+    sources = [gate_unitary, _qiskit_gate_matrix]
+    if qibo_available and name != "unitary":
+        sources.insert(0, lambda n, p: gate_matrix(n, p, 2))
+    matrix, failure = None, None
+    for source in sources:
+        try:
+            matrix = source(gate_name, params)
+        except Exception as exc:  # noqa: BLE001 -- the next one may know it
+            failure = exc
+        if matrix is not None:
+            break
+    if matrix is None:
+        hint = (
+            ""
+            if qibo_available
+            else ' Installing qibo may help: pip install "qdislib[qibo]".'
+        )
         raise NotImplementedError(
-            f"cannot build a two-qubit matrix for {gate_name!r}: {exc}"
-        ) from exc
+            f"cannot build a two-qubit matrix for {gate_name!r}: {failure}.{hint}"
+        ) from failure
+    matrix = np.asarray(matrix)
     if matrix.shape != (4, 4):
         raise NotImplementedError(
             f"Hadamard-test cut needs a two-qubit gate; {gate_name!r} is {matrix.shape}"
