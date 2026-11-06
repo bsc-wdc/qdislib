@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Qiskit input, the `U3`/`U2`/`U1` rebuild and `analytical_solution` on newer Qibo.
   Its regression tests are in `tests/test_cutting_bugs.py`, under his name.
 ### Added
+- **An Explore page in the documentation.** A live circuit playground runs in the browser,
+  checked against Qdislib by `docs/check_explore_engine.py`, with stored results of real
+  runs for the rest of the library.
 - **Packing built into the IBM backend and the engine.** With `pack=True` in its
   config, the IBM backend runs each group of `circuits_per_task` subcircuits side by
   side, in plain jobs, with no code of yours: `circuit_cutting(qc, cuts, backend=ibm,

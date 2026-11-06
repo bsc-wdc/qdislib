@@ -34,50 +34,23 @@
   }
   /* A press shows on every button, also on a touch screen, where :active barely lasts. */
   document.addEventListener("click", function (event) {
-    var b = event.target.closest && event.target.closest(".qd-try button");
+    var b = event.target.closest && event.target.closest(".qd-try button:not(.copybtn)");
     if (!b) return;
     b.classList.add("qdx-flash");
     setTimeout(function () { b.classList.remove("qdx-flash"); }, 220);
   });
-  /* A code box with a copy icon inside it, as in an editor. Selects the text where the
-     clipboard is refused. */
-  var COPY_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5"/></svg>';
-  var DONE_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>';
-  function codeBox(parent) {
-    var box = parent.appendChild(el("div", { class: "qdx-code" }));
-    var pre = box.appendChild(el("pre"));
-    var button = box.appendChild(el("button", { type: "button", class: "qdx-copy", "aria-label": "Copy the code", title: "Copy", "aria-pressed": "false" }));
+  /* A code cell with the docs' own copy button (sphinx-copybutton): its markup and icon, and
+     its ClipboardJS, which listens on the whole page and so also serves cells drawn later.
+     Not a div: that script gives a button to each div.highlight it finds when the page
+     loads, and these would get a second one. */
+  var COPY_ICON = '<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler icon-tabler-copy" width="44" height="44" viewBox="0 0 24 24" stroke-width="1.5" stroke="#000000" fill="none" stroke-linecap="round" stroke-linejoin="round"><title>Copy to clipboard</title><path stroke="none" d="M0 0h24v24H0z" fill="none"/><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8v-2a2 2 0 0 0 -2 -2h-8a2 2 0 0 0 -2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+  var cells = 0;
+  function codeCell(parent, text) {
+    var box = parent.appendChild(el("section", { class: "highlight qdx-code" }));
+    var id = "qdx-code-" + (++cells);
+    var pre = box.appendChild(el("pre", { id: id }, text));
+    var button = box.appendChild(el("button", { type: "button", class: "copybtn o-tooltip--left", "data-tooltip": "Copy", "data-clipboard-target": "#" + id }));
     button.innerHTML = COPY_ICON;
-    var timer;
-    function said(label) {
-      button.innerHTML = DONE_ICON;
-      button.setAttribute("aria-label", label);
-      button.setAttribute("title", label);
-      button.setAttribute("aria-pressed", "true");
-      clearTimeout(timer);
-      timer = setTimeout(function () {
-        button.innerHTML = COPY_ICON;
-        button.setAttribute("aria-label", "Copy the code");
-        button.setAttribute("title", "Copy");
-        button.setAttribute("aria-pressed", "false");
-      }, 1600);
-    }
-    function select() {
-      var range = document.createRange(), selection = window.getSelection();
-      range.selectNodeContents(pre);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      var done = false;
-      try { done = document.execCommand("copy"); } catch (e) { done = false; }
-      said(done ? "Copied" : "Selected: copy it");
-    }
-    button.addEventListener("click", function () {
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(pre.textContent).then(function () { said("Copied"); }, select);
-      } else {
-        select();
-      }
-    });
     return pre;
   }
   function fragColor(f) { return "var(--qdx-f" + (f % 8) + ")"; }
@@ -429,7 +402,7 @@
     var termsBody = termsBox.appendChild(el("div"));
     var codeSection = root.appendChild(el("details"));
     codeSection.appendChild(el("summary", {}, "The same thing with Qdislib"));
-    var codeBody = codeBox(codeSection);
+    var codeBody = codeCell(codeSection);
 
     function nameOf(op, ops) { return shortName(op) + "_" + (ops.indexOf(op) + 1); }
 
@@ -850,7 +823,7 @@
     var host = root.appendChild(el("div"));
     root.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendHtml();
     var stats = root.appendChild(el("div", { class: "qd-stats" }));
-    var code = root.appendChild(el("pre"));
+    var code = codeCell(root);
     var note = root.appendChild(el("p", { class: "qd-note" }));
 
     function update() {
@@ -981,7 +954,7 @@
           });
         })(q);
         var lo = Math.min(a, b), hi = Math.max(a, b), m = data.marginals[lo + "," + hi];
-        var code = body.appendChild(el("pre"));
+        var code = codeCell(body);
         code.textContent = 'qd.circuit_cutting_sampling(circuit, ["' + data.cut + '"], shots=4096, seed=1, qubits=[' + lo + ", " + hi + "])";
         body.appendChild(el("div", { class: "qd-legend" })).innerHTML = legendOf([["var(--qd-a)", "qubits=[" + lo + ", " + hi + "]"], ["var(--qd-b)", "exact", "tick"]]);
         body.appendChild(el("div", { class: "qdx-plot" })).innerHTML = hist(["00", "01", "10", "11"], m.exact, m.run, { width: 340, height: 170, top: Math.max.apply(null, m.exact.concat(m.run)) * 1.05, low: Math.min.apply(null, m.run.concat([0])) });
@@ -1000,7 +973,7 @@
         body.appendChild(el("div", { class: "qdx-plot" })).innerHTML = hist(["00", "01", "10", "11"], null, values, { width: 340, height: 150, top: Math.max.apply(null, values) * 1.05, low: Math.min.apply(null, values.concat([0])) });
         sl.addEventListener("input", function () { pair = Number(sl.value); update(); });
         body.appendChild(el("span", { class: "qd-label" }, "d.most_likely(5)"));
-        var pre = body.appendChild(el("pre"));
+        var pre = codeCell(body);
         pre.textContent = Object.keys(big.most_likely).map(function (k) { return k + "  " + big.most_likely[k].toExponential(2); }).join("\n");
         body.appendChild(el("p", { class: "qd-note" }, big.text + ". Exact, in " + big.seconds + " s on one machine. Stored from a real run; no circuit runs when it is read. On qubits 2–7, its marginals differ from a 10-qubit statevector of the same gates by " + small(big.check) + "."));
       }
@@ -1168,7 +1141,7 @@
     all.appendChild(el("div")).innerHTML = html + "</tbody></table>";
     var code = root.appendChild(el("details"));
     code.appendChild(el("summary", {}, "The code"));
-    code.appendChild(el("pre", {}, 'noise = NoiseModel()\nnoise.add_all_qubit_quantum_error(depolarizing_error(p, 2), ["cz", "cx"])\nbackend = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"noise_model": noise}))\nqd.gate_cutting(circuit, cut, "ZZZZZZ", backend=backend, shots=' + data.shots + ", seed=1, error=True)"));
+    codeCell(code, 'noise = NoiseModel()\nnoise.add_all_qubit_quantum_error(depolarizing_error(p, 2), ["cz", "cx"])\nbackend = qd.build_backend("AER_BACKEND", qd.BackendConfig(extra={"noise_model": noise}))\nqd.gate_cutting(circuit, cut, "ZZZZZZ", backend=backend, shots=' + data.shots + ", seed=1, error=True)");
   }
 
   /* ---- 7. SDKs ---- */
@@ -1181,8 +1154,8 @@
       toggles(tabs, data.map(function (s) { return { value: s.name, label: s.name }; }), active, function (v) { active = v; update(); });
       var s = data.filter(function (x) { return x.name === active; })[0];
       body.textContent = "";
-      body.appendChild(el("pre", {}, s.install));
-      body.appendChild(el("pre", {}, s.code));
+      codeCell(body, s.install);
+      codeCell(body, s.code);
       var stats = body.appendChild(el("div", { class: "qd-stats" }));
       stat(stats, s.cut, "the cut find_cut chose");
       stat(stats, num(s.value, 4), "cut, 8192 shots on " + s.name + "'s simulator");

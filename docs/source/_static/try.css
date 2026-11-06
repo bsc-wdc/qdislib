@@ -37,17 +37,17 @@ body[data-theme="dark"] .qd-try { --qd-a: #b79cf0; --qd-b: #f29a4a; }
   font-weight: 700;
 }
 /* A press always shows: :active with a mouse, a short flash added by script on touch. */
-.qd-try button:not(:disabled):active, .qd-try button.qdx-flash {
+.qd-try button:not(:disabled):not(.copybtn):active, .qd-try button.qdx-flash {
   background: var(--qd-a);
   border-color: var(--qd-a);
   color: #fff;
 }
 @media (hover: hover) {
-  .qd-try button:not(:disabled):not([aria-pressed="true"]):hover { border-color: var(--qd-a); }
+  .qd-try button:not(:disabled):not(.copybtn):not([aria-pressed="true"]):hover { border-color: var(--qd-a); }
 }
-body[data-theme="dark"] .qd-try button[aria-pressed="true"], body[data-theme="dark"] .qd-try button:not(:disabled):active, body[data-theme="dark"] .qd-try button.qdx-flash { color: #111; }
+body[data-theme="dark"] .qd-try button[aria-pressed="true"], body[data-theme="dark"] .qd-try button:not(:disabled):not(.copybtn):active, body[data-theme="dark"] .qd-try button.qdx-flash { color: #111; }
 @media (prefers-color-scheme: dark) {
-  body:not([data-theme="light"]) .qd-try button[aria-pressed="true"], body:not([data-theme="light"]) .qd-try button:not(:disabled):active, body:not([data-theme="light"]) .qd-try button.qdx-flash { color: #111; }
+  body:not([data-theme="light"]) .qd-try button[aria-pressed="true"], body:not([data-theme="light"]) .qd-try button:not(:disabled):not(.copybtn):active, body:not([data-theme="light"]) .qd-try button.qdx-flash { color: #111; }
 }
 .qd-try .qd-note { font-size: 0.875rem; color: var(--color-foreground-secondary, #555); margin: 0.4rem 0 0; }
 .qd-try .qd-stats { display: grid; gap: 0.5rem; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); margin: 1rem 0; }

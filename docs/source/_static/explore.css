@@ -42,12 +42,9 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 .qd-try .qdx-start label { font-weight: 700; }
 .qd-try .qdx-start select { flex: 0 1 16rem; min-width: 0; min-height: 48px; padding: 0 0.6rem; font: inherit; font-weight: 600; color: var(--color-foreground-primary, #111); background-color: var(--qd-soft); border: 2px solid var(--qd-a); border-radius: 10px; cursor: pointer; }
 .qd-try .qdx-obs rect { fill: var(--qd-soft); stroke: var(--qd-a); stroke-width: 2; }
-.qd-try .qdx-code { position: relative; }
-.qd-try .qdx-code pre { margin: 0.3rem 0; padding-right: 3rem; }
-.qd-try button.qdx-copy { position: absolute; top: 0; right: 0; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; min-height: 44px; padding: 0; color: var(--color-foreground-secondary, #555); background: transparent; border: 0; border-radius: 8px; }
-.qd-try button.qdx-copy svg { display: block; width: 16px; height: 16px; }
-.qd-try button.qdx-copy[aria-pressed="true"] { color: var(--qd-a); }
-@media (hover: hover) { .qd-try button.qdx-copy:hover { color: var(--color-foreground-primary, #111); } }
+.qd-try .qdx-code { position: relative; margin: 0.3rem 0; background: none; }
+.qd-try .qdx-code pre { padding-right: 2.2rem; }
+.qd-try .highlight button.copybtn { min-height: 0; padding: 0; }
 .qd-try button:disabled { opacity: 0.45; cursor: default; }
 .qd-try .qdx-mark { fill: var(--color-background-primary, #fff); stroke: var(--qdx-gate); stroke-width: 2; pointer-events: none; }
 .qd-try .qdx-wiremark { stroke: var(--qdx-wire); }
