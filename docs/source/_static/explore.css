@@ -81,3 +81,4 @@ body[data-theme="dark"] .qd-try { --qdx-plain: #aab4c0; --qdx-gate: #4cc38a; --q
 .qd-try .qdx-series .qd-swatch { box-shadow: 0 0 0 1.5px var(--color-background-primary, #fff); }
 .qd-try .qdx-hit:focus { outline: none; }
 .qd-try .qdx-hit:focus-visible { outline: 2px solid var(--qd-a); outline-offset: -2px; }
+.qd-try .qdx-slot { fill: var(--qd-line); pointer-events: none; }

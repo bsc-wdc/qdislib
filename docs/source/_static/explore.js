@@ -368,13 +368,6 @@
       another.style.display = state.example === "random" ? "" : "none";
     }
     var hint = root.appendChild(el("p", { class: "qdx-hint", "aria-live": "polite" }));
-    var boardHost = root.appendChild(el("div"));
-    var legend = root.appendChild(el("div", { class: "qd-legend" }));
-    legend.innerHTML = legendHtml();
-    root.appendChild(el("p", { class: "qd-note" }, "The letters at the end of the lines are what is measured. Tap one to change it: Z, X, Y, or I for nothing."));
-    var actions = root.appendChild(el("div", { class: "qdx-actions" }));
-    var auto = actions.appendChild(el("button", { type: "button", class: "qdx-primary" }, "Auto cut"));
-    var clear = actions.appendChild(el("button", { type: "button" }, "Clear cuts"));
     var edit = root.appendChild(el("details"));
     edit.appendChild(el("summary", {}, "Edit the circuit"));
     var editBody = edit.appendChild(el("div"));
@@ -387,6 +380,13 @@
     var doneEditing = editBody.appendChild(el("button", { type: "button" }, "Back to cutting"));
     doneEditing.addEventListener("click", function () { state.tool = null; state.pending = null; edit.open = false; render(); });
 
+    var boardHost = root.appendChild(el("div"));
+    var legend = root.appendChild(el("div", { class: "qd-legend" }));
+    legend.innerHTML = legendHtml();
+    root.appendChild(el("p", { class: "qd-note" }, "The letters at the end of the lines are what is measured. Tap one to change it: Z, X, Y, or I for nothing."));
+    var actions = root.appendChild(el("div", { class: "qdx-actions" }));
+    var auto = actions.appendChild(el("button", { type: "button", class: "qdx-primary" }, "Auto cut"));
+    var clear = actions.appendChild(el("button", { type: "button" }, "Clear cuts"));
     var warn = root.appendChild(el("div", { class: "qdx-warn", hidden: "" }));
     var payoff = root.appendChild(el("div", { class: "qdx-payoff" }));
 
@@ -544,7 +544,7 @@
 
       var svg = drawCircuit({
         n: state.n, ops: circuit.ops, cols: cols, cuts: cuts, plan: plan, keys: true,
-        width: editing ? COLS : Math.max(5, Math.max.apply(null, cols.concat([0])) + 1),
+        width: edit.open ? COLS : Math.max(5, Math.max.apply(null, cols.concat([0])) + 1),
         ends: state.observable.split(""),
         aria: "The circuit. Each colour is a fragment. Tap a two-qubit gate or a line to cut there.",
         overlay: function (g) {
@@ -556,6 +556,7 @@
           if (editing) {
             for (q = 0; q < state.n; q++) {
               for (var c = 0; c < COLS; c++) {
+                if (!occupied(q, c)) s += '<circle class="qdx-slot" cx="' + g.x(c) + '" cy="' + g.y(q) + '" r="3"/>';
                 s += '<rect class="qdx-hit" data-q="' + q + '" data-c="' + c + '" x="' + (g.x(c) - CELL / 2) + '" y="' + (g.y(q) - ROW / 2) + '" width="' + CELL + '" height="' + ROW + '"/>';
               }
             }
@@ -593,7 +594,7 @@
       /* What just happened, or what to do */
       hint.textContent = editing
         ? (state.tool === "erase" ? "Tap a gate to remove it." : TWO[state.tool] ? "Tap one qubit, then another in the same column." : "Tap an empty place on the circuit.")
-        : state.said || (ops.length ? "Tap a two-qubit gate to cut it, or a line to cut the wire. Or try Auto cut." : "An empty circuit. Pick a gate under Edit the circuit, then tap where it goes.");
+        : state.said || (ops.length ? "Tap a two-qubit gate to cut it, or a line to cut the wire. Or try Auto cut." : "An empty circuit. Pick a gate here, then tap where it goes on the lines.");
       help.textContent = "Pick a gate, then tap the circuit. Tap the gate here again, or Back to cutting, to return.";
       angleRow.style.display = ANGLED[state.tool] ? "" : "none";
       doneEditing.style.display = editing ? "" : "none";
@@ -772,8 +773,8 @@
     });
     clear.addEventListener("click", function () { state.cuts = []; state.said = ""; state.auto = false; render(); });
     edit.addEventListener("toggle", function () {
-      if (edit.open) drawTools();
-      else { state.tool = null; state.pending = null; render(); }
+      if (!edit.open) { state.tool = null; state.pending = null; }
+      render();
     });
     shotSlider.addEventListener("input", render);
     again.addEventListener("click", function () { state.seed += 1; render(); });
