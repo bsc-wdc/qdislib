@@ -20,10 +20,9 @@
 """
 Qdislib backend-agnostic helpers.
 
-Utilities to detect which quantum SDK (Qiskit, Qibo or CUDA-Q) a circuit comes
-from and to convert it into Qdislib's internal DAG (``networkx``) representation.
-Keeping this dispatch in one place avoids duplicating the type-to-converter map
-across the cutting algorithms.
+Utilities to detect which quantum SDK a circuit comes from and to convert it into
+Qdislib's internal DAG (``networkx``) representation, and the objects of the
+three-step workflow: subcircuits, their lists and :func:`expectation_value`.
 """
 
 import logging
@@ -70,7 +69,7 @@ __all__ = [
 
 
 def convert_to_dag(circuit, observables=None):
-    """Convert a Qiskit/Qibo/CUDA-Q circuit into a Qdislib DAG.
+    """Convert a circuit of any SDK into a Qdislib DAG.
 
     Dispatches on the circuit type. If ``circuit`` is already a DAG (or any
     unrecognised type) it is returned unchanged.
@@ -82,7 +81,8 @@ def convert_to_dag(circuit, observables=None):
     itself, at the cut site (see ``_generate_cut``).
 
     :param circuit: A Qiskit ``QuantumCircuit``, a Qibo ``Circuit``, a CUDA-Q
-        kernel, or an already-built ``networkx`` DAG.
+        kernel, a PennyLane tape or QNode, a QiliSDK ``Circuit``, or an already-built
+        ``networkx`` DAG.
     :param observables: Optional observable string; when it contains ``"I"`` the
         identity observable nodes are appended to the resulting DAG.
     :return: The corresponding ``networkx`` DAG, or ``circuit`` unchanged if the
@@ -296,6 +296,12 @@ class Subcircuit:
 
     ``s[0]`` / ``s[1]`` are the circuit and the observable, as the 1.x
     ``[circuit, observable]`` pairs were.
+
+    The ``*_subcircuits`` functions build it.
+
+    :param dag: The subcircuit's backend-neutral DAG.
+    :param num_qubits: Its width.
+    :param software: The SDK it is written in.
     """
 
     #: What the run step returns for it: "expectation" or "distribution".
@@ -325,6 +331,7 @@ class Subcircuit:
 
     @property
     def observable(self):
+        """The Z/I string read at its end (see the class)."""
         built = self.to_circuit()
         if isinstance(built, (list, tuple)) and len(built) > 1:
             if isinstance(built[1], str):
@@ -917,19 +924,17 @@ def _evaluate_subcircuit_on(subcircuit, shots, backend, seed):
 
 
 class CutSubcircuits(list):
-    """The subcircuits produced by a cut, that also know how to be recombined.
+    """The subcircuits produced by a 1.x cut, that also know how to be recombined.
 
     This behaves exactly like the plain ``list`` of subcircuits returned before
     (iterate, index, ``len`` as usual), but additionally records the metadata
     needed to recombine the per-subcircuit expectation values and exposes a
     convenient :meth:`reconstruct`::
 
-        subcircuits = qd.wire_cutting_subcircuits(circuit, cut, software="qibo")
         values = [qd.expectation_value(s) for s in subcircuits]
         result = subcircuits.reconstruct(values)        # no manual bookkeeping
 
-    The standalone ``*_subcircuit_reconstruction`` functions remain available for
-    callers that prefer to pass ``number_cuts``/``number_components`` explicitly.
+    The functions build it; 2.0 lists are :class:`~Qdislib.CutCircuits`.
     """
 
     def __init__(self, subcircuits, *, number_cuts, number_components, reconstructor):
@@ -966,6 +971,10 @@ class CombinedCutSubcircuits(CutSubcircuits):
 
     Grouping the flat list by its length instead (``len // 6**n``) mixes up the
     pieces as soon as they are not all alike, e.g. one cut piece and one uncut.
+
+    :param parts: The subcircuit lists, each with ``reconstruct``.
+    :param coefficients: The weight of each part, or ``None`` for a product.
+    :raises ValueError: Without one coefficient per part.
     """
 
     def __init__(self, parts, coefficients=None):
@@ -986,15 +995,25 @@ class CombinedCutSubcircuits(CutSubcircuits):
         return self.parts[0].parameters
 
     def bind(self, values):
-        """Every part with the circuit's free parameters bound (see
-        ``CutCircuits.bind``)."""
+        """Every part with the circuit's free parameters bound.
+
+        :param values: As in :meth:`~Qdislib.CutCircuits.bind`.
+        :return: A new :class:`CombinedCutSubcircuits`.
+        """
         return CombinedCutSubcircuits(
             [part.bind(values) for part in self.parts], self.coefficients
         )
 
     def reconstruct_counts(self, counts, bit_order="q0_first"):
         """``reconstruct`` from the counts of :meth:`circuits` run with your own
-        tools (see ``CutCircuits.reconstruct_counts``)."""
+        tools.
+
+        :param counts: One ``{outcome: count}`` per subcircuit, in this list's order.
+        :param bit_order: ``"q0_first"`` (default) or ``"q0_last"`` (see
+            :func:`~Qdislib.result_from_counts`).
+        :raises ValueError: Without one counts dict per subcircuit.
+        :return: What :meth:`reconstruct` returns.
+        """
         from Qdislib.core.cutting_algorithms.mixed_cutting import result_from_counts
 
         counts = list(counts)
@@ -1007,8 +1026,12 @@ class CombinedCutSubcircuits(CutSubcircuits):
         )
 
     def circuits(self, software=None, *, defer_measurements=False):
-        """The native circuits of every part, in order (see
-        ``CutCircuits.circuits``)."""
+        """The native circuits of every part, in order.
+
+        :param software: Build them in another SDK than the list's.
+        :param defer_measurements: See :meth:`~Qdislib.CutCircuits.circuits`.
+        :return: A list of native circuits.
+        """
         return [
             circuit
             for part in self.parts
@@ -1018,13 +1041,22 @@ class CombinedCutSubcircuits(CutSubcircuits):
         ]
 
     def describe(self, values=None):
-        """A table of every part's subcircuits (see ``CutCircuits.describe``)."""
+        """A table of every part's subcircuits.
+
+        :param values: One result per subcircuit (optional).
+        :return: See :meth:`~Qdislib.CutCircuits.describe`.
+        """
         from Qdislib.core.cutting_algorithms.describe import describe
 
         return describe(self, values)
 
     def reconstruct(self, expected_values):
-        """Recombine one value per subcircuit, in this object's order."""
+        """Recombine one value per subcircuit, in this object's order.
+
+        :param expected_values: What running each subcircuit returned.
+        :raises ValueError: Without one value per subcircuit.
+        :return: The product of the parts' values, or their weighted sum.
+        """
         values = list(expected_values)
         if len(values) != len(self):
             raise ValueError(

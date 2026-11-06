@@ -1060,6 +1060,9 @@ class HadamardCutSubcircuits(list):
     :func:`~Qdislib.expectation_value` and recombine with :meth:`reconstruct`.
     (``s[0]`` / ``s[1]`` still give the circuit and observable, as the 1.x
     ``[circuit, observable]`` pairs did.)
+
+    What a 1.x list was; the functions build it, and 2.0 lists are
+    :class:`~Qdislib.CutCircuits`.
     """
 
     def __init__(self, subcircuits, *, weights, config_of, number_cuts):
@@ -1713,9 +1716,12 @@ class _HadamardSampleUnit(Subcircuit):
 class HadamardSampledCutSubcircuits(list):
     """Hadamard-cut fragments to sample, plus what reconstructs the distribution::
 
-    subs = qd.gate_cutting_hadamard_sampling_subcircuits(circuit, ["CZ_3"])
-    sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
-    distribution = subs.reconstruct(sampled)
+        subs = qd.gate_cutting_hadamard_sampling_subcircuits(circuit, ["CZ_3"])
+        sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
+        distribution = subs.reconstruct(sampled)
+
+    What a 1.x list was; the functions build it, and 2.0 lists are
+    :class:`~Qdislib.CutCircuits`.
     """
 
     def __init__(self, units, *, weights, config_of, num_qubits, number_cuts):
@@ -1726,7 +1732,11 @@ class HadamardSampledCutSubcircuits(list):
         self.number_cuts = number_cuts
 
     def reconstruct(self, sampled_results):
-        """``{bitstring: probability}`` from one sample result per subcircuit."""
+        """``{bitstring: probability}`` from one sample result per subcircuit.
+
+        :param sampled_results: One :func:`~Qdislib.sample_subcircuit` result per
+            subcircuit, in this list's order.
+        """
         return _gate_cutting_hadamard_sampling_reconstruction(
             sampled_results, self.weights, self.config_of, self.num_qubits
         )
@@ -1834,7 +1844,20 @@ def gate_cutting_hadamard(
         :func:`circuit_cutting`).
     :param reduce_chunk: Deprecated and ignored, removed in the next release: the
         reconstruction is one cheap task.
-    :return: The reconstructed expectation value.
+    :raises InvalidCutError: For a cut that is not a gate of the circuit, is given
+        twice or does not separate its two sides.
+    :raises ValueError: For an observable without one letter per qubit, ``shots`` below
+        1, or ``shots=None`` with a backend that is no simulator.
+    :return: The reconstructed expectation value (a list of them with
+        ``parameter_values``).
+
+    Example::
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cz(0, 1)  # gate 2, "CZ_2"
+        qc.cz(1, 2)  # gate 3, "CZ_3"
+        value = qd.gate_cutting_hadamard(qc, ["CZ_2"], "ZZZ", shots=4096, seed=1)
     """
     if reduce_chunk is not None:
         import warnings
@@ -1923,11 +1946,34 @@ def gate_cutting_hadamard_sampling(
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** with the Hadamard cut.
-    Arguments as in :func:`gate_cutting_hadamard`.
 
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Two-qubit gate names to cut.
+    :param backend: Where the fragments run (see :func:`gate_cutting`).
+    :param shots: Shots per fragment; ``None`` is exact (statevector).
+    :param seed: Seed for the simulators' sampling and for the ``num_samples`` draws.
+    :param sync: ``False`` returns the distribution as a future (PyCOMPSs).
+    :param joint: Cut the gates crossing the same boundary together, as in
+        :func:`gate_cutting_hadamard`.
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
+    :param cache: Reuse fragment circuits already run (see :func:`circuit_cutting`
+        and :func:`~Qdislib.use_cache`).
+    :param cache_key: ``"exact"`` (default) or ``"semantic"``.
+    :param cache_refresh: Run every circuit again and replace what is stored.
+    :param error: ``True`` (or a number of resamples): return a
+        :class:`~Qdislib.Distribution` with each probability's standard error.
+    :param circuits_per_task: Fragment circuits per task instead of one each (see
+        :func:`circuit_cutting`).
+    :param parameter_values: A list of value sets for the circuit's free
+        parameters, one distribution each, the cut planned once.
     :param qubits: The distribution over only these qubits, as in
         :func:`circuit_cutting_sampling`.
-    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+    :raises InvalidCutError: For a cut that is not a gate of the circuit, is given
+        twice or does not separate its two sides.
+    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings), a
+        :class:`~Qdislib.FactoredDistribution` over more than 24 qubits; a list of them
+        with ``parameter_values``.
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _legacy_run,
@@ -1993,10 +2039,25 @@ def gate_cutting_hadamard_subcircuits(
     num_samples=None,
     seed=None,
 ):
-    """The fragments of :func:`gate_cutting_hadamard`, to run yourself (three-step).
+    """The fragments of :func:`gate_cutting_hadamard`, to run yourself (three-step)::
 
+        subs = qd.gate_cutting_hadamard_subcircuits(circuit, ["CZ_3"], "ZZZZ")
+        values = [qd.expectation_value(s, shots=4096) for s in subs]
+        value = subs.reconstruct(values)
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Two-qubit gate names to cut.
+    :param observable: A Pauli string or a weighted Pauli sum; ``None`` is all ``Z``.
+    :param joint: Cut the gates crossing the same boundary together, as in
+        :func:`gate_cutting_hadamard`.
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
     :param seed: Seed for the ``num_samples`` draws.
-    :return: A list of subcircuits with ``reconstruct(values)``.
+    :raises InvalidCutError: For a cut that is not a gate of the circuit, is given
+        twice or does not separate its two sides.
+    :return: A :class:`~Qdislib.CutCircuits` (a list of subcircuits with
+        ``reconstruct(values)``); for a Pauli sum a
+        :class:`~Qdislib.CombinedCutSubcircuits`.
     """
     from Qdislib.core.cutting_algorithms.mixed_cutting import (
         circuit_cutting_subcircuits,
@@ -2017,9 +2078,23 @@ def gate_cutting_hadamard_subcircuits(
 def gate_cutting_hadamard_sampling_subcircuits(
     circuit, cuts, *, _software=None, joint=True, num_samples=None, seed=None
 ):
-    """The fragments of :func:`gate_cutting_hadamard_sampling`, to sample yourself.
+    """The fragments of :func:`gate_cutting_hadamard_sampling`, to sample yourself::
 
-    :return: A list of subcircuits with ``reconstruct(results)``.
+        subs = qd.gate_cutting_hadamard_sampling_subcircuits(circuit, ["CZ_3"])
+        results = [qd.sample_subcircuit(s, shots=8192) for s in subs]
+        distribution = subs.reconstruct(results)
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Two-qubit gate names to cut.
+    :param joint: Cut the gates crossing the same boundary together, as in
+        :func:`gate_cutting_hadamard`.
+    :param num_samples: Draw this many configurations by weight instead of running
+        them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
+    :param seed: Seed for the ``num_samples`` draws.
+    :raises InvalidCutError: For a cut that is not a gate of the circuit, is given
+        twice or does not separate its two sides.
+    :return: A :class:`~Qdislib.CutCircuits` (a list of subcircuits with
+        ``reconstruct(results)``).
     """
     from Qdislib.core.cutting_algorithms.mixed_cutting import (
         circuit_cutting_sampling_subcircuits,
@@ -2039,7 +2114,15 @@ def gate_cutting_hadamard_sampling_subcircuits(
 
 
 def gate_cutting_hadamard_subcircuit_reconstruction(values, weights, config_of):
-    """Deprecated: use ``subcircuits.reconstruct(results)``."""
+    """Deprecated: use ``subcircuits.reconstruct(results)``.
+
+    :param values: One value per subcircuit of a 1.x Hadamard cut, in order.
+    :param weights: The signed coefficient of each configuration.
+    :param config_of: The configuration each subcircuit belongs to.
+    :raises TypeError: For the results of a 2.0 list, which only its ``reconstruct``
+        can combine.
+    :return: The reconstructed expectation value.
+    """
     import warnings
 
     warnings.warn(

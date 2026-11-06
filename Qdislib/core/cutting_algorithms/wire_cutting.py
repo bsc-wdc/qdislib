@@ -827,9 +827,12 @@ class WireSampledCutSubcircuits(list):
     behaves like the plain ``list`` of fragments (iterate/index/``len``) and carries
     the metadata to reconstruct the output distribution::
 
-        subs = qd.wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit")
+        subs = qd.wire_cutting_sampling_subcircuits(circuit, cut)
         sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
         distribution = subs.reconstruct(sampled)
+
+    What a 1.x list was; the functions build it, and 2.0 lists are
+    :class:`~Qdislib.CutCircuits`.
     """
 
     def __init__(
@@ -3263,7 +3266,21 @@ def wire_cutting(
     :param cache_mode: Deprecated and ignored (the cache keeps the whole result).
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
-    :return: The reconstructed expectation value.
+    :raises InvalidCutError: For a cut that does not join two gates of the circuit on
+        a shared qubit, is given twice or does not separate its two sides.
+    :raises ValueError: For an observable without one letter per qubit, ``shots`` below
+        1, or ``shots=None`` with a backend that is no simulator.
+    :return: The reconstructed expectation value (a list of them with
+        ``parameter_values``).
+
+    Example::
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cz(0, 1)  # gate 2, "CZ_2"
+        qc.ry(0.3, 1)  # gate 3, "RY_3"
+        qc.cz(1, 2)  # gate 4, "CZ_4"
+        value = qd.wire_cutting(qc, [("RY_3", "CZ_4")], "ZZZ", shots=4096, seed=1)
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _cache_mode_option,
@@ -3345,13 +3362,37 @@ def wire_cutting_sampling(
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
-    wires. Arguments as in :func:`wire_cutting`.
+    wires.
 
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Wires to cut, as in :func:`wire_cutting`.
+    :param backend: Where the subcircuits run (see :func:`gate_cutting`).
+    :param shots: Shots per subcircuit; ``None`` is exact (statevector).
+    :param seed: Seed for the simulators' sampling.
+    :param sync: ``False`` returns the distribution as a future (PyCOMPSs).
+    :param optimized: Run each fragment once per measurement basis / prepared state
+        of its own wires (``3**i * 4**j`` per fragment instead of ``8**n`` overall).
+    :param joint: With ``optimized``, measure the wires a fragment sends together
+        (``2**k + 1`` circuits instead of ``3**k``).
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
+    :param cache: Reuse fragment circuits already run (see :func:`circuit_cutting`
+        and :func:`~Qdislib.use_cache`).
+    :param cache_key: ``"exact"`` (default) or ``"semantic"``.
+    :param cache_refresh: Run every circuit again and replace what is stored.
+    :param error: ``True`` (or a number of resamples): return a
+        :class:`~Qdislib.Distribution` with each probability's standard error.
+    :param circuits_per_task: Fragment circuits per task instead of one each (see
+        :func:`circuit_cutting`).
+    :param parameter_values: A list of value sets for the circuit's free
+        parameters, one distribution each, the cut planned once.
     :param qubits: The distribution over only these qubits, as in
         :func:`circuit_cutting_sampling`.
-    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+    :raises InvalidCutError: For a cut that does not join two gates of the circuit on
+        a shared qubit, is given twice or does not separate its two sides.
+    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings), a
+        :class:`~Qdislib.FactoredDistribution` over more than 24 qubits; a list of them
+        with ``parameter_values``.
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import _legacy_run
 
@@ -3416,11 +3457,26 @@ def wire_cutting_subcircuits(
     num_samples=None,
     seed=None,
 ):
-    """The subcircuits of :func:`wire_cutting`, to run yourself (three-step).
+    """The subcircuits of :func:`wire_cutting`, to run yourself (three-step)::
 
+        subs = qd.wire_cutting_subcircuits(circuit, [("RY_7", "CZ_8")], "ZZZZ")
+        values = [qd.expectation_value(s, shots=4096) for s in subs]
+        value = subs.reconstruct(values)
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Wires to cut, as in :func:`wire_cutting`.
+    :param observable: A Pauli string or a weighted Pauli sum; ``None`` is all ``Z``.
+    :param optimized: Run each fragment once per measurement basis / prepared state
+        of its own wires.
+    :param joint: With ``optimized``, measure the wires a fragment sends together.
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
-    :return: A list of subcircuits with ``reconstruct(values)``.
+    :param seed: Seed for the ``num_samples`` draws.
+    :raises InvalidCutError: For a cut that does not join two gates of the circuit on
+        a shared qubit, is given twice or does not separate its two sides.
+    :return: A :class:`~Qdislib.CutCircuits` (a list of subcircuits with
+        ``reconstruct(values)``); for a Pauli sum a
+        :class:`~Qdislib.CombinedCutSubcircuits`.
     """
     from Qdislib.core.cutting_algorithms.mixed_cutting import (
         circuit_cutting_subcircuits,
@@ -3449,11 +3505,24 @@ def wire_cutting_sampling_subcircuits(
     num_samples=None,
     seed=None,
 ):
-    """The subcircuits of :func:`wire_cutting_sampling`, to sample yourself.
+    """The subcircuits of :func:`wire_cutting_sampling`, to sample yourself::
 
+        subs = qd.wire_cutting_sampling_subcircuits(circuit, [("RY_7", "CZ_8")])
+        results = [qd.sample_subcircuit(s, shots=8192) for s in subs]
+        distribution = subs.reconstruct(results)
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Wires to cut, as in :func:`wire_cutting`.
+    :param optimized: Run each fragment once per measurement basis / prepared state
+        of its own wires.
+    :param joint: With ``optimized``, measure the wires a fragment sends together.
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
-    :return: A list of subcircuits with ``reconstruct(results)``.
+    :param seed: Seed for the ``num_samples`` draws.
+    :raises InvalidCutError: For a cut that does not join two gates of the circuit on
+        a shared qubit, is given twice or does not separate its two sides.
+    :return: A :class:`~Qdislib.CutCircuits` (a list of subcircuits with
+        ``reconstruct(results)``).
     """
     from Qdislib.core.cutting_algorithms.mixed_cutting import (
         circuit_cutting_sampling_subcircuits,
@@ -3476,7 +3545,16 @@ def wire_cutting_sampling_subcircuits(
 def wire_cutting_subcircuit_reconstruction(
     expected_values, number_cuts, number_components=2
 ):
-    """Deprecated: use ``subcircuits.reconstruct(results)``."""
+    """Deprecated: use ``subcircuits.reconstruct(results)``.
+
+    :param expected_values: One value per subcircuit of a 1.x wire cut, in order.
+    :param number_cuts: The wires cut.
+    :param number_components: The subcircuits of each of its ``8**number_cuts``
+        configurations.
+    :raises TypeError: For the results of a 2.0 list, which only its ``reconstruct``
+        can combine.
+    :return: The reconstructed expectation value.
+    """
     import warnings
 
     warnings.warn(
