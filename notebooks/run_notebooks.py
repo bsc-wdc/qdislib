@@ -8,11 +8,17 @@ Run it from an environment with `pip install ".[qibo,qiskit]" nbclient ipykernel
 ipywidgets`, without CUDA-Q (importing it prints a FutureWarning with a local path), and
 without PyZX except for 07_caching.ipynb, which needs `.[cache]`: importing PyZX makes a
 notebook's figures SVG, which the PDF build of the documentation cannot use.
-09_distributed_and_qpu.ipynb is left out unless named: its stored outputs come from a
-real COMPSs run (see run_under_compss.py).
+
+Qdislib_try_it.ipynb and 09_distributed_and_qpu.ipynb are left out unless named: their
+stored outputs come from a real COMPSs run, in the Binder image, as Binder runs it:
+
+    docker build -f binder/Dockerfile -t qdislib-try .
+    docker run --rm --user 1000 -v "$PWD/notebooks":/home/ubuntu/notebooks qdislib-try \
+        python3 notebooks/run_notebooks.py Qdislib_try_it.ipynb 09_distributed_and_qpu.ipynb
 
 Besides running each notebook this removes the live-widget outputs (cells tagged
-`live-widget` show nothing on a static page), keeps the notebook metadata to the
+`live-widget` show nothing on a static page) and the COMPSs runtime's banner, log path and
+messages (cells tagged `compss-start` and `compss-stop`), keeps the notebook metadata to the
 kernel, and fails if an output holds a local path.
 """
 
@@ -24,10 +30,11 @@ import time
 
 import nbformat
 from nbclient import NotebookClient
+from nbformat.v4 import new_output
 
 ROOT = pathlib.Path(__file__).resolve().parent
 LOCAL_PATH = re.compile(r"/(Users|home|private|tmp|gpfs|root|opt)/[\w.-]+|site-packages")
-RUN_UNDER_COMPSS = {"09_distributed_and_qpu.ipynb"}
+RUN_UNDER_COMPSS = {"09_distributed_and_qpu.ipynb", "Qdislib_try_it.ipynb"}
 
 
 def clean(notebook):
@@ -37,13 +44,26 @@ def clean(notebook):
         "language_info": {"name": "python"},
     }
     found = []
+    under_compss = any(
+        "compss-start" in cell.metadata.get("tags", []) for cell in notebook.cells
+    )
     for cell in notebook.cells:
         metadata = {k: v for k, v in cell.metadata.items() if k in ("tags", "nbsphinx")}
         cell.metadata = metadata
         if cell.cell_type != "code":
             continue
-        if "live-widget" in metadata.get("tags", []):
+        tags = metadata.get("tags", [])
+        if "live-widget" in tags:
             cell.outputs = []
+        if under_compss:
+            for output in list(cell.outputs):
+                if output.get("output_type") != "stream":
+                    continue
+                output.text = output.text.replace("INFO: Storage API successfully imported.\n", "")
+                if output.name == "stderr" or "compss-stop" in tags or not output.text:
+                    cell.outputs.remove(output)
+            if "compss-start" in tags and "PyCOMPSs is not installed" not in str(cell.outputs):
+                cell.outputs = [new_output("stream", name="stdout", text="PyCOMPSs runtime started.\n")]
         for output in cell.outputs:
             text = output.get("text", "")
             data = output.get("data", {})
