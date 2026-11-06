@@ -51,25 +51,44 @@ from Qdislib.utils.runtime import task
 from Qdislib.utils.circuit_dag import ops_to_dag
 from Qdislib.utils.gates import lowered
 
+#: The adjoint of a gate, as the gate it is (``t.adj(q)`` -> ``"TDG"``).
+_CUDAQ_ADJOINT = {"S": "SDG", "T": "TDG", "H": "H", "X": "X", "Y": "Y", "Z": "Z"}
+#: Statements that change which gates run: the source alone does not say.
+_CUDAQ_CONTROL_FLOW = (ast.For, ast.While, ast.If, ast.With, ast.Try)
+
+
+def _unreadable(node, why):
+    """The error for a kernel statement the DAG cannot hold. Leaving it out would
+    cut, and answer for, a different circuit."""
+    return ValueError(
+        f"Cannot read this CUDA-Q kernel: {why} ({ast.unparse(node)!r}). Cutting reads "
+        "a kernel's source, so write each gate on its own line, on a literal qubit "
+        "(q[0]) with a literal angle, or build the circuit in another SDK."
+    )
+
 
 def _cudaq_gate_name(call):
     """Upper-cased gate name for a CUDA-Q gate call AST node, or ``None``.
 
-    Handles plain calls (``h(...)`` -> ``"H"``) and the controlled-gate attribute
-    syntax (``x.ctrl(c, t)`` -> ``"CX"``, ``z.ctrl(c, t)`` -> ``"CZ"``). Returns
-    ``None`` for non-gate calls such as ``cudaq.qvector(...)``.
+    Handles plain calls (``h(...)`` -> ``"H"``), the controlled-gate attribute
+    syntax (``x.ctrl(c, t)`` -> ``"CX"``, ``z.ctrl(c, t)`` -> ``"CZ"``) and adjoints
+    (``t.adj(q)`` -> ``"TDG"``). Returns ``None`` for what only allocates qubits
+    (``cudaq.qvector(...)``).
+
+    :raises ValueError: For any other attribute call (``cudaq.control(...)``, ...).
     """
     func = call.func
     if isinstance(func, ast.Name):
         return func.id.upper()
-    if (
-        isinstance(func, ast.Attribute)
-        and func.attr == "ctrl"
-        and isinstance(func.value, ast.Name)
-    ):
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
         base = func.value.id.upper()
-        return {"X": "CX", "Z": "CZ"}.get(base, "C" + base)
-    return None
+        if func.attr == "ctrl":
+            return {"X": "CX", "Z": "CZ"}.get(base, "C" + base)
+        if func.attr == "adj" and base in _CUDAQ_ADJOINT:
+            return _CUDAQ_ADJOINT[base]
+        if func.value.id == "cudaq" and func.attr in ("qvector", "qubit"):
+            return None
+    raise _unreadable(call, "a call that is not a plain gate")
 
 
 def _eval_cudaq_param(node):
@@ -100,6 +119,9 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
     :param kernel: A CUDA-Q kernel (``PyKernelDecorator``).
     :param obs_I: Optional observable string; each ``"I"`` appends an identity
         observable sink node on that qubit (internal use when cutting).
+    :raises ValueError: For what the source does not say gate by gate: a loop or a
+        branch, a gate on a whole register or on a computed qubit, an angle that is
+        not a number there (a kernel argument, a variable).
     :return: A :class:`networkx.DiGraph` whose nodes carry ``gate`` (upper-cased
         name), ``qubits`` (tuple of ints) and ``parameters`` (list of floats),
         with blue (nearest-predecessor) and red (other-predecessor) edges.
@@ -121,6 +143,8 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
 
     ops = []
     for statement in func.body:
+        if isinstance(statement, _CUDAQ_CONTROL_FLOW):
+            raise _unreadable(statement, "a loop or a branch")
         # Gate operations are bare calls (``h(q[0])``) or measurement
         # assignments (``m = mz(q[0])``); everything else is skipped.
         if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
@@ -136,19 +160,23 @@ def circuit_cudaq_to_dag(kernel, obs_I=None) -> nx.DiGraph:
         if name is None:
             continue
 
-        # Subscript arguments (``q[i]``) are qubits; the rest are parameters.
+        # Subscript arguments (``q[0]``) are qubits; the rest are parameters.
         qubits, parameters = [], []
         for arg in call.args:
             if isinstance(arg, ast.Subscript):
                 index = arg.slice.value if isinstance(arg.slice, ast.Constant) else None
-                if isinstance(index, int):
-                    qubits.append(index)
+                if not isinstance(index, int):
+                    raise _unreadable(call, "a qubit that is not a literal index")
+                qubits.append(index)
+            elif name == "MZ" and isinstance(arg, ast.Name):
+                continue  # mz(q): every qubit is measured at the end anyway
             else:
                 value = _eval_cudaq_param(arg)
-                if value is not None:
-                    parameters.append(value)
+                if value is None:
+                    raise _unreadable(call, "an argument that is not a number or q[i]")
+                parameters.append(value)
 
-        if not qubits:  # e.g. cudaq.qvector(...) or a whole-register op -> skip
+        if not qubits:  # mz(q)
             continue
         ops.append((f"{name}_{len(ops) + 1}", name, qubits, parameters))
 
@@ -169,31 +197,16 @@ def dag_to_circuit_cudaq(dag: nx.DiGraph, num_qubits: int):
             obs_I.append(dag.nodes[node]["qubits"][0])
             dag.remove_node(node)
 
-    if obs_I:
-        observables = ["Z"] * num_qubits
-        for element in obs_I:
-            observables[element] = "I"
-
-        observables = "".join(observables)
-        return [(dag, num_qubits), observables]
-
     observables = ["Z"] * num_qubits
-    observables = "".join(observables)
-    return [(dag, num_qubits), observables]
+    for element in obs_I:
+        observables[element] = "I"
+    return [(dag, num_qubits), "".join(observables)]
 
 
 # @task(returns=1)
 def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final=False):
     """
     Convert a DAG into a CUDA-Q kernel using the modern builder API.
-
-    Produces code like::
-
-        kernel = cudaq.make_kernel()
-        q = [kernel.qalloc() for _ in range(num_qubits)]
-        kernel.h(q[0])
-        result = kernel.mz(q[0])
-        kernel.if_result(result, lambda: kernel.x(q[1]))
 
     :param dag: networkx.DiGraph whose nodes carry ``gate`` (str), ``qubits``
         (tuple of indices) and ``parameters`` (list) attributes.
@@ -237,8 +250,6 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
 
     # Allocate qubits explicitly
     q = [kernel.qalloc() for _ in range(num_qubits)]
-    # Cut-measured qubits, in mz-call order (for the explicit-measurements parse).
-    measured_order = []
     # Traverse DAG
     for node in nx.topological_sort(dag):
         node_data = dag.nodes[node]
@@ -326,7 +337,6 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
             elif gate == "MEASURE":
                 for qb in qubits:
                     kernel.mz(q[qb])
-                    measured_order.append(qb)
 
             else:
                 raise ValueError(f"Unsupported gate type: {gate}")
@@ -337,6 +347,8 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
 # Compiled run-kernels cached by source hash: cudaq JIT-compiles each kernel and
 # many gate-cut configurations share the same (renumbered) subcircuit.
 _CUDAQ_RUN_KERNEL_CACHE = {}
+#: A long-lived worker builds many: the oldest are dropped past this many.
+_CUDAQ_RUN_KERNEL_CACHE_SIZE = 256
 _CUDAQ_ONE_QUBIT = {"H": "h", "X": "x", "Y": "y", "Z": "z", "S": "s", "T": "t"}
 
 
@@ -352,18 +364,22 @@ def _compile_cudaq_source(source, func_name="cut_kernel"):
     import os
     import tempfile
 
-    key = hashlib.md5(source.encode()).hexdigest()
+    key = hashlib.sha256(source.encode()).hexdigest()
     cached = _CUDAQ_RUN_KERNEL_CACHE.get(key)
     if cached is not None:
         return cached
-    directory = tempfile.mkdtemp(prefix="qdislib_cudaq_")
-    path = os.path.join(directory, f"{func_name}.py")
-    with open(path, "w") as handle:
-        handle.write(source)
-    spec = importlib.util.spec_from_file_location(f"{func_name}_{key}", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # The decorator reads the source when it runs: the file is not needed after that,
+    # and a worker builds many kernels.
+    with tempfile.TemporaryDirectory(prefix="qdislib_cudaq_") as directory:
+        path = os.path.join(directory, f"{func_name}.py")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(source)
+        spec = importlib.util.spec_from_file_location(f"{func_name}_{key}", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
     kernel = getattr(module, func_name)
+    if len(_CUDAQ_RUN_KERNEL_CACHE) >= _CUDAQ_RUN_KERNEL_CACHE_SIZE:
+        _CUDAQ_RUN_KERNEL_CACHE.pop(next(iter(_CUDAQ_RUN_KERNEL_CACHE)))
     _CUDAQ_RUN_KERNEL_CACHE[key] = kernel
     return kernel
 
@@ -476,6 +492,7 @@ def cudaq_statevector(kernel):
     """The exact state, qubit 0 the most significant bit (CUDA-Q's is reversed)."""
     import cudaq
 
-    n = cudaq_num_qubits(kernel)
     data = np.asarray(cudaq.get_state(kernel), dtype=complex).reshape(-1)
+    # From the state: a kernel can allocate more qubits than its gates touch.
+    n = int(round(math.log2(len(data))))
     return data.reshape([2] * n).transpose(list(range(n))[::-1]).reshape(-1)

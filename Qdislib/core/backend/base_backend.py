@@ -147,7 +147,19 @@ def sample_with_qiskit(dag: Any, num_qubits: int, run) -> dict[str, int]:
     """:meth:`BaseBackend.evaluate_samples` for a backend that runs Qiskit circuits:
     the subcircuit as a measured Qiskit circuit, ``run(circuit)`` for its
     ``get_counts()``-style counts, and those as ``{qubit-0-first bitstring: count}``
-    (only the final measurement, identity-observed qubits marginalized).
+    (only the final measurement, identity-observed qubits marginalized)::
+
+        def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
+            return qd.sample_with_qiskit(
+                dag,
+                num_qubits,
+                lambda qc: self.device.run(qc, shots=shots).result().get_counts(),
+            )
+
+    :param dag: The subcircuit, a renumbered connected-component DAG.
+    :param num_qubits: Its qubits.
+    :param run: Takes the measured ``QuantumCircuit``, returns its counts.
+    :return: ``{qubit-0-first bitstring: count}``.
     """
     from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
 
@@ -195,6 +207,13 @@ class BaseBackend:
     (the hooks), while ``run_samples`` / ``run_estimator`` orchestrate the full
     enqueue -> execute -> dequeue lifecycle. The queue length is what
     :class:`~Qdislib.core.backend.unified.QdBackEnd` uses to load-balance.
+
+    A backend object goes to the PyCOMPSs tasks that run its circuits, so it has to
+    pickle (a device's connection: see how
+    :class:`~Qdislib.core.backend.qpu_backends.IBMBackend` leaves it behind).
+
+    :param name: The backend's name.
+    :param config: Its :class:`BackendConfig`.
     """
 
     def __init__(self, name: str, config: BackendConfig) -> None:
@@ -236,10 +255,12 @@ class BaseBackend:
 
     @property
     def num_qubits(self) -> int:
+        """The width this backend may use (0: never resolved)."""
         return self.config.num_qubits
 
     @property
     def queue_length(self) -> int:
+        """How many jobs are waiting or running on it."""
         with self._lock:
             return len(self._queue)
 
@@ -250,6 +271,7 @@ class BaseBackend:
             return list(self._queue)
 
     def can_run(self, circuit: SupportedCircuit) -> bool:
+        """True if ``circuit`` fits this backend's width."""
         if not self.num_qubits:  # width never resolved: don't claim to know
             return True
         return CircuitConverter.num_qubits(circuit) <= self.num_qubits
@@ -261,7 +283,14 @@ class BaseBackend:
     def run_samples(
         self, circuit: SupportedCircuit, transpile: bool, shots: int
     ) -> SampleJobResult:
-        """Sample the circuit, updating the FIFO queue before and after execution."""
+        """Sample the circuit, updating the FIFO queue before and after execution.
+
+        :param circuit: A circuit this backend takes.
+        :param transpile: Compile it for the backend first.
+        :param shots: Measurement shots.
+        :raises NotImplementedError: If the backend has no ``_execute_samples``.
+        :return: A :class:`SampleJobResult`.
+        """
         job = self._enqueue(
             kind="samples",
             n_qubits=CircuitConverter.num_qubits(circuit),
@@ -275,7 +304,16 @@ class BaseBackend:
     def run_estimator(
         self, circuit: SupportedCircuit, transpile: bool, observable: Any, shots: int
     ) -> ExpectationJobResult:
-        """Compute the expectation value of an observable, updating the FIFO queue."""
+        """Compute the expectation value of an observable, updating the FIFO queue.
+
+        :param circuit: A circuit this backend takes.
+        :param transpile: Compile it for the backend first.
+        :param observable: What this backend's estimator reads (a Pauli string, qubit
+            0 first, at least).
+        :param shots: Measurement shots.
+        :raises NotImplementedError: If the backend has no ``_execute_estimator``.
+        :return: An :class:`ExpectationJobResult`.
+        """
         job = self._enqueue(
             kind="estimator",
             n_qubits=CircuitConverter.num_qubits(circuit),
@@ -342,6 +380,7 @@ class BaseBackend:
         :param dag: A renumbered connected-component DAG of the cut circuit.
         :param num_qubits: Qubit count of the component.
         :param shots: Number of measurement shots.
+        :param seed: Seed for a simulator's sampling (ignored by hardware).
         :return: ``{qubit-0-first bitstring: count}``, with any Observable-I
             positions already marginalized.
         """
@@ -378,6 +417,8 @@ class BaseBackend:
         :param num_qubits: Qubit count of the component.
         :param cut_point_qubits: Renumbered cut qubits measured for the decomposition.
         :param shots: Number of measurement shots.
+        :param seed: Seed for a simulator's sampling (ignored by hardware).
+        :raises NotImplementedError: If a qubit measured twice cannot be deferred.
         :return: ``{(final_bits, cut_point_bits): count}``.
         """
         from Qdislib.core.cutting_algorithms.gate_cutting import (

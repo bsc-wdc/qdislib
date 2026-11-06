@@ -58,6 +58,70 @@ def _exact(circuit):
     return Statevector(circuit).probabilities_dict()
 
 
+def _target(couplers, num_qubits):
+    """A device with a CX per coupler, ``{(a, b): error}``."""
+    from qiskit.circuit import Parameter
+    from qiskit.circuit.library import CXGate, Measure, RZGate, SXGate, XGate
+    from qiskit.transpiler import InstructionProperties, Target
+
+    target = Target(num_qubits=num_qubits)
+    props = {}
+    for (a, b), error in couplers.items():
+        props[(a, b)] = props[(b, a)] = InstructionProperties(error=error)
+    target.add_instruction(CXGate(), props)
+    for gate in (RZGate(Parameter("t")), SXGate(), XGate(), Measure()):
+        target.add_instruction(
+            gate, {(q,): InstructionProperties(error=0.0) for q in range(num_qubits)}
+        )
+    return target
+
+
+@unittest.skipUnless(AER, "qiskit-aer required")
+class NoisyCouplerTest(BaseTimedTestCase):
+    """A coupler over ``max_error`` carries no gate, but is still there."""
+
+    def _bell(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.cx(0, 1)
+        return qc
+
+    def test_it_still_counts_for_the_distance_between_groups(self):
+        import Qdislib as qd
+
+        line = _target({(0, 1): 0.001, (1, 2): 0.5, (2, 3): 0.001, (3, 4): 0.001}, 5)
+        without_buffer = qd.pack([self._bell()], line, buffer=0)
+        self.assertEqual(without_buffer.regions, [(0, 1), (2, 3)])
+        # (0, 1) and (2, 3) are neighbours through it: with an idle qubit between them
+        self.assertEqual(
+            qd.pack([self._bell()], line, buffer=1).regions, [(0, 1), (3, 4)]
+        )
+
+    def test_no_gate_runs_on_it_inside_a_group(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        triangle = _target({(0, 1): 0.001, (1, 2): 0.001, (0, 2): 0.5}, 3)
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cx(0, 2)
+        qc.cx(0, 1)
+        qc.cx(1, 2)
+        packed = qd.pack([qc], triangle, seeds=4)
+        used = {
+            frozenset(packed.circuits[0].find_bit(q).index for q in i.qubits)
+            for i in packed.circuits[0].data
+            if i.operation.num_qubits == 2
+        }
+        self.assertNotIn(frozenset((0, 2)), used)
+        # given by hand, a group is used as it is
+        given = qd.pack([self._bell()], triangle, regions=[(0, 2)], seeds=1)
+        self.assertEqual(given.regions, [(0, 2)])
+
+
 @unittest.skipUnless(AER, "qiskit-aer required")
 class PackingTest(BaseTimedTestCase):
     def setUp(self):
@@ -183,6 +247,16 @@ class PackingTest(BaseTimedTestCase):
         self.assertEqual(counts, [{"10": 10}])
         with self.assertRaises(ValueError):
             self.qd.pack([QuantumCircuit(3)], self.device, regions=[group])
+
+    def test_counts_below_one(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(2)
+        qc.cz(0, 1)
+        with self.assertRaisesRegex(ValueError, "seeds"):
+            self.qd.pack([qc], self.device, seeds=0)
+        with self.assertRaisesRegex(ValueError, "per_circuit"):
+            self.qd.pack([qc], self.device, per_circuit=0)
 
     def test_bad_input(self):
         from qiskit import QuantumCircuit

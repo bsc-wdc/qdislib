@@ -44,12 +44,11 @@ import typing
 from collections import defaultdict
 
 try:
-    import qibo
-    from qibo import models, gates, hamiltonians
+    from qibo import models, gates
 
     qibo_available = True
 except ImportError:  # qibo is optional; functions that need it fail when called
-    qibo = models = gates = hamiltonians = None
+    models = gates = None
     qibo_available = False
 
 from Qdislib.utils.exceptions import QdislibException
@@ -69,8 +68,8 @@ def from_qasm(qasm, software="qibo"):
         ``"pennylane"``, ``"qilisdk"``); pick whichever you will run on.
     :raises ImportError: If the requested backend SDK is not installed.
     :raises ValueError: For an unknown ``software``.
-    :return: A Qibo ``Circuit``, a Qiskit ``QuantumCircuit`` or a PennyLane
-        ``QuantumTape``.
+    :return: A circuit of ``software``: a Qibo ``Circuit``, a Qiskit
+        ``QuantumCircuit``, a PennyLane ``QuantumTape``, ...
 
     Example:
         .. code-block:: python
@@ -157,24 +156,30 @@ _PAULI_MATRIX = {
 def exact_statevector(circuit: typing.Any) -> np.ndarray:
     """Exact statevector of ``circuit`` as a flat numpy array, qubit-0-first.
 
-    Backend-agnostic oracle building block: accepts a Qibo ``Circuit``, a Qiskit
-    ``QuantumCircuit``, a CUDA-Q kernel, or a PennyLane ``QuantumTape`` / ``QNode``,
-    and returns the state in a single convention -- amplitude-index bit ``n-1-q`` is
+    Backend-agnostic oracle building block: accepts a circuit of any SDK (a Qibo
+    ``Circuit``, a Qiskit ``QuantumCircuit``, a CUDA-Q kernel, a PennyLane
+    ``QuantumTape`` / ``QNode``, a QiliSDK ``Circuit``), and returns the state in a single convention -- amplitude-index bit ``n-1-q`` is
     qubit ``q`` (qubit 0 is the most-significant bit) -- so it lines up with an
     ``observables`` string indexed qubit-0-first regardless of each SDK's native
     endianness (Qibo and PennyLane are already qubit-0-first; Qiskit and CUDA-Q are
     qubit-0-last and get reversed here).
 
-    :param circuit: A Qibo/Qiskit/CUDA-Q/PennyLane circuit.
+    :param circuit: A circuit, without mid-circuit measurements.
     :raises TypeError: If ``circuit`` is not a supported circuit type.
     :return: The statevector as a length-``2**n`` complex numpy array.
+
+    Example::
+
+        qc = QuantumCircuit(2)
+        qc.x(0)
+        qd.exact_statevector(qc)  # amplitude 1 at index 0b10: qubit 0 is the first bit
     """
     from Qdislib.utils.sdks import sdk_names, sdk_of
 
     entry = sdk_of(circuit)
     if entry is None or not entry.statevector:
         raise TypeError(
-            f"analytical_solution: unsupported circuit type {type(circuit)!r}; "
+            f"Unsupported circuit type {type(circuit)!r}; "
             f"expected a circuit of {list(sdk_names())}."
         )
     return np.asarray(entry.call("statevector", circuit), dtype=complex).reshape(-1)
@@ -205,51 +210,36 @@ def analytical_solution(circuit: typing.Any, observables: str) -> float:
 
     This function evaluates the exact (statevector) expectation value of a quantum
     circuit with respect to a set of observables. It is backend-agnostic: the circuit
-    may be a Qibo ``Circuit``, a Qiskit ``QuantumCircuit``, a CUDA-Q kernel, or a
-    PennyLane ``QuantumTape`` / ``QNode`` -- each SDK's native endianness is handled so
-    ``observables`` is always indexed qubit-0-first (see :func:`exact_statevector`).
+    may be of any SDK -- each one's native endianness is handled so ``observables`` is
+    always indexed qubit-0-first (see :func:`exact_statevector`).
 
-    :param observables:
-        A string representing the sequence of observables to apply (e.g., "XZI"), or a
-        weighted sum of them. Each character is a Pauli operator ("X", "Y", "Z", "I")
-        on successive qubits (qubit 0 = first character).
     :param circuit:
-        A Qibo, Qiskit, CUDA-Q or PennyLane circuit.
+        A circuit of any SDK, without mid-circuit measurements.
+    :param observables:
+        A Pauli string (e.g. ``"XZI"``), one letter per qubit, qubit 0 first; or a
+        weighted sum of them (anything
+        :func:`~Qdislib.utils.backends.normalize_observables` takes).
+    :raises TypeError: If ``circuit`` is not a supported circuit type.
+    :raises ValueError: For a letter other than I, X, Y, Z, or a string without one
+        letter per qubit.
     :return:
         The computed expectation value as a floating-point number.
 
     Per-term expectation values are logged at DEBUG level; enable them with
     ``qd.set_log_level("DEBUG")``.
 
-    :example:
-
-    Suppose we have a simple quantum circuit and wish to calculate the expectation value of the Pauli operators "XZI".
-
-    Example usage:
+    Example:
 
     .. code-block:: python
 
         from qibo import models, gates
         import Qdislib as qd
 
-        # Create a quantum circuit
         circuit = models.Circuit(3)
-        circuit.add(gates.H(0))         # Apply Hadamard on qubit 0
-        circuit.add(gates.CNOT(0, 1))    # Apply CNOT between qubit 0 and 1
+        circuit.add(gates.H(0))
+        circuit.add(gates.CNOT(0, 1))
 
-        # Define the observables
-        observables = "XZI"  # Apply Pauli-X to qubit 0, Z to qubit 1, Identity to qubit 2
-
-        # Compute the analytical expectation value
-        result = qd.analytical_solution(circuit, observables)
-
-        print(f"Expectation value: {result}")
-
-    In this example:
-    - The `observables` string `"XZI"` indicates that we are applying the Pauli X operator on qubit 0, Z operator on qubit 1, and the identity operator on qubit 2.
-    - The `circuit` is a simple 3-qubit quantum circuit, with a Hadamard gate on the first qubit followed by a CNOT gate.
-
-    The function will compute the expectation value of the given observables for the state produced by the circuit and return the result as a floating-point number.
+        qd.analytical_solution(circuit, "ZZI")  # 1.0: the two qubits always agree
     """
 
     # Backend-agnostic exact reference: get the statevector in a single qubit-0-first
@@ -280,21 +270,22 @@ def _random_circuit(
     :param gate_max: Maximum number of single-qubit gates between CZ.
     :param num_cz: Number of CZ qbit gates. If none, p will be taken.
     :param p: Probability of adding an edge.
-    :raise QdislibException: If num_cz or p are both None.
+    :raise QdislibException: Unless exactly one of num_cz and p is given.
     :return: New random circuit.
     """
     import networkx
 
     # Seeded from `random`, so random.seed() keeps the whole circuit reproducible.
     seed = random.randrange(2**32)
-    if p == None:
-        graph = networkx.gnm_random_graph(qubits, num_cz, seed=seed)
-    elif num_cz == None:
-        graph = networkx.gnp_random_graph(qubits, p, seed=seed)
-    else:
+    if (p is None) == (num_cz is None):
         raise QdislibException(
-            "Error: only the number of edges or the probability of adding an edge must be specified"
+            "Error: exactly one of the number of edges and the probability of adding "
+            "an edge must be specified"
         )
+    if p is None:
+        graph = networkx.gnm_random_graph(qubits, num_cz, seed=seed)
+    else:
+        graph = networkx.gnp_random_graph(qubits, p, seed=seed)
 
     edge_list = list(graph.edges())
 
@@ -476,22 +467,54 @@ def draw_to_circuit(
     return circuit
 
 
+#: qsim's gates (its ``lib/gates_qsim.h``) as qibo gates, up to a global phase:
+#: ``name -> (qubits, angles, the gates for those qubits and angles)``.
+_QSIM_GATES = {
+    "id1": (1, 0, lambda q, _: [gates.I(q[0])]),
+    "h": (1, 0, lambda q, _: [gates.H(q[0])]),
+    "t": (1, 0, lambda q, _: [gates.T(q[0])]),
+    "s": (1, 0, lambda q, _: [gates.S(q[0])]),
+    "x": (1, 0, lambda q, _: [gates.X(q[0])]),
+    "y": (1, 0, lambda q, _: [gates.Y(q[0])]),
+    "z": (1, 0, lambda q, _: [gates.Z(q[0])]),
+    "x_1_2": (1, 0, lambda q, _: [gates.RX(q[0], np.pi / 2)]),
+    "y_1_2": (1, 0, lambda q, _: [gates.RY(q[0], np.pi / 2)]),
+    # the square root of (X + Y) / sqrt(2): a pi/2 turn about that axis
+    "hz_1_2": (1, 0, lambda q, _: [gates.U3(q[0], np.pi / 2, -np.pi / 4, np.pi / 4)]),
+    "rx": (1, 1, lambda q, a: [gates.RX(q[0], a[0])]),
+    "ry": (1, 1, lambda q, a: [gates.RY(q[0], a[0])]),
+    "rz": (1, 1, lambda q, a: [gates.RZ(q[0], a[0])]),
+    # a turn of a[1] about the axis at angle a[0] in the XY plane
+    "rxy": (
+        1,
+        2,
+        lambda q, a: [gates.U3(q[0], a[1], a[0] - np.pi / 2, np.pi / 2 - a[0])],
+    ),
+    "id2": (2, 0, lambda q, _: [gates.I(q[0]), gates.I(q[1])]),
+    "cz": (2, 0, lambda q, _: [gates.CZ(q[0], q[1])]),
+    "cnot": (2, 0, lambda q, _: [gates.CNOT(q[0], q[1])]),
+    "sw": (2, 0, lambda q, _: [gates.SWAP(q[0], q[1])]),
+    "is": (2, 0, lambda q, _: [gates.iSWAP(q[0], q[1])]),
+    "fs": (2, 2, lambda q, a: [gates.fSim(q[0], q[1], a[0], a[1])]),
+    "cp": (2, 1, lambda q, a: [gates.CU1(q[0], q[1], -a[0])]),  # qsim's is exp(-i phi)
+}
+
+
 def parse_qsim(fname: str, depth: int = 22):
-    """Produces a Qibo :class:`Circuit` based on a .qsim description of a circuit.
+    """A Qibo :class:`Circuit` from a qsim input file, the same unitary up to a
+    global phase. The angles are qsim's, in radians.
 
-    This function parses a .qsim file to create a quantum circuit based on the gate instructions
-    provided in the file. The .qsim file should contain gate operations for the quantum circuit.
-    The file should start with the number of qubits, followed by a series of lines specifying
-    gate operations in the format: `<moment> <gate> <qubit> [additional parameters]`. The function
-    also allows setting a `depth` parameter to limit the number of moments to process.
+    The file starts with the number of qubits; each other line is ``<time> <gate>
+    <qubits> [angles]``. Gates at time ``depth`` or later are left out. Its ``fs``
+    gates stay Qibo's ``fSim``, which a cut runs on Qibo and Qiskit.
 
-    :param fname: Path to the .qsim file containing the quantum circuit description.
-    :param depth: Maximum number of moments (steps) to process from the .qsim file. Default is 22.
-
-    :return: A :class:`models.Circuit` object from Qibo containing the parsed gate operations.
-
-    :raises ValueError: If the first line of the .qsim file cannot be converted to an integer
-                        representing the number of qubits.
+    :param fname: Path to the .qsim file.
+    :param depth: Gates from this time on are left out. Default is 22.
+    :raises ValueError: If the first line is not the number of qubits, a line does not
+        have its gate's qubits and angles, or a gate is not one of ``id1 h t s x y z
+        x_1_2 y_1_2 hz_1_2 rx ry rz rxy id2 cz cnot sw is fs cp`` (measurements,
+        ``mat1``, ``mat2`` and controlled gates are refused, not dropped).
+    :return: A :class:`models.Circuit` from Qibo.
 
     :example:
 
@@ -504,7 +527,7 @@ def parse_qsim(fname: str, depth: int = 22):
         1 x_1_2 1
         2 rz 2 1.0
         3 hz_1_2 0
-        4 fs 1 2
+        4 fs 1 2 0.5 0.1
 
     You can parse this file and create a circuit like this:
 
@@ -512,50 +535,39 @@ def parse_qsim(fname: str, depth: int = 22):
 
         import Qdislib as qd
 
-        # Parse the .qsim file to create a quantum circuit
         circuit = qd.parse_qsim("path_to_qsim_file.qsim", depth=10)
-
-        # Print the resulting circuit
         print(circuit.draw())
     """
 
-    with open(fname, "r") as f:
+    with open(fname, "r", encoding="utf-8") as f:
         data = f.read()
     logger.info(data)
     lines = data.strip().splitlines()
 
     try:
         qcount = int(lines.pop(0))
-    except ValueError:
-        raise ValueError("First line should be qubit count")
+    except (IndexError, ValueError) as exc:
+        raise ValueError("First line should be qubit count") from exc
 
     c = models.Circuit(qcount)
 
-    for l in lines:
-        l = l.strip()
-        if l == "":
+    for line in lines:
+        fields = line.split()
+        if not fields:
             continue
-        gdesc = l.split(" ")
-
-        q = int(gdesc[2])
-        moment = int(gdesc[0])
-        if moment >= depth:
-            break
-
-        if gdesc[1] == "rz":
-            phase = float(gdesc[3]) / np.pi
-            c.add(gates.RZ(q, phase))
-        elif gdesc[1] == "hz_1_2":
-            c.add(gates.H(q))
-        elif gdesc[1] == "x_1_2":
-            # x_1_2 is the sqrt-X gate (X**0.5), i.e. a pi/2 rotation about X.
-            c.add(gates.RX(q, theta=np.pi / 2))
-        elif gdesc[1] == "y_1_2":
-            # y_1_2 is the sqrt-Y gate (Y**0.5), i.e. a pi/2 rotation about Y.
-            c.add(gates.RY(q, theta=np.pi / 2))
-        elif gdesc[1] == "fs":
-            q1 = int(gdesc[3])
-            # theta = float(gdesc[4]) / np.pi
-            # phi = float(gdesc[5]) / np.pi
-            c.add(gates.CZ(q, q1))
+        # qsim only orders the gates of each qubit: a later line can have an earlier time
+        if len(fields) < 2:
+            raise ValueError(f"{fname}: cannot read the line {line!r}")
+        if int(fields[0]) >= depth:
+            continue
+        if fields[1] not in _QSIM_GATES:
+            raise ValueError(f"{fname}: cannot read the qsim gate in {line!r}")
+        qubits, angles, build = _QSIM_GATES[fields[1]]
+        if len(fields) != 2 + qubits + angles:
+            raise ValueError(
+                f"{fname}: {fields[1]} takes {qubits} qubit(s) and {angles} angle(s), "
+                f"in {line!r}"
+            )
+        on = [int(q) for q in fields[2 : 2 + qubits]]
+        c.add(build(on, [float(a) for a in fields[2 + qubits :]]))
     return c

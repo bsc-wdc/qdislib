@@ -329,7 +329,10 @@ def pennylane_gates(circuit):
 
 
 def pennylane_num_qubits(circuit):
-    return len(_to_tape(circuit).wires)
+    """The highest wire, plus one: wires need not be contiguous (a tape's ``wires``
+    are only the ones its gates touch), and a qubit is its wire's number everywhere."""
+    wires = [int(w) for w in _to_tape(circuit).wires]
+    return max(wires) + 1 if wires else 0
 
 
 def pennylane_statevector(circuit):
@@ -337,7 +340,7 @@ def pennylane_statevector(circuit):
     import numpy as np
 
     tape = _to_tape(circuit)
-    dev = qml.device("default.qubit", wires=len(tape.wires))
+    dev = qml.device("default.qubit", wires=pennylane_num_qubits(circuit))
 
     @qml.qnode(dev)
     def state():

@@ -26,18 +26,25 @@ error-propagation paths and the runcard resolution.
 """
 
 import glob
+import importlib.util
+import logging
 import os
+import sys
 import threading
 import time
+import types
 import unittest
+from unittest import mock
 
 from tests import BaseTimedTestCase
 
 from Qdislib.utils.qpu_bridge import (
+    run_qpu_listener,
     submit_and_wait,
     subcircuits_dir,
     _resolve_runcard,
     _atomic_write_pickle,
+    _process_one,
     _CIRCUIT_PREFIX,
     _RESULT_PREFIX,
     _ERROR_KEY,
@@ -70,12 +77,11 @@ def _fake_listener(directory, payload, deadline=5.0):
 
 
 class SubcircuitsDirTest(BaseTimedTestCase):
-    def test_env_override_and_default(self):
-        from Qdislib.utils import qpu_bridge
-
+    def test_the_directory_is_required(self):
         saved = os.environ.pop("QDISLIB_SUBCIRCUITS_DIR", None)
         try:
-            self.assertEqual(subcircuits_dir(), qpu_bridge.DEFAULT_SUBCIRCUITS_DIR)
+            with self.assertRaisesRegex(ValueError, "QDISLIB_SUBCIRCUITS_DIR"):
+                subcircuits_dir()
             os.environ["QDISLIB_SUBCIRCUITS_DIR"] = "/tmp/whatever"
             self.assertEqual(subcircuits_dir(), "/tmp/whatever")
         finally:
@@ -204,6 +210,168 @@ class PortableResultTest(BaseTimedTestCase):
             with self.assertRaises(QPUExecutionError):
                 submit_and_wait("c", directory=tmp, timeout=5, poll_interval=0.02)
             listener.join()
+
+
+class _FakePlatform:
+    """Stand-in for a qililab platform: records the circuit and returns counts."""
+
+    def execute(self, program, num_bins, num_avg, transpilation_config):
+        self.program = program
+        return {"counts": {"0" * program.nqubits: num_bins}, "shots": num_bins}
+
+
+@unittest.skipUnless(importlib.util.find_spec("qibo"), "qibo required")
+class ListenerTest(BaseTimedTestCase):
+    def _submitted(self, directory):
+        from qibo import gates, models
+
+        circuit = models.Circuit(1)
+        circuit.add(gates.X(0))
+        path = os.path.join(directory, f"{_CIRCUIT_PREFIX}1.pkl")
+        _atomic_write_pickle(circuit, path)
+        return path
+
+    def test_the_result_goes_next_to_the_circuit(self):
+        # the shared directory's own name may contain the file prefix: the writer
+        # would wait for a result written somewhere else, until its timeout
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = os.path.join(tmp, "circuit_cutting_run")
+            os.makedirs(directory)
+            _process_one(_FakePlatform(), self._submitted(directory), 100, None)
+            self.assertEqual(os.listdir(directory), [f"{_RESULT_PREFIX}1.pkl"])
+
+    def test_a_circuit_that_cannot_be_pickled_leaves_no_file(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(Exception):
+                submit_and_wait(lambda: None, directory=tmp, timeout=1)
+            self.assertEqual(os.listdir(tmp), [])
+
+    def test_a_result_that_cannot_be_pickled_is_reported(self):
+        import pickle
+        import tempfile
+
+        class Unpicklable(_FakePlatform):
+            def execute(self, **_):
+                return lambda: None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _process_one(Unpicklable(), self._submitted(tmp), 100, None)
+            self.assertEqual(os.listdir(tmp), [f"{_RESULT_PREFIX}1.pkl"])
+            with open(os.path.join(tmp, f"{_RESULT_PREFIX}1.pkl"), "rb") as handle:
+                self.assertIn(_ERROR_KEY, pickle.load(handle))
+
+
+class _FakeInstruments(_FakePlatform):
+    """A qililab platform: records how it was brought up and put down."""
+
+    def __init__(self):
+        self.calls = []
+
+    def connect(self):
+        self.calls.append("connect")
+
+    def initial_setup(self):
+        self.calls.append("setup")
+
+    def turn_on_instruments(self):
+        self.calls.append("on")
+
+    def turn_off_instruments(self):
+        self.calls.append("off")
+        raise RuntimeError("teardown is best effort")
+
+    def disconnect(self):
+        self.calls.append("disconnect")
+
+
+@unittest.skipUnless(importlib.util.find_spec("qibo"), "qibo required")
+class ListenerLoopTest(BaseTimedTestCase):
+    """The whole hand-off, with a stand-in for qililab."""
+
+    def _qililab(self, platform, runcards):
+        def build_platform(runcard):
+            runcards.append(runcard)
+            return platform
+
+        qililab = types.ModuleType("qililab")
+        qililab.logger = logging.getLogger("fake_qililab")
+        qililab.build_platform = build_platform
+        digital = types.ModuleType("qililab.digital")
+        digital.DigitalTranspilationConfig = lambda routing: {"routing": routing}
+        return {"qililab": qililab, "qililab.digital": digital}
+
+    def test_a_circuit_goes_there_and_back_and_a_stop_file_ends_it(self):
+        import tempfile
+
+        from qibo import gates, models
+
+        platform, runcards = _FakeInstruments(), []
+        circuit = models.Circuit(2)
+        circuit.add(gates.X(0))
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(sys.modules, self._qililab(platform, runcards)):
+                listener = threading.Thread(
+                    target=run_qpu_listener,
+                    kwargs={
+                        "directory": tmp,
+                        "runcard": "/rc.yml",
+                        "nshots": 40,
+                        "poll_interval": 0.01,
+                    },
+                )
+                listener.start()
+                result = submit_and_wait(
+                    circuit, directory=tmp, timeout=30, poll_interval=0.01
+                )
+                open(os.path.join(tmp, "STOP"), "w").close()
+                listener.join(30)
+            self.assertFalse(listener.is_alive())
+            self.assertEqual(result.counts(), {"00": 40})
+            self.assertEqual(os.listdir(tmp), ["STOP"])
+        self.assertEqual(runcards, ["/rc.yml"])
+        # measured there, on every qubit
+        self.assertEqual(type(platform.program.queue[-1]).__name__, "M")
+        # the teardown ran, its failure did not get out
+        self.assertEqual(platform.calls, ["connect", "setup", "on", "off"])
+
+    def test_idle_timeout_ends_it(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(sys.modules, self._qililab(_FakeInstruments(), [])):
+                run_qpu_listener(
+                    directory=tmp, runcard="r", idle_timeout=0.01, poll_interval=0.01
+                )
+
+
+@unittest.skipUnless(importlib.util.find_spec("qibo"), "qibo required")
+class BSCBackendShotsTest(BaseTimedTestCase):
+    def test_a_listener_with_other_shots_is_pointed_out(self):
+        import warnings
+        from unittest import mock
+
+        import networkx as nx
+
+        import Qdislib as qd
+        from Qdislib.utils import logging_config
+        from Qdislib.utils.qpu_bridge import QPUResult
+
+        dag = nx.DiGraph()
+        dag.add_node("X_1", gate="x", qubits=(0,), parameters=())
+        backend = qd.build_backend("BSC_QPU_BACKEND", qd.BackendConfig(num_qubits=5))
+        logging_config._WARNED.clear()
+        result = QPUResult({"counts": {"1": 1000}})
+        with mock.patch("Qdislib.utils.qpu_bridge.submit_and_wait", lambda _: result):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                self.assertEqual(backend.evaluate_samples(dag, 1, 1000), {"1": 1000})
+                self.assertFalse(caught)
+                self.assertEqual(backend.evaluate_samples(dag, 1, 4096), {"1": 1000})
+        self.assertTrue(any("nshots" in str(w.message) for w in caught))
 
 
 if __name__ == "__main__":

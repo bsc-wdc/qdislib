@@ -271,8 +271,55 @@ _SCRIPT = textwrap.dedent("""
     """)
 
 
+_WAITS_SCRIPT = textwrap.dedent("""
+    import warnings
+    warnings.simplefilter("ignore")
+    from tests import _fake_compss as fc
+    fc.install()
+    from qiskit import QuantumCircuit
+    import Qdislib as qd
+
+    qc = QuantumCircuit(2)
+    qc.x(0)
+    # no cut, on the 1.x path (a deprecated option): a value, not a future
+    value = qd.wire_cutting(qc, [], "ZI", gpu=True, shots=10, seed=1)
+    future = qd.wire_cutting(qc, [], "ZI", gpu=True, shots=10, seed=1, sync=False)
+    print(isinstance(value, float), isinstance(future, fc.Future), value)
+    # a backend object's options reach the task that runs its circuits
+    from qiskit_aer.noise import NoiseModel, depolarizing_error
+
+    noise = NoiseModel()
+    noise.add_all_qubit_quantum_error(depolarizing_error(0.3, 1), ["x"])
+    noisy = qd.build_backend("AER_BACKEND", qd.BackendConfig(noise_model=noise))
+    cut = QuantumCircuit(2)
+    cut.x(0)
+    cut.cz(0, 1)
+    cut.x(1)
+    value = qd.circuit_cutting(cut, ["CZ_2"], "ZZ", backend=noisy, shots=4000, seed=1)
+    print("noisy" if value < 0.9 else f"noiseless: {value}")
+    """)
+
+
 @unittest.skipUnless(QISKIT, "qiskit not installed")
 class SyncFalseTest(BaseTimedTestCase):
+    def test_waits_without_cuts_and_runs_with_the_backends_options(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        env = dict(
+            os.environ, PYTHONPATH=root + os.pathsep + os.environ.get("PYTHONPATH", "")
+        )
+        run = subprocess.run(
+            [sys.executable, "-c", _WAITS_SCRIPT],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        self.assertEqual(run.returncode, 0, run.stderr[-3000:])
+        self.assertEqual(
+            run.stdout.strip().splitlines()[-2:], ["True True -1.0", "noisy"]
+        )
+
     def test_every_function_returns_a_future(self):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         env = dict(

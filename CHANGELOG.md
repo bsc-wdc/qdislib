@@ -265,6 +265,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (chain) fragments too. Some of these circuits add CZ gates between the cut qubits;
   `joint=False` keeps the previous per-wire measurement, whose results are unchanged.
 ### Fixed
+- **A cut ignored what its backend object was configured with.** Aer's `noise_model`,
+  `use_gpu` and `precision`, Qibo's `platform` and CUDA-Q's `target` did not reach the
+  circuits a cut ran: a noisy run returned the noiseless value and a GPU run ran on the
+  CPU. They do now. A circuit is first written in the noise model's gates, since an
+  error only touches a gate of its name (`NoiseModel.from_backend` works).
+- **Cache keys ignored a backend's options.** A noisy and a clean backend, or two
+  devices, shared results. The key now holds the device and options (the same noise
+  model gives the same key in any process), but not how the backend connects.
+- **`parse_qsim` built another circuit.** `hz_1_2` was read as `H`, `fs` as `CZ`, `rz`
+  angles were divided by pi, other gates were dropped and the first line past `depth`
+  stopped the file. It now builds the file's unitary up to a global phase, with qsim's
+  gate definitions, and refuses what it cannot read. Qiskit runs `fSim`.
+- **CUDA-Q kernels lost gates.** Gates in a `for` loop, a gate on a whole register or a
+  computed qubit were dropped, so a wrong value came back. These kernels now raise,
+  naming the statement.
+- **An observable of the wrong length answered for another operator**: `"ZZ"` on 4
+  qubits was read as `ZZII`. It now raises.
+- **A wire cut between gates sharing no qubit was ignored**, so the whole circuit ran as
+  one piece. That, an unknown cut and a repeated cut now raise `InvalidCutError`.
+- **PennyLane circuits:** gates without a QASM mnemonic (`U3`, `CU1`, `SWAP`...) no
+  longer collide in the semantic key, and `num_qubits` counts up to the highest wire.
+- **A cache placeholder that never resolves** raises instead of dropping a factor from a
+  product.
+- **`reconstruct(results, "iz")`** read each lower-case `i` as `Z`.
+- **The QPU listener** wrote its result elsewhere when a directory's name held
+  `circuit_`, and the writer waited until its timeout.
+- **`expectation_value(cache=True)`** built a new store on every call, so nothing was
+  reused. It also takes the strings `cache=` takes elsewhere.
+- **`qd.pack`:** a coupler over `max_error` carries no gate, and still counts for
+  `buffer`.
+- **`total_shots=`** stays within its budget with uneven weights.
+- **`qd.estimate`** warned about `cache_mode` on every call, and `return_metrics=True`
+  with `cache=True` crashed after the full run.
+- A circuit subclass from any package is recognised, a circuit with no gates runs,
+  exceptions keep their message through PyCOMPSs, a bad `QDISLIB_LOG_LEVEL` warns instead
+  of stopping the import, and `find_cut` no longer uses METIS arguments going away in 2027.
 - **Cutting copied the circuit graph several times per call.** Counting fragments
   went through `DiGraph.to_undirected()`, which deep-copies every node and edge
   attribute, and several callers copied a graph only to hand it to a function that
@@ -348,6 +384,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration (6**g * 8**w). Its counts now come from closed forms (0.04 s for 12
   CZ cuts, against minutes).
 ### Changed
+- **`QDISLIB_SUBCIRCUITS_DIR` is required for the QPU bridge** (or `directory=`). Its
+  default was a personal path.
+- **`AerBackend(use_gpu=True)` raises on a node without a GPU**, where it silently ran on
+  the CPU. `shots` below 1 raises `ValueError`, and a non-circuit `TypeError`.
+- **Cache keys of backend objects changed:** results stored under one in a persistent
+  store are computed again once. A seeded `total_shots=` run draws different samples.
 - **Error bars and counts are read fragment by fragment under PyCOMPSs.** An
   expectation value from counts (`error=`, `total_shots=`, `result_from_counts`) read
   every fragment's counts in one task, as a distribution with `error=` did. Now each
@@ -502,6 +544,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says so.
 - **`optimized=True` wire cutting runs fewer measurement circuits by default** (see
   Added: joint measurement). Pass `joint=False` for the previous circuits.
+
+### Deprecated
+- `HadamardCutSubcircuits`, `HadamardSampledCutSubcircuits`, `SampledCutSubcircuits` and
+  `WireSampledCutSubcircuits`: no function returns them since 2.0.0 (the lists are
+  `CutCircuits`). `qd.<name>` warns, and they left `__all__`. They will be removed.
 
 ## [1.0.2] - 2026-10-19
 ### Added

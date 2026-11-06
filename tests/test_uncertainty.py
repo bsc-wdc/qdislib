@@ -164,6 +164,54 @@ class BudgetTest(BaseTimedTestCase):
         # weights differ (a Hadamard cut): the budget follows them
         self.assertLess(rmse(total_shots=budget), 1.05 * rmse(shots=budget // units))
 
+    def test_the_budget_with_every_cut_kind(self):
+        # the weights of a Hadamard setting, a wire's bases and prepared states
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(4)
+        for q in range(4):
+            qc.ry(0.3 + q, q)
+        qc.cx(0, 1)
+        qc.cz(1, 2)  # CZ_6
+        qc.ry(0.7, 1)
+        qc.ry(0.2, 2)
+        qc.cx(2, 3)
+        exact = qd.analytical_solution(qc, "ZZZZ")
+        budget = 60000
+        for cuts in (
+            {"hadamard": ["CZ_6"]},
+            {"wire": [("CX_5", "CZ_6")]},
+            {"gate": ["CZ_6"]},
+        ):
+            for optimized in (False, True):
+                value = qd.circuit_cutting(
+                    qc,
+                    cuts,
+                    "ZZZZ",
+                    total_shots=budget,
+                    seed=1,
+                    error=10,
+                    optimized=optimized,
+                )
+                self.assertEqual(value.shots, budget, (cuts, optimized))
+                self.assertLess(abs(value - exact), 0.1, (cuts, optimized))
+
+    def test_the_budget_is_not_exceeded_with_very_uneven_weights(self):
+        # a floor on top of a proportional share spent more than the budget
+        from Qdislib.core.cutting_algorithms.budget import _split
+
+        for budget, scores, floor in (
+            (4, [1000, 1, 1, 1], 1),
+            (10, [5, 1, 1], 2),
+            (100, [1, 1e6], 3),
+        ):
+            shots = _split(budget, scores, floor)
+            self.assertEqual(int(shots.sum()), budget)
+            self.assertTrue(all(shots >= floor))
+        self.assertEqual(list(_split(4, [1, 1], 3)), [3, 3])  # the floors alone
+
     def test_budget_options(self):
         import Qdislib as qd
         from tests.test_engine_cache import _circuit

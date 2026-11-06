@@ -29,6 +29,54 @@ from tests import BaseTimedTestCase
 QIBO_AVAILABLE = importlib.util.find_spec("qibo") is not None
 
 
+class ExceptionsTest(BaseTimedTestCase):
+    def test_a_pickled_exception_keeps_its_message(self):
+        # what happens to an exception raised in a PyCOMPSs task
+        import pickle
+
+        from Qdislib.utils.exceptions import InvalidCutError
+
+        error = InvalidCutError("bad cut")
+        again = pickle.loads(pickle.dumps(error))
+        self.assertIsInstance(again, InvalidCutError)
+        self.assertEqual(str(again), str(error))
+
+
+class LogLevelFromEnvironmentTest(BaseTimedTestCase):
+    def test_a_bad_level_does_not_stop_the_import(self):
+        import warnings
+        from unittest import mock
+
+        from Qdislib.utils import logging_config
+
+        with mock.patch.dict(os.environ, {"QDISLIB_LOG_LEVEL": "VERBOSE"}):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                logging_config._WARNED.clear()
+                logging_config._init_from_env()
+        self.assertTrue(any("VERBOSE" in str(w.message) for w in caught))
+
+    def test_set_log_level_rejects_a_bad_level(self):
+        import Qdislib as qd
+
+        with self.assertRaises(ValueError):
+            qd.set_log_level("VERBOSE")
+
+
+class NativeFormsTest(BaseTimedTestCase):
+    @unittest.skipUnless(importlib.util.find_spec("pennylane"), "pennylane required")
+    def test_a_native_pennylane_circuit_with_pycompss_installed(self):
+        # with PyCOMPSs installed it was taken for the future of a Subcircuit
+        from unittest import mock
+
+        import Qdislib as qd
+        from Qdislib.utils.graph_pennylane import PennylaneCircuit
+
+        circuit = PennylaneCircuit([("X", (0,), [])], 1)
+        with mock.patch("Qdislib.utils.backends.pycompss_available", True):
+            self.assertEqual(qd.expectation_value(circuit, shots=10, seed=1), -1.0)
+
+
 class RuntimeShimTest(BaseTimedTestCase):
     """The PyCOMPSs shim must provide working no-op fallbacks when absent."""
 
@@ -95,26 +143,119 @@ class BackendHelpersTest(BaseTimedTestCase):
 
 @unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")
 class QsimParserTest(BaseTimedTestCase):
-    """parse_qsim must be deterministic and map gates correctly."""
+    """parse_qsim builds the file's unitary, with qsim's own gate definitions."""
 
-    def test_parse_qsim_deterministic(self):
+    def _parse(self, content, **kwargs):
         from Qdislib.utils.circuit import parse_qsim
 
-        content = "3\n0 rz 0 0.5\n1 x_1_2 1\n2 hz_1_2 0\n3 fs 1 2\n"
         with tempfile.NamedTemporaryFile("w", suffix=".qsim", delete=False) as handle:
             handle.write(content)
             path = handle.name
         try:
-            c1 = parse_qsim(path)
-            c2 = parse_qsim(path)
-            self.assertEqual(c1.nqubits, 3)
-            # Deterministic: same gate sequence on both parses (no random angles).
-            self.assertEqual(
-                [g.__class__.__name__ for g in c1.queue],
-                [g.__class__.__name__ for g in c2.queue],
-            )
+            return parse_qsim(path, **kwargs)
         finally:
             os.remove(path)
+
+    def _assert_same_gate(self, line, width, expected):
+        import numpy as np
+
+        unitary = np.array(self._parse(f"{width}\n{line}\n").unitary())
+        overlap = abs(np.trace(unitary.conj().T @ expected)) / 2**width
+        self.assertAlmostEqual(overlap, 1.0, places=9, msg=line)
+
+    def test_one_qubit_gates_are_qsims(self):
+        import numpy as np
+
+        # the matrices of qsim's lib/gates_qsim.h
+        h, r = (1 + 1j) / 2, 1 / np.sqrt(2)
+        cases = {
+            "0 x_1_2 0": [[h, (1 - 1j) / 2], [(1 - 1j) / 2, h]],
+            "0 y_1_2 0": [[h, -h], [h, h]],
+            "0 hz_1_2 0": [[h, -1j * r], [r, h]],
+            "0 rz 0 0.7": [[np.exp(-0.35j), 0], [0, np.exp(0.35j)]],
+            "0 rx 0 0.7": [
+                [np.cos(0.35), -1j * np.sin(0.35)],
+                [-1j * np.sin(0.35), np.cos(0.35)],
+            ],
+            "0 ry 0 0.7": [
+                [np.cos(0.35), -np.sin(0.35)],
+                [np.sin(0.35), np.cos(0.35)],
+            ],
+            "0 h 0": [[r, r], [r, -r]],
+            "0 t 0": [[1, 0], [0, np.exp(0.25j * np.pi)]],
+            "0 s 0": [[1, 0], [0, 1j]],
+        }
+        for line, matrix in cases.items():
+            self._assert_same_gate(line, 1, np.array(matrix))
+        theta, phi = 0.4, 0.9
+        c, s = np.cos(phi / 2), np.sin(phi / 2)
+        axis = np.cos(theta) * np.array([[0, 1], [1, 0]]) + np.sin(theta) * np.array(
+            [[0, -1j], [1j, 0]]
+        )
+        self._assert_same_gate(
+            f"0 rxy 0 {theta} {phi}", 1, c * np.eye(2) - 1j * s * axis
+        )
+
+    def test_two_qubit_gates_are_qsims(self):
+        import numpy as np
+
+        theta, phi = 0.6, 0.3
+        c, s = np.cos(theta), np.sin(theta)
+        cases = {
+            f"0 fs 0 1 {theta} {phi}": [
+                [1, 0, 0, 0],
+                [0, c, -1j * s, 0],
+                [0, -1j * s, c, 0],
+                [0, 0, 0, np.exp(-1j * phi)],
+            ],
+            f"0 cp 0 1 {phi}": np.diag([1, 1, 1, np.exp(-1j * phi)]),
+            "0 cz 0 1": np.diag([1, 1, 1, -1]),
+            "0 cnot 0 1": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]],
+            "0 sw 0 1": [[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
+            "0 is 0 1": [[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]],
+            "0 id2 0 1": np.eye(4),
+        }
+        for line, matrix in cases.items():
+            self._assert_same_gate(line, 2, np.array(matrix))
+
+    def test_depth_is_by_time_not_by_line(self):
+        c = self._parse("2\n1 h 0\n5 x 1\n0 h 1\n", depth=2)
+        self.assertEqual([g.__class__.__name__ for g in c.queue], ["H", "H"])
+
+    def test_what_it_cannot_read_is_refused(self):
+        for content in (
+            "two\n0 h 0\n",
+            "",
+            "2\n0 m 0 1\n",
+            "2\n0 mat1 0 1 0 0 0 0 0 0 1\n",
+            "2\n0 fs 0 1\n",
+            "2\n0 rz 0\n",
+            "2\n0\n",
+        ):
+            with self.assertRaises(ValueError, msg=content):
+                self._parse(content)
+
+    def test_a_cut_of_its_fsim_gives_the_circuits_value(self):
+        import numpy as np
+        import Qdislib as qd
+
+        c = self._parse(
+            "4\n0 hz_1_2 0\n0 x_1_2 1\n0 y_1_2 2\n0 rz 3 0.4\n0 x_1_2 3\n"
+            "1 fs 0 1 0.6 0.3\n2 fs 1 2 0.5 0.2\n3 fs 2 3 0.4 0.7\n"
+            "4 rz 1 0.9\n4 hz_1_2 2\n5 y_1_2 1\n5 x_1_2 2\n"
+        )
+        probabilities = np.abs(np.array(c().state())) ** 2
+        # qubit 0 is qibo's most significant bit
+        signs = np.array(
+            [(-1) ** (((i >> 3) & 1) + (i & 1)) for i in range(16)], dtype=float
+        )
+        exact = float(probabilities @ signs)
+        self.assertGreater(abs(exact), 1e-3)  # not a value any mistake would give too
+        for backend in ("qibo", "qiskit"):
+            value = qd.circuit_cutting(
+                c, {"hadamard": ["FSIM_7"]}, "ZIIZ", backend=backend, shots=None
+            )
+            self.assertAlmostEqual(value, exact, places=8, msg=backend)
 
 
 @unittest.skipUnless(QIBO_AVAILABLE, "qibo not installed")

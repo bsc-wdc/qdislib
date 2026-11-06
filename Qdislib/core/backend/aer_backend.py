@@ -55,6 +55,12 @@ class AerBackend(BaseBackend):
         A pre-built Aer noise model.
     precision : {"single", "double"}, optional
         Statevector precision (default ``"double"``).
+
+    A cut runs with these options. On a node with no GPU, ``use_gpu`` fails when the
+    first circuit runs, with a :class:`RuntimeError`. With a noise model each circuit
+    is first written in the model's gates, as its errors only touch a gate of their
+    name; a fragment runs on qubits ``0..n-1``, so errors set on particular qubits
+    apply to those numbers, not to where the fragment was in the circuit.
     """
 
     @property
@@ -85,6 +91,34 @@ class AerBackend(BaseBackend):
             )
         return self._simulator_cache
 
+    @property
+    def _plain(self) -> bool:
+        """True with the default options: the cutting code's own CPU simulator gives
+        the same result. Any option has to run on :attr:`_simulator`, which has it."""
+        return (
+            not self._use_gpu
+            and self._noise_model is None
+            and self._precision == "double"
+        )
+
+    def _counts(self, circuit: QuantumCircuit, shots: int, seed) -> dict:
+        """``get_counts()`` of ``circuit`` with every qubit measured at the end, on
+        the backend's own simulator (noise, device and precision applied)."""
+        measured = circuit.copy()
+        measured.measure_all()
+        return self._run_for_counts(measured, shots, seed)
+
+    def _run_for_counts(self, circuit: QuantumCircuit, shots: int, seed) -> dict:
+        """``get_counts()`` of a measured ``circuit`` on the backend's simulator, in
+        the noise model's gates if it has one: an error only touches a gate of its
+        name, so gates under other names would run silently noiseless."""
+        if self._noise_model is not None:
+            circuit = qiskit_transpile(
+                circuit, backend=self._simulator, optimization_level=0
+            )
+        job = self._simulator.run([circuit], shots=shots, seed_simulator=seed)
+        return job.result().get_counts()
+
     def transpile(self, circuit: SupportedCircuit) -> QuantumCircuit:
         """Transpile the circuit for AerSimulator (accepts Qiskit or Qibo input)."""
         return qiskit_transpile(
@@ -99,9 +133,18 @@ class AerBackend(BaseBackend):
         from Qdislib.core.cutting_algorithms.gate_cutting import (
             _expec_value_qiskit,
             _expec_value_qiskit_gpu,
+            _expectation_from_counts_qiskit,
         )
 
         subcirc = dag_to_circuit_qiskit(dag, num_qubits)
+        if self._noise_model is not None or self._precision != "double":
+            circuit, observables = subcirc
+            return _expectation_from_counts_qiskit(
+                self._counts(circuit, shots, seed),
+                observables,
+                shots,
+                prep_qubits=prep_qubits,
+            )
         if self._use_gpu:
             # _expec_value_qiskit_gpu recovers the cut (prep) qubits from the
             # subcircuit's own mid-circuit measurements and runs the same decoupled
@@ -119,19 +162,36 @@ class AerBackend(BaseBackend):
         return sample_with_qiskit(
             dag,
             num_qubits,
-            lambda qc: self._simulator.run([qc], shots=shots, seed_simulator=seed)
-            .result()
-            .get_counts(),
+            lambda qc: self._run_for_counts(qc, shots, seed),
         )
 
     def evaluate_joint_counts(
         self, dag, num_qubits, cut_point_qubits=(), shots=1024, seed=None
     ):
-        """Joint final/cut-point counts via Qiskit Aer (reuses the cut-measure register)."""
-        from Qdislib.core.cutting_algorithms.gate_cutting import _joint_counts_qiskit
+        """Joint final/cut-point counts via Qiskit Aer (reuses the cut-measure
+        register). With a noise model the cut points stay mid-circuit, as the noisy
+        device would run them; on a noiseless GPU they are deferred, so the state is
+        simulated once instead of once per shot."""
+        from Qdislib.core.cutting_algorithms.gate_cutting import (
+            _defer_cut_measurements,
+            _deferred_joint_counts,
+            _joint_counts_qiskit,
+            _joint_from_qiskit_counts,
+        )
+        from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
 
-        return _joint_counts_qiskit(
-            dag, num_qubits, list(cut_point_qubits), shots, seed=seed
+        cut_points = list(cut_point_qubits)
+        if self._plain:
+            return _joint_counts_qiskit(dag, num_qubits, cut_points, shots, seed=seed)
+        if self._noise_model is None:
+            deferred = _defer_cut_measurements(dag, num_qubits, cut_points)
+            if deferred is not None:
+                return _deferred_joint_counts(
+                    self, deferred, num_qubits, len(cut_points), shots, seed
+                )
+        circuit = dag_to_circuit_qiskit(dag, num_qubits)[0]
+        return _joint_from_qiskit_counts(
+            self._counts(circuit, shots, seed), circuit, num_qubits, cut_points
         )
 
     def _execute_samples(

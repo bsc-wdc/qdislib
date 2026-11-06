@@ -309,6 +309,133 @@ class DeprecatedNamesTest(BaseTimedTestCase):
             )
 
 
+@unittest.skipUnless(QISKIT, "qiskit not installed")
+class InvalidInputTest(BaseTimedTestCase):
+    """What cannot be right is refused, by name, before anything runs."""
+
+    def _error(self, message, *args, **kwargs):
+        import Qdislib as qd
+
+        with self.assertRaisesRegex(qd.InvalidCutError, message):
+            qd.circuit_cutting(_circuit(), *args, shots=None, **kwargs)
+
+    def test_a_cut_of_no_gate_of_the_circuit(self):
+        self._error("No gate .*CZ_99", ["CZ_99"])
+        self._error("No gate .*CZ_99", {"hadamard": ["CZ_99"]})
+        self._error("No gate .*CZ_99", [("RY_7", "CZ_99")])
+
+    def test_a_cut_given_twice(self):
+        self._error("CZ_8.* cut twice", ["CZ_8", "CZ_8"])
+        self._error("CZ_8.* cut twice", {"gate": ["CZ_8"], "hadamard": ["CZ_8"]})
+        self._error("cut twice", [("RY_7", "CZ_8"), ("RY_7", "CZ_8")])
+
+    def test_a_wire_between_gates_that_share_no_qubit_cuts_nothing(self):
+        import Qdislib as qd
+
+        qc = _circuit()
+        names = {f"{n}_{i}": q for i, (n, q) in enumerate(qd.iter_gates(qc), 1)}
+        source, target = next(
+            (a, b)
+            for a, qa in names.items()
+            for b, qb in names.items()
+            if qa and qb and not set(qa) & set(qb)
+        )
+        self._error("do not join", [(source, target)])
+
+    def test_an_observable_with_a_letter_per_qubit(self):
+        import Qdislib as qd
+
+        qc = _circuit()
+        width = qc.num_qubits
+        cut = ["CZ_8"]
+        # a shorter one read as if the rest were I, a longer one as idle qubits
+        for wrong in ("Z" * (width - 1), "Z" * (width + 1), "X" * (width + 1)):
+            for call in (qd.circuit_cutting, qd.circuit_cutting_subcircuits):
+                with self.assertRaisesRegex(ValueError, "one per qubit"):
+                    call(qc, cut, wrong)
+        with self.assertRaisesRegex(ValueError, "one per qubit"):
+            qd.gate_cutting(qc, cut, [(0.5, "Z" * (width - 1))])
+        self.assertAlmostEqual(
+            qd.circuit_cutting(qc, cut, "Z" * width, shots=None),
+            _exact(qc, "Z" * width),
+            places=9,
+        )
+
+    def test_shots(self):
+        import Qdislib as qd
+
+        for shots in (0, -5):
+            with self.assertRaisesRegex(ValueError, "shots must be"):
+                qd.circuit_cutting(_circuit(), ["CZ_8"], shots=shots)
+            with self.assertRaisesRegex(ValueError, "shots must be"):
+                qd.circuit_cutting_sampling(_circuit(), ["CZ_8"], shots=shots)
+
+    def test_no_circuit(self):
+        import Qdislib as qd
+
+        with self.assertRaisesRegex(TypeError, "circuit"):
+            qd.circuit_cutting("not a circuit", [], "ZZ")
+        with self.assertRaisesRegex(TypeError, "ircuit"):
+            qd.circuit_cutting(object(), [])
+
+
+@unittest.skipUnless(QISKIT, "qiskit not installed")
+class DegenerateCircuitTest(BaseTimedTestCase):
+    def _empty(self):
+        from qiskit import QuantumCircuit
+
+        return QuantumCircuit(2)
+
+    def test_no_gates(self):
+        import Qdislib as qd
+
+        for shots in (None, 100):
+            self.assertAlmostEqual(
+                qd.circuit_cutting(self._empty(), [], "ZZ", shots=shots), 1.0
+            )
+            self.assertEqual(
+                dict(qd.circuit_cutting_sampling(self._empty(), [], shots=shots)),
+                {"00": 1.0, "01": 0.0, "10": 0.0, "11": 0.0},
+            )
+        subs = qd.circuit_cutting_subcircuits(self._empty(), [], "ZI")
+        self.assertAlmostEqual(
+            subs.reconstruct([qd.expectation_value(s, shots=None) for s in subs]), 1.0
+        )
+
+    def test_an_observable_of_identities_with_free_parameters(self):
+        from qiskit import QuantumCircuit
+        from qiskit.circuit import Parameter
+
+        import Qdislib as qd
+
+        theta = Parameter("t")
+        qc = QuantumCircuit(2)
+        qc.ry(theta, 0)
+        qc.cz(0, 1)
+        values = qd.circuit_cutting(
+            qc, ["CZ_2"], "II", shots=None, parameter_values=[[0.1], [0.2]]
+        )
+        self.assertEqual(list(values), [1.0, 1.0])
+
+
+@unittest.skipUnless(QISKIT, "qiskit not installed")
+class ReconstructAnotherObservableTest(BaseTimedTestCase):
+    def test_lower_case_reads_as_upper_case(self):
+        # the basis check took "iz..." and the mask read each i as a Z
+        import Qdislib as qd
+
+        qc = _circuit()
+        width = qc.num_qubits
+        subs = qd.circuit_cutting_subcircuits(qc, ["CZ_8"], "Z" * width)
+        results = [
+            qd.sample_subcircuit(s, shots=500, seed=n) for n, s in enumerate(subs)
+        ]
+        target = "Z" + "I" * (width - 1)
+        self.assertEqual(
+            subs.reconstruct(results, target), subs.reconstruct(results, target.lower())
+        )
+
+
 class OverheadTest(BaseTimedTestCase):
     @unittest.skipUnless(QISKIT, "qiskit not installed")
     def test_one_cost_function_for_every_kind(self):

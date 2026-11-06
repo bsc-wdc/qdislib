@@ -34,17 +34,24 @@ __all__ = [
     "InvalidCutError",
 ]
 
+_PREFIX = "Qdislib Exception: "
+
 
 class QdislibException(Exception):
-    """Base class for all Qdislib-specific exceptions."""
+    """Base class for all Qdislib-specific exceptions (also of a task's failure
+    under PyCOMPSs: they pickle, keeping their message)."""
 
     def __init__(self, message: str) -> None:
         """Create a new QdislibException instance.
 
         :param message: Exception message.
         """
-        msg = f"Qdislib Exception: {message}"
-        super().__init__(msg)
+        # An exception is rebuilt from its args when it comes back from a PyCOMPSs
+        # task: one that already has the prefix must not get it twice.
+        message = str(message)
+        if not message.startswith(_PREFIX):
+            message = _PREFIX + message
+        super().__init__(message)
 
 
 class UnsupportedBackendError(QdislibException, ValueError):

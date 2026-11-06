@@ -29,7 +29,7 @@ PyCOMPSs ``@task`` wrapper around it.
 import math
 import zlib
 
-from Qdislib.utils.runtime import task, COLLECTION_IN
+from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 
 
 def signed_product(values, index, base, flip_digits):
@@ -57,6 +57,34 @@ def signed_product(values, index, base, flip_digits):
         number //= base
 
     return -product if flip else product
+
+
+def signed_terms_sum(values, number_cuts, number_components, signed_term):
+    """``sum_terms signed_term(its values) / 2**number_cuts``: the reconstruction of
+    a measure-and-prepare gate cut or a standard wire cut from a flat list of values.
+
+    Each configuration's subcircuit futures go straight into its sign task (task ->
+    task, no master barrier before it), which resolves any cache placeholders. Without
+    a cut there is no such task: the value is the product of the subcircuits', on the
+    master, ``None`` being an empty one.
+
+    :param values: One value (or future) per subcircuit, configuration by configuration.
+    :param number_cuts: The cuts: the ``2**number_cuts`` of the normalisation.
+    :param number_components: The subcircuits of each configuration.
+    :param signed_term: The sign task, ``(values of a configuration, its index)``.
+    :return: The reconstructed expectation value.
+    """
+    from Qdislib.utils.circuit_cache import _resolve_value
+
+    if number_cuts == 0:
+        resolved = [_resolve_value(v) for v in compss_wait_on(values)]
+        return math.prod(v for v in resolved if v is not None)
+    groups = [
+        values[i : i + number_components]
+        for i in range(0, len(values), number_components)
+    ]
+    terms = [signed_term(group, index) for index, group in enumerate(groups)]
+    return 1 / (2**number_cuts) * sum(compss_wait_on(terms))
 
 
 def next_seed(seed, *key):

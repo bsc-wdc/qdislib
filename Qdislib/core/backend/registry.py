@@ -50,13 +50,23 @@ def register_backend(name: str, module_path: str, class_name: str) -> None:
     Intended for user-defined backends or third-party extensions::
 
         register_backend("MY_BACKEND", "my_package.my_backend", "MyBackend")
+
+    :param name: The name to build it by, and to pass as ``backend=``. An existing
+        name is replaced.
+    :param module_path: The module that holds the class.
+    :param class_name: A :class:`BaseBackend` subclass, taking a
+        :class:`BackendConfig`.
     """
     _BACKEND_REGISTRY[name] = (module_path, class_name)
     logger.debug("Backend '%s' registered (imported on first use)", name)
 
 
 def available_backends() -> list[str]:
-    """Return the names of all registered backends."""
+    """Return the names of all registered backends (whatever is installed: building
+    one is what needs its SDK).
+
+    :return: A list of names for :func:`build_backend`.
+    """
     return list(_BACKEND_REGISTRY)
 
 
@@ -82,7 +92,7 @@ def build_execution_backend(
     batch=None,
     ibm_backend=None,
     **extra,
-) -> "BaseBackend":
+) -> BaseBackend:
     """Select and build the backend that evaluates a cut subcircuit.
 
     The single place that turns the cutting algorithms' execution knobs
@@ -94,9 +104,22 @@ def build_execution_backend(
     keyword arguments (e.g. ``platform`` for Qibo) flow into the ``BackendConfig``.
     ``software`` may also be a backend object (from :func:`build_backend`), which is
     returned as it is.
-    """
-    from Qdislib.core.backend.base_backend import BaseBackend
 
+    :param software: An SDK name, a registered backend name, a backend object, or
+        ``None`` for the default (``AER_BACKEND``).
+    :param num_qubits: The width of the subcircuit (at least 1 is built).
+    :param gpu: Use Aer's GPU when ``gpu_min_qubits <= width <= 30``.
+    :param gpu_min_qubits: The narrowest subcircuit for the GPU.
+    :param qpu: Use a QPU of ``qpu_dict`` the subcircuit fits.
+    :param qpu_dict: QPU name (``"MN_Ona"``, ``"IBM_Quantum"``) -> its qubits.
+    :param max_qubit: The width to check against those limits (default ``num_qubits``).
+    :param batch: IBM: an open Batch or Session, with ``ibm_backend``.
+    :param ibm_backend: IBM: the device, with ``batch``.
+    :param extra: Options for :class:`BackendConfig`.
+    :raises ValueError: For a name that is not registered.
+    :raises ImportError: If the backend's SDK is not installed.
+    :return: The backend.
+    """
     if isinstance(software, BaseBackend):  # a configured backend object: use it
         return software
     size = max(int(num_qubits or 1), 1)
@@ -135,6 +158,13 @@ def build_backend(name: str, config: BackendConfig) -> BaseBackend:
     at this point, not at registry import time::
 
         build_backend("IQM_BACKEND", BackendConfig(quantum_computer="garnet"))
+
+    :param name: A name of :func:`available_backends`.
+    :param config: Its :class:`BackendConfig`; a width of 0 is filled in on it (by the
+        device, else ``DEFAULT_NUM_QUBITS``).
+    :raises ValueError: For a name that is not registered.
+    :raises ImportError: If the backend's SDK is not installed.
+    :return: The backend, to pass as ``backend=``.
     """
     if name not in _BACKEND_REGISTRY:
         raise ValueError(

@@ -163,6 +163,21 @@ class CutNamesTest(BaseTimedTestCase):
             qd.circuit_cutting(qc, {"gate": ["cnot_7"]}, shots=None), exact, 10
         )
 
+    @unittest.skipUnless(importlib.util.find_spec("qibo"), "qibo not installed")
+    def test_a_cu3_can_be_named(self):
+        # its parameters are not needed to compare names
+        from qibo import gates, models
+
+        from Qdislib.utils.gates import resolve_cuts
+
+        qc = models.Circuit(2)
+        qc.add(gates.H(0))
+        qc.add(gates.CU3(0, 1, 0.1, 0.2, 0.3))
+        self.assertEqual(resolve_cuts(qc, ["cu_2"]), ["CU3_2"])
+        self.assertEqual(resolve_cuts(qc, ["CU3_2"]), ["CU3_2"])
+        with self.assertRaisesRegex(ValueError, "gate 2 of this circuit"):
+            resolve_cuts(qc, ["cz_2"])
+
     def test_wrong_gate_is_named(self):
         import Qdislib as qd
 

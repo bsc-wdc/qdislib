@@ -20,23 +20,19 @@
 """
 Qdislib backend-agnostic helpers.
 
-Utilities to detect which quantum SDK (Qiskit, Qibo or CUDA-Q) a circuit comes
-from and to convert it into Qdislib's internal DAG (``networkx``) representation.
-Keeping this dispatch in one place avoids duplicating the type-to-converter map
-across the cutting algorithms.
+Utilities to detect which quantum SDK a circuit comes from and to convert it into
+Qdislib's internal DAG (``networkx``) representation, and the objects of the
+three-step workflow: subcircuits, their lists and :func:`expectation_value`.
 """
 
 import logging
 
 from Qdislib.utils.sdks import sdk_names as _sdk_names
-from Qdislib.utils.graph_qibo import _final_measurements, circuit_qibo_to_dag
-from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
-from Qdislib.utils.graph_cudaq import circuit_cudaq_to_dag
-from Qdislib.utils.graph_pennylane import circuit_pennylane_to_dag, PennylaneCircuit
+from Qdislib.utils.graph_qibo import _final_measurements
+from Qdislib.utils.graph_pennylane import PennylaneCircuit
 from Qdislib.utils.runtime import task, compss_wait_on, pycompss_available
 from Qdislib.utils.circuit_cache import (
     semantic_key,
-    default_circuit_cache,
     is_pending,
     PendingResult,
     _PENDING,
@@ -57,12 +53,6 @@ try:
     from cudaq.kernel.kernel_decorator import PyKernelDecorator
 except ImportError:
     PyKernelDecorator = type("PyKernelDecorator", (), {})
-try:
-    from pennylane.tape import QuantumScript as PennylaneScript
-    from pennylane import QNode as PennylaneQNode
-except ImportError:
-    PennylaneScript = type("PennylaneScript", (), {})
-    PennylaneQNode = type("PennylaneQNode", (), {})
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +67,9 @@ __all__ = [
     "CombinedCutSubcircuits",
 ]
 
-#: Mapping from a circuit's SDK class to the converter that turns it into a DAG.
-
 
 def convert_to_dag(circuit, observables=None):
-    """Convert a Qiskit/Qibo/CUDA-Q circuit into a Qdislib DAG.
+    """Convert a circuit of any SDK into a Qdislib DAG.
 
     Dispatches on the circuit type. If ``circuit`` is already a DAG (or any
     unrecognised type) it is returned unchanged.
@@ -93,7 +81,8 @@ def convert_to_dag(circuit, observables=None):
     itself, at the cut site (see ``_generate_cut``).
 
     :param circuit: A Qiskit ``QuantumCircuit``, a Qibo ``Circuit``, a CUDA-Q
-        kernel, or an already-built ``networkx`` DAG.
+        kernel, a PennyLane tape or QNode, a QiliSDK ``Circuit``, or an already-built
+        ``networkx`` DAG.
     :param observables: Optional observable string; when it contains ``"I"`` the
         identity observable nodes are appended to the resulting DAG.
     :return: The corresponding ``networkx`` DAG, or ``circuit`` unchanged if the
@@ -307,6 +296,12 @@ class Subcircuit:
 
     ``s[0]`` / ``s[1]`` are the circuit and the observable, as the 1.x
     ``[circuit, observable]`` pairs were.
+
+    The ``*_subcircuits`` functions build it.
+
+    :param dag: The subcircuit's backend-neutral DAG.
+    :param num_qubits: Its width.
+    :param software: The SDK it is written in.
     """
 
     #: What the run step returns for it: "expectation" or "distribution".
@@ -336,6 +331,7 @@ class Subcircuit:
 
     @property
     def observable(self):
+        """The Z/I string read at its end (see the class)."""
         built = self.to_circuit()
         if isinstance(built, (list, tuple)) and len(built) > 1:
             if isinstance(built[1], str):
@@ -394,58 +390,6 @@ class Subcircuit:
         return (
             f"{type(self).__name__}(software={self.software!r}, "
             f"num_qubits={self.num_qubits})"
-        )
-
-
-class SampledSubcircuit(Subcircuit):
-    """A subcircuit of a ``*_sampling_subcircuits`` list: run it with
-    :func:`~Qdislib.sample_subcircuit`, which returns its Z correlators.
-
-    ``dag`` keeps the circuit's own qubit numbering (the reconstruction needs it);
-    ``circuit`` is renumbered to ``0..num_qubits-1``.
-    """
-
-    kind = "distribution"
-
-    def __init__(self, dag, software):
-        qubits = {q for _, d in dag.nodes(data=True) for q in d.get("qubits") or ()}
-        super().__init__(dag, len(qubits), software)
-
-    @property
-    def component(self):  # the 1.x name
-        return self.dag
-
-    def to_circuit(self):
-        dag, width = self._renumbered()
-        return _materialize(dag, width, self.software)
-
-    @property
-    def observable(self):
-        return None
-
-    def _expectation(self, shots, backend, seed, cache, cache_mode):
-        raise TypeError(
-            "This subcircuit comes from a *_sampling_subcircuits list (distribution): "
-            "run it with sample_subcircuit()."
-        )
-
-    def _sample(self, shots, backend, seed):
-        if shots is None:  # statevector, mid-circuit measurements deferred
-            runner = self.software if backend is None else backend
-            if runner not in _sdk_names():
-                raise ValueError("shots=None (exact) needs a simulator backend")
-            return _exact_correlators_task(self.dag, runner)
-        from Qdislib.core.cutting_algorithms.gate_cutting import (
-            _sample_gate_subcircuit,
-        )
-
-        return _sample_gate_subcircuit(
-            self.dag,
-            self.software if backend is None else backend,
-            shots,
-            False,
-            None,
-            seed,
         )
 
 
@@ -817,17 +761,27 @@ def expectation_value(
                 for s in subs
             ]
     :param seed: Seed for a simulator's sampling.
-    :param cache: A :class:`~Qdislib.utils.circuit_cache.CircuitCache` (or
-        ``True`` for :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`) to
-        skip re-simulating semantically equivalent subcircuits (local simulator).
-    :param cache_mode: ``"expectation"`` or ``"counts"``.
+    :param cache: Reuse a result already computed: what ``cache=`` takes on
+        :func:`~Qdislib.circuit_cutting` (``True``, ``"memory"``, ``"lmdb:<path>"``,
+        ``"redis[://host:port/db]"`` or a
+        :class:`~Qdislib.utils.circuit_cache.CircuitCache`); ``None`` or ``False``
+        is off.
+    :param cache_mode: ``"expectation"``, ``"counts"`` or a
+        :class:`~Qdislib.utils.circuit_cache.CacheStrategy`, for the 1.x native
+        forms; a ``circuit_cutting`` fragment's cache keeps its whole result.
+    :raises ValueError: For ``shots=None`` with a backend that is no simulator.
     :return: What the list's ``reconstruct`` takes for this subcircuit (its
         expectation value; Z correlators for ``circuit_cutting`` fragments).
     """
     if subcircuit is None:  # empty component produced by a cut; contributes nothing
         return None
-    if cache is True:
-        cache = default_circuit_cache()
+    if cache is False:
+        cache = None
+    elif cache is True or isinstance(cache, str):
+        # The shared store: a new one per call would never hold anything to reuse.
+        from Qdislib.core.cutting_algorithms.engine_cache import _store
+
+        cache = _store(cache)
 
     if isinstance(subcircuit, Subcircuit):
         return subcircuit._expectation(shots, backend, seed, cache, cache_mode)
@@ -837,7 +791,8 @@ def expectation_value(
     # Native circuits only occur in serial, so under COMPSs anything that is not a
     # concrete native circuit is such a future: hand it to a task that resolves it.
     if pycompss_available and not isinstance(
-        subcircuit, (QiboCircuit, QuantumCircuit, list, tuple)
+        subcircuit,
+        (QiboCircuit, QuantumCircuit, PennylaneCircuit, PyKernelDecorator, list, tuple),
     ):
         if backend is None and seed is None:
             return _evaluate_subcircuit(subcircuit, shots, cache, cache_mode)
@@ -886,18 +841,6 @@ def _exact_expectation_task(subcircuit, backend):
 
 
 @task(returns=1)
-def _exact_correlators_task(dag, runner):
-    """A sampling subcircuit's exact Z correlators (statevector), as a task."""
-    from Qdislib.core.cutting_algorithms.mixed_cutting import (
-        _exact_fragment,
-        _exact_runner,
-    )
-
-    corr, original = _exact_fragment(dag, _exact_runner(runner))
-    return dict(enumerate(corr)), original
-
-
-@task(returns=1)
 def _evaluate_subcircuit_on(subcircuit, shots, backend, seed):
     """Run a (future of a) :class:`Subcircuit` on ``backend`` inside one task."""
     from Qdislib.core.backend.registry import build_execution_backend
@@ -917,19 +860,17 @@ def _evaluate_subcircuit_on(subcircuit, shots, backend, seed):
 
 
 class CutSubcircuits(list):
-    """The subcircuits produced by a cut, that also know how to be recombined.
+    """The subcircuits produced by a 1.x cut, that also know how to be recombined.
 
     This behaves exactly like the plain ``list`` of subcircuits returned before
     (iterate, index, ``len`` as usual), but additionally records the metadata
     needed to recombine the per-subcircuit expectation values and exposes a
     convenient :meth:`reconstruct`::
 
-        subcircuits = qd.wire_cutting_subcircuits(circuit, cut, software="qibo")
         values = [qd.expectation_value(s) for s in subcircuits]
         result = subcircuits.reconstruct(values)        # no manual bookkeeping
 
-    The standalone ``*_subcircuit_reconstruction`` functions remain available for
-    callers that prefer to pass ``number_cuts``/``number_components`` explicitly.
+    Only the 1.x paths build it; the lists of 2.0 are :class:`~Qdislib.CutCircuits`.
     """
 
     def __init__(self, subcircuits, *, number_cuts, number_components, reconstructor):
@@ -966,6 +907,10 @@ class CombinedCutSubcircuits(CutSubcircuits):
 
     Grouping the flat list by its length instead (``len // 6**n``) mixes up the
     pieces as soon as they are not all alike, e.g. one cut piece and one uncut.
+
+    :param parts: The subcircuit lists, each with ``reconstruct``.
+    :param coefficients: The weight of each part, or ``None`` for a product.
+    :raises ValueError: Without one coefficient per part.
     """
 
     def __init__(self, parts, coefficients=None):
@@ -986,15 +931,25 @@ class CombinedCutSubcircuits(CutSubcircuits):
         return self.parts[0].parameters
 
     def bind(self, values):
-        """Every part with the circuit's free parameters bound (see
-        ``CutCircuits.bind``)."""
+        """Every part with the circuit's free parameters bound.
+
+        :param values: As in :meth:`~Qdislib.CutCircuits.bind`.
+        :return: A new :class:`CombinedCutSubcircuits`.
+        """
         return CombinedCutSubcircuits(
             [part.bind(values) for part in self.parts], self.coefficients
         )
 
     def reconstruct_counts(self, counts, bit_order="q0_first"):
         """``reconstruct`` from the counts of :meth:`circuits` run with your own
-        tools (see ``CutCircuits.reconstruct_counts``)."""
+        tools.
+
+        :param counts: One ``{outcome: count}`` per subcircuit, in this list's order.
+        :param bit_order: ``"q0_first"`` (default) or ``"q0_last"`` (see
+            :func:`~Qdislib.result_from_counts`).
+        :raises ValueError: Without one counts dict per subcircuit.
+        :return: What :meth:`reconstruct` returns.
+        """
         from Qdislib.core.cutting_algorithms.mixed_cutting import result_from_counts
 
         counts = list(counts)
@@ -1007,8 +962,12 @@ class CombinedCutSubcircuits(CutSubcircuits):
         )
 
     def circuits(self, software=None, *, defer_measurements=False):
-        """The native circuits of every part, in order (see
-        ``CutCircuits.circuits``)."""
+        """The native circuits of every part, in order.
+
+        :param software: Build them in another SDK than the list's.
+        :param defer_measurements: See :meth:`~Qdislib.CutCircuits.circuits`.
+        :return: A list of native circuits.
+        """
         return [
             circuit
             for part in self.parts
@@ -1018,13 +977,22 @@ class CombinedCutSubcircuits(CutSubcircuits):
         ]
 
     def describe(self, values=None):
-        """A table of every part's subcircuits (see ``CutCircuits.describe``)."""
+        """A table of every part's subcircuits.
+
+        :param values: One result per subcircuit (optional).
+        :return: See :meth:`~Qdislib.CutCircuits.describe`.
+        """
         from Qdislib.core.cutting_algorithms.describe import describe
 
         return describe(self, values)
 
     def reconstruct(self, expected_values):
-        """Recombine one value per subcircuit, in this object's order."""
+        """Recombine one value per subcircuit, in this object's order.
+
+        :param expected_values: What running each subcircuit returned.
+        :raises ValueError: Without one value per subcircuit.
+        :return: The product of the parts' values, or their weighted sum.
+        """
         values = list(expected_values)
         if len(values) != len(self):
             raise ValueError(

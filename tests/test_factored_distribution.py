@@ -59,6 +59,19 @@ def _exact(qc):
 
 
 @unittest.skipUnless(QISKIT, "qiskit required")
+class VeryWideTest(BaseTimedTestCase):
+    def test_truth_of_a_distribution_too_wide_for_len(self):
+        import numpy as np
+
+        import Qdislib as qd
+
+        wide = qd.FactoredDistribution(
+            [(np.array([1.0, 1.0]), [("out", 0)])], [[0]], {}, 70
+        )
+        self.assertTrue(wide)
+        self.assertEqual(wide["0" * 70], 1.0)
+
+
 class FactoredTest(BaseTimedTestCase):
     def setUp(self):
         super().setUp()

@@ -94,7 +94,9 @@ def _calibration(target):
 def _regions(edges, readout, size, buffer, max_error, max_readout_error):
     """Disjoint connected groups of ``size`` qubits, best first: each grown from a
     seed qubit by adding the neighbour with the lowest coupler + readout error,
-    then chosen greedily so that no two are closer than ``buffer`` idle qubits."""
+    then chosen greedily so that no two are closer than ``buffer`` idle qubits. The
+    distance counts every coupler of the device: one too noisy to run gates on still
+    couples its two qubits."""
     good = {
         pair: error
         for pair, error in edges.items()
@@ -132,10 +134,16 @@ def _regions(edges, readout, size, buffer, max_error, max_readout_error):
             if readout.get(q, 0.0) <= max_readout_error
         )
 
+    coupled = {}
+    for pair in edges:
+        a, b = tuple(pair)
+        coupled.setdefault(a, set()).add(b)
+        coupled.setdefault(b, set()).add(a)
+
     def near(group, distance):
         out, frontier = set(group), set(group)
         for _ in range(distance):
-            frontier = {w for q in frontier for w in neighbours.get(q, ())} - out
+            frontier = {w for q in frontier for w in coupled.get(q, ())} - out
             out |= frontier
         return out
 
@@ -148,9 +156,10 @@ def _regions(edges, readout, size, buffer, max_error, max_readout_error):
     return chosen
 
 
-def _place(circuit, group, target, good, basis, optimization_level, seeds):
-    """``circuit`` compiled onto the qubits of ``group`` (region-local indices):
-    the result with the fewest two-qubit gates, then the lowest total error."""
+def _place(circuit, group, target, edges, allowed, basis, optimization_level, seeds):
+    """``circuit`` compiled onto the qubits of ``group`` (region-local indices), on the
+    couplers in ``allowed`` (``None``: every one): the result with the fewest two-qubit
+    gates, then the lowest total error (``edges``)."""
     from qiskit import transpile
     from qiskit.transpiler import CouplingMap
 
@@ -160,7 +169,12 @@ def _place(circuit, group, target, good, basis, optimization_level, seeds):
         op = target.operation_from_name(name)
         if getattr(op, "num_qubits", 0) == 2:
             for qargs in target[name]:
-                if qargs is not None and qargs[0] in local and qargs[1] in local:
+                if (
+                    qargs is not None
+                    and qargs[0] in local
+                    and qargs[1] in local
+                    and (allowed is None or frozenset(qargs) in allowed)
+                ):
                     directed.append((local[qargs[0]], local[qargs[1]]))
     cmap = CouplingMap(sorted(set(directed))) if directed else None
     best = None
@@ -177,7 +191,7 @@ def _place(circuit, group, target, good, basis, optimization_level, seeds):
             if inst.operation.num_qubits == 2 and inst.operation.name in basis:
                 a, b = (group[placed.find_bit(q).index] for q in inst.qubits)
                 two += 1
-                error += good.get(frozenset((a, b)), 0.0)
+                error += edges.get(frozenset((a, b)), 0.0)
         if best is None or (two, error) < best[0]:
             best = ((two, error), placed)
     return best[1], best[0][0]
@@ -194,6 +208,8 @@ class PackedCircuits:
     :ivar regions: The groups of device qubits used, best first.
     :ivar two_qubit_gates: For each input circuit, its two-qubit gates once
         compiled onto its group.
+
+    :func:`pack` builds it.
     """
 
     def __init__(self, circuits, slots, regions, two_qubit_gates, registers):
@@ -217,7 +233,11 @@ class PackedCircuits:
         order, one per packed circuit): SamplerV2 pub results (``job.result()[0]``)
         or counts dicts (``result.get_counts(i)`` of ``backend.run`` / Aer). The
         counts are keyed as Qiskit keys the circuit run alone (classical bit 0
-        rightmost; several registers separated by spaces, the last one first)."""
+        rightmost; several registers separated by spaces, the last one first).
+
+        :raises ValueError: Without one result per packed circuit.
+        :return: A list of counts dicts, one per input circuit.
+        """
         results = list(results)
         if len(results) != len(self.circuits):
             raise ValueError(
@@ -288,7 +308,8 @@ def pack(
         gates and calibrated errors choose the groups.
     :param size: Qubits per group; default the widest circuit.
     :param buffer: Idle qubits between groups (0: only disjoint).
-    :param max_error: Couplers with a larger two-qubit gate error are not used.
+    :param max_error: Couplers with a larger two-qubit gate error are not used
+        (with ``regions=``, the groups' own couplers all are).
     :param max_readout_error: Qubits with a larger readout error are not used.
     :param optimization_level: Qiskit's, for compiling each circuit on its group.
     :param seeds: Transpiler seeds tried per circuit (the fewest two-qubit gates win).
@@ -298,6 +319,10 @@ def pack(
         choosing them (e.g. another run's ``packed.regions``, to run a circuit
         alone on the qubits it had when packed). Each must be connected and hold
         the widest circuit.
+    :raises ValueError: For no circuits, ``seeds`` or ``per_circuit`` below 1, a
+        ``size`` smaller than the widest circuit, no group of qubits passing the error
+        limits, ``regions=`` too small, or a circuit with classical bits and no
+        measurement.
     :return: A :class:`PackedCircuits`; run its ``circuits`` (one job each) and
         pass the results to its ``unpack``.
     """
@@ -307,6 +332,10 @@ def pack(
     circuits = list(circuits)
     if not circuits:
         raise ValueError("pack takes at least one circuit")
+    if int(seeds) < 1:
+        raise ValueError(f"seeds must be at least 1, got {seeds}")
+    if per_circuit is not None and int(per_circuit) < 1:
+        raise ValueError(f"per_circuit must be at least 1, got {per_circuit}")
     target = getattr(backend, "target", backend)
     width = max(c.num_qubits for c in circuits)
     size = width if size is None else int(size)
@@ -315,6 +344,7 @@ def pack(
             f"size={size} is smaller than the widest circuit ({width} qubits)"
         )
     edges, readout = _calibration(target)
+    allowed = {pair for pair, error in edges.items() if error <= max_error}
     if regions is None:
         regions = _regions(
             edges, readout, size, int(buffer), max_error, max_readout_error
@@ -328,10 +358,10 @@ def pack(
         regions = [tuple(int(q) for q in group) for group in regions]
         if not regions or any(len(group) < width for group in regions):
             raise ValueError(f"regions= must hold groups of at least {width} qubits")
+        allowed = None  # given, maybe under an earlier calibration: as they are
     slots_per = (
         len(regions) if per_circuit is None else min(int(per_circuit), len(regions))
     )
-    good = {p: e for p, e in edges.items() if e <= max_error}
     standard = set(get_standard_gate_name_mapping())
     basis = [n for n in target.operation_names if n in standard and n not in _NOT_GATES]
 
@@ -348,7 +378,7 @@ def pack(
         registers.append([r.size for r in circuit.cregs])
         group = regions[k % slots_per]
         local, two = _place(
-            circuit, group, target, good, basis, optimization_level, seeds
+            circuit, group, target, edges, allowed, basis, optimization_level, seeds
         )
         placed.append((local, group))
         gates.append(two)

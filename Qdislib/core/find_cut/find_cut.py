@@ -33,26 +33,8 @@ import typing
 
 from Qdislib.utils.runtime import task, compss_wait_on
 
-try:
-    import qibo
-
-    qibo_available = True
-except ImportError:  # qibo is optional
-    qibo = None
-    qibo_available = False
-
-try:
-    import qiskit
-    import qiskit.qasm2
-
-    qiskit_available = True
-except ImportError:  # qiskit is optional
-    qiskit = None
-    qiskit_available = False
-
 import pymetis
 
-from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
 from Qdislib.utils.backends import convert_to_dag, iter_gates, num_qubits
 
 
@@ -371,9 +353,12 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
         xadj.append(len(adjncy))
     if not adjncy:
         return [], []
-    _, parts = pymetis.part_graph(
-        num_clusters, xadj=xadj, adjncy=adjncy, eweights=eweights
-    )
+    # pymetis >= 2025 takes a CSRAdjacency; plain xadj/adjncy are going away in 2027
+    if hasattr(pymetis, "CSRAdjacency"):
+        graph_in = {"adjacency": pymetis.CSRAdjacency(xadj, adjncy)}
+    else:
+        graph_in = {"xadj": xadj, "adjncy": adjncy}
+    _, parts = pymetis.part_graph(num_clusters, eweights=eweights, **graph_in)
     clusters = {}
     for node, part in zip(nodes, parts):
         clusters.setdefault(part, []).append(node)
@@ -468,28 +453,6 @@ def _rank_candidates(candidates, weights=None, forbidden=None, edge_weights=None
         scored.append((cut_set, score, partition))
     scored.sort(key=lambda item: item[1])
     return scored
-
-
-def _plot_partition(graph, partition):
-    """Draw a partitioned circuit graph (manual debug aid; call it yourself)."""
-    import matplotlib.pyplot as plt
-
-    pos = networkx.spring_layout(graph)
-    plt.figure(figsize=(12, 12))
-    colors = ["orange", "purple", "green", "red", "blue"]
-    for i, component in enumerate(partition):
-        networkx.draw_networkx_nodes(
-            graph,
-            pos,
-            nodelist=list(component),
-            node_color=colors[i % len(colors)],
-            node_size=200,
-            alpha=0.5,
-        )
-    networkx.draw_networkx_edges(graph, pos, alpha=0.5)
-    networkx.draw_networkx_labels(graph, pos)
-    plt.title("Graph Partition Visualization")
-    plt.show()
 
 
 @task(returns=2)
@@ -878,7 +841,7 @@ def find_cut(
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
-    and hardware constraints, using either the Qdislib or IBM Qiskit-based backends.
+    and hardware constraints.
 
     The FindCut algorithm from the Qdislib library is designed to find the best cut to
     decompose a quantum circuit into subcircuits that adhere to specific
@@ -890,8 +853,9 @@ def find_cut(
 
     Parameters
     ----------
-    circuit : QuantumCircuit, qibo.models.Circuit, or networkx.DiGraph
-        The input quantum circuit to be partitioned.
+    circuit : a circuit of any SDK
+        The input quantum circuit to be partitioned: Qiskit, qibo, CUDA-Q, PennyLane
+        or QiliSDK.
 
     max_qubits : int, optional
         Maximum number of qubits allowed per subcircuit. Helps enforce hardware
@@ -918,8 +882,10 @@ def find_cut(
         larger circuits and dropped the wire cuts it found.)
 
     weights : dict, optional
-        A dictionary specifying weights for the loss function used in Qdislib to evaluate
-        partitioning
+        Overrides for the score of a candidate cut,
+        ``|w1 * cuts + w2 * fragments + w3 * largest fragment|``, the lowest wins:
+        ``{"w1": 100, "w2": -1, "w3": 1}`` by default. Ignored with ``mixed=True`` and
+        ``coupling_map``.
 
     seed : int, optional
         Seed for the randomised partitioning strategies (Kernighan-Lin and spectral
@@ -942,7 +908,8 @@ def find_cut(
         Return the ``top_n`` best candidate cuts (lowest score first) instead of the
         single winner, as a list of ``{"cut": [...], "kind": "gate"|"wire",
         "score": float}`` dicts -- e.g. to compare options and size them with
-        :func:`~Qdislib.cut_cost`. ``None`` (default) returns the single best cut.
+        :func:`~Qdislib.cutting_overhead`. ``None`` (default) returns the single best
+        cut.
         Only affects the ``implementation="qdislib"`` path.
 
     coupling_map : list of (int, int), optional
@@ -988,32 +955,31 @@ def find_cut(
 
     Returns
     -------
-    best_cut : list
-        A list describing the best cut found. This is a list of gate names and their indices where cuts should be applied (e.g., ['CX_3']).
+    best_cut : list or dict
+        The best cut found: gate names (e.g. ``["CX_3"]``) or ``(source, target)`` wire
+        edges, ``[]`` when none is needed or none fits. With ``mixed=True``
+        ``{"gate": [...], "hadamard": [...], "wire": [...]}``. With ``top_n``, a list of
+        ``{"cut", "kind", "score"}`` dicts, best first.
 
     Raises
     ------
     ValueError
-        If ``max_qubits`` is less than 1 or ``max_cuts`` is negative.
-
-    NameError
-        If neither `wire_cut` nor `gate_cut` is enabled.
-
-    TypeError
-        If the chosen implementation fails to return a valid result due to configuration.
+        If ``max_qubits`` is less than 1, ``max_cuts`` is negative, ``implementation``
+        is unknown, or neither ``wire_cut`` nor ``gate_cut`` is enabled.
 
     Notes
     -----
-    - In the Qdislib implementation:
-        * Circuits are transformed into graphs and evaluated through multiple graph partitioning
-          strategies. The best partition is chosen based on a custom loss function.
-        * The function supports concurrent evaluation of both gate and wire cuts.
+    - Without ``mixed`` or ``coupling_map``, circuits are transformed into graphs and
+      evaluated through multiple graph partitioning strategies; the best partition is
+      chosen based on a custom loss function.
+    - A circuit that already splits into independent parts within ``max_qubits`` needs
+      no cut, and gets none.
 
     Example
     -------
     >>> import Qdislib as qd
-    >>> cut = find_cut(my_circuit, max_qubits=5, gate_cut=True, wire_cut=False)
-    >>> print(cut)  # Output: Best cut information (e.g., ['CX_3'])
+    >>> cut = qd.find_cut(my_circuit, max_qubits=5, gate_cut=True, wire_cut=False)
+    >>> print(cut)  # the best cut, e.g. ['CX_3']
     """
     # 0 is a budget, not "no limit": check against None, never truthiness.
     if max_qubits is not None and max_qubits < 1:
@@ -1119,6 +1085,9 @@ def find_cut(
             return [{"cut": best, "kind": "gate", "score": score}][:top_n]
         return best
 
+    if not (gate_cut or wire_cut):
+        raise ValueError("Enable at least one of wire_cut or gate_cut.")
+
     # Ranked mode: return the top_n candidate cuts (best score first) across
     # the enabled strategies, each as {"cut", "kind", "score"}, instead of the
     # single winner. Lets the caller compare options (and cost them with
@@ -1178,28 +1147,13 @@ def find_cut(
             forbidden_qubits=forbidden_qubits,
         )
 
-    if gate_cut and wire_cut:
-        cut_gate = compss_wait_on(cut_gate)
-        score_gate = compss_wait_on(score_gate)
-        cut_wire = compss_wait_on(cut_wire)
-        score_wire = compss_wait_on(score_wire)
-    elif gate_cut:
-        cut_gate = compss_wait_on(cut_gate)
-        score_gate = compss_wait_on(score_gate)
-    elif wire_cut:
-        cut_wire = compss_wait_on(cut_wire)
-        score_wire = compss_wait_on(score_wire)
-    else:
-        raise ValueError("Enable at least one of wire_cut or gate_cut.")
-
-    if wire_cut and gate_cut:
-        best = cut_gate if score_gate <= score_wire else cut_wire
-    elif gate_cut:
-        best = cut_gate
-    elif wire_cut:
-        best = cut_wire
-    else:
-        raise ValueError("Enable at least one of wire_cut or gate_cut.")
+    # Waiting only now: under PyCOMPSs the two searches run side by side.
+    if gate_cut:
+        best, best_score = compss_wait_on(cut_gate), compss_wait_on(score_gate)
+    if wire_cut:
+        cut_wire, score_wire = compss_wait_on(cut_wire), compss_wait_on(score_wire)
+        if not gate_cut or score_wire < best_score:
+            best = cut_wire
 
     if not best:
         logger.warning(

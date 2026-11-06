@@ -39,7 +39,7 @@ def estimate(
     shots=1024,
     seed=None,
     cache=None,
-    cache_mode="expectation",
+    cache_mode=None,
     gate_cut=True,
     wire_cut=True,
     return_metrics=False,
@@ -52,22 +52,25 @@ def estimate(
     ``*_subcircuits`` / :func:`expectation_value` / ``reconstruct`` workflow
     instead.
 
-    :param circuit: Circuit to estimate (Qibo/Qiskit/CUDA-Q, or a DAG).
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
     :param observable: Observable spec -- a Pauli string, a ``{pauli: coeff}``
         mapping, or ``[(coeff, pauli)]`` weighted sum. Defaults to all-``Z``.
     :param max_qubits: Maximum qubits per subcircuit (guides the cut search).
     :param shots: Measurement shots per subcircuit; ``None`` is exact.
     :param backend: Where the subcircuits run (see :func:`~Qdislib.gate_cutting`).
     :param seed: Seed for the simulators' sampling.
-    :param cache: Optional :class:`~Qdislib.utils.circuit_cache.CircuitCache` to
-        reuse equivalent subcircuits (see
-        :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`).
-    :param cache_mode: Cache granularity (``"expectation"``/``"counts"``/strategy).
+    :param cache: Reuse fragment circuits already run: what ``cache=`` takes on
+        :func:`~Qdislib.circuit_cutting`.
+    :param cache_mode: Deprecated and ignored, as on :func:`~Qdislib.gate_cutting`
+        (a custom :class:`~Qdislib.utils.circuit_cache.CacheStrategy` still runs the
+        1.x implementation).
     :param gate_cut: Allow :func:`find_cut` to consider gate cuts.
     :param wire_cut: Allow :func:`find_cut` to consider wire cuts.
     :param return_metrics: If ``True`` return ``(value, metrics)`` where
-        ``metrics`` reports the chosen cut, its type, the number of cuts, the
-        find-cut and run timings, and the cache statistics.
+        ``metrics`` is ``{"cut", "cut_type", "num_cuts", "find_cut_seconds",
+        "run_seconds", "cache"}``: the chosen cut, ``"gate"`` or ``"wire"``, the number
+        of cuts, the timings and the store's :meth:`stats` (``None`` without a cache).
+    :raises ValueError: For an invalid observable, or limits ``find_cut`` refuses.
     :return: The reconstructed expectation value, or ``(value, metrics)``.
 
     Example:
@@ -125,9 +128,18 @@ def estimate(
         "num_cuts": len(cut),
         "find_cut_seconds": find_cut_seconds,
         "run_seconds": run_seconds,
-        "cache": cache.stats() if cache is not None else None,
+        "cache": _cache_stats(cache),
     }
     return value, metrics
+
+
+def _cache_stats(cache):
+    """The statistics of what ``cache=`` named (``None`` when it is off)."""
+    if cache is None or cache is False:
+        return None
+    from Qdislib.core.cutting_algorithms.engine_cache import _store
+
+    return _store(cache).stats()
 
 
 def cut_cost(cut, wire=None):

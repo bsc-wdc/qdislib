@@ -60,6 +60,7 @@ from fractions import Fraction
 import networkx
 from networkx.algorithms.graph_hashing import weisfeiler_lehman_graph_hash
 
+from Qdislib.utils.qasm import qasm_drops_measurements
 from Qdislib.utils.sdks import sdk_names as _sdk_names
 from Qdislib.utils.runtime import pycompss_available
 
@@ -101,19 +102,6 @@ except ImportError:
     get_by_ID = None
     redis_psco_available = False
 
-# Circuit class sentinels for backend detection (each SDK is optional).
-try:
-    from qiskit.circuit import QuantumCircuit as _QiskitCircuit
-except ImportError:
-    _QiskitCircuit = type("QuantumCircuit", (), {})
-try:
-    from qibo.models import Circuit as _QiboCircuit
-except ImportError:
-    _QiboCircuit = type("QiboCircuit", (), {})
-try:
-    from cudaq.kernel.kernel_decorator import PyKernelDecorator as _CudaqKernel
-except ImportError:
-    _CudaqKernel = type("PyKernelDecorator", (), {})
 # PennylaneCircuit is a plain Qdislib data wrapper -- always importable, no
 # PennyLane install required to reference the class for type detection.
 from Qdislib.utils.graph_pennylane import PennylaneCircuit as _PennylaneCircuit
@@ -164,6 +152,7 @@ _QASM_ONE_QUBIT = {
 }
 _QASM_ROTATION = {"RX": "rx", "RY": "ry", "RZ": "rz"}
 _QASM_TWO_QUBIT = {"CX": "cx", "CNOT": "cx", "CZ": "cz", "CY": "cy"}
+_QASM_MARKERS = {"MEASURE", "M", "OBSERVABLE I"}  # non-unitary: not in the hash
 
 
 def _pennylane_circuit_to_qasm(circuit):
@@ -172,8 +161,9 @@ def _pennylane_circuit_to_qasm(circuit):
     Only the unitary gates are emitted -- the gate-cut ``MEASURE`` (collapse) and
     ``Observable I`` markers are skipped, matching how the semantic hash treats the
     other backends (the collapse is folded into the key separately, via
-    ``_cut_point_fingerprint``). A gate PyZX cannot parse simply makes
-    :func:`semantic_key` fall back to no caching.
+    ``_cut_point_fingerprint``). A gate without a mnemonic here raises, so that
+    :func:`semantic_key` falls back to no caching: left out, two circuits differing
+    only by that gate would share a key.
     """
     lines = [
         "OPENQASM 2.0;",
@@ -189,7 +179,8 @@ def _pennylane_circuit_to_qasm(circuit):
             lines.append(f"{_QASM_ROTATION[name]}({angle}) q[{qubits[0]}];")
         elif name in _QASM_TWO_QUBIT:
             lines.append(f"{_QASM_TWO_QUBIT[name]} q[{qubits[0]}],q[{qubits[1]}];")
-        # MEASURE / Observable I: non-unitary markers, intentionally omitted.
+        elif name not in _QASM_MARKERS:
+            raise ValueError(f"No OpenQASM mnemonic for the gate {gate!r} here.")
     return "\n".join(lines)
 
 
@@ -200,8 +191,6 @@ def _pennylane_circuit_to_qasm(circuit):
 # ... contains unbound variables", so every CUDA-Q kernel with a rotation gate
 # silently lost caching. Rewrite scientific-notation literals to plain decimal
 # before handing the QASM to PyZX.
-from Qdislib.utils.qasm import qasm_drops_measurements
-
 _SCIENTIFIC_NOTATION_RE = re.compile(r"[-+]?\d*\.?\d+[eE][-+]?\d+")
 
 
@@ -307,9 +296,10 @@ def semantic_key(circuit, software=None):
     The hash is invariant under ZX-equivalent rewrites (``full_reduce``), so two
     functionally equivalent circuits share a key and a cached result.
 
-    :param circuit: A Qibo ``Circuit`` or Qiskit ``QuantumCircuit``.
-    :param software: ``"qibo"`` or ``"qiskit"``; auto-detected from the type when
-        omitted.
+    :param circuit: A circuit of any SDK of :func:`~Qdislib.utils.sdks.sdk_names`
+        (Qibo, Qiskit, CUDA-Q, PennyLane; what cannot be written as OpenQASM 2 gets
+        no key).
+    :param software: The SDK's name; auto-detected from the type when omitted.
     :return: A stable hash string, or ``None`` when the key cannot be computed
         (PyZX missing, an unsupported gate/backend) -- in which case the caller
         should simulate without caching. This function never raises.
@@ -361,10 +351,13 @@ def semantic_key(circuit, software=None):
 
 
 class CircuitCache:
-    """Abstract semantic-cache store: a string key to a JSON-serialisable value.
+    """Abstract cache store: a string key to a JSON-serialisable value.
 
-    The value is a measurement-counts ``dict`` (counts mode) or an expectation
-    ``float`` (expectation mode); the store treats it as opaque.
+    The value is what the cutting engine keeps of a fragment circuit (its counts or
+    exact correlators), or for the 1.x paths an expectation ``float`` or counts; the
+    store treats it as opaque. Subclass it, with :meth:`get`, :meth:`put` and
+    :meth:`delete`, for another store; pass it as ``cache=``. A store goes to the
+    PyCOMPSs tasks that use it, so it has to pickle, and to be shared by them.
     """
 
     def get(self, key):
@@ -477,6 +470,12 @@ class LMDBCircuitCache(CircuitCache):
     cleanly and a PyCOMPSs worker reopens the path on first use. Note that many
     concurrent writers contend on a shared filesystem; prefer
     :class:`RedisPSCOCircuitCache` for heavy distributed writing under PyCOMPSs.
+
+    :param path: The directory of the store (created if missing).
+    :param map_size: The largest size of the store, in bytes (a write beyond it
+        fails; the cutting engine then only logs it and runs on).
+    :param max_readers: The most readers at once, over all processes.
+    :raises ImportError: If ``lmdb`` is not installed.
     """
 
     def __init__(self, path, map_size=1 << 30, max_readers=500):
@@ -542,6 +541,13 @@ class RedisCircuitCache(CircuitCache):
     :class:`RedisPSCOCircuitCache`, which uses the COMPSs storage layer. The
     client is created lazily and not pickled, so the store ships to a worker by
     its connection settings.
+
+    :param host: The Redis host.
+    :param port: Its port.
+    :param db: The database number.
+    :param prefix: Put in front of every key.
+    :param kwargs: For ``redis.Redis`` (``username``, ``password``, ``ssl``...).
+    :raises ImportError: If ``redis`` is not installed.
     """
 
     def __init__(self, host="localhost", port=6379, db=0, prefix="qdislib:", **kwargs):
@@ -824,10 +830,12 @@ class PendingResult:
         self.delay = delay
 
     def resolve(self):
-        """Return the expectation once the owning task has stored the value."""
-        import time
+        """Return the expectation once the owning task has stored the value.
 
+        :raises QdislibException: If the value never appears.
+        """
         from Qdislib.utils.backends import _SimContext
+        from Qdislib.utils.exceptions import QdislibException
 
         sim = _SimContext(None, None, self.observables, self.software, self.shots)
         for attempt in range(self.retries):
@@ -836,12 +844,14 @@ class PendingResult:
                 return self.strategy.load(value, sim)
             if attempt < self.retries - 1:
                 time.sleep(self.delay)
-        logger.warning(
-            "Cache key %s never resolved (owning task may have failed); "
-            "dropping this subcircuit's contribution.",
-            self.cache_key,
+        try:
+            self.cache.delete(self.cache_key)
+        except Exception as exc:  # the error below is the one to report
+            logger.warning("Could not remove the placeholder (%s).", exc)
+        raise QdislibException(
+            f"Cache key {self.cache_key} was never computed: the task that reserved "
+            "it failed, or a killed run left it in the store. Run again."
         )
-        return None
 
 
 def _resolve_value(value):

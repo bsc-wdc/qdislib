@@ -102,16 +102,17 @@ def unit_weight(plan, circuit):
 
 
 def _split(budget, scores, floor=0):
-    """Integer shots in proportion to ``scores``, at least ``floor`` each, summing
-    to ``budget`` (or to ``floor * len`` when that is more)."""
+    """Integer shots summing to ``budget`` (to ``floor * len`` when that is more):
+    ``floor`` each, and what is left in proportion to ``scores``."""
     scores = np.maximum(np.asarray(scores, dtype=float), 1e-12)
-    raw = np.maximum(budget * scores / scores.sum(), floor)
+    spare = max(budget - floor * len(scores), 0)
+    raw = spare * scores / scores.sum()
     shots = np.floor(raw).astype(np.int64)
-    rest = int(budget - shots.sum())
+    rest = int(spare - shots.sum())
     if rest > 0:  # hand out what flooring left, largest remainders first
         for i in np.argsort(-(raw - shots))[:rest]:
             shots[i] += 1
-    return shots
+    return shots + floor
 
 
 def _spread(circuit, result):

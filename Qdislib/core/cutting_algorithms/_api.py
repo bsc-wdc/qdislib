@@ -31,15 +31,15 @@ Three-step::
 
 ``backend`` is where the subcircuits run. A subcircuit list is SDK-neutral: the SDK
 its circuits are written in is chosen when they are built --
-``subs.circuits(software)``, the input circuit's SDK by default. The pre-2.0 names keep working for one release with a
-:class:`DeprecationWarning` (:func:`standard_arguments`).
+``subs.circuits(software)``, the input circuit's SDK by default. The pre-2.0 names
+keep working for one release with a :class:`DeprecationWarning`
+(:func:`standard_arguments`).
 """
 
 import functools
 import inspect
 import warnings
 
-#: The SDKs a circuit can be written in.
 from Qdislib.utils.sdks import sdk_names
 
 
@@ -57,6 +57,7 @@ class _SDKNames:
         return repr(sdk_names())
 
 
+#: The SDKs a circuit can be written in.
 SDKS = _SDKNames()
 
 #: Qibo platforms, which ``wire_cutting(backend=...)`` used to take.

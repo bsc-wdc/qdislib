@@ -89,12 +89,13 @@ class SDK:
         return function(*args, **kwargs)
 
     def owns(self, circuit):
-        """True if ``circuit`` is one of this SDK's circuits (without importing an
-        SDK that ``circuit`` cannot come from)."""
-        module_of = type(circuit).__module__.split(".")[0]
+        """True if ``circuit`` is one of this SDK's circuits, or a subclass of one
+        defined anywhere (without importing an SDK that ``circuit`` cannot come
+        from)."""
+        packages = {cls.__module__.split(".")[0] for cls in type(circuit).__mro__}
         for spec in self.circuit_types:
             module, attribute = spec.split(":")
-            if module.split(".")[0] != module_of:
+            if module.split(".")[0] not in packages:
                 continue
             try:
                 cls = getattr(importlib.import_module(module), attribute)

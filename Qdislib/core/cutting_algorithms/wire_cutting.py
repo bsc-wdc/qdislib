@@ -27,14 +27,12 @@ __all__ = [
     "wire_cutting",
     "wire_cutting_sampling",
     "wire_cutting_sampling_subcircuits",
-    "WireSampledCutSubcircuits",
     "wire_cutting_subcircuits",
     "wire_cutting_subcircuit_reconstruction",
 ]
 
 import functools
 import itertools
-import math
 import networkx
 import numpy as np
 import typing
@@ -96,7 +94,6 @@ from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    resolve_software,
     default_observable,
 )
 
@@ -203,15 +200,14 @@ def _wire_cutting(
     .. code-block:: python
 
         from qiskit import QuantumCircuit
-        from mymodule import wire_cutting
 
         qc = QuantumCircuit(2)
         qc.h(0)     # Gate "H_1"
-        qc.cx(0, 1) # Gate "CZ_2"
+        qc.cx(0, 1) # Gate "CX_2"
         qc.measure_all()
 
-        cuts = [("H_1","CZ_2")]  # List of gate tuples
-        reconstruction = wire_cutting(qc, cuts, shots=2048, backend="qiskit")
+        cuts = [("H_1","CX_2")]  # List of gate tuples
+        reconstruction = _wire_cutting(qc, cuts, shots=2048, software="qiskit")
     """
     if software is None:
         # Run the subcircuits in the circuit's own SDK: a Qiskit circuit's gate
@@ -371,7 +367,7 @@ def _wire_cutting(
             final_recons = _build_and_run_subcircuit(
                 dag, software, shots, backend, qpu, seed
             )
-        return final_recons
+        return compss_wait_on(final_recons) if sync else final_recons
 
 
 def _wire_cut_sampling_components(dag, wire_cuts, num_qubits):
@@ -737,7 +733,7 @@ def _wire_cutting_sampling(
         ``build_execution_backend``) instead of a local simulator.
     :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
     :param seed: Optional seed for a reproducible distribution. Each fragment gets a
-        distinct derived seed (``seed + i``); ``None`` keeps the previous
+        distinct derived seed; ``None`` keeps the previous
         non-deterministic sampling. Ignored on a QPU.
     :param optimized: Sample each fragment once per measurement setting /
         preparation (``sum_f 3**i_f * 4**j_f``, or fewer with ``joint``) instead of
@@ -829,9 +825,13 @@ class WireSampledCutSubcircuits(list):
     behaves like the plain ``list`` of fragments (iterate/index/``len``) and carries
     the metadata to reconstruct the output distribution::
 
-        subs = qd.wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit")
+        subs = qd.wire_cutting_sampling_subcircuits(circuit, cut)
         sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
         distribution = subs.reconstruct(sampled)
+
+    .. deprecated:: 2.0.0
+        What a 1.x list was: no function returns it any more (their lists are
+        :class:`~Qdislib.CutCircuits`), and it will be removed.
     """
 
     def __init__(
@@ -869,49 +869,6 @@ class WireSampledCutSubcircuits(list):
             self._prepared_to_orig,
         )
         return compss_wait_on(distribution)
-
-
-def _wire_cutting_sampling_subcircuits(
-    circuit, cut, software="qiskit", qpu=False, qpu_dict=None
-):
-    """Partition a circuit into **wire-cut sampling** fragments (three-step workflow).
-
-    The wire counterpart of
-    :func:`~Qdislib.core.cutting_algorithms.gate_cutting.gate_cutting_sampling_subcircuits`:
-    generate the fragments, sample each yourself, then reconstruct the output
-    distribution::
-
-        subs = qd.wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit")
-        sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
-        distribution = subs.reconstruct(sampled)
-
-    :param circuit: A Qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
-    :param cut: The wire cut(s), as returned by :func:`~Qdislib.find_cut`.
-    :param software: Backend the fragments are sampled on.
-    :param qpu: Route fragment sampling to a QPU when each fragment is later sampled.
-    :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
-    :return: A :class:`WireSampledCutSubcircuits` (a ``list`` of fragments plus the
-        cut metadata and a ``reconstruct`` method).
-    """
-    from Qdislib.core.cutting_algorithms.gate_cutting import _dag_num_qubits
-    from Qdislib.utils.backends import SampledSubcircuit
-
-    dag = convert_to_dag(circuit)
-    num_qubits = _dag_num_qubits(dag)
-    wire_cuts = _expand_wire_cuts(dag, cut)
-    _validate_wire_cuts_partition(dag, wire_cuts, num_qubits)
-    components, per_config_counts, cut_source_index, prepared_to_orig = (
-        _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
-    )
-    units = [SampledSubcircuit(component, software) for component in components]
-    return WireSampledCutSubcircuits(
-        units,
-        number_cuts=len(wire_cuts),
-        num_qubits=num_qubits,
-        per_config_counts=per_config_counts,
-        cut_source_index=cut_source_index,
-        prepared_to_orig=prepared_to_orig,
-    )
 
 
 def _expand_wire_cuts(dag, edges_to_replace):
@@ -2261,13 +2218,13 @@ def _counts_qibo(qc, shots=1024, backend="numpy"):
     return dict(result.frequencies(binary=True))
 
 
-def _expectation_from_counts_qibo(freq, observables, shots=1024):
-    """Compute ``<O>`` for a Z/I Pauli string from Qibo measurement counts.
+def _expectation_from_counts_qubit0_first(freq, observables, shots=1024):
+    """Compute ``<O>`` for a Z/I Pauli string from measurement counts whose keys are
+    qubit-0-first bit strings (qibo, CUDA-Q, PennyLane), which align directly with
+    the observable string.
 
-    Qibo frequency keys are already qubit-0-first bit strings, so they align
-    directly with the observable string.
-
-    :param freq: A ``{bitstring: count}`` dict as returned by :func:`_counts_qibo`.
+    :param freq: A ``{bitstring: count}`` dict, qubit-0-first (:func:`_counts_qibo`,
+        :func:`_counts_cudaq`, :func:`_counts_pennylane`).
     :param observables: Per-qubit Pauli string over ``{I, Z}``.
     :param shots: Number of shots the counts were drawn from.
     :raises ValueError: If an unsupported observable character is encountered.
@@ -2287,6 +2244,11 @@ def _expectation_from_counts_qibo(freq, observables, shots=1024):
         # Add the contribution weighted by its frequency
         expectation_value += contribution * (value / shots)
     return expectation_value
+
+
+_expectation_from_counts_qibo = _expectation_from_counts_qubit0_first
+_expectation_from_counts_cudaq = _expectation_from_counts_qubit0_first
+_expectation_from_counts_pennylane = _expectation_from_counts_qubit0_first
 
 
 def _expectation_from_samples_qibo(qc, observables, shots, backend, prep_qubits):
@@ -2356,7 +2318,7 @@ def _expec_value_qibo(
     if subcirc is None:
         return None
 
-    if type(subcirc) != qibo.models.circuit.Circuit:
+    if not isinstance(subcirc, qibo.models.Circuit):
         observables = subcirc[1]
         qc = subcirc[0]
     else:
@@ -2382,45 +2344,22 @@ def _expec_value_qibo(
     return _expectation_from_counts_qibo(freq, observables, shots)
 
 
-def _counts_cudaq(kernel, shots=1024):
+def _counts_cudaq(kernel, shots=1024, target=None):
     """Sample a CUDA-Q kernel and return its measurement counts.
 
-    On the GPU (``nvidia``) target, or the CPU (``qpp-cpu``) with a warning.
+    On ``target``; by default the GPU (``nvidia``) target, or the CPU (``qpp-cpu``)
+    with a warning.
 
     :param kernel: A built CUDA-Q kernel.
     :param shots: Number of measurement shots.
+    :param target: The CUDA-Q target, as a :class:`CudaqBackend` is configured.
     :return: A ``{bitstring: count}`` dict.
     """
     from Qdislib.core.backend.cudaq_backend import select_cudaq_target
 
-    select_cudaq_target()
+    select_cudaq_target(target)
     freq = cudaq.sample(kernel, shots_count=shots)
     return {str(key): int(value) for key, value in freq.items()}
-
-
-def _expectation_from_counts_cudaq(freq, observables, shots=1024):
-    """Compute ``<O>`` for a Z/I Pauli string from CUDA-Q measurement counts.
-
-    :param freq: A ``{bitstring: count}`` dict as returned by :func:`_counts_cudaq`.
-    :param observables: Per-qubit Pauli string over ``{I, Z}``.
-    :param shots: Number of shots the counts were drawn from.
-    :raises ValueError: If an unsupported observable character is encountered.
-    :return: The expectation value.
-    """
-    expectation_value = 0
-    for key, value in freq.items():
-        contribution = 1
-        for bit, obs in zip(key, observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
-            elif obs == "I":
-                contribution *= 1
-            else:
-                raise ValueError(f"Unsupported observable {obs}")
-
-        # Add the contribution weighted by its frequency
-        expectation_value += contribution * (value / shots)
-    return expectation_value
 
 
 def _expectation_cudaq_decoupled(
@@ -2477,13 +2416,16 @@ def _expectation_cudaq_decoupled(
 
 
 # Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
-def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> float:
+def _expec_value_cudaq(
+    subcirc: typing.Any, shots=1024, prep_qubits=None, target=None
+) -> float:
     """Execute the given circuit.
 
     :param subcirc: Circuit to execute.
     :param prep_qubits: Renumbered cut qubits measured for a gate cut; when any is
         observed with identity, its decomposition sign is recovered from the
         cut-point measurement (see :func:`_expectation_cudaq_decoupled`).
+    :param target: The CUDA-Q target (see :func:`_counts_cudaq`).
     :raises ValueError: If there is an unsupported observable.
     :return: The circuit expected value.
     """
@@ -2527,6 +2469,9 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> flo
         )
         if observables is None:
             observables = kernel_observables
+        from Qdislib.core.backend.cudaq_backend import select_cudaq_target
+
+        select_cudaq_target(target)
         return _expectation_cudaq_decoupled(
             kernel, observables, shots, set(prep_qubits), measured_order, payload[1]
         )
@@ -2543,7 +2488,7 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> flo
     else:
         subcirc = payload
 
-    freq = _counts_cudaq(subcirc, shots)
+    freq = _counts_cudaq(subcirc, shots, target)
     return _expectation_from_counts_cudaq(freq, observables, shots)
 
 
@@ -2569,32 +2514,6 @@ def _counts_pennylane(circuit, shots=1024, device="default.qubit", seed=None):
     qnode = _build_pennylane_qnode(qfunc, num_qubits, shots, device, seed)
     raw = qnode()
     return {str(key): int(value) for key, value in raw.items()}
-
-
-def _expectation_from_counts_pennylane(freq, observables, shots=1024):
-    """Compute ``<O>`` for a Z/I Pauli string from PennyLane measurement counts.
-
-    PennyLane ``counts`` keys are qubit-0-first bit strings, so they align
-    directly with the observable string (like Qibo/CUDA-Q).
-
-    :param freq: A ``{bitstring: count}`` dict as returned by :func:`_counts_pennylane`.
-    :param observables: Per-qubit Pauli string over ``{I, Z}``.
-    :param shots: Number of shots the counts were drawn from.
-    :raises ValueError: If an unsupported observable character is encountered.
-    :return: The expectation value.
-    """
-    expectation_value = 0
-    for key, value in freq.items():
-        contribution = 1
-        for bit, obs in zip(key, observables):
-            if obs == "Z":
-                contribution *= (-1) ** int(bit)
-            elif obs == "I":
-                contribution *= 1
-            else:
-                raise ValueError(f"Unsupported observable {obs}")
-        expectation_value += contribution * (value / shots)
-    return expectation_value
 
 
 def _fold_cut_outcomes(outcomes):
@@ -2729,36 +2648,6 @@ def _expec_value_pennylane(
 
     freq = _counts_pennylane(circuit, shots, device, seed=seed)
     return _expectation_from_counts_pennylane(freq, observables, shots)
-
-
-# Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
-def _expec_value_qibo_qpu(subcirc, shots=1024, method="numpy"):
-    """Evaluate a subcircuit on a BSC QPU via the shared-filesystem bridge.
-
-    Ships the *unmeasured* subcircuit to the QPU listener
-    (:func:`~Qdislib.utils.qpu_bridge.run_qpu_listener`, which adds the
-    measurements and runs it on the hardware), then computes the expectation from
-    the returned counts. The wait is bounded (see
-    :func:`~Qdislib.utils.qpu_bridge.submit_and_wait`). ``method`` is unused here,
-    kept for signature parity with the CPU/GPU evaluators.
-    """
-    if subcirc is None:
-        return None
-
-    if type(subcirc) != qibo.models.circuit.Circuit:
-        observables = subcirc[1]
-        subcirc = subcirc[0]
-    else:
-        observables = "Z" * subcirc.nqubits
-
-    from Qdislib.utils.qpu_bridge import submit_and_wait
-
-    result = submit_and_wait(subcirc)
-    freq = result.counts()
-    # Normalise by the actual shot count returned by the QPU (its num_bins may
-    # differ from the classical-side ``shots`` argument).
-    total_shots = sum(freq.values()) or 1
-    return _expectation_from_counts_qibo(freq, observables, total_shots)
 
 
 @task(returns=1, expectation_value=COLLECTION_IN)
@@ -3106,14 +2995,6 @@ def _wire_cutting_subcircuits(
             reason = f"failed ({exc})"
         _warn_not_optimized("subcircuits", reason)
 
-    # Serial -> native backend circuit; PyCOMPSs -> serializable Subcircuit.
-    dispatch_map = {
-        "qibo": lambda d, n: make_subcircuit(d, n, "qibo"),
-        "qiskit": lambda d, n: make_subcircuit(d, n, "qiskit"),
-        "cudaq": lambda d, n: make_subcircuit(d, n, "cudaq"),
-        "pennylane": lambda d, n: make_subcircuit(d, n, "pennylane"),
-    }
-
     if networkx.number_connected_components(dag.to_undirected(as_view=True)) > 1:
         # Disconnected pieces are cut (or not) independently and multiply: keep each
         # piece's subcircuits as its own part so reconstruct() can't mix them up.
@@ -3132,13 +3013,7 @@ def _wire_cutting_subcircuits(
                 )
             else:
                 s_new, highest_qubit = _update_qubits(s)
-                try:
-                    piece = [dispatch_map[software](s_new, highest_qubit)]
-                except KeyError:
-                    raise UnsupportedBackendError(
-                        f"Unsupported software backend: '{software}'. "
-                        f"Expected one of {list(dispatch_map.keys())}."
-                    )
+                piece = [make_subcircuit(s_new, highest_qubit, software)]
             parts.append(
                 CutSubcircuits(
                     piece,
@@ -3158,13 +3033,7 @@ def _wire_cutting_subcircuits(
         else:
             number_cuts = 0
             s_new, highest_qubit = _update_qubits(dag)
-            try:
-                subcircuits = [dispatch_map[software](s_new, highest_qubit)]
-            except KeyError:
-                raise UnsupportedBackendError(
-                    f"Unsupported software backend: '{software}'. "
-                    f"Expected one of {list(dispatch_map.keys())}."
-                )
+            subcircuits = [make_subcircuit(s_new, highest_qubit, software)]
 
     number_components = max(1, len(subcircuits) // (8**number_cuts))
     return CutSubcircuits(
@@ -3261,30 +3130,11 @@ def _wire_cutting_subcircuit_reconstruction(
         >>> values = [0.8, -0.6, 0.7, -0.5] * 4
         >>> _wire_cutting_subcircuit_reconstruction(values, number_cuts=1, number_components=2)
     """
-    # Resolve any deferred (cache placeholder-hit) results once all subcircuit
-    # tasks have finished: synchronise to the master, then refresh each
-    # PendingResult from the now-populated cache. Doing this after the barrier
-    # (rather than inside the per-group sign tasks) avoids worker starvation when
-    # a deferred key's owner is still running in another group.
-    if number_cuts == 0:
-        # No cuts: the reconstruction is just the product of the (single group of)
-        # subcircuit values, computed on the master -- so sync + resolve here.
-        from Qdislib.utils.circuit_cache import _resolve_value
+    from Qdislib.core.cutting_algorithms._reconstruction import signed_terms_sum
 
-        expected_values = compss_wait_on(expected_values)
-        expected_values = [_resolve_value(v) for v in expected_values]
-        return math.prod([v for v in expected_values if v is not None])
-
-    # Feed each configuration's subcircuit futures straight into the sign task
-    # (task -> task, no master barrier between _build_and_run_subcircuit /
-    # _evaluate_subcircuit and _change_sign); the sign task resolves cache placeholders.
-    groups = [
-        expected_values[i : i + number_components]
-        for i in range(0, len(expected_values), number_components)
-    ]
-    results = [_change_sign(group, index) for index, group in enumerate(groups)]
-    results = compss_wait_on(results)
-    return 1 / (2**number_cuts) * sum(results)
+    return signed_terms_sum(
+        expected_values, number_cuts, number_components, _change_sign
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -3353,7 +3203,21 @@ def wire_cutting(
     :param cache_mode: Deprecated and ignored (the cache keeps the whole result).
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
-    :return: The reconstructed expectation value.
+    :raises InvalidCutError: For a cut that does not join two gates of the circuit on
+        a shared qubit, is given twice or does not separate its two sides.
+    :raises ValueError: For an observable without one letter per qubit, ``shots`` below
+        1, or ``shots=None`` with a backend that is no simulator.
+    :return: The reconstructed expectation value (a list of them with
+        ``parameter_values``).
+
+    Example::
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cz(0, 1)  # gate 2, "CZ_2"
+        qc.ry(0.3, 1)  # gate 3, "RY_3"
+        qc.cz(1, 2)  # gate 4, "CZ_4"
+        value = qd.wire_cutting(qc, [("RY_3", "CZ_4")], "ZZZ", shots=4096, seed=1)
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _cache_mode_option,
@@ -3435,13 +3299,37 @@ def wire_cutting_sampling(
     _legacy=None,
 ):
     """Reconstruct the output **probability distribution** of a circuit cut at
-    wires. Arguments as in :func:`wire_cutting`.
+    wires.
 
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Wires to cut, as in :func:`wire_cutting`.
+    :param backend: Where the subcircuits run (see :func:`gate_cutting`).
+    :param shots: Shots per subcircuit; ``None`` is exact (statevector).
+    :param seed: Seed for the simulators' sampling.
+    :param sync: ``False`` returns the distribution as a future (PyCOMPSs).
+    :param optimized: Run each fragment once per measurement basis / prepared state
+        of its own wires (``3**i * 4**j`` per fragment instead of ``8**n`` overall).
+    :param joint: With ``optimized``, measure the wires a fragment sends together
+        (``2**k + 1`` circuits instead of ``3**k``).
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
+    :param cache: Reuse fragment circuits already run (see :func:`circuit_cutting`
+        and :func:`~Qdislib.use_cache`).
+    :param cache_key: ``"exact"`` (default) or ``"semantic"``.
+    :param cache_refresh: Run every circuit again and replace what is stored.
+    :param error: ``True`` (or a number of resamples): return a
+        :class:`~Qdislib.Distribution` with each probability's standard error.
+    :param circuits_per_task: Fragment circuits per task instead of one each (see
+        :func:`circuit_cutting`).
+    :param parameter_values: A list of value sets for the circuit's free
+        parameters, one distribution each, the cut planned once.
     :param qubits: The distribution over only these qubits, as in
         :func:`circuit_cutting_sampling`.
-    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
+    :raises InvalidCutError: For a cut that does not join two gates of the circuit on
+        a shared qubit, is given twice or does not separate its two sides.
+    :return: ``{bitstring: probability}`` (qubit-0-first bitstrings), a
+        :class:`~Qdislib.FactoredDistribution` over more than 24 qubits; a list of them
+        with ``parameter_values``.
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import _legacy_run
 
@@ -3506,11 +3394,26 @@ def wire_cutting_subcircuits(
     num_samples=None,
     seed=None,
 ):
-    """The subcircuits of :func:`wire_cutting`, to run yourself (three-step).
+    """The subcircuits of :func:`wire_cutting`, to run yourself (three-step)::
 
+        subs = qd.wire_cutting_subcircuits(circuit, [("RY_7", "CZ_8")], "ZZZZ")
+        values = [qd.expectation_value(s, shots=4096) for s in subs]
+        value = subs.reconstruct(values)
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Wires to cut, as in :func:`wire_cutting`.
+    :param observable: A Pauli string or a weighted Pauli sum; ``None`` is all ``Z``.
+    :param optimized: Run each fragment once per measurement basis / prepared state
+        of its own wires.
+    :param joint: With ``optimized``, measure the wires a fragment sends together.
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
-    :return: A list of subcircuits with ``reconstruct(values)``.
+    :param seed: Seed for the ``num_samples`` draws.
+    :raises InvalidCutError: For a cut that does not join two gates of the circuit on
+        a shared qubit, is given twice or does not separate its two sides.
+    :return: A :class:`~Qdislib.CutCircuits` (a list of subcircuits with
+        ``reconstruct(values)``); for a Pauli sum a
+        :class:`~Qdislib.CombinedCutSubcircuits`.
     """
     from Qdislib.core.cutting_algorithms.mixed_cutting import (
         circuit_cutting_subcircuits,
@@ -3539,11 +3442,24 @@ def wire_cutting_sampling_subcircuits(
     num_samples=None,
     seed=None,
 ):
-    """The subcircuits of :func:`wire_cutting_sampling`, to sample yourself.
+    """The subcircuits of :func:`wire_cutting_sampling`, to sample yourself::
 
+        subs = qd.wire_cutting_sampling_subcircuits(circuit, [("RY_7", "CZ_8")])
+        results = [qd.sample_subcircuit(s, shots=8192) for s in subs]
+        distribution = subs.reconstruct(results)
+
+    :param circuit: A qibo / Qiskit / CUDA-Q / PennyLane circuit (or a Qdislib DAG).
+    :param cuts: Wires to cut, as in :func:`wire_cutting`.
+    :param optimized: Run each fragment once per measurement basis / prepared state
+        of its own wires.
+    :param joint: With ``optimized``, measure the wires a fragment sends together.
     :param num_samples: Draw this many configurations by weight instead of running
         them all (Monte-Carlo sampling, see :func:`circuit_cutting`).
-    :return: A list of subcircuits with ``reconstruct(results)``.
+    :param seed: Seed for the ``num_samples`` draws.
+    :raises InvalidCutError: For a cut that does not join two gates of the circuit on
+        a shared qubit, is given twice or does not separate its two sides.
+    :return: A :class:`~Qdislib.CutCircuits` (a list of subcircuits with
+        ``reconstruct(results)``).
     """
     from Qdislib.core.cutting_algorithms.mixed_cutting import (
         circuit_cutting_sampling_subcircuits,
@@ -3566,7 +3482,16 @@ def wire_cutting_sampling_subcircuits(
 def wire_cutting_subcircuit_reconstruction(
     expected_values, number_cuts, number_components=2
 ):
-    """Deprecated: use ``subcircuits.reconstruct(results)``."""
+    """Deprecated: use ``subcircuits.reconstruct(results)``.
+
+    :param expected_values: One value per subcircuit of a 1.x wire cut, in order.
+    :param number_cuts: The wires cut.
+    :param number_components: The subcircuits of each of its ``8**number_cuts``
+        configurations.
+    :raises TypeError: For the results of a 2.0 list, which only its ``reconstruct``
+        can combine.
+    :return: The reconstructed expectation value.
+    """
     import warnings
 
     warnings.warn(

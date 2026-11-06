@@ -92,7 +92,12 @@ class QiboBackend(BaseBackend):
         from Qdislib.core.cutting_algorithms.gate_cutting import _joint_counts_qibo
 
         return _joint_counts_qibo(
-            dag, num_qubits, list(cut_point_qubits), shots, seed=seed
+            dag,
+            num_qubits,
+            list(cut_point_qubits),
+            shots,
+            seed=seed,
+            platform=self._platform,
         )
 
     def _execute_samples(

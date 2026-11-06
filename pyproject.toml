@@ -37,7 +37,7 @@ requires-python = ">=3.10"
 license = "Apache-2.0"
 keywords = ["Quantum", "distributed computing", "PyCOMPSs", "COMPSs", "Qdislib"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Operating System :: Unix",
   "Operating System :: POSIX :: Linux",
   "Operating System :: MacOS",
