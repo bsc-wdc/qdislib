@@ -340,7 +340,7 @@
   }
 
   /* <Pauli read> of one fragment with one term chosen for each cut that touches it. */
-  function fragmentValue(p, fragment, observable, choice) {
+  function fragmentValue(p, fragment, observable, choice, raw) {
     var cuts = p.cuts, ops = p.ops, local = {}, width = 0, ordered = [];
     fragment.segments.forEach(function (s) { local[s.id] = width++; });
     fragment.sides.forEach(function (side) {
@@ -432,6 +432,14 @@
         mask |= 1 << q;
       }
     });
+    if (raw) {
+      /* For a distribution: the probabilities of this circuit's measured bits, which of them
+         always enter the parity, and which bit each qubit of the circuit ends on. */
+      var probs = new Array(1 << width), bits = {};
+      for (var i = 0; i < probs.length; i++) probs[i] = state.re[i] * state.re[i] + state.im[i] * state.im[i];
+      fragment.segments.forEach(function (s) { if (!s.outgoing) bits[s.qubit] = local[s.id]; });
+      return { probs: probs, fixed: mask, bits: bits };
+    }
     return state.parity(mask);
   }
 
@@ -485,6 +493,30 @@
       plan: p,
       value: exactResult,
       runs: runs,
+      terms: terms,
+      /* The same sum, term by term: shots null for the exact values. Each row has its term
+         of each cut (digits), its weight, its fragments' values and what it adds to the sum. */
+      steps: function (shots, rng) {
+        var draws = p.fragments.map(function () { return {}; }), rows = [];
+        (function walk(i, weight) {
+          if (i === cuts.length) {
+            var values = [], product = weight;
+            for (var f = 0; f < p.fragments.length; f++) {
+              var k = key(f), v = shots === null ? memo[f][k] : k in draws[f] ? draws[f][k] : (draws[f][k] = sampled(memo[f][k], shots, rng));
+              values.push(v);
+              product *= v;
+            }
+            rows.push({ digits: digits.slice(), weight: weight, values: values, contribution: product });
+            return;
+          }
+          for (var d = 0; d < terms[i].length; d++) {
+            digits[i] = d;
+            choice[i] = terms[i][d];
+            walk(i + 1, weight * terms[i][d].w);
+          }
+        })(0, 1);
+        return rows;
+      },
       /* One run with shots: every distinct fragment circuit gets `shots` shots. */
       draw: function (shots, rng) {
         var draws = p.fragments.map(function () { return {}; });

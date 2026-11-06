@@ -3,6 +3,24 @@ Qdislib
 
 **Qdislib** runs quantum circuits by **cutting** them into smaller subcircuits, running those independently, and reconstructing the result of the original circuit. It runs serially on a laptop or in parallel on HPC with `PyCOMPSs <https://compss-doc.readthedocs.io/>`__, on simulators, GPUs and QPUs.
 
+.. raw:: html
+
+   <link rel="stylesheet" href="_static/try.css">
+   <link rel="stylesheet" href="_static/explore.css">
+   <div class="qdx-home">
+     <a class="qdx-bigtry" href="try.html"><b>Try Qdislib</b><span>Cut a circuit and run it, live in your browser.</span></a>
+     <a class="qdx-bigtry qdx-second" href="explore.html"><b>Explore Qdislib</b><span>Costs, results, noise and packing on 12 chips.</span></a>
+   </div>
+   <div class="qdx-show">
+     <figure><img src="_static/landing_cut.svg" alt="The ten-qubit example below, drawn by qd.draw_cut: one gate cut at CZ_15 splits it into two fragments of five qubits." width="640"><figcaption>The example below, drawn by <code>qd.draw_cut</code>: one gate cut, two fragments.</figcaption></figure>
+     <ul class="qdx-facts">
+       <li><b>3 kinds of cut</b><span>Gate, Hadamard and wire, in any mix.</span></li>
+       <li><b>5 SDKs</b><span>Qiskit, Qibo, CUDA-Q, PennyLane and QiliSDK.</span></li>
+       <li><b>PyCOMPSs</b><span>Every fragment circuit a task, including GPU tasks.</span></li>
+       <li><b>QPUs</b><span>IBM, IQM and BSC devices.</span></li>
+     </ul>
+   </div>
+
 .. code-block:: bash
 
     pip install "qdislib[qiskit]"        # or: uv pip install "qdislib[qiskit]"
@@ -29,56 +47,52 @@ Qdislib
 
 Use it to run a circuit too wide for your device or simulator, when a few cuts split it. Each cut multiplies the shots a given precision needs, by ``gamma**2``, so the number of cuts is what limits it: ``qd.cutting_overhead`` tells you the cost before anything runs.
 
-.. tip::
-
-   New to Qdislib? :doc:`Try it in your browser <try>`, with nothing to install, or :doc:`explore the whole library <explore>`.
-
 .. grid:: 1 2 4 4
     :gutter: 3
 
-    .. grid-item-card:: Quickstart
+    .. grid-item-card:: :octicon:`rocket` Quickstart
         :link: quickstart
         :link-type: doc
 
         Install, and cut your first circuit.
 
-    .. grid-item-card:: Notebooks
+    .. grid-item-card:: :octicon:`book` Notebooks
         :link: examples
         :link-type: doc
 
         A learning path with results and figures. Open any of them in Colab or Binder.
 
-    .. grid-item-card:: User guide
+    .. grid-item-card:: :octicon:`mortar-board` User guide
         :link: user_guide
         :link-type: doc
 
         What each part does and when to use it.
 
-    .. grid-item-card:: PyCOMPSs and HPC
+    .. grid-item-card:: :octicon:`server` PyCOMPSs and HPC
         :link: guide/hpc
         :link-type: doc
 
         Running in parallel, GPU tasks and MareNostrum 5.
 
-    .. grid-item-card:: API reference
+    .. grid-item-card:: :octicon:`code` API reference
         :link: api_reference
         :link-type: doc
 
         Every public function and class.
 
-    .. grid-item-card:: What is new in 2.0
+    .. grid-item-card:: :octicon:`megaphone` What is new in 2.0
         :link: whats_new
         :link-type: doc
 
         What changed, and how to move from 1.x.
 
-    .. grid-item-card:: Cheat sheet
+    .. grid-item-card:: :octicon:`file` Cheat sheet
         :link: Qdislib_cheatsheet.pdf
         :link-type: url
 
         The main calls on two pages (PDF).
 
-    .. grid-item-card:: Previous paper
+    .. grid-item-card:: :octicon:`note` Previous paper
         :link: https://dl.acm.org/doi/10.1145/3731599.3767547
         :link-type: url
 
@@ -101,7 +115,7 @@ Notebooks
 
 Every :doc:`notebook <examples>` runs top to bottom on a laptop with no credentials, stores its outputs, and has links to open it in Colab or Binder. Some have sliders that work on the page itself.
 
-- **Start here:** :doc:`notebooks/Qdislib_try_it` follows the poster's four steps, then :doc:`notebooks/01_quickstart`, then :doc:`notebooks/02_cutting_workflow` and :doc:`notebooks/03_finding_cuts`.
+- **Start here:** :doc:`notebooks/Qdislib_try_it` follows a cut in four steps, then :doc:`notebooks/01_quickstart`, then :doc:`notebooks/02_cutting_workflow` and :doc:`notebooks/03_finding_cuts`.
 - **Topics:** :doc:`observables <notebooks/05_observables>`, :doc:`distributions <notebooks/06_sampling>`, :doc:`caching <notebooks/07_caching>`, :doc:`cut types <notebooks/10_cut_types>`, :doc:`error bars <notebooks/11_shots_and_errors>`, :doc:`free parameters <notebooks/12_parameters>`.
 - **Running it elsewhere:** :doc:`other SDKs <notebooks/04_backends>`, :doc:`your own backend <notebooks/08_backend_internals>`, :doc:`PyCOMPSs and QPUs <notebooks/09_distributed_and_qpu>`, :doc:`packing on a QPU <notebooks/13_packing>`.
 - **Applications:** :doc:`a VQE <notebooks/applications/01_vqe_h2>`, :doc:`scaling up <notebooks/applications/02_scaling>`, :doc:`an image <notebooks/applications/03_image_reconstruction>`.

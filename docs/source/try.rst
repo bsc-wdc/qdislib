@@ -11,12 +11,22 @@ Cut a circuit into pieces, run them, and get the uncut result back. It all runs 
    <link rel="stylesheet" href="_static/try.css">
    <link rel="stylesheet" href="_static/explore.css">
    <script src="_static/explore_engine.js"></script>
+   <script src="_static/explore_sdk_data.js"></script>
    <div id="qdx-play" class="qd-try"><p>This playground needs JavaScript. The notebook below does the same with the real library.</p></div>
-   <script src="_static/explore.js"></script>
 
 .. only:: latex
 
    The live playground is at https://qdislib.readthedocs.io/en/latest/try.html.
+
+Any SDK
+-------
+
+The same circuit and cut in five SDKs. *Each snippet was run; its results are stored.*
+
+.. raw:: html
+
+   <div id="qdx-sdk" class="qd-try"><p>This section needs JavaScript.</p></div>
+   <script src="_static/explore.js"></script>
 
 Run the real code
 -----------------

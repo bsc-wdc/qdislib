@@ -139,7 +139,7 @@
       if (op.qubits.length === 2) {
         var a = y(op.qubits[0]), b = y(op.qubits[1]);
         var stroke = cut ? cutColour(cut.kind) : "var(--color-foreground-secondary, #555)";
-        s += '<line x1="' + c + '" x2="' + c + '" y1="' + a + '" y2="' + b + '" stroke="' + stroke + '" stroke-width="2"' + (cut ? ' stroke-dasharray="4 3"' : "") + "/>";
+        s += '<line' + (o.keys && !cut ? ' data-k="c' + op.id + '"' : "") + ' x1="' + c + '" x2="' + c + '" y1="' + a + '" y2="' + b + '" stroke="' + stroke + '" stroke-width="2"' + (cut ? ' stroke-dasharray="4 3"' : "") + "/>";
         if (cut) s += scissors(c, (a + b) / 2, stroke, 12, o.keys ? "xg" + op.id + cut.kind : null);
       }
       op.qubits.forEach(function (qubit, side) {
@@ -147,7 +147,7 @@
         var cy = y(qubit);
         s += '<rect' + (o.keys ? ' data-k="g' + op.id + ":" + side + '"' : "") + ' x="' + (c - 17) + '" y="' + (cy - 14) + '" width="34" height="28" rx="6" fill="' + fill + '"' +
           (cut ? ' stroke="' + cutColour(cut.kind) + '" stroke-width="3" stroke-dasharray="4 2"' : "") + "/>";
-        s += '<text class="g" x="' + c + '" y="' + (cy + 4) + '" text-anchor="middle">' + esc(shortName(op)) + "</text>";
+        s += '<text class="g"' + (o.keys ? ' data-t="g' + op.id + ":" + side + '" data-label="' + esc(shortName(op)) + '"' : "") + ' x="' + c + '" y="' + (cy + 4) + '" text-anchor="middle">' + esc(shortName(op)) + "</text>";
       });
       s += '<text class="i" x="' + c + '" y="' + (y(Math.min.apply(null, op.qubits)) - 17) + '" text-anchor="middle">' + (i + 1) + "</text>";
     });
@@ -179,7 +179,7 @@
       ["cz", "CZ"], ["cx", "CX"], ["rzz", "RZZ"]
     ];
     var ANGLED = { rx: 1, ry: 1, rz: 1, rzz: 1 }, TWO = { cz: 1, cx: 1, rzz: 1 };
-    var state = { n: 5, ops: [], cuts: [], observable: "ZZZZZ", tool: null, angle: 0.8, pending: null, seed: 1, said: "", example: "chain", auto: false, editing: false, fit: 3 };
+    var state = { n: 5, ops: [], cuts: [], observable: "ZZZZZ", tool: null, angle: 0.8, pending: null, seed: 1, said: "", example: "chain", auto: false, editing: false };
     var uid = 1, painted = {}, keyed = null;
 
     function add(name, qubits, col, theta) {
@@ -359,7 +359,6 @@
       EXAMPLES[key][1]();
       state.tool = null;
       state.editing = key === "empty";
-      state.fit = Math.ceil(state.n / 2);
       render();
     }
     menu.addEventListener("change", function () { if (menu.value !== "yours") pickCircuit(menu.value); });
@@ -384,20 +383,6 @@
     var auto = actions.appendChild(el("button", { type: "button", class: "qdx-primary" }, "Auto cut"));
     var runButton = actions.appendChild(el("button", { type: "button", class: "qdx-primary" }, "Run it"));
     var clear = actions.appendChild(el("button", { type: "button" }, "Clear cuts"));
-
-    var runBox = root.appendChild(el("div", { class: "qdx-run", hidden: "" }));
-
-    /* Fit it on a smaller chip: a goal to reach by hand, with no claim about the best cut. */
-    var fitBox = root.appendChild(el("div", { class: "qdx-fitbox" }));
-    var fitRow = fitBox.appendChild(el("div", { class: "qdx-fitrow" }));
-    fitRow.appendChild(el("span", {}, "Fit it on a chip of"));
-    var fitLess = fitRow.appendChild(el("button", { type: "button", "aria-label": "One qubit fewer" }, "\u2212"));
-    var fitNumber = fitRow.appendChild(el("b", {}, "3"));
-    var fitMore = fitRow.appendChild(el("button", { type: "button", "aria-label": "One qubit more" }, "+"));
-    var fitWord = fitRow.appendChild(el("span", {}, "qubits"));
-    var fitStatus = fitBox.appendChild(el("p", { class: "qdx-fitstatus", "aria-live": "polite" }));
-    fitLess.addEventListener("click", function () { state.fit = Math.max(1, state.fit - 1); render(); });
-    fitMore.addEventListener("click", function () { state.fit = Math.min(state.n, state.fit + 1); render(); });
 
     var warn = root.appendChild(el("div", { class: "qdx-warn", hidden: "" }));
     var payoff = root.appendChild(el("div", { class: "qdx-payoff" }));
@@ -611,7 +596,7 @@
       }
       paint();
 
-      if (runKey !== null && runKey !== stateKey()) stopRun();
+      if (running) stopRun();
       /* What just happened, or what to do */
       hint.textContent = editing
         ? (state.tool === "erase" ? "Tap a gate to remove it." : TWO[state.tool] ? "Tap one qubit, then another in the same column." : "Tap an empty place on the circuit.")
@@ -634,13 +619,11 @@
         payoff.appendChild(payoffCost(plan, cuts, prepared));
         drawShots(prepared, plan, exact);
         drawTerms(plan, cuts, circuit.ops);
-        current = { prepared: prepared, plan: plan, exact: exact };
+        current = { prepared: prepared, plan: plan, exact: exact, ops: circuit.ops };
       }
       if (bad) current = null;
       runButton.disabled = bad || !ops.length;
-      if (runKey === null) runButton.textContent = "Run it";
       shotExtra.textContent = !bad && plan.joint && plan.joint.shared ? "Simulated with one ancilla per gate, joint=False. The value is the same as the default's, at the cost above." : "";
-      drawFit(plan, ops, cuts, bad);
       clear.disabled = !state.cuts.length;
       codeBody.textContent = pythonFor(ops, cuts, observable);
     }
@@ -648,99 +631,152 @@
     function costOf(plan) { return plan.joint || plan; }  /* what 2.0 does by default */
     function widthsOf(plan) { return plan.joint ? plan.joint.widths : plan.widths; }
 
-    function drawFit(plan, ops, cuts, bad) {
-      fitBox.style.display = ops.length ? "" : "none";
-      state.fit = Math.max(1, Math.min(state.fit, state.n));
-      fitNumber.textContent = String(state.fit);
-      fitWord.textContent = state.fit === 1 ? "qubit" : "qubits";
-      fitLess.disabled = state.fit <= 1;
-      fitMore.disabled = state.fit >= state.n;
-      fitBox.classList.remove("qdx-fits");
-      if (bad) { fitStatus.textContent = "This cut separates nothing yet."; return; }
-      var largest = Math.max.apply(null, widthsOf(plan).concat([0])), cost = costOf(plan);
-      var plural = largest === 1 ? " qubit" : " qubits";
-      if (largest > state.fit) {
-        fitStatus.textContent = "Largest piece: " + largest + plural + ". Not yet.";
-      } else if (!cuts.length) {
-        fitBox.classList.add("qdx-fits");
-        fitStatus.textContent = "\u2713 It fits already, with no cut.";
-      } else {
-        fitBox.classList.add("qdx-fits");
-        fitStatus.textContent = "\u2713 It fits: largest piece " + largest + plural + ", at gamma " + gammaText(cost.gamma) + " and " + count(cost.subcircuits) + " subcircuits. Another cut can cost more or less.";
-      }
+    /* ---- Run it, in place: each subcircuit in turn lights up on the board with its term, and
+       every finished term of the cut's sum moves the reconstructed value. These are the
+       engine's real subcircuits and the real partial sum, with simulated shots. */
+    var RUN_SHOTS = 8192;
+    var current = null, runTimer = null, running = false, runCount = 0, readout = null;
+    function clearBoardRun() {
+      boardHost.classList.remove("qdx-running");
+      hint.classList.remove("qdx-hint-run");
+      Array.prototype.forEach.call(boardHost.querySelectorAll(".qdx-on"), function (node) { node.classList.remove("qdx-on"); });
+      Array.prototype.forEach.call(boardHost.querySelectorAll("[data-label]"), function (node) { node.textContent = node.getAttribute("data-label"); });
     }
-
-    /* ---- Run it: every subcircuit lights up, round after round, while the simulated value
-       closes in on the uncut one. The values are real draws from the engine's fragments. */
-    var ROUNDS = [64, 256, 1024, 4096, 16384];
-    var current = null, runKey = null, runTimer = null, runCount = 0;
-    function stateKey() { return JSON.stringify([state.ops, state.cuts, state.observable]); }
     function stopRun() {
-      clearInterval(runTimer);
+      clearTimeout(runTimer);
       runTimer = null;
-      runKey = null;
-      runBox.hidden = true;
-      runBox.textContent = "";
+      running = false;
+      clearBoardRun();
       runButton.textContent = "Run it";
+    }
+    /* What one term does on one fragment, in words, for each cut that touches it. */
+    function termWords(plan, cuts, ops, row, f, terms) {
+      var words = [], labels = [], fragment = plan.fragments[f];
+      fragment.sides.forEach(function (side) {
+        var cut = cuts[side.cut], term = terms[side.cut][row.digits[side.cut]], name = shortName(ops[cut.op]) + "_" + (cut.op + 1);
+        if (cut.kind === "gate") {
+          var action = side.side ? term.b : term.a;
+          words.push(name + ": " + termName(action));
+          labels.push({ op: cut.op, side: side.side, text: { i: "I", z: "Z", m: "M", "r+": "R+", "r-": "R−" }[action] });
+        } else {
+          var h = side.side ? term.b.had : term.a.had;
+          words.push(name + ": " + hadName(h, side.side));
+          labels.push({ op: cut.op, side: side.side, text: "(" + h.i + "," + h.j + ")" });
+        }
+      });
+      fragment.measures.forEach(function (index) {
+        var read = terms[index][row.digits[index]].read;
+        words.push("wire on q" + cuts[index].qubit + ": " + (read === "I" ? "read nothing" : "measure " + read));
+      });
+      fragment.preps.forEach(function (index) {
+        words.push("wire on q" + cuts[index].qubit + ": prepare |" + terms[index][row.digits[index]].prep + "⟩");
+      });
+      return { words: words.join(", "), labels: labels };
     }
     function startRun() {
       stopRun();
-      if (!current) return;
-      var plan = current.plan, prepared = current.prepared, exact = current.exact;
-      runKey = stateKey();
-      runBox.hidden = false;
-      var W = 340, at = function (v) { return 14 + ((Math.max(-1, Math.min(1, v)) + 1) / 2) * (W - 28); };
-      var each = Math.ceil(plan.subcircuits / 240), tiles = [];
-      var grid = runBox.appendChild(el("div", { class: "qdx-tiles" }));
-      plan.fragments.forEach(function (fragment, f) {
-        for (var i = 0; i < Math.ceil(plan.configurations / each); i++) {
-          tiles.push(grid.appendChild(el("i", { style: "background:" + fragColor(f) })));
+      if (!state.cuts.length) {  /* nothing cut yet: Auto cut, and say so */
+        var before = ordered(), found = E.autoCut(buildCircuit(before), state.observable);
+        if (!found.length) {
+          state.said = E.plan(buildCircuit(before), [], state.observable).fragments.length > 1 ? "Nothing to cut: this circuit is already in pieces." : "Cut something first: Auto cut found no way in two.";
+          render();
+          return;
         }
+        state.cuts = found.map(function (c) { return { kind: "gate", opId: before[c.op].id }; });
+        state.auto = true;
+        state.said = "";
+        render();
+      }
+      if (!current || !readout) return;
+      var ops = ordered(), cuts = cutsFor(ops), plan = current.plan, prepared = current.prepared, exact = current.exact;
+      var rng = E.mulberry(4099 + 17 * ++runCount), rows = prepared.steps(RUN_SHOTS, rng), terms = prepared.terms;
+      var F = plan.fragments.length, total = rows.length * F;
+      var circuitOps = current.ops, partial = 0, index = 0;
+      /* Which drawn elements belong to each fragment. */
+      var nodes = plan.fragments.map(function () { return []; });
+      plan.segments.forEach(function (segment) {
+        if (segment.fragment === undefined) return;
+        var line = boardHost.querySelector('[data-k="l' + segment.qubit + ":" + segment.ordinal + '"]');
+        if (line) nodes[segment.fragment].push(line);
       });
-      var line = runBox.appendChild(el("div", { class: "qdx-line" }));
-      line.innerHTML = '<svg viewBox="0 0 ' + W + ' 30" style="max-width:560px" role="img" aria-label="The simulated value against the uncut one">' +
-        '<line x1="14" x2="' + (W - 14) + '" y1="14" y2="14" stroke="var(--qd-line)" stroke-width="4" stroke-linecap="round"/>' +
-        '<circle cx="' + at(exact) + '" cy="14" r="10" fill="none" stroke="var(--qd-b)" stroke-width="3"/>' +
-        '<circle class="qdx-rundot" cx="0" cy="14" r="5.5" fill="var(--qd-a)" style="transform:translateX(' + at(0) + 'px)"/></svg>';
-      var dot = line.querySelector(".qdx-rundot");
-      var caption = runBox.appendChild(el("p", { class: "qd-note", "aria-live": "polite" }));
-      var rng = E.mulberry(4099 + 17 * ++runCount), round = 0, lit = 0, batch = Math.max(1, Math.ceil(tiles.length / 16));
-      var who = "Simulated in your browser: ", joint = plan.joint && plan.joint.shared ? " With one ancilla per gate, joint=False." : "";
-      var words = each > 1 ? " Each tile is " + each + " subcircuits." : "";
-      runButton.textContent = "Running\u2026";
-      caption.textContent = who + "starting." + words + joint;
-      function finishRound() {
-        var shots = ROUNDS[round], value = prepared.draw(shots, rng);
-        dot.style.transform = "translateX(" + at(value) + "px)";
-        caption.textContent = who + count(shots) + " shots per subcircuit gives " + num(value, 4) + ", against " + num(exact, 4) + " uncut." + words + joint;
+      circuitOps.forEach(function (op, i) {
+        op.qubits.forEach(function (qubit, side) {
+          var segment = plan.segments[plan.opSegments[i][side]];
+          if (!segment || segment.fragment === undefined) return;
+          var joined = side === 0 && boardHost.querySelector('[data-k="c' + op.id + '"]');
+          if (joined) nodes[segment.fragment].push(joined);
+          Array.prototype.forEach.call(boardHost.querySelectorAll('[data-k="g' + op.id + ":" + side + '"],[data-t="g' + op.id + ":" + side + '"]'), function (node) {
+            nodes[segment.fragment].push(node);
+          });
+        });
+      });
+      function show(row, f, number) {
+        Array.prototype.forEach.call(boardHost.querySelectorAll(".qdx-on"), function (node) { node.classList.remove("qdx-on"); });
+        Array.prototype.forEach.call(boardHost.querySelectorAll("[data-label]"), function (node) { node.textContent = node.getAttribute("data-label"); });
+        nodes[f].forEach(function (node) { node.classList.add("qdx-on"); });
+        var told = termWords(plan, cuts, circuitOps, row, f, terms);
+        told.labels.forEach(function (label) {
+          var text = boardHost.querySelector('[data-t="g' + circuitOps[label.op].id + ":" + label.side + '"]');
+          if (text) text.textContent = label.text;
+        });
+        hint.textContent = "Subcircuit " + number + " of " + count(total) + (told.words ? ": " + told.words : "");
+      }
+      function move(value) {
+        readout.number.textContent = num(value, 4);
+        readout.dot.style.transform = "translateX(" + readout.x(value) + "px)";
+      }
+      function finish() {
+        stopRun();
+        var spread = [];
+        for (var i = 0; i < 8; i++) spread.push(prepared.draw(RUN_SHOTS, rng));
+        var mean = spread.reduce(function (a, b) { return a + b; }, 0) / spread.length;
+        var sigma = Math.sqrt(spread.reduce(function (a, b) { return a + (b - mean) * (b - mean); }, 0) / (spread.length - 1));
+        move(partial);
+        readout.plus.textContent = "\u00b1" + sigma.toFixed(4) + ", simulated";
+        readout.verdict.textContent = (Math.abs(partial - exact) <= 3 * sigma + 1e-9 ? "The same value as the uncut circuit, up to shot noise" : "Close to the uncut circuit: the gap is shot noise") + ": " + count(total) + " circuits, " + count(RUN_SHOTS) + " simulated shots each, in your browser." + (plan.joint && plan.joint.shared ? " With one ancilla per gate, joint=False." : "");
+        hint.textContent = state.said || "Tap a gate or a line, or try Auto cut.";
+        runButton.textContent = "Run again";
       }
       var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      /* The tiles and the dot are the point: bring them on screen, if they are not. The fixed
-         bar at the top of a phone's page covers the first 50 or so pixels. */
-      var box = runBox.getBoundingClientRect();
-      if (box.top < 60 || box.bottom > window.innerHeight) {
-        window.scrollBy({ top: box.bottom > window.innerHeight && box.top >= 60 ? Math.min(box.bottom - window.innerHeight + 12, box.top - 60) : box.top - 60, behavior: still ? "auto" : "smooth" });
+      /* The board and the value together on screen, if they fit. */
+      var top = boardHost.getBoundingClientRect().top, bottom = readout.verdict.getBoundingClientRect().bottom;
+      if (bottom > window.innerHeight || top < 56) {
+        window.scrollBy({ top: Math.min(top - 56, Math.max(bottom - window.innerHeight + 8, top < 56 ? top - 56 : 0)), behavior: still ? "auto" : "smooth" });
       }
       if (still) {
-        tiles.forEach(function (t) { t.style.opacity = 1; });
-        round = ROUNDS.length - 1;
-        finishRound();
-        runButton.textContent = "Run again";
+        rows.forEach(function (row) { partial += row.contribution; });
+        finish();
         return;
       }
-      runTimer = setInterval(function () {
-        var shade = 0.25 + 0.75 * (round + 1) / ROUNDS.length;
-        for (var i = 0; i < batch && lit < tiles.length; i++) tiles[lit++].style.opacity = shade;
-        if (lit < tiles.length) return;
-        finishRound();
-        lit = 0;
-        round += 1;
-        if (round === ROUNDS.length) {
-          clearInterval(runTimer);
-          runTimer = null;
-          runButton.textContent = "Run again";
+      running = true;
+      runButton.textContent = "Running…";
+      boardHost.classList.add("qdx-running");
+      hint.classList.add("qdx-hint-run");
+      move(0);
+      readout.plus.textContent = "";
+      readout.verdict.textContent = "The partial sum so far, with " + count(RUN_SHOTS) + " simulated shots per circuit.";
+      /* Slow at first, then faster, so a big list ends within about 12 s. */
+      var wait = 1200, FACTOR = 0.9, started = Date.now(), due = 0;
+      (function next() {
+        var now = Date.now() - started, row = null, f = 0;
+        while (index < total && due <= now) {
+          row = rows[Math.floor(index / F)];
+          f = index % F;
+          if (f === F - 1) { partial += row.contribution; }
+          index += 1;
+          due += wait;
+          wait *= FACTOR;
         }
-      }, 45);
+        if (row) {
+          show(row, f, index);
+          if (f === F - 1 || index === total) {
+            /* the finished term's result goes in as this one is shown */
+            move(partial);
+          }
+        }
+        if (index >= total && now >= due) { finish(); return; }
+        runTimer = setTimeout(next, Math.max(40, Math.min(wait, due - now)));
+      })();
     }
     runButton.addEventListener("click", startRun);
 
@@ -753,18 +789,20 @@
       first.appendChild(el("b", {}, num(exact, 4)));
       var second = numbers.appendChild(el("div"));
       second.appendChild(el("span", { class: "qdx-key qdx-dot" }, "Reconstructed"));
-      second.appendChild(el("b", {}, value === null ? "—" : num(value, 4)));
+      var rebuilt = second.appendChild(el("b", {}, value === null ? "—" : num(value, 4)));
+      var plus = second.appendChild(el("span", {}));
       var line = '<svg viewBox="0 0 ' + W + ' 44" style="max-width:560px" role="img" aria-label="Both values on a line from minus one to plus one">' +
         '<line x1="14" x2="' + (W - 14) + '" y1="16" y2="16" stroke="var(--qd-line)" stroke-width="4" stroke-linecap="round"/>' +
         '<text x="14" y="38" text-anchor="middle">−1</text><text x="' + x(0) + '" y="38" text-anchor="middle">0</text><text x="' + (W - 14) + '" y="38" text-anchor="middle">+1</text>' +
         '<circle cx="' + x(exact) + '" cy="16" r="10" fill="none" stroke="var(--qd-b)" stroke-width="3"/>';
-      if (value !== null) line += '<circle cx="' + x(value) + '" cy="16" r="5.5" fill="var(--qd-a)"/>';
+      if (value !== null) line += '<circle class="qdx-valuedot" cx="0" cy="16" r="5.5" fill="var(--qd-a)" style="transform:translateX(' + x(value) + 'px)"/>';
       box.appendChild(el("div", { class: "qdx-line" })).innerHTML = line + "</svg>";
-      box.appendChild(el("p", { class: "qdx-verdict" }, value === null
+      var verdict = box.appendChild(el("p", { class: "qdx-verdict" }, value === null
         ? "<" + observable + "> of the whole circuit. No cuts yet."
         : Math.abs(value - exact) < 1e-9
           ? "The same value, from the pieces alone: <" + observable + ">, difference " + small(Math.abs(value - exact)) + "."
           : "These should agree: difference " + Math.abs(value - exact).toExponential(1)));
+      readout = value === null ? null : { number: rebuilt, plus: plus, dot: box.querySelector(".qdx-valuedot"), verdict: verdict, x: x };
       return box;
     }
     function payoffCost(plan, cuts, prepared) {

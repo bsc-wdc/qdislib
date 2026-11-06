@@ -66,6 +66,9 @@ const out = cases.map((c) => {
       const mean = draws.reduce((a, b) => a + b, 0) / draws.length;
       const spread = Math.sqrt(draws.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (draws.length - 1));
       r.draw_sigmas = Math.abs(mean - r.value) / (spread / 4 + 1e-3);
+      /* Run it's partial sums end on the value, with one row per term of the cuts. */
+      r.steps_gap = Math.abs(prepared.steps(null).reduce((a, row) => a + row.contribution, 0) - r.value);
+      r.rows_ok = prepared.steps(4096, engine.mulberry(5)).length * plan.fragments.length === plan.subcircuits;
     }
   }
   return r;
@@ -225,6 +228,9 @@ def main():
             if key in theirs and mine.get(key) != theirs[key]:
                 problems.append(f"{key}: {mine.get(key)} against {theirs[key]}")
         largest_draw = max(largest_draw, mine.get("draw_sigmas", 0.0))
+        worst["steps"] = max(worst.get("steps", 0.0), mine.get("steps_gap", 0.0))
+        if mine.get("steps_gap", 0.0) > 1e-9 or mine.get("rows_ok") is False:
+            problems.append(f"Run it's steps: gap {mine.get('steps_gap')}, rows {mine.get('rows_ok')}")
         if mine.get("draw_sigmas", 0.0) > 6:
             problems.append(f"simulated shots: mean {mine['draw_sigmas']:.1f} standard errors from the value")
         kinds = {c["kind"] for c in case["cuts"]}

@@ -1,7 +1,7 @@
 Results and shots
 =================
 
-What comes back from a cut run, how sure you can be of it, and from which SDK.
+What comes back from a cut run, and how sure you can be of it. The same run from five SDKs is on :doc:`Try <try>`.
 
 .. raw:: html
 
@@ -27,15 +27,6 @@ Error bars
 .. raw:: html
 
    <div id="qdx-err" class="qd-try"><p>This section needs JavaScript.</p></div>
-
-Any SDK
--------
-
-The same circuit and cut in five SDKs. *Each snippet was run; its results are stored.*
-
-.. raw:: html
-
-   <div id="qdx-sdk" class="qd-try"><p>This section needs JavaScript.</p></div>
 
 .. raw:: html
 
