@@ -29,7 +29,6 @@ __all__ = [
     "gate_cutting_sampling_subcircuits",
     "gate_cutting_sampling_reconstruction",
     "sample_subcircuit",
-    "SampledCutSubcircuits",
     "gate_cutting_subcircuits",
     "gate_cutting_subcircuit_reconstruction",
 ]
@@ -1884,8 +1883,9 @@ class SampledCutSubcircuits(list):
         sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
         distribution = subs.reconstruct(sampled)
 
-    What a 1.x list was: since 2.0.0 no function returns it (their lists are
-    :class:`~Qdislib.CutCircuits`), and the name stays for code that imports it.
+    .. deprecated:: 2.0.0
+        What a 1.x list was: no function returns it any more (their lists are
+        :class:`~Qdislib.CutCircuits`), and it will be removed.
     """
 
     def __init__(

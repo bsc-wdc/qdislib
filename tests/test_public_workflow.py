@@ -203,3 +203,36 @@ class RandomGraphTest(BaseTimedTestCase):
 
         self.assertEqual(qd.generate_random_graph(0).number_of_nodes(), 0)
         self.assertEqual(qd.generate_random_graph(1).number_of_nodes(), 1)
+
+
+import Qdislib as qd  # noqa: E402
+
+
+class DeprecatedContainersTest(unittest.TestCase):
+    """The 1.x list types: still there, with a warning, and out of the public list."""
+
+    NAMES = (
+        "HadamardCutSubcircuits",
+        "HadamardSampledCutSubcircuits",
+        "SampledCutSubcircuits",
+        "WireSampledCutSubcircuits",
+    )
+
+    def test_a_deprecated_name_warns_and_still_works(self):
+        for name in self.NAMES:
+            with self.assertWarnsRegex(DeprecationWarning, name):
+                self.assertTrue(issubclass(getattr(qd, name), list))
+            self.assertNotIn(name, qd.__all__)
+
+    def test_a_star_import_warns_of_nothing(self):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            namespace = {}
+            exec("from Qdislib import *", namespace)
+        self.assertNotIn("SampledCutSubcircuits", namespace)
+
+    def test_an_unknown_name_is_an_attribute_error(self):
+        with self.assertRaises(AttributeError):
+            qd.NoSuchName

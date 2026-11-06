@@ -54,8 +54,6 @@ __all__ = [
     "gate_cutting_hadamard_subcircuit_reconstruction",
     "gate_cutting_hadamard_sampling",
     "gate_cutting_hadamard_sampling_subcircuits",
-    "HadamardCutSubcircuits",
-    "HadamardSampledCutSubcircuits",
 ]
 
 import itertools
@@ -1041,8 +1039,9 @@ class HadamardCutSubcircuits(list):
     (``s[0]`` / ``s[1]`` still give the circuit and observable, as the 1.x
     ``[circuit, observable]`` pairs did.)
 
-    What a 1.x list was: since 2.0.0 no function returns it (their lists are
-    :class:`~Qdislib.CutCircuits`), and the name stays for code that imports it.
+    .. deprecated:: 2.0.0
+        What a 1.x list was: no function returns it any more (their lists are
+        :class:`~Qdislib.CutCircuits`), and it will be removed.
     """
 
     def __init__(self, subcircuits, *, weights, config_of, number_cuts):
@@ -1513,8 +1512,9 @@ class HadamardSampledCutSubcircuits(list):
         sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
         distribution = subs.reconstruct(sampled)
 
-    What a 1.x list was: since 2.0.0 no function returns it (their lists are
-    :class:`~Qdislib.CutCircuits`), and the name stays for code that imports it.
+    .. deprecated:: 2.0.0
+        What a 1.x list was: no function returns it any more (their lists are
+        :class:`~Qdislib.CutCircuits`), and it will be removed.
     """
 
     def __init__(self, units, *, weights, config_of, num_qubits, number_cuts):
