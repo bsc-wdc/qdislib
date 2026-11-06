@@ -62,7 +62,7 @@ from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    default_observable,
+    checked_observable,
 )
 from Qdislib.utils.runtime import task, compss_wait_on, COLLECTION_IN
 from Qdislib.utils.graph_qibo import circuit_qibo_to_dag
@@ -1663,7 +1663,7 @@ def gate_cutting_hadamard(
     return _gate_cutting_hadamard(
         circuit,
         cuts,
-        default_observable(observable, circuit),
+        checked_observable(observable, circuit),
         software=resolve_backend(backend, circuit),
         shots=shots,
         seed=seed,

@@ -94,7 +94,7 @@ from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    default_observable,
+    checked_observable,
 )
 
 
@@ -3265,7 +3265,7 @@ def wire_cutting(
         circuit,
         cuts,
         sync=sync,
-        observables=default_observable(observable, circuit),
+        observables=checked_observable(observable, circuit),
         shots=shots,
         backend=legacy.get("platform", "numpy"),
         qpu=legacy.get("qpu"),

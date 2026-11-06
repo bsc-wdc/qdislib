@@ -248,6 +248,25 @@ def default_observable(observable, circuit):
     return "Z" * _num_circuit_qubits(circuit)
 
 
+def checked_observable(observable, circuit):
+    """:func:`default_observable`, with the checks of a run through ``circuit_cutting``
+    (for the deprecated 1.x paths, which would read another operator).
+
+    :raises ValueError: For a letter other than I, X, Y, Z, or a term without one
+        letter per qubit.
+    """
+    from Qdislib.core.cutting_algorithms.hadamard_cut import (
+        _num_circuit_qubits,
+        _observable_terms,
+    )
+    from Qdislib.core.cutting_algorithms.mixed_cutting import _check_observable_width
+
+    observable = default_observable(observable, circuit)
+    for _, pauli in _observable_terms(observable):
+        _check_observable_width(pauli, _num_circuit_qubits(circuit), circuit)
+    return observable
+
+
 def is_simulator(backend):
     """True for an SDK name (its local simulator)."""
     return isinstance(backend, str) and backend in SDKS

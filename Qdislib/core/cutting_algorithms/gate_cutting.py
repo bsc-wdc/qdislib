@@ -113,7 +113,7 @@ from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     standard_arguments,
     resolve_backend,
-    default_observable,
+    checked_observable,
 )
 
 
@@ -2853,7 +2853,7 @@ def gate_cutting(
     return _gate_cutting(
         circuit,
         cuts,
-        observables=default_observable(observable, circuit),
+        observables=checked_observable(observable, circuit),
         shots=shots,
         method=legacy.get("method", "automatic"),
         sync=sync,

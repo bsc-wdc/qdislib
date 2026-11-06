@@ -554,5 +554,57 @@ class GeneralGateAfterWireCutTest(BaseTimedTestCase):
         self.assertAlmostEqual(value, self._exact(qc), delta=0.1)
 
 
+@unittest.skipUnless(QISKIT, "qiskit required")
+class DeprecatedPathsObservableTest(BaseTimedTestCase):
+    """method= and the like read the observable as circuit_cutting does."""
+
+    def _runs(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3)
+        qc.ry(0.2, 0)
+        qc.cz(0, 1)
+        qc.ry(0.3, 1)
+        qc.cz(1, 2)
+        qc.x(2)
+        option = {"shots": 200, "seed": 1, "method": "automatic"}
+        return {
+            "gate": lambda o: qd.gate_cutting(qc, ["CZ_4"], o, **option),
+            "hadamard": lambda o: qd.gate_cutting_hadamard(qc, ["CZ_4"], o, **option),
+            "wire": lambda o: qd.wire_cutting(qc, [("RY_3", "CZ_4")], o, **option),
+        }
+
+    def test_one_letter_per_qubit(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for name, run in self._runs().items():
+                for observable in ("ZZ", "ZZZZ", {"ZZ": 1.0}):
+                    with self.subTest(path=name, observable=observable):
+                        with self.assertRaisesRegex(
+                            ValueError, "letters for a circuit"
+                        ):
+                            run(observable)
+
+    def test_only_pauli_letters(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for name, run in self._runs().items():
+                for observable in ("zzz", "ZZQ", {"ZZZ": 1.0, "zzi": 0.5}):
+                    with self.subTest(path=name, observable=observable):
+                        with self.assertRaises(ValueError):
+                            run(observable)
+
+    def test_what_is_right_still_runs(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for name, run in self._runs().items():
+                with self.subTest(path=name):
+                    self.assertLess(run("ZZZ"), -0.5)
+                    self.assertLess(run(None), -0.5)
+                    self.assertLess(run({"ZZZ": 1.0}), -0.5)
+
+
 if __name__ == "__main__":
     unittest.main()
