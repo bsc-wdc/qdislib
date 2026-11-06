@@ -872,26 +872,41 @@ class WireSampledCutSubcircuits(list):
 
 
 def _expand_wire_cuts(dag, edges_to_replace):
-    """Expand each ``(source, target)`` cut into one entry per shared qubit.
+    """Expand each ``(source, target)`` cut into one entry per wire between them.
 
-    A wire cut severs a single qubit line. When the two gates of a cut share more
-    than one qubit, separating them requires cutting *each* shared wire, so this
-    expands the pair into one ``(source, target, qubit)`` single-wire cut per
-    shared qubit (the common case of a single shared qubit yields one entry,
-    unchanged).
+    A wire cut severs a single qubit line. When two gates are next to each other on
+    more than one qubit, separating them requires cutting *each* of those wires, so
+    this expands the pair into one ``(source, target, qubit)`` single-wire cut per
+    wire. A qubit they share with another gate between them on its line is no wire
+    between them, and is left alone.
 
     :param dag: The circuit DAG (nodes carry a ``qubits`` attribute).
     :param edges_to_replace: List of ``(source, target)`` gate-name pairs.
+    :raises InvalidCutError: For two gates that share a qubit but are next to each other
+        on none.
     :return: List of ``(source, target, qubit)`` single-wire cuts.
     """
+    from Qdislib.core.find_cut.find_cut import _find_nodes_with_qubit
+    from Qdislib.utils.graph_qibo import _remove_red_edges
+
+    lines = _remove_red_edges(dag)
     wire_cuts = []
     for source, target in edges_to_replace:
         shared = sorted(
             set(dag.nodes[source].get("qubits", ()))
             & set(dag.nodes[target].get("qubits", ()))
         )
-        for qubit in shared:
-            wire_cuts.append((source, target, qubit))
+        wires = [
+            qubit
+            for qubit in shared
+            if _find_nodes_with_qubit(lines, source, qubit, "successor")[:1] == [target]
+        ]
+        if shared and not wires:
+            raise InvalidCutError(
+                f"Wire cut {(source, target)}: these gates are not next to each other on "
+                "any qubit. A wire cut is (source gate, the next gate on its qubit)."
+            )
+        wire_cuts.extend((source, target, qubit) for qubit in wires)
     return wire_cuts
 
 
