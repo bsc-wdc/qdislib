@@ -916,9 +916,9 @@ def find_cut(
     top_n : int, optional
         Return the ``top_n`` best candidate cuts (lowest score first) instead of the
         single winner, as a list of ``{"cut": [...], "kind": "gate"|"wire",
-        "score": float}`` dicts -- e.g. to compare options and size them with
-        :func:`~Qdislib.cutting_overhead`. ``None`` (default) returns the single best
-        cut.
+        "score": float}`` dicts, each cut once -- e.g. to compare options and size them
+        with :func:`~Qdislib.cutting_overhead`. ``None`` (default) returns the single
+        best cut.
         Only affects the ``implementation="qdislib"`` path.
 
     coupling_map : list of (int, int), optional
@@ -1142,7 +1142,13 @@ def find_cut(
             for cut, score in compss_wait_on(wire_cands):
                 ranked.append({"cut": cut, "kind": "wire", "score": score})
         ranked.sort(key=lambda candidate: candidate["score"])
-        return ranked[:top_n]
+        # Several strategies find the same cut: each is one option. Same order,
+        # so the first (best) of each stays.
+        distinct = {}
+        for candidate in ranked:
+            cut = tuple(sorted(str(element) for element in candidate["cut"]))
+            distinct.setdefault((candidate["kind"], cut), candidate)
+        return list(distinct.values())[:top_n]
 
     if gate_cut:
         cut_gate, score_gate = _find_cut_gate(

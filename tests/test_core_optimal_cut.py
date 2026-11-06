@@ -367,3 +367,43 @@ class FitsAlreadyTest(BaseTimedTestCase):
         self.assertEqual(
             qd.find_cut(qc, max_qubits=2, coupling_map=line, seed=0), ["CZ_3"]
         )
+
+
+class RankedCandidatesTest(BaseTimedTestCase):
+    """find_cut(top_n=): each candidate once, in the ranking's order."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(6)
+        for q in range(6):
+            qc.h(q)
+        for q in range(5):
+            qc.cz(q, q + 1)
+        for q in range(6):
+            qc.ry(0.1 * q, q)
+        qc.cz(0, 5)
+        return qc
+
+    def _ranked(self, **options):
+        import Qdislib as qd
+
+        return qd.find_cut(self._circuit(), max_qubits=3, seed=0, **options)
+
+    def test_no_duplicates(self):
+        for kinds in ({}, {"wire_cut": False}, {"gate_cut": False}):
+            with self.subTest(kinds=kinds):
+                ranked = self._ranked(top_n=100, **kinds)
+                self.assertTrue(ranked)
+                seen = [(c["kind"], tuple(sorted(map(str, c["cut"])))) for c in ranked]
+                self.assertEqual(len(seen), len(set(seen)), ranked)
+
+    def test_best_first_and_as_many_as_asked(self):
+        ranked = self._ranked(top_n=100)
+        scores = [c["score"] for c in ranked]
+        self.assertEqual(scores, sorted(scores))
+        self.assertEqual(self._ranked(top_n=2), ranked[:2])
+
+    def test_the_winner_is_still_the_winner(self):
+        ranked = self._ranked(top_n=1, wire_cut=False)
+        self.assertEqual(ranked[0]["cut"], self._ranked(wire_cut=False))
