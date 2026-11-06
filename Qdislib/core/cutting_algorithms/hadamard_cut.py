@@ -1514,9 +1514,14 @@ def _num_circuit_qubits(circuit):
 
     try:
         return num_qubits(circuit)
-    except TypeError:  # a DAG
+    except TypeError:  # a DAG (0 qubits without gates), or no circuit at all
         dag = convert_to_dag(circuit)
-        return 1 + max(q for _, d in dag.nodes(data=True) for q in d.get("qubits", ()))
+        if not hasattr(dag, "nodes"):
+            raise
+        return 1 + max(
+            (q for _, d in dag.nodes(data=True) for q in d.get("qubits", ())),
+            default=-1,
+        )
 
 
 def _gate_cutting_hadamard_sampling_reconstruction(

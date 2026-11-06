@@ -385,6 +385,56 @@ def _normalise_cuts(cuts, hadamard):
     return gate, had, wire
 
 
+def _check_cut_names(dag, gate_cuts, had_cuts, wire_edges):
+    """Raise unless the cuts name this circuit's gates, each cut once, and each wire
+    edge joins two gates on a shared qubit (one that shares none would cut nothing,
+    and the whole circuit would run as one piece)."""
+    names = [*gate_cuts, *had_cuts, *(name for edge in wire_edges for name in edge)]
+    unknown = sorted({str(name) for name in names if name not in dag})
+    if unknown:
+        raise InvalidCutError(
+            f"No gate {unknown} in this circuit: a gate is <NAME>_<position in the "
+            "circuit, from 1>, as find_cut returns it and draw_cut shows it."
+        )
+    gates = [*gate_cuts, *had_cuts]
+    repeated = sorted({str(g) for g in gates if gates.count(g) > 1})
+    repeated += sorted({str(w) for w in wire_edges if wire_edges.count(w) > 1})
+    if repeated:
+        raise InvalidCutError(f"Gate(s) {repeated} cut twice.")
+    apart = [
+        edge
+        for edge in wire_edges
+        if len(edge) != 2
+        or not set(dag.nodes[edge[0]].get("qubits", ()))
+        & set(dag.nodes[edge[1]].get("qubits", ()))
+    ]
+    if apart:
+        raise InvalidCutError(
+            f"Wire cut(s) {apart} do not join two gates on a shared qubit: a wire cut "
+            "is (source gate, target gate)."
+        )
+
+
+#: The SDKs whose circuits state their width. A CUDA-Q kernel's or a PennyLane tape's
+#: is what its gates touch: it can have more qubits, idle ones.
+_STATED_WIDTH_SDKS = ("qibo", "qiskit", "qilisdk")
+
+
+def _check_observable_width(observable, plan, circuit):
+    """Raise unless a Pauli string has one letter per qubit: a shorter one read as
+    if the rest were ``I``, and a longer one as if the circuit had more qubits."""
+    from Qdislib.core.cutting_algorithms.hadamard_cut import _num_circuit_qubits
+    from Qdislib.utils.circuit_cache import _detect_software
+
+    stated = _detect_software(circuit) in _STATED_WIDTH_SDKS
+    width = _num_circuit_qubits(circuit) if stated else plan.width
+    if len(observable) < width or (stated and len(observable) > width):
+        raise ValueError(
+            f"The observable {observable!r} has {len(observable)} letters for a "
+            f"circuit of {width} qubits: write one per qubit (I where nothing is read)."
+        )
+
+
 class _CutPlan:
     """A circuit after the cut surgery of every cut, split into its fragments.
 
@@ -428,13 +478,13 @@ class _CutPlan:
         #: The measure-and-prepare gate cuts as given (before a general gate is
         #: replaced by the CZs it decomposes into).
         self.requested_gate_cuts = list(gate_cuts)
-        overlap = set(gate_cuts) & set(had_cuts)
-        if overlap:
-            raise ValueError(f"Gate(s) {sorted(overlap)} cut twice.")
         self.optimized = bool(optimized)
         self.joint_wires = joint_gates = bool(joint)
 
         dag = convert_to_dag(circuit)
+        if not isinstance(dag, nx.Graph):
+            raise TypeError(f"Not a circuit: {type(circuit).__name__}")
+        _check_cut_names(dag, gate_cuts, had_cuts, wire_edges)
         from Qdislib.core.cutting_algorithms.parameters import (
             check_numeric,
             circuit_parameters,
@@ -446,6 +496,9 @@ class _CutPlan:
             check_numeric(dag, list(gate_cuts) + list(had_cuts))
         if observable and set(observable) & {"X", "Y"}:
             dag = change_basis_dag(dag, observable)
+        if not dag:  # no gates: one that does nothing makes it a fragment like any
+            dag = dag.copy()
+            dag.add_node("RZ_0", gate="rz", qubits=(0,), parameters=(0.0,))
         self.num_qubits = 1 + max(
             (q for _, d in dag.nodes(data=True) for q in d.get("qubits") or ()),
             default=0,
@@ -1785,13 +1838,16 @@ def _parameter_sets(parameter_values, plans):
     parameters of the planned circuit."""
     from Qdislib.core.cutting_algorithms.parameters import normalise_values
 
-    parameters = plans[0].parameters if plans else ()
     if hasattr(parameter_values, "items"):
         raise ValueError(
             "parameter_values takes a list of value sets (one result each); for one "
             "set pass [values]"
         )
-    return [normalise_values(values, parameters) for values in parameter_values]
+    if not plans:  # an observable of identities only: no circuit runs, or binds
+        return [{} for _ in parameter_values]
+    return [
+        normalise_values(values, plans[0].parameters) for values in parameter_values
+    ]
 
 
 class _Batches:
@@ -2497,6 +2553,8 @@ def _prepare_cut(
     here: each is built where it runs. ``qubits``: a distribution over only these
     qubits (its circuits return only the correlators it reads)."""
     plan = _CutPlan(circuit, cuts, observable, hadamard, optimized, joint)
+    if observable is not None:
+        _check_observable_width(observable, plan, circuit)
     _warn_cheaper_hadamard(plan)
     draws = None
     if num_samples is not None:
@@ -2638,6 +2696,11 @@ def _check_batch(batch):
         raise ValueError(f"circuits_per_task= takes a number >= 1, got {batch!r}")
 
 
+def _check_shots(shots):
+    if shots is not None and shots < 1:
+        raise ValueError(f"shots must be at least 1 (None: exact), got {shots}")
+
+
 def _check_exact(shots, backend):
     if shots is None and backend is not None and not is_simulator(backend):
         raise ValueError(
@@ -2768,6 +2831,7 @@ def circuit_cutting(
                     "total_shots= does not combine with circuits_per_task= yet"
                 )
             budget, shots = int(total_shots), 1
+    _check_shots(shots)
     _check_exact(shots, backend)
     _check_batch(circuits_per_task)
     terms = _observable_terms(default_observable(observable, circuit))
@@ -2948,6 +3012,7 @@ def circuit_cutting_sampling(
         estimate abs-normalised like :func:`gate_cutting_sampling` (a list of them
         with ``parameter_values``).
     """
+    _check_shots(shots)
     _check_exact(shots, backend)
     _check_batch(circuits_per_task)
     plan, draws, keys, readouts, circuits = _prepare_cut(
@@ -3262,6 +3327,7 @@ class CutCircuits(list):
         mode, target = self.mode, self.observable
         if observable is not None:
             self._check_same_basis(observable)
+            observable = observable.upper()
             for result in results:
                 corr = result[0] if isinstance(result, tuple) else None
                 if isinstance(corr, dict) and not hasattr(corr, "values_at"):
