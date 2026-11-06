@@ -77,12 +77,11 @@ def _fake_listener(directory, payload, deadline=5.0):
 
 
 class SubcircuitsDirTest(BaseTimedTestCase):
-    def test_env_override_and_default(self):
-        from Qdislib.utils import qpu_bridge
-
+    def test_the_directory_is_required(self):
         saved = os.environ.pop("QDISLIB_SUBCIRCUITS_DIR", None)
         try:
-            self.assertEqual(subcircuits_dir(), qpu_bridge.DEFAULT_SUBCIRCUITS_DIR)
+            with self.assertRaisesRegex(ValueError, "QDISLIB_SUBCIRCUITS_DIR"):
+                subcircuits_dir()
             os.environ["QDISLIB_SUBCIRCUITS_DIR"] = "/tmp/whatever"
             self.assertEqual(subcircuits_dir(), "/tmp/whatever")
         finally:

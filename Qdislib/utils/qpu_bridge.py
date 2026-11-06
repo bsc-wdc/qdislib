@@ -57,10 +57,6 @@ from Qdislib.utils.exceptions import QdislibException
 
 logger = logging.getLogger(__name__)
 
-#: Default shared directory (the original BSC path); override with the
-#: ``QDISLIB_SUBCIRCUITS_DIR`` environment variable on both clusters.
-DEFAULT_SUBCIRCUITS_DIR = "/home/bsc/bsc019635/ona_proves/subcircuits"
-
 _CIRCUIT_PREFIX = "circuit_"
 _RESULT_PREFIX = "result_"
 _STOP_FILE = "STOP"
@@ -122,8 +118,17 @@ def subcircuits_dir():
 
     Single source of truth shared by the writer (:func:`submit_and_wait`) and the
     listener (:func:`run_qpu_listener`), so they always agree on where to meet.
+
+    :raises ValueError: If the variable is not set: there is no default, since the
+        directory has to be one both clusters see.
     """
-    return os.environ.get("QDISLIB_SUBCIRCUITS_DIR", DEFAULT_SUBCIRCUITS_DIR)
+    directory = os.environ.get("QDISLIB_SUBCIRCUITS_DIR")
+    if not directory:
+        raise ValueError(
+            "No directory for the QPU bridge: set $QDISLIB_SUBCIRCUITS_DIR to one both "
+            "clusters see, or pass directory=."
+        )
+    return directory
 
 
 def _atomic_write_pickle(obj, path):
