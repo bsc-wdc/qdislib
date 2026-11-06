@@ -164,6 +164,7 @@ _QASM_ONE_QUBIT = {
 }
 _QASM_ROTATION = {"RX": "rx", "RY": "ry", "RZ": "rz"}
 _QASM_TWO_QUBIT = {"CX": "cx", "CNOT": "cx", "CZ": "cz", "CY": "cy"}
+_QASM_MARKERS = {"MEASURE", "M", "OBSERVABLE I"}  # non-unitary: not in the hash
 
 
 def _pennylane_circuit_to_qasm(circuit):
@@ -172,8 +173,9 @@ def _pennylane_circuit_to_qasm(circuit):
     Only the unitary gates are emitted -- the gate-cut ``MEASURE`` (collapse) and
     ``Observable I`` markers are skipped, matching how the semantic hash treats the
     other backends (the collapse is folded into the key separately, via
-    ``_cut_point_fingerprint``). A gate PyZX cannot parse simply makes
-    :func:`semantic_key` fall back to no caching.
+    ``_cut_point_fingerprint``). A gate without a mnemonic here raises, so that
+    :func:`semantic_key` falls back to no caching: left out, two circuits differing
+    only by that gate would share a key.
     """
     lines = [
         "OPENQASM 2.0;",
@@ -189,7 +191,8 @@ def _pennylane_circuit_to_qasm(circuit):
             lines.append(f"{_QASM_ROTATION[name]}({angle}) q[{qubits[0]}];")
         elif name in _QASM_TWO_QUBIT:
             lines.append(f"{_QASM_TWO_QUBIT[name]} q[{qubits[0]}],q[{qubits[1]}];")
-        # MEASURE / Observable I: non-unitary markers, intentionally omitted.
+        elif name not in _QASM_MARKERS:
+            raise ValueError(f"No OpenQASM mnemonic for the gate {gate!r} here.")
     return "\n".join(lines)
 
 

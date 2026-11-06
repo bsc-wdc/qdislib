@@ -368,6 +368,30 @@ class CachedExpectationTest(BaseTimedTestCase):
         self.assertGreater(len(cache), 0)
 
 
+@unittest.skipUnless(PYZX_AVAILABLE, "pyzx required")
+class PennylaneKeyTest(BaseTimedTestCase):
+    def test_a_gate_without_a_mnemonic_gets_no_key(self):
+        # left out of the QASM, it would not change the key: U3(0.1) and U3(1.1)
+        # shared one, and a cached result
+        from Qdislib.utils.circuit_cache import semantic_key
+        from Qdislib.utils.graph_pennylane import PennylaneCircuit
+
+        circuit = PennylaneCircuit([("H", (0,), []), ("U3", (0,), [0.1, 0.2, 0.3])], 1)
+        self.assertIsNone(semantic_key(circuit, "pennylane"))
+
+    def test_gates_with_a_mnemonic_and_the_markers(self):
+        from Qdislib.utils.circuit_cache import semantic_key
+        from Qdislib.utils.graph_pennylane import PennylaneCircuit
+
+        def key(*ops):
+            return semantic_key(PennylaneCircuit(list(ops), 2), "pennylane")
+
+        bell = [("H", (0,), []), ("CX", (0, 1), [])]
+        self.assertIsNotNone(key(*bell))
+        self.assertEqual(key(*bell), key(*bell, ("MEASURE", (0,), [])))
+        self.assertNotEqual(key(*bell), key(*bell, ("RZ", (1,), [0.3])))
+
+
 class LoggingControlTest(BaseTimedTestCase):
     """set_log_level replaces the old per-function verbose= flags."""
 
