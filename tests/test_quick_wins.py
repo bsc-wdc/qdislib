@@ -115,6 +115,32 @@ class EstimateTest(BaseTimedTestCase):
         self.assertEqual(metrics["num_cuts"], len(metrics["cut"]))
         self.assertIn("find_cut_seconds", metrics)
         self.assertIn("run_seconds", metrics)
+        self.assertIsNone(metrics["cache"])
+
+    def test_metrics_with_a_cache_named_as_cache_takes_it(self):
+        import Qdislib as qd
+
+        for cache in (True, "memory", qd.InMemoryCircuitCache()):
+            _, metrics = qd.estimate(
+                _ref_circuit(),
+                "ZZ",
+                gate_cut=True,
+                wire_cut=False,
+                shots=100,
+                cache=cache,
+                return_metrics=True,
+            )
+            self.assertGreater(metrics["cache"]["size"], 0)
+
+    def test_warns_only_about_what_was_passed(self):
+        import warnings
+
+        import Qdislib as qd
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            qd.estimate(_ref_circuit(), "ZZ", gate_cut=True, wire_cut=False, shots=100)
+        self.assertFalse([w for w in caught if "cache_mode" in str(w.message)])
 
 
 @unittest.skipUnless(QIBO_AVAILABLE and MPL_AVAILABLE, "qibo and matplotlib required")
