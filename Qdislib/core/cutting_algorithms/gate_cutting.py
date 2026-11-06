@@ -1137,7 +1137,9 @@ def _component_original_qubits(component):
     return sorted(qubits)
 
 
-def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots, seed=None):
+def _joint_counts_qibo(
+    dag, num_qubits, prep_sorted, shots, seed=None, platform="numpy"
+):
     """Per-component joint counts ``{(final_bits, cut-point_bits): count}`` for Qibo.
 
     ``final_bits`` are qubit-0-first over the component's qubits; ``cut-point_bits``
@@ -1145,6 +1147,7 @@ def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots, seed=None):
     measured cut qubits), captured per shot so they stay correlated with the final
     measurement (see :func:`_expectation_from_samples_qibo`). Pass ``seed`` for a
     reproducible sample (Qibo's numpy backend draws from the global numpy RNG).
+    ``platform`` is the Qibo backend that runs it.
     """
     import qibo
     from qibo import gates as qgates
@@ -1154,7 +1157,7 @@ def _joint_counts_qibo(dag, num_qubits, prep_sorted, shots, seed=None):
     if built is None:
         return None
     qc = built[0] if isinstance(built, (list, tuple)) else built
-    qibo.set_backend("numpy")
+    qibo.set_backend(platform)
     if seed is not None:
         np.random.seed(seed)
     collapse = {}  # every collapse gate of each qubit (a qubit can be cut twice)
@@ -1229,13 +1232,14 @@ def _joint_from_qiskit_counts(counts, qc, num_qubits, prep_sorted):
     return joint
 
 
-def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None):
+def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None, target=None):
     """Per-component joint counts for CUDA-Q via ``explicit_measurements``.
 
     With a measured cut qubit the kernel is built with ``explicit_final=True`` so
     each per-shot key is ``[cut-point outcomes in mz order] + [final q0..q(n-1)]``
     (see :func:`_expectation_cudaq_decoupled`); otherwise plain counts suffice.
-    Pass ``seed`` for a reproducible sample.
+    Pass ``seed`` for a reproducible sample; ``target`` is the CUDA-Q target (see
+    :func:`~Qdislib.core.backend.cudaq_backend.select_cudaq_target`).
     """
     import cudaq
     from Qdislib.utils.graph_cudaq import dag_to_circuit_cudaq_kernel
@@ -1243,7 +1247,7 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None):
 
     from Qdislib.core.backend.cudaq_backend import select_cudaq_target
 
-    select_cudaq_target()
+    select_cudaq_target(target)
     if seed is not None:
         cudaq.set_random_seed(seed)
 
@@ -1275,7 +1279,7 @@ def _joint_counts_cudaq(dag, num_qubits, prep_sorted, shots, seed=None):
 
     built = dag_to_circuit_cudaq_kernel(dag, num_qubits)
     kernel = built[0] if isinstance(built, (list, tuple)) else built
-    freq = _counts_cudaq(kernel, shots)
+    freq = _counts_cudaq(kernel, shots, target)
     joint = {}
     for key, cnt in freq.items():
         ft = tuple(int(key[q]) for q in range(num_qubits))

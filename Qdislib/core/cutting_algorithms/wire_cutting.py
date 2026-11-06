@@ -2382,18 +2382,20 @@ def _expec_value_qibo(
     return _expectation_from_counts_qibo(freq, observables, shots)
 
 
-def _counts_cudaq(kernel, shots=1024):
+def _counts_cudaq(kernel, shots=1024, target=None):
     """Sample a CUDA-Q kernel and return its measurement counts.
 
-    On the GPU (``nvidia``) target, or the CPU (``qpp-cpu``) with a warning.
+    On ``target``; by default the GPU (``nvidia``) target, or the CPU (``qpp-cpu``)
+    with a warning.
 
     :param kernel: A built CUDA-Q kernel.
     :param shots: Number of measurement shots.
+    :param target: The CUDA-Q target, as a :class:`CudaqBackend` is configured.
     :return: A ``{bitstring: count}`` dict.
     """
     from Qdislib.core.backend.cudaq_backend import select_cudaq_target
 
-    select_cudaq_target()
+    select_cudaq_target(target)
     freq = cudaq.sample(kernel, shots_count=shots)
     return {str(key): int(value) for key, value in freq.items()}
 
@@ -2477,13 +2479,16 @@ def _expectation_cudaq_decoupled(
 
 
 # Runs inside a per-subcircuit @task — keep plain (PyCOMPSs has no nested tasks).
-def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> float:
+def _expec_value_cudaq(
+    subcirc: typing.Any, shots=1024, prep_qubits=None, target=None
+) -> float:
     """Execute the given circuit.
 
     :param subcirc: Circuit to execute.
     :param prep_qubits: Renumbered cut qubits measured for a gate cut; when any is
         observed with identity, its decomposition sign is recovered from the
         cut-point measurement (see :func:`_expectation_cudaq_decoupled`).
+    :param target: The CUDA-Q target (see :func:`_counts_cudaq`).
     :raises ValueError: If there is an unsupported observable.
     :return: The circuit expected value.
     """
@@ -2527,6 +2532,9 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> flo
         )
         if observables is None:
             observables = kernel_observables
+        from Qdislib.core.backend.cudaq_backend import select_cudaq_target
+
+        select_cudaq_target(target)
         return _expectation_cudaq_decoupled(
             kernel, observables, shots, set(prep_qubits), measured_order, payload[1]
         )
@@ -2543,7 +2551,7 @@ def _expec_value_cudaq(subcirc: typing.Any, shots=1024, prep_qubits=None) -> flo
     else:
         subcirc = payload
 
-    freq = _counts_cudaq(subcirc, shots)
+    freq = _counts_cudaq(subcirc, shots, target)
     return _expectation_from_counts_cudaq(freq, observables, shots)
 
 

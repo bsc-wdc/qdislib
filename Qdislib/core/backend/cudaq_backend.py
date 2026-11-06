@@ -116,7 +116,9 @@ class CudaqBackend(BaseBackend):
             import cudaq
 
             cudaq.set_random_seed(seed)
-        return _expec_value_cudaq(subcirc, shots, prep_qubits=prep_qubits)
+        return _expec_value_cudaq(
+            subcirc, shots, prep_qubits=prep_qubits, target=self._target
+        )
 
     def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
         """Sample a subcircuit via CUDA-Q; return qubit-0-first counts."""
@@ -142,7 +144,12 @@ class CudaqBackend(BaseBackend):
         from Qdislib.core.cutting_algorithms.gate_cutting import _joint_counts_cudaq
 
         return _joint_counts_cudaq(
-            dag, num_qubits, list(cut_point_qubits), shots, seed=seed
+            dag,
+            num_qubits,
+            list(cut_point_qubits),
+            shots,
+            seed=seed,
+            target=self._target,
         )
 
     def _execute_samples(
