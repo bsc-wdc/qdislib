@@ -571,11 +571,12 @@ def _wire_cut_fits(dag, cut, max_qubits, max_cuts, forbidden_qubits):
         _expand_wire_cuts,
         _insert_wire_cut_markers,
     )
+    from Qdislib.utils.exceptions import InvalidCutError
     from Qdislib.utils.graph_qibo import _max_qubit, _remove_red_edges
 
     try:
         wire_cuts = _expand_wire_cuts(dag, cut)
-    except KeyError:  # an endpoint the DAG doesn't have
+    except (KeyError, InvalidCutError):  # an endpoint it lacks, or no wire between two
         return False
     if not wire_cuts:
         return False
