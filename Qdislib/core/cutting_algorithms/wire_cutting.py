@@ -746,11 +746,11 @@ def _wire_cutting_sampling(
     """
     from Qdislib.core.cutting_algorithms.gate_cutting import (
         _sample_gate_subcircuit,
-        _dag_num_qubits,
+        _circuit_width,
     )
 
     dag = convert_to_dag(circuit)
-    num_qubits = _dag_num_qubits(dag)
+    num_qubits = _circuit_width(dag, circuit)
     wire_cuts = _expand_wire_cuts(dag, cut)
     _validate_wire_cuts_partition(dag, wire_cuts, num_qubits)
 

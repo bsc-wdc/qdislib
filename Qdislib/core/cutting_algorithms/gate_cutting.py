@@ -1076,6 +1076,14 @@ def _dag_num_qubits(dag):
     return (max(qubits) + 1) if qubits else 0
 
 
+def _circuit_width(dag, circuit):
+    """Number of qubits of ``circuit``, its DAG being ``dag``: idle ones count, so the
+    keys of its distribution have a bit per qubit."""
+    from Qdislib.core.cutting_algorithms.hadamard_cut import _num_circuit_qubits
+
+    return max(_dag_num_qubits(dag), _num_circuit_qubits(circuit))
+
+
 def _component_original_qubits(component):
     """Sorted original qubit indices a component acts on (pre-renumbering)."""
     qubits = set()
@@ -1791,7 +1799,7 @@ def _gate_cutting_sampling(
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """
     dag = convert_to_dag(circuit)
-    num_qubits = _dag_num_qubits(dag)
+    num_qubits = _circuit_width(dag, circuit)
     _validate_gate_cuts_partition(dag, gates_cut)
 
     if not gates_cut:

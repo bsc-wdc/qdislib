@@ -606,5 +606,66 @@ class DeprecatedPathsObservableTest(BaseTimedTestCase):
                     self.assertLess(run({"ZZZ": 1.0}), -0.5)
 
 
+@unittest.skipUnless(QISKIT, "qiskit required")
+class DeprecatedSamplersWidthTest(BaseTimedTestCase):
+    """method=... samplers: a key has a bit per qubit of the circuit, as on the main
+    path, whichever qubits are idle."""
+
+    def _assert_keys(self, qc, gate_cut, wire_cut, expected):
+        import Qdislib as qd
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            runs = {
+                "main": qd.gate_cutting_sampling(qc, gate_cut, shots=2000, seed=1),
+                "gate": qd.gate_cutting_sampling(
+                    qc, gate_cut, shots=2000, seed=1, method="automatic"
+                ),
+                "wire": qd.wire_cutting_sampling(
+                    qc, wire_cut, shots=2000, seed=1, method="automatic"
+                ),
+            }
+        for name, distribution in runs.items():
+            with self.subTest(path=name):
+                read = {k for k, p in distribution.items() if p > 0.05}
+                self.assertEqual(read, expected)
+
+    def test_a_trailing_idle_qubit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(4)
+        qc.x(0)
+        qc.cz(0, 1)
+        qc.h(1)
+        qc.cz(1, 2)
+        qc.x(2)
+        self._assert_keys(qc, ["CZ_4"], [("H_3", "CZ_4")], {"1010", "1110"})
+
+    def test_an_inner_idle_qubit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(4)
+        qc.x(0)
+        qc.cz(0, 1)
+        qc.h(1)
+        qc.cz(1, 3)
+        qc.x(3)
+        self._assert_keys(qc, ["CZ_4"], [("H_3", "CZ_4")], {"1001", "1101"})
+
+    def test_no_cut(self):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3)
+        qc.x(0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            gate = qd.gate_cutting_sampling(qc, [], shots=10, method="automatic")
+            wire = qd.wire_cutting_sampling(qc, [], shots=10, method="automatic")
+        self.assertEqual(gate, {"100": 1.0})
+        self.assertEqual(wire, {"100": 1.0})
+
+
 if __name__ == "__main__":
     unittest.main()
