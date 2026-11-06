@@ -92,10 +92,10 @@ Every :doc:`notebook <examples>` runs top to bottom on a laptop with no credenti
    :hidden:
 
    try
-   poster
    quickstart
    examples
    user_guide
+   poster
    api_reference
    whats_new
    modules

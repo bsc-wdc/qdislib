@@ -20,6 +20,7 @@ import io
 import json
 import multiprocessing
 import pathlib
+import sys
 import time
 
 import matplotlib
@@ -27,7 +28,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import Statevector
 
@@ -91,14 +91,14 @@ def tvd(a, b):
 
 
 def figure(qc, cuts, k):
-    ax = qd.draw_cut(qc, cuts, show=False)
-    buffer = io.BytesIO()
-    ax.figure.savefig(buffer, format="png", dpi=64, bbox_inches="tight")
+    """The drawing as SVG, sharp at any size and on any screen. Its text stays text:
+    glyph outlines would make the page's data ten times larger."""
+    with plt.rc_context({"svg.fonttype": "none", "font.family": "sans-serif"}):
+        ax = qd.draw_cut(qc, cuts, show=False)
+        buffer = io.BytesIO()
+        ax.figure.savefig(buffer, format="svg", bbox_inches="tight", metadata={"Date": None})
     plt.close(ax.figure)
-    image = Image.open(buffer).convert("RGB").quantize(colors=32)
-    small = io.BytesIO()
-    image.save(small, format="PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(small.getvalue()).decode()
+    return "data:image/svg+xml;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 
 def one_run(task):
@@ -153,6 +153,21 @@ def table():
     return rows
 
 
+def redraw_figures():
+    """Only the drawings again, keeping the stored runs: python build_try_data.py --figures"""
+    text = TARGET.read_text()
+    header, payload = text.split("window.QD_TRY = ", 1)
+    data = json.loads(payload.rstrip().rstrip(";"))
+    for m in METHODS:
+        for k in CUTS:
+            qc, spec, *_ = setup(m, k)
+            data["runs"][m][str(k)]["figure"] = figure(qc, spec, k)
+    TARGET.write_text(
+        header + "window.QD_TRY = " + json.dumps(data, separators=(",", ":")) + ";\n"
+    )
+    print(f"wrote {TARGET.name}: {TARGET.stat().st_size // 1024} KB")
+
+
 def main():
     start = time.time()
     data = {
@@ -186,4 +201,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--figures" in sys.argv:
+        redraw_figures()
+    else:
+        main()
