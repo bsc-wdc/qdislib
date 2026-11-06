@@ -285,6 +285,25 @@ class DeprecatedNamesTest(BaseTimedTestCase):
         with self.assertRaisesRegex(TypeError, "keyword-only"):
             qd.gate_cutting(qc, ["CZ_8"], "ZZZZ", 1024)
 
+    def test_an_sdk_as_third_argument_of_a_generator_warns_and_works(self):
+        # as printed on the SC poster: subcircuits = qd.wire_cutting_subcircuits(...)
+        import Qdislib as qd
+
+        qc = _circuit()
+        cut = qd.find_cut(qc, gate_cut=False, wire_cut=True, seed=0)
+        with self.assertWarnsRegex(DeprecationWarning, "third argument"):
+            subs = qd.wire_cutting_subcircuits(qc, cut, "qiskit")
+        values = [qd.expectation_value(s, shots=None) for s in subs]
+        exact = qd.analytical_solution(qc, "Z" * qc.num_qubits)
+        self.assertAlmostEqual(subs.reconstruct(values), exact, places=8)
+
+    def test_a_string_that_is_no_sdk_is_still_an_observable(self):
+        import Qdislib as qd
+
+        qc = _circuit()
+        with self.assertRaisesRegex(ValueError, "strings over I, X, Y, Z"):
+            qd.wire_cutting_subcircuits(qc, [("RY_7", "CZ_8")], "qiskitt")
+
     def test_deprecated_functions(self):
         import Qdislib as qd
 
