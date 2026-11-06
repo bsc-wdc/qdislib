@@ -57,7 +57,10 @@ class AerBackend(BaseBackend):
         Statevector precision (default ``"double"``).
 
     A cut runs with these options. On a node with no GPU, ``use_gpu`` fails when the
-    first circuit runs, with a :class:`RuntimeError`.
+    first circuit runs, with a :class:`RuntimeError`. With a noise model each circuit
+    is first written in the model's gates, as its errors only touch a gate of their
+    name; a fragment runs on qubits ``0..n-1``, so errors set on particular qubits
+    apply to those numbers, not to where the fragment was in the circuit.
     """
 
     @property
@@ -103,7 +106,17 @@ class AerBackend(BaseBackend):
         the backend's own simulator (noise, device and precision applied)."""
         measured = circuit.copy()
         measured.measure_all()
-        job = self._simulator.run([measured], shots=shots, seed_simulator=seed)
+        return self._run_for_counts(measured, shots, seed)
+
+    def _run_for_counts(self, circuit: QuantumCircuit, shots: int, seed) -> dict:
+        """``get_counts()`` of a measured ``circuit`` on the backend's simulator, in
+        the noise model's gates if it has one: an error only touches a gate of its
+        name, so gates under other names would run silently noiseless."""
+        if self._noise_model is not None:
+            circuit = qiskit_transpile(
+                circuit, backend=self._simulator, optimization_level=0
+            )
+        job = self._simulator.run([circuit], shots=shots, seed_simulator=seed)
         return job.result().get_counts()
 
     def transpile(self, circuit: SupportedCircuit) -> QuantumCircuit:
@@ -149,9 +162,7 @@ class AerBackend(BaseBackend):
         return sample_with_qiskit(
             dag,
             num_qubits,
-            lambda qc: self._simulator.run([qc], shots=shots, seed_simulator=seed)
-            .result()
-            .get_counts(),
+            lambda qc: self._run_for_counts(qc, shots, seed),
         )
 
     def evaluate_joint_counts(

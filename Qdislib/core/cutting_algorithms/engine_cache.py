@@ -309,6 +309,23 @@ def template_fingerprint(template):
     return template._fingerprint
 
 
+def _without_ids(value):
+    """A noise model's description without its errors' ids, which Aer draws at random."""
+    if isinstance(value, dict):
+        return {k: _without_ids(v) for k, v in value.items() if k != "id"}
+    if isinstance(value, (list, tuple)):
+        return [_without_ids(v) for v in value]
+    return value
+
+
+def _stable_option(value):
+    """An option as what it does: the same noise model in any process is the same key,
+    as a persistent store outlives the process."""
+    if type(value).__name__ == "NoiseModel":
+        return _without_ids(value.to_dict(serializable=True))
+    return value
+
+
 def _backend_options_hash(runner):
     """A hash of what a backend object's results depend on: its device and options
     (a noise model, a target...), once per object. How it connects is left out, so
@@ -324,7 +341,9 @@ def _backend_options_hash(runner):
     device = extra.pop("backend_name", None) or getattr(
         getattr(runner, "_ibm_backend", None), "name", ""
     )
-    options = {k: v for k, v in extra.items() if k not in _CONNECTION_OPTIONS}
+    options = {
+        k: _stable_option(v) for k, v in extra.items() if k not in _CONNECTION_OPTIONS
+    }
     try:
         blob = pickle.dumps(_canonical((device, options)), protocol=4)
     except (RecursionError, TypeError, ValueError):  # an option too odd to read

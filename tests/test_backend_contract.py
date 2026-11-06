@@ -413,6 +413,87 @@ class AerOptionsTest(BaseTimedTestCase):
             self._noisy().evaluate_expectation(dag, 2, (), 4000, seed=1), 0.8
         )
 
+    def _noisy_on_device_gates(self):
+        # a model as NoiseModel.from_backend builds it: errors on a device's own gates
+        from qiskit_aer.noise import NoiseModel, depolarizing_error
+
+        import Qdislib as qd
+
+        noise = NoiseModel()
+        noise.add_all_qubit_quantum_error(depolarizing_error(0.2, 2), ["cx"])
+        noise.add_all_qubit_quantum_error(depolarizing_error(0.1, 1), ["sx", "x"])
+        return qd.build_backend("AER_BACKEND", qd.BackendConfig(noise_model=noise))
+
+    def test_noise_on_other_gates_than_the_circuits_still_applies(self):
+        # an error only touches a gate of its name: x and cz run as they are would
+        # never meet one on cx and sx, and the run would be silently noiseless
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(4)
+        for q in range(4):
+            qc.ry(0.4, q)
+        for q in range(3):
+            qc.cz(q, q + 1)
+        for q in range(4):
+            qc.ry(0.3, q)
+        cuts = {"gate": ["CZ_6"]}
+        exact = qd.circuit_cutting(qc, cuts, "IZZI", shots=None)
+        self.assertGreater(abs(exact), 0.3)  # noise has something to shrink
+        backend = self._noisy_on_device_gates()
+        value = qd.circuit_cutting(
+            qc, cuts, "IZZI", backend=backend, shots=20000, seed=1
+        )
+        self.assertLess(abs(value), abs(exact) - 0.1)
+
+    def test_samples_and_joint_counts_meet_noise_on_other_gates(self):
+        # H twice is the identity: a clean run always reads 0
+        from Qdislib.utils.graph_qiskit import circuit_qiskit_to_dag
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(1)
+        qc.h(0)
+        qc.h(0)
+        backend = self._noisy_on_device_gates()
+        dag = circuit_qiskit_to_dag(qc)
+        counts = backend.evaluate_samples(dag, 1, shots=4000, seed=1)
+        self.assertGreater(counts.get("1", 0), 100)
+        joint = backend.evaluate_joint_counts(dag, 1, (), shots=4000, seed=1)
+        self.assertGreater(
+            sum(n for (bits, _), n in joint.items() if bits == (1,)), 100
+        )
+
+    def test_the_options_hash_is_the_same_in_another_process(self):
+        # a persistent store outlives the process: an error's random id must not
+        # reach the key
+        import os
+        import subprocess
+        import textwrap
+
+        script = textwrap.dedent("""
+            from qiskit_aer.noise import NoiseModel, ReadoutError, depolarizing_error
+            import Qdislib as qd
+            from Qdislib.core.cutting_algorithms.engine_cache import backend_id
+
+            noise = NoiseModel()
+            noise.add_all_qubit_quantum_error(depolarizing_error(0.05, 2), ["cz"])
+            noise.add_readout_error(ReadoutError([[0.9, 0.1], [0.2, 0.8]]), [0])
+            config = qd.BackendConfig(noise_model=noise)
+            print("KEY", backend_id(qd.build_backend("AER_BACKEND", config), 100))
+            """)
+        keys = set()
+        for seed in ("1", "2"):
+            out = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True,
+                text=True,
+                check=True,
+                env={**os.environ, "PYTHONHASHSEED": seed},
+            ).stdout
+            keys.add(next(l for l in out.splitlines() if l.startswith("KEY")))
+        self.assertEqual(len(keys), 1, keys)
+
     def test_gpu_runs_on_the_backends_simulator(self):
         # the cutting code's own simulator is a CPU one: a run asked for on a GPU
         # went there, silently
