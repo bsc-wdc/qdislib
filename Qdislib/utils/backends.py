@@ -680,6 +680,10 @@ def _cached_expectation(subcircuit, shots, cache, cache_mode):
     fingerprint = _cut_point_fingerprint(circuit, software)
     if fingerprint:
         key = f"{key}#{fingerprint}"
+    # A shot run's value belongs to its shots (a later, longer run must not get the
+    # first one's noise); exact runs have no shots and share their entry.
+    if shots is not None:
+        key = f"{key}|shots={shots}"
 
     strategy = _resolve_strategy(cache_mode)
     sim = _SimContext(circuit, subcircuit, observables, software, shots)

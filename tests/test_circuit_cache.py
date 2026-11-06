@@ -536,12 +536,13 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
         cache = InMemoryCircuitCache()
         key = semantic_key(_qibo_circuit(), "qibo")
         self.assertIsNotNone(key)
-        cache.put(f"{key}|ZZ", _PENDING)  # another task is computing this key
+        key = f"{key}|shots=1024|ZZ"
+        cache.put(key, _PENDING)  # another task is computing this key
 
         deferred = expectation_value([_qibo_circuit(), "ZZ"], cache=cache)
         self.assertIsInstance(deferred, PendingResult)
 
-        cache.put(f"{key}|ZZ", 0.25)  # owning task stored the real value
+        cache.put(key, 0.25)  # owning task stored the real value
         self.assertEqual(deferred.resolve(), 0.25)
 
     @unittest.skipUnless(QIBO_AVAILABLE, "qibo required to import reconstruction")
@@ -564,6 +565,105 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
         )
         result = wire_cutting_subcircuit_reconstruction([pending, 1.0], number_cuts=0)
         self.assertAlmostEqual(result, 0.5)
+
+
+@unittest.skipUnless(
+    QISKIT_AVAILABLE and PYZX_AVAILABLE, "qiskit and pyzx required for the shot keys"
+)
+class ShotsInKeyTest(BaseTimedTestCase):
+    """A shot run's value belongs to its shots: a later run with others runs."""
+
+    def _circuit(self):
+        from qiskit import QuantumCircuit
+
+        qc = QuantumCircuit(2)
+        qc.h(0)
+        qc.rz(0.3, 0)
+        qc.h(0)
+        qc.cz(0, 1)
+        return qc
+
+    def _assert_not_reused(self, payload, cache, **options):
+        from Qdislib.utils.backends import expectation_value
+
+        # <ZZ> = cos(0.3) = 0.955. Four shots can only give multiples of 0.5.
+        expectation_value(payload, shots=4, seed=1, cache=cache, **options)
+        value = expectation_value(payload, shots=100000, seed=1, cache=cache, **options)
+        self.assertAlmostEqual(value, 0.9553, delta=0.02)
+
+    def test_native_circuit(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        self._assert_not_reused(self._circuit(), InMemoryCircuitCache())
+
+    def test_circuit_observable_pair(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        self._assert_not_reused([self._circuit(), "ZZ"], InMemoryCircuitCache())
+
+    def test_the_shared_store_of_cache_true(self):
+        # Its own circuit: the store outlives the test.
+        qc = self._circuit()
+        qc.rz(0.123456, 1)
+        self._assert_not_reused(qc, True)
+
+    def test_counts_mode(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        cache = InMemoryCircuitCache()
+        self._assert_not_reused(self._circuit(), cache, cache_mode="counts")
+        self.assertEqual(len(cache), 2)
+
+    def test_custom_strategy_keeps_its_own_key_hook(self):
+        from Qdislib.utils.circuit_cache import (
+            ExpectationStrategy,
+            InMemoryCircuitCache,
+        )
+
+        class Keyed(ExpectationStrategy):
+            def make_key(self, semantic_key, sim):
+                return f"mine:{semantic_key}"
+
+        cache = InMemoryCircuitCache()
+        self._assert_not_reused(self._circuit(), cache, cache_mode=Keyed())
+        self.assertEqual(len(cache), 2)
+
+    def test_subcircuit_of_a_list(self):
+        from Qdislib.utils.backends import Subcircuit, convert_to_dag
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        subcircuit = Subcircuit(convert_to_dag(self._circuit()), 2, "qiskit")
+        self._assert_not_reused(subcircuit, InMemoryCircuitCache())
+
+    def test_the_deprecated_cut_paths(self):
+        import warnings
+
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.rz(0.3, 0)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.cz(1, 2)
+        exact = qd.analytical_solution(qc, "ZZZ")
+        for run in (
+            lambda **k: qd.gate_cutting(qc, ["CZ_5"], "ZZZ", method="automatic", **k),
+            lambda **k: qd.wire_cutting(
+                qc, [("CZ_4", "CZ_5")], "ZZZ", method="automatic", **k
+            ),
+        ):
+            cache = InMemoryCircuitCache()
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                run(shots=4, seed=1, cache=cache)
+                size = len(cache)
+                value = run(shots=100000, seed=1, cache=cache)
+            self.assertEqual(len(cache), 2 * size)
+            self.assertAlmostEqual(value, exact, delta=0.1)
 
 
 @unittest.skipUnless(

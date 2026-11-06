@@ -738,7 +738,8 @@ class CacheStrategy:
         """Return the cache key for this subcircuit.
 
         Defaults to ``semantic_key`` plus the observable, since one circuit
-        topology yields different expectations under different observables.
+        topology yields different expectations under different observables. For a
+        shot run ``semantic_key`` already holds the shots.
         """
         return f"{semantic_key}|{sim.observables}"
 
@@ -752,7 +753,8 @@ class CacheStrategy:
 
 
 class ExpectationStrategy(CacheStrategy):
-    """Default: cache the scalar expectation, keyed by semantic hash + observable."""
+    """Default: cache the scalar expectation, keyed by semantic hash (with the shots
+    of a shot run) + observable."""
 
     def store(self, sim):
         value = sim.run_native()
@@ -763,10 +765,11 @@ class ExpectationStrategy(CacheStrategy):
 
 
 class CountsStrategy(CacheStrategy):
-    """Cache raw counts keyed by the semantic hash alone; re-derive per observable.
+    """Cache raw counts keyed by the semantic hash (with the shots of a shot run);
+    re-derive per observable.
 
     Matches the paper's granularity: one simulation's counts serve every
-    observable measured on that circuit topology.
+    observable measured on that circuit topology with those shots.
     """
 
     def make_key(self, semantic_key, sim):
