@@ -170,7 +170,7 @@ body[data-theme="dark"] .nbsphinx-gallery img {
 
 /* Branded "quick links" card in the right-hand column (injected by rightcol.js). */
 .qd-rail-card {
-    margin-top: 1.5rem;
+    margin: 1.5rem 0 0 1rem; /* the panel has 1rem on its right, none on its left */
     padding: 0.85rem 1rem;
     border-radius: 12px;
     border: 1px solid rgba(96, 62, 99, 0.18);
@@ -190,6 +190,7 @@ body[data-theme="dark"] .qd-rail-title {
 .qd-rail-badges {
     display: flex;
     flex-wrap: wrap;
+    justify-content: center;
     gap: 0.3rem;
     margin-bottom: 0.55rem;
 }
