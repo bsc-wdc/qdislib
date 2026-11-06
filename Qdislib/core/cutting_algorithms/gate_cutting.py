@@ -2717,32 +2717,11 @@ def _gate_cutting_subcircuit_reconstruction(
     >>> print(reconstructed_value)
     0.0
     """
-    # Resolve any deferred (cache placeholder-hit) results once all subcircuit
-    # tasks have finished: synchronise to the master, then refresh each
-    # PendingResult from the now-populated cache. Doing this after the barrier
-    # (rather than inside the per-group sign tasks) avoids worker starvation when
-    # a deferred key's owner is still running in another group.
-    if number_cuts == 0:
-        # No cuts: the reconstruction is just the product of the (single group of)
-        # subcircuit values, computed on the master -- so sync + resolve here.
-        from Qdislib.utils.circuit_cache import _resolve_value
+    from Qdislib.core.cutting_algorithms._reconstruction import signed_terms_sum
 
-        expected_values = compss_wait_on(expected_values)
-        expected_values = [_resolve_value(v) for v in expected_values]
-        return math.prod([v for v in expected_values if v is not None])
-
-    # Feed each configuration's subcircuit futures straight into the sign task
-    # (task -> task, no master barrier between _evaluate_subcircuit and
-    # _change_sign_gate_cutting); the sign task resolves any cache placeholders.
-    groups = [
-        expected_values[i : i + number_components]
-        for i in range(0, len(expected_values), number_components)
-    ]
-    results = [
-        _change_sign_gate_cutting(group, index) for index, group in enumerate(groups)
-    ]
-    results = compss_wait_on(results)
-    return 1 / (2**number_cuts) * sum(results)
+    return signed_terms_sum(
+        expected_values, number_cuts, number_components, _change_sign_gate_cutting
+    )
 
 
 # --------------------------------------------------------------------------- #
