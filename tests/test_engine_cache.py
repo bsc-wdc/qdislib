@@ -344,5 +344,48 @@ class EngineCacheTest(BaseTimedTestCase):
         )
 
 
+@unittest.skipUnless(QISKIT, "qiskit required")
+class EstimateMetricsTest(BaseTimedTestCase):
+    """estimate's metrics report the cache the call used, however it was chosen."""
+
+    def _estimate(self, **options):
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        qc = QuantumCircuit(3)
+        qc.h(0)
+        qc.cz(0, 1)
+        qc.ry(0.3, 1)
+        qc.cz(1, 2)
+        qc.ry(0.5, 2)
+        _, metrics = qd.estimate(
+            qc, "ZZZ", max_qubits=2, shots=None, return_metrics=True, **options
+        )
+        return metrics["cache"]
+
+    def test_the_session_cache(self):
+        import Qdislib as qd
+
+        with qd.use_cache("memory") as store:
+            stats = self._estimate()
+            self.assertIsNotNone(stats)
+            self.assertEqual(stats, store.stats())
+            self.assertGreater(stats["size"], 0)
+
+    def test_its_own_cache(self):
+        from Qdislib.utils.circuit_cache import InMemoryCircuitCache
+
+        store = InMemoryCircuitCache()
+        self.assertEqual(self._estimate(cache=store), store.stats())
+
+    def test_off(self):
+        import Qdislib as qd
+
+        self.assertIsNone(self._estimate())
+        with qd.use_cache("memory"):
+            self.assertIsNone(self._estimate(cache=False))
+
+
 if __name__ == "__main__":
     unittest.main()
