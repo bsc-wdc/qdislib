@@ -969,6 +969,13 @@ class CombinedCutSubcircuits(CutSubcircuits):
         #: Number of parts recombined.
         self.number_components = len(self.parts)
 
+    def __repr__(self):
+        how = "product" if self.coefficients is None else "weighted sum"
+        return (
+            f"<{type(self).__name__}: {len(self)} subcircuits, "
+            f"{how} of {len(self.parts)} parts>"
+        )
+
     @property
     def parameters(self):
         """The circuit's free parameters (names), as each part's."""

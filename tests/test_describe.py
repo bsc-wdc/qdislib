@@ -38,6 +38,23 @@ class DescribeTest(BaseTimedTestCase):
 
         self.qd, self.qc = qd, _circuit()
 
+    def test_combined_list_repr(self):
+        from Qdislib.utils.backends import CombinedCutSubcircuits
+
+        one = self.qd.circuit_cutting_subcircuits(self.qc, {"gate": ["CZ_9"]}, "ZZZZZZ")
+        total = len(one) * 2
+        product = CombinedCutSubcircuits([one, one])
+        text = repr(product)
+        self.assertEqual(
+            text, f"<CombinedCutSubcircuits: {total} subcircuits, product of 2 parts>"
+        )
+        weighted = CombinedCutSubcircuits([one, one], [0.5, -1.0])
+        self.assertEqual(
+            repr(weighted),
+            f"<CombinedCutSubcircuits: {total} subcircuits, weighted sum of 2 parts>",
+        )
+        self.assertEqual(len(weighted), total)  # it stays the flat list
+
     def test_list_and_subcircuit_reprs(self):
         qd = self.qd
         subs = qd.circuit_cutting_subcircuits(
