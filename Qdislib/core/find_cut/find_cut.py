@@ -33,26 +33,8 @@ import typing
 
 from Qdislib.utils.runtime import task, compss_wait_on
 
-try:
-    import qibo
-
-    qibo_available = True
-except ImportError:  # qibo is optional
-    qibo = None
-    qibo_available = False
-
-try:
-    import qiskit
-    import qiskit.qasm2
-
-    qiskit_available = True
-except ImportError:  # qiskit is optional
-    qiskit = None
-    qiskit_available = False
-
 import pymetis
 
-from Qdislib.utils.graph_qiskit import dag_to_circuit_qiskit
 from Qdislib.utils.backends import convert_to_dag, iter_gates, num_qubits
 
 
@@ -371,9 +353,12 @@ def _metis_partition(graph, num_clusters, max_nodes_per_cluster, max_cuts):
         xadj.append(len(adjncy))
     if not adjncy:
         return [], []
-    _, parts = pymetis.part_graph(
-        num_clusters, xadj=xadj, adjncy=adjncy, eweights=eweights
-    )
+    # pymetis >= 2025 takes a CSRAdjacency; plain xadj/adjncy are going away in 2027
+    if hasattr(pymetis, "CSRAdjacency"):
+        graph_in = {"adjacency": pymetis.CSRAdjacency(xadj, adjncy)}
+    else:
+        graph_in = {"xadj": xadj, "adjncy": adjncy}
+    _, parts = pymetis.part_graph(num_clusters, eweights=eweights, **graph_in)
     clusters = {}
     for node, part in zip(nodes, parts):
         clusters.setdefault(part, []).append(node)

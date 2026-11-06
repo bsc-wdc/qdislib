@@ -22,6 +22,26 @@
 from tests import BaseTimedTestCase
 
 
+class MetisCallTest(BaseTimedTestCase):
+    def test_no_deprecated_arguments(self):
+        import warnings
+
+        import networkx as nx
+
+        from Qdislib.core.find_cut.find_cut import _metis_partition
+
+        graph = nx.MultiGraph()
+        for q in range(4):
+            graph.add_node(q, gate=q)
+        for a, b, name in ((0, 1, "CZ_1"), (1, 2, "CZ_2"), (2, 3, "CZ_3")):
+            graph.add_edge(a, b, gate=name)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            clusters, cut = _metis_partition(graph, 2, None, None)
+        self.assertEqual(len(clusters), 2)
+        self.assertEqual(len(cut), 1)
+
+
 def _chain_for_kinds():
     from qibo import gates, models
 
