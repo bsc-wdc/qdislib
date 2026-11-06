@@ -307,9 +307,10 @@ def semantic_key(circuit, software=None):
     The hash is invariant under ZX-equivalent rewrites (``full_reduce``), so two
     functionally equivalent circuits share a key and a cached result.
 
-    :param circuit: A Qibo ``Circuit`` or Qiskit ``QuantumCircuit``.
-    :param software: ``"qibo"`` or ``"qiskit"``; auto-detected from the type when
-        omitted.
+    :param circuit: A circuit of any SDK of :func:`~Qdislib.utils.sdks.sdk_names`
+        (Qibo, Qiskit, CUDA-Q, PennyLane; what cannot be written as OpenQASM 2 gets
+        no key).
+    :param software: The SDK's name; auto-detected from the type when omitted.
     :return: A stable hash string, or ``None`` when the key cannot be computed
         (PyZX missing, an unsupported gate/backend) -- in which case the caller
         should simulate without caching. This function never raises.
@@ -824,10 +825,12 @@ class PendingResult:
         self.delay = delay
 
     def resolve(self):
-        """Return the expectation once the owning task has stored the value."""
-        import time
+        """Return the expectation once the owning task has stored the value.
 
+        :raises QdislibException: If the value never appears.
+        """
         from Qdislib.utils.backends import _SimContext
+        from Qdislib.utils.exceptions import QdislibException
 
         sim = _SimContext(None, None, self.observables, self.software, self.shots)
         for attempt in range(self.retries):
@@ -836,12 +839,14 @@ class PendingResult:
                 return self.strategy.load(value, sim)
             if attempt < self.retries - 1:
                 time.sleep(self.delay)
-        logger.warning(
-            "Cache key %s never resolved (owning task may have failed); "
-            "dropping this subcircuit's contribution.",
-            self.cache_key,
+        try:
+            self.cache.delete(self.cache_key)
+        except Exception as exc:  # the error below is the one to report
+            logger.warning("Could not remove the placeholder (%s).", exc)
+        raise QdislibException(
+            f"Cache key {self.cache_key} was never computed: the task that reserved "
+            "it failed, or a killed run left it in the store. Run again."
         )
-        return None
 
 
 def _resolve_value(value):

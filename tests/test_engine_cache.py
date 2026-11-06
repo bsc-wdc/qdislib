@@ -24,8 +24,11 @@ import importlib.util
 import tempfile
 import unittest
 import warnings
+from unittest import mock
 
 from tests import BaseTimedTestCase
+
+from Qdislib.core.cutting_algorithms import engine_cache
 
 QISKIT = importlib.util.find_spec("qiskit") is not None
 PYZX = importlib.util.find_spec("pyzx") is not None
@@ -222,6 +225,98 @@ class EngineCacheTest(BaseTimedTestCase):
             again, runs = self._cut(shots=None, cache=f"lmdb:{path}")
             self.assertEqual((again, runs), (exact, 0))
         del qd
+
+    def test_a_backends_options_are_part_of_the_key(self):
+        # a noisy backend's results must not be served for a noiseless one
+        from qiskit_aer.noise import NoiseModel, depolarizing_error
+
+        noise = NoiseModel()
+        noise.add_all_qubit_quantum_error(
+            depolarizing_error(0.2, 1), ["ry", "rx", "rz", "z", "s", "sdg", "x"]
+        )
+        qd = self.qd
+        noisy = qd.build_backend("AER_BACKEND", qd.BackendConfig(noise_model=noise))
+        plain = qd.build_backend("AER_BACKEND", qd.BackendConfig())
+        first, runs = self._cut(
+            observable="ZZZZZZ", backend=noisy, shots=2000, seed=1, cache=self.store
+        )
+        self.assertGreater(runs, 0)
+        second, runs = self._cut(
+            observable="ZZZZZZ", backend=plain, shots=2000, seed=1, cache=self.store
+        )
+        self.assertGreater(runs, 0)
+        self.assertNotEqual(first, second)
+        # the same options, in another object: the same results
+        again = qd.build_backend("AER_BACKEND", qd.BackendConfig())
+        third, runs = self._cut(
+            observable="ZZZZZZ", backend=again, shots=2000, seed=5, cache=self.store
+        )
+        self.assertEqual((third, runs), (second, 0))
+
+    def test_how_a_backend_connects_is_not_part_of_the_key(self):
+        from Qdislib.core.backend.base_backend import BackendConfig, BaseBackend
+        from Qdislib.core.cutting_algorithms.engine_cache import backend_id
+
+        def device(**extra):
+            return BaseBackend("DEV", BackendConfig(extra=extra))
+
+        self.assertEqual(
+            backend_id(device(token="a", backend_name="x"), 10),
+            backend_id(device(token="b", backend_name="x"), 10),
+        )
+        self.assertNotEqual(
+            backend_id(device(backend_name="x"), 10),
+            backend_id(device(backend_name="y"), 10),
+        )
+        self.assertNotEqual(
+            backend_id(device(options={"a": 1}), 10),
+            backend_id(device(options={"a": 2}), 10),
+        )
+        # the device a backend chose by itself counts as one it was told
+        chosen = device()
+        chosen._ibm_backend = mock.Mock()
+        chosen._ibm_backend.name = "x"
+        self.assertEqual(
+            backend_id(chosen, 10), backend_id(device(backend_name="x"), 10)
+        )
+        self.assertTrue(backend_id(device(), None) == "exact")
+
+    def test_expectation_value_with_cache_true_reuses(self):
+        # it built a new store on every call: nothing was ever found
+        subs = self.qd.circuit_cutting_subcircuits(_circuit(), _CUT, "ZZZZZZ")
+        with mock.patch.dict(engine_cache._STORES, clear=True):
+            with _Runs() as first:
+                values = [
+                    self.qd.expectation_value(s, shots=200, cache=True, seed=1)
+                    for s in subs
+                ]
+            with _Runs() as second:
+                again = [
+                    self.qd.expectation_value(s, shots=200, cache=True, seed=2)
+                    for s in subs
+                ]
+        self.assertGreater(first.count, 0)
+        self.assertEqual(second.count, 0)
+        self.assertEqual(
+            subs.reconstruct(values), subs.reconstruct(again)
+        )  # the same samples
+
+    def test_expectation_value_with_cache_false_is_off(self):
+        subs = self.qd.circuit_cutting_subcircuits(_circuit(), _CUT, "ZZZZZZ")
+        with _Runs() as runs:
+            self.qd.expectation_value(subs[0], shots=100, cache=False, seed=1)
+            self.qd.expectation_value(subs[0], shots=100, cache=False, seed=1)
+        self.assertEqual(runs.count, 2)
+
+    def test_a_redis_url_keeps_its_credentials(self):
+        with mock.patch.dict(engine_cache._STORES, clear=True):
+            with mock.patch(
+                "Qdislib.utils.circuit_cache.default_circuit_cache"
+            ) as build:
+                engine_cache._store("redis://me:secret@host:7000/3")
+        build.assert_called_once_with(
+            "redis", host="host", port=7000, db=3, username="me", password="secret"
+        )
 
     def test_cache_mode_is_deprecated(self):
         with warnings.catch_warnings(record=True) as caught:

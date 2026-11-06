@@ -36,7 +36,6 @@ from Qdislib.utils.graph_pennylane import circuit_pennylane_to_dag, PennylaneCir
 from Qdislib.utils.runtime import task, compss_wait_on, pycompss_available
 from Qdislib.utils.circuit_cache import (
     semantic_key,
-    default_circuit_cache,
     is_pending,
     PendingResult,
     _PENDING,
@@ -817,17 +816,27 @@ def expectation_value(
                 for s in subs
             ]
     :param seed: Seed for a simulator's sampling.
-    :param cache: A :class:`~Qdislib.utils.circuit_cache.CircuitCache` (or
-        ``True`` for :func:`~Qdislib.utils.circuit_cache.default_circuit_cache`) to
-        skip re-simulating semantically equivalent subcircuits (local simulator).
-    :param cache_mode: ``"expectation"`` or ``"counts"``.
+    :param cache: Reuse a result already computed: what ``cache=`` takes on
+        :func:`~Qdislib.circuit_cutting` (``True``, ``"memory"``, ``"lmdb:<path>"``,
+        ``"redis[://host:port/db]"`` or a
+        :class:`~Qdislib.utils.circuit_cache.CircuitCache`); ``None`` or ``False``
+        is off.
+    :param cache_mode: ``"expectation"``, ``"counts"`` or a
+        :class:`~Qdislib.utils.circuit_cache.CacheStrategy`, for the 1.x native
+        forms; a ``circuit_cutting`` fragment's cache keeps its whole result.
+    :raises ValueError: For ``shots=None`` with a backend that is no simulator.
     :return: What the list's ``reconstruct`` takes for this subcircuit (its
         expectation value; Z correlators for ``circuit_cutting`` fragments).
     """
     if subcircuit is None:  # empty component produced by a cut; contributes nothing
         return None
-    if cache is True:
-        cache = default_circuit_cache()
+    if cache is False:
+        cache = None
+    elif cache is True or isinstance(cache, str):
+        # The shared store: a new one per call would never hold anything to reuse.
+        from Qdislib.core.cutting_algorithms.engine_cache import _store
+
+        cache = _store(cache)
 
     if isinstance(subcircuit, Subcircuit):
         return subcircuit._expectation(shots, backend, seed, cache, cache_mode)

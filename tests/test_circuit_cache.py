@@ -417,13 +417,17 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
             PendingResult,
             _PENDING,
         )
+        from Qdislib.utils.exceptions import QdislibException
 
         cache = InMemoryCircuitCache()
         cache.put("k", _PENDING)  # never replaced by a real value
         pending = PendingResult(
             cache, "k", ExpectationStrategy(), "ZZ", "qibo", 1024, retries=1, delay=0
         )
-        self.assertIsNone(pending.resolve())
+        # a value left out would silently change a product of fragment values
+        with self.assertRaisesRegex(QdislibException, "never computed"):
+            pending.resolve()
+        self.assertIsNone(cache.get("k"))  # the next run computes it
 
     @unittest.skipUnless(QIBO_AVAILABLE and PYZX_AVAILABLE, "qibo and pyzx required")
     def test_concurrent_placeholder_defers_then_refreshes(self):

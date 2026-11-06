@@ -35,13 +35,12 @@ Two keys:
 - ``"semantic"``: also matches circuits that differ but are equivalent, by
   :func:`~Qdislib.utils.circuit_cache.semantic_key` (ZX), computed in the task.
 
-A shot run's result is reused by later runs (the key holds the backend and the
-shots, not the seed), which saves the most device time; ``cache_refresh=True``
+A shot run's result is reused by later runs (the key holds the backend, its options
+and the shots, not the seed), which saves the most device time; ``cache_refresh=True``
 runs it again and replaces it, e.g. to repeat a run for error bars. Exact results
 are the same on every simulator and are shared between them.
 """
 
-import contextlib
 import hashlib
 import logging
 import os
@@ -58,6 +57,19 @@ __all__ = ["use_cache"]
 EXACT_MAX_QUBITS = 18
 
 _KEYS = ("exact", "semantic")
+#: How a backend connects: not what its results depend on.
+_CONNECTION_OPTIONS = {
+    "token",
+    "tokens_path",
+    "service",
+    "batch",
+    "backend",
+    "proxies",
+    "channel",
+    "instance",
+    "mode",
+    "max_time",
+}
 _SESSION = {"store": None, "key": "exact"}
 _STORES = {}  # the stores built from True / a string, one per spec
 
@@ -122,18 +134,14 @@ def _store(spec):
                     "port": url.port or 6379,
                     "db": int((url.path or "/0").strip("/") or 0),
                 }
+                if url.username:
+                    kwargs["username"] = url.username
+                if url.password:
+                    kwargs["password"] = url.password
             _STORES[spec] = cc.default_circuit_cache("redis", **kwargs)
         else:
             raise ValueError(f"Unknown cache {spec!r}")
     return _STORES[spec]
-
-
-@contextlib.contextmanager
-def _restoring(previous):
-    try:
-        yield _SESSION["store"]
-    finally:
-        _SESSION.update(previous)
 
 
 class use_cache:  # noqa: N801 -- used as a function and as a context manager
@@ -295,22 +303,47 @@ def template_fingerprint(template):
     return template._fingerprint
 
 
+def _backend_options_hash(runner):
+    """A hash of what a backend object's results depend on: its device and options
+    (a noise model, a target...), once per object. How it connects is left out, so
+    a new token does not hide the results of the same device."""
+    known = (
+        runner.__dict__.get("_options_hash") if hasattr(runner, "__dict__") else None
+    )
+    if known is not None:
+        return known
+    extra = getattr(getattr(runner, "config", None), "extra", None)
+    extra = dict(extra) if isinstance(extra, dict) else {}
+    # a device's name, or the device a backend chose (the least busy one)
+    device = extra.pop("backend_name", None) or getattr(
+        getattr(runner, "_ibm_backend", None), "name", ""
+    )
+    options = {k: v for k, v in extra.items() if k not in _CONNECTION_OPTIONS}
+    try:
+        blob = pickle.dumps(_canonical((device, options)), protocol=4)
+    except (RecursionError, TypeError, ValueError):  # an option too odd to read
+        blob = repr((device, options)).encode()
+    value = hashlib.sha256(blob).hexdigest()[:32]
+    try:
+        runner._options_hash = value
+    except AttributeError:  # __slots__: computed again next time
+        pass
+    return value
+
+
 def backend_id(runner, shots):
-    """What a result depends on besides the circuit: the backend (``"exact"`` for
-    a statevector run, the same everywhere) and the shots."""
+    """What a result depends on besides the circuit: the backend, with its options
+    (``"exact"`` for a statevector run, the same everywhere) and the shots."""
     if shots is None:
         return "exact"
     if isinstance(runner, str):
         name = runner
     else:
-        config = getattr(runner, "config", None)
-        extra = getattr(config, "extra", None) or {}
         name = ":".join(
-            str(part)
-            for part in (
+            (
                 type(runner).__name__,
-                getattr(runner, "name", ""),
-                extra.get("backend_name", "") if isinstance(extra, dict) else "",
+                str(getattr(runner, "name", "")),
+                _backend_options_hash(runner),
             )
         )
     return f"{name}|shots={int(shots)}"
@@ -352,7 +385,7 @@ class EngineCache:
             return self._inflight[key]
         if not self.refresh:
             if self.key == "exact":
-                payload = self._get(key)
+                payload = _read(self.store, key)
                 if payload is not None:
                     from Qdislib.core.cutting_algorithms.describe import (
                         FragmentResult,
@@ -378,17 +411,18 @@ class EngineCache:
         self._inflight[key] = future
         return future
 
-    def _get(self, key):
-        from Qdislib.utils.circuit_cache import is_pending
 
-        try:
-            payload = self.store.get(key)
-        except Exception as exc:  # noqa: BLE001 -- a store error is a miss
-            logger.warning("cache read failed (%s); running the circuit", exc)
-            return None
-        if payload is None or is_pending(payload):
-            return None
-        return payload
+def _read(store, key):
+    """What ``store`` holds under ``key``; ``None`` on a miss, a 1.x placeholder, or
+    a store error (which never stops a run)."""
+    from Qdislib.utils.circuit_cache import is_pending
+
+    try:
+        payload = store.get(key)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cache read failed (%s); running the circuit", exc)
+        return None
+    return None if payload is None or is_pending(payload) else payload
 
 
 class CacheRequest:
@@ -421,16 +455,7 @@ class CacheRequest:
         return f"qd-semantic:{key}:{backend_id(runner, self.shots)}"
 
     def get(self, key):
-        if self.refresh:
-            return None
-        try:
-            payload = self.store.get(key)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("cache read failed (%s); running the circuit", exc)
-            return None
-        from Qdislib.utils.circuit_cache import is_pending
-
-        return None if payload is None or is_pending(payload) else payload
+        return None if self.refresh else _read(self.store, key)
 
     def put(self, key, result):
         payload = to_payload(result)
