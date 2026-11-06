@@ -21,6 +21,8 @@
 
 import importlib.util
 import pickle
+import sys
+import types
 import unittest
 from unittest import mock
 
@@ -218,6 +220,140 @@ class IBMOptionsTest(BaseTimedTestCase):
                 with self.assertRaises(RuntimeError):
                     call()
                 self.assertEqual(sampler.call_args.kwargs["options"], options)
+
+
+def _fake_iqm_modules():
+    """Stand-ins for ``iqm.qiskit_iqm``: a device that is an Aer simulator."""
+    from qiskit_aer import AerSimulator
+
+    class IQMProvider:
+        def __init__(self, url, quantum_computer=None, **auth):
+            self.arguments = (url, quantum_computer, auth)
+
+        def get_backend(self):
+            device = AerSimulator()
+            device.arguments = self.arguments
+            return device
+
+    package, module = types.ModuleType("iqm"), types.ModuleType("iqm.qiskit_iqm")
+    module.IQMProvider = IQMProvider
+    package.qiskit_iqm = module
+    return {"iqm": package, "iqm.qiskit_iqm": module}
+
+
+@unittest.skipUnless(AER, "qiskit-aer required")
+class IQMBackendTest(BaseTimedTestCase):
+    """No device here: the circuits it would receive run on a simulator."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.dict(sys.modules, _fake_iqm_modules())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _backend(self, **options):
+        import Qdislib as qd
+
+        return qd.build_backend("IQM_BACKEND", qd.BackendConfig(**options))
+
+    def test_connects_with_what_it_is_given_and_asks_the_width(self):
+        import Qdislib as qd
+
+        backend = self._backend(
+            url="https://x", token="t", tokens_path="ignored", quantum_computer="garnet"
+        )
+        self.assertEqual(
+            backend.backend.arguments, ("https://x", "garnet", {"token": "t"})
+        )
+        self.assertEqual(backend.num_qubits, backend.backend.num_qubits)
+        narrow = qd.build_backend("IQM_BACKEND", qd.BackendConfig(num_qubits=3))
+        self.assertEqual(narrow.num_qubits, 3)
+        self.assertFalse(narrow.can_run(_circuit()))
+
+    def test_a_cut_runs_on_it_with_its_measurements_in_the_middle(self):
+        import Qdislib as qd
+
+        qc = _circuit()
+        exact = qd.analytical_solution(qc, "ZZZZ")
+        value = qd.circuit_cutting(
+            qc, ["CZ_4"], "ZZZZ", backend=self._backend(), shots=30000
+        )
+        self.assertLess(abs(value - exact), 0.1)
+
+    def test_a_subcircuit_from_the_list_and_its_counts(self):
+        import Qdislib as qd
+
+        qc = _terminal()
+        width = qc.num_qubits
+        exact = qd.analytical_solution(qc, "Z" * width)
+        backend = self._backend()
+        name = next(
+            f"{gate}_{i}"
+            for i, (gate, qubits) in enumerate(qd.iter_gates(qc), 1)
+            if len(qubits) == 2 and gate == "CZ"
+        )
+        subs = qd.circuit_cutting_subcircuits(qc, [name], "Z" * width)
+        value = subs.reconstruct(
+            [qd.expectation_value(s, shots=30000, backend=backend) for s in subs]
+        )
+        self.assertLess(abs(value - exact), 0.1)
+
+    def test_evaluate_subcircuit_refuses_one_evaluated_before(self):
+        # it would read the wrong register, after paying for the shots
+        from qiskit import QuantumCircuit
+
+        backend = self._backend()
+        qc = QuantumCircuit(1)
+        qc.x(0)
+        self.assertEqual(backend.evaluate_subcircuit(qc, shots=20), -1.0)
+        measured = qc.copy()
+        measured.measure_all()
+        with self.assertRaisesRegex(ValueError, "already been evaluated"):
+            backend.evaluate_subcircuit(measured, shots=20)
+
+    def test_estimator_reads_z_strings_only(self):
+        from qiskit import QuantumCircuit
+
+        backend = self._backend()
+        qc = QuantumCircuit(2)
+        qc.x(0)
+        qc.measure_all()
+        estimate = backend.run_estimator(qc, False, "ZI", 50)
+        self.assertEqual(estimate.expectation_value, -1.0)
+        with self.assertRaisesRegex(ValueError, "contains X or Y"):
+            backend.run_estimator(qc, False, "XI", 50)
+
+
+@unittest.skipUnless(AER, "qiskit-aer required")
+class OtherBackendObjectsTest(BaseTimedTestCase):
+    """A cut through a backend object of each SDK, against the exact value."""
+
+    def _check(self, name, tolerance=0.08, **options):
+        import Qdislib as qd
+
+        qc = _circuit()
+        exact = qd.analytical_solution(qc, "ZZZZ")
+        backend = qd.build_backend(name, qd.BackendConfig(**options))
+        value = qd.circuit_cutting(
+            qc, {"gate": ["CZ_4"]}, "ZZZZ", backend=backend, shots=20000, seed=1
+        )
+        self.assertLess(abs(value - exact), tolerance)
+
+    @unittest.skipUnless(importlib.util.find_spec("pennylane"), "pennylane required")
+    def test_pennylane(self):
+        self._check("PENNYLANE_BACKEND", device="default.qubit")
+
+    @unittest.skipUnless(importlib.util.find_spec("qilisdk"), "qilisdk required")
+    def test_qilisdk(self):
+        self._check("QILISDK_BACKEND")
+
+    @unittest.skipUnless(importlib.util.find_spec("cudaq"), "cudaq required")
+    def test_cudaq(self):
+        self._check("CUDAQ_BACKEND", target="qpp-cpu")
+
+    @unittest.skipUnless(importlib.util.find_spec("qibo"), "qibo required")
+    def test_qibo(self):
+        self._check("QIBO_BACKEND")
 
 
 @unittest.skipUnless(AER, "qiskit-aer required")

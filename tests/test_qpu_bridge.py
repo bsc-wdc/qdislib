@@ -27,14 +27,19 @@ error-propagation paths and the runcard resolution.
 
 import glob
 import importlib.util
+import logging
 import os
+import sys
 import threading
 import time
+import types
 import unittest
+from unittest import mock
 
 from tests import BaseTimedTestCase
 
 from Qdislib.utils.qpu_bridge import (
+    run_qpu_listener,
     submit_and_wait,
     subcircuits_dir,
     _resolve_runcard,
@@ -259,6 +264,89 @@ class ListenerTest(BaseTimedTestCase):
             self.assertEqual(os.listdir(tmp), [f"{_RESULT_PREFIX}1.pkl"])
             with open(os.path.join(tmp, f"{_RESULT_PREFIX}1.pkl"), "rb") as handle:
                 self.assertIn(_ERROR_KEY, pickle.load(handle))
+
+
+class _FakeInstruments(_FakePlatform):
+    """A qililab platform: records how it was brought up and put down."""
+
+    def __init__(self):
+        self.calls = []
+
+    def connect(self):
+        self.calls.append("connect")
+
+    def initial_setup(self):
+        self.calls.append("setup")
+
+    def turn_on_instruments(self):
+        self.calls.append("on")
+
+    def turn_off_instruments(self):
+        self.calls.append("off")
+        raise RuntimeError("teardown is best effort")
+
+    def disconnect(self):
+        self.calls.append("disconnect")
+
+
+@unittest.skipUnless(importlib.util.find_spec("qibo"), "qibo required")
+class ListenerLoopTest(BaseTimedTestCase):
+    """The whole hand-off, with a stand-in for qililab."""
+
+    def _qililab(self, platform, runcards):
+        def build_platform(runcard):
+            runcards.append(runcard)
+            return platform
+
+        qililab = types.ModuleType("qililab")
+        qililab.logger = logging.getLogger("fake_qililab")
+        qililab.build_platform = build_platform
+        digital = types.ModuleType("qililab.digital")
+        digital.DigitalTranspilationConfig = lambda routing: {"routing": routing}
+        return {"qililab": qililab, "qililab.digital": digital}
+
+    def test_a_circuit_goes_there_and_back_and_a_stop_file_ends_it(self):
+        import tempfile
+
+        from qibo import gates, models
+
+        platform, runcards = _FakeInstruments(), []
+        circuit = models.Circuit(2)
+        circuit.add(gates.X(0))
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(sys.modules, self._qililab(platform, runcards)):
+                listener = threading.Thread(
+                    target=run_qpu_listener,
+                    kwargs={
+                        "directory": tmp,
+                        "runcard": "/rc.yml",
+                        "nshots": 40,
+                        "poll_interval": 0.01,
+                    },
+                )
+                listener.start()
+                result = submit_and_wait(
+                    circuit, directory=tmp, timeout=30, poll_interval=0.01
+                )
+                open(os.path.join(tmp, "STOP"), "w").close()
+                listener.join(30)
+            self.assertFalse(listener.is_alive())
+            self.assertEqual(result.counts(), {"00": 40})
+            self.assertEqual(os.listdir(tmp), ["STOP"])
+        self.assertEqual(runcards, ["/rc.yml"])
+        # measured there, on every qubit
+        self.assertEqual(type(platform.program.queue[-1]).__name__, "M")
+        # the teardown ran, its failure did not get out
+        self.assertEqual(platform.calls, ["connect", "setup", "on", "off"])
+
+    def test_idle_timeout_ends_it(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(sys.modules, self._qililab(_FakeInstruments(), [])):
+                run_qpu_listener(
+                    directory=tmp, runcard="r", idle_timeout=0.01, poll_interval=0.01
+                )
 
 
 @unittest.skipUnless(importlib.util.find_spec("qibo"), "qibo required")

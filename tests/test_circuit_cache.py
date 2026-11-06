@@ -24,6 +24,7 @@ import os
 import pickle
 import tempfile
 import unittest
+import unittest.mock
 
 from tests import BaseTimedTestCase
 
@@ -366,6 +367,72 @@ class CachedExpectationTest(BaseTimedTestCase):
         )
         self.assertLess(abs(result - analytical), 0.2)
         self.assertGreater(len(cache), 0)
+
+
+class _FakeRedisClient:
+    """What ``redis.Redis`` is used for, in a shared dict."""
+
+    data = {}
+
+    def __init__(self, **settings):
+        self.settings = settings
+
+    def get(self, key):
+        return self.data.get(key)
+
+    def set(self, key, value):
+        self.data[key] = value
+
+    def delete(self, key):
+        self.data.pop(key, None)
+
+
+class RedisStoreTest(BaseTimedTestCase):
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+
+        from Qdislib.utils import circuit_cache as cc
+
+        _FakeRedisClient.data = {}
+        fake = mock.Mock(Redis=_FakeRedisClient)
+        for name, value in (("_redis", fake), ("redis_available", True)):
+            patcher = mock.patch.object(cc, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.cc = cc
+
+    def test_a_value_goes_in_and_out_as_json_under_its_prefix(self):
+        store = self.cc.RedisCircuitCache(host="h", port=1, db=2, password="p")
+        store.put("k", {"a": [1, 2]})
+        self.assertEqual(list(_FakeRedisClient.data), ["qdislib:k"])
+        self.assertEqual(store.get("k"), {"a": [1, 2]})
+        self.assertIsNone(store.get("other"))
+        self.assertEqual(store.stats()["hits"], 1)
+        self.assertEqual(store.stats()["misses"], 1)
+        self.assertIsNone(store.stats()["size"])  # a shared server: not counted
+        self.assertEqual(store._client.settings["password"], "p")
+        store.delete("k")
+        self.assertIsNone(store.get("k"))
+
+    def test_goes_to_a_task_by_its_settings_not_its_connection(self):
+        store = self.cc.RedisCircuitCache(host="h", prefix="x:")
+        store.put("k", 1.5)
+        store._client.unpicklable = lambda: None
+        again = pickle.loads(pickle.dumps(store))
+        self.assertIsNone(again._client)
+        self.assertEqual((again.host, again.prefix), ("h", "x:"))
+        self.assertEqual(again.get("k"), 1.5)
+
+    def test_redis_outside_compss_is_this_store(self):
+        with unittest.mock.patch.object(self.cc, "pycompss_available", False):
+            store = self.cc.default_circuit_cache("redis", host="h")
+        self.assertIsInstance(store, self.cc.RedisCircuitCache)
+
+    def test_without_the_package_it_says_so(self):
+        with unittest.mock.patch.object(self.cc, "redis_available", False):
+            with self.assertRaisesRegex(ImportError, "redis"):
+                self.cc.RedisCircuitCache()
 
 
 @unittest.skipUnless(PYZX_AVAILABLE, "pyzx required")
