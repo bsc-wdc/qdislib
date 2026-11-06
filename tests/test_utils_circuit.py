@@ -22,6 +22,17 @@
 from tests import BaseTimedTestCase
 
 
+class RandomCircuitTest(BaseTimedTestCase):
+    def test_one_way_of_sizing_it(self):
+        from Qdislib.utils.circuit import _random_circuit
+        from Qdislib.utils.exceptions import QdislibException
+
+        for num_cz, p in ((None, None), (2, 0.5)):
+            with self.assertRaises(QdislibException):
+                _random_circuit(3, 1, num_cz, p)
+        self.assertEqual(_random_circuit(3, 0, 2, None).nqubits, 3)
+
+
 class CircuitTest(BaseTimedTestCase):
 
     def test_random_circuit(self):

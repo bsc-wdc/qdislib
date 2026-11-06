@@ -44,12 +44,11 @@ import typing
 from collections import defaultdict
 
 try:
-    import qibo
-    from qibo import models, gates, hamiltonians
+    from qibo import models, gates
 
     qibo_available = True
 except ImportError:  # qibo is optional; functions that need it fail when called
-    qibo = models = gates = hamiltonians = None
+    models = gates = None
     qibo_available = False
 
 from Qdislib.utils.exceptions import QdislibException
@@ -280,21 +279,22 @@ def _random_circuit(
     :param gate_max: Maximum number of single-qubit gates between CZ.
     :param num_cz: Number of CZ qbit gates. If none, p will be taken.
     :param p: Probability of adding an edge.
-    :raise QdislibException: If num_cz or p are both None.
+    :raise QdislibException: Unless exactly one of num_cz and p is given.
     :return: New random circuit.
     """
     import networkx
 
     # Seeded from `random`, so random.seed() keeps the whole circuit reproducible.
     seed = random.randrange(2**32)
-    if p == None:
-        graph = networkx.gnm_random_graph(qubits, num_cz, seed=seed)
-    elif num_cz == None:
-        graph = networkx.gnp_random_graph(qubits, p, seed=seed)
-    else:
+    if (p is None) == (num_cz is None):
         raise QdislibException(
-            "Error: only the number of edges or the probability of adding an edge must be specified"
+            "Error: exactly one of the number of edges and the probability of adding "
+            "an edge must be specified"
         )
+    if p is None:
+        graph = networkx.gnm_random_graph(qubits, num_cz, seed=seed)
+    else:
+        graph = networkx.gnp_random_graph(qubits, p, seed=seed)
 
     edge_list = list(graph.edges())
 
@@ -519,15 +519,15 @@ def parse_qsim(fname: str, depth: int = 22):
         print(circuit.draw())
     """
 
-    with open(fname, "r") as f:
+    with open(fname, "r", encoding="utf-8") as f:
         data = f.read()
     logger.info(data)
     lines = data.strip().splitlines()
 
     try:
         qcount = int(lines.pop(0))
-    except ValueError:
-        raise ValueError("First line should be qubit count")
+    except ValueError as exc:
+        raise ValueError("First line should be qubit count") from exc
 
     c = models.Circuit(qcount)
 
