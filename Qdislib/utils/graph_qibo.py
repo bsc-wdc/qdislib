@@ -301,7 +301,7 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
 
     :return: A list of two elements:
              - A :class:`qibo.models.Circuit` object reconstructed from the DAG.
-             - A list of qubit indices where "Observable I" measurements are applied (or `None` if not present). Used for internal workflow when cutting.
+             - The per-qubit observable: ``"Z"``, or ``"I"`` where the DAG has an "Observable I" marker. Used for internal workflow when cutting.
 
     Gate nodes must have the following format:
         - `gate`: Name of the gate (must match a class in `qibo.gates`).
@@ -336,11 +336,10 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
     for node in topo_order:
         node_data = dag.nodes[node]
         if node_data["gate"] == "Observable I":
-            # print(node)
             obs_I.append(node_data["qubits"][0])
             dag.remove_node(node)
 
-    dag, highest_qubit, smalles_qubit = _update_qubits_serie(dag)
+    dag, highest_qubit, _ = _update_qubits_serie(dag)
 
     # Create an empty Qibo circuit
     circuit = models.Circuit(highest_qubit)
@@ -375,17 +374,10 @@ def dag_to_circuit_qibo(dag: networkx.DiGraph, num_qubits: int) -> models.Circui
         for gate in qibo_gates(gate_raw, list(qubits), params):
             circuit.add(gate)
 
-    if obs_I:
-        observables = ["Z"] * circuit.nqubits
-        for element in obs_I:
-            observables[element] = "I"
-
-        observables = "".join(observables)
-        return [circuit, observables]
-
     observables = ["Z"] * circuit.nqubits
-    observables = "".join(observables)
-    return [circuit, observables]
+    for element in obs_I:
+        observables[element] = "I"
+    return [circuit, "".join(observables)]
 
 
 def _max_qubit(graph: networkx.DiGraph) -> float:
@@ -398,12 +390,10 @@ def _max_qubit(graph: networkx.DiGraph) -> float:
     max_qubits = float("-inf")  # Start with the lowest possible number
 
     # Iterate over the nodes and check their 'Qubits' attribute
-    for node, data in graph.nodes(data=True):
-        qubits = data.get("qubits", 0)  # Default to 0 if 'Qubits' is not present
-        for qubit in qubits:
+    for _, data in graph.nodes(data=True):
+        for qubit in data.get("qubits", ()):
             if qubit > max_qubits:
                 max_qubits = qubit
-                # Keep track of the node with the highest Qubit value
     return max_qubits
 
 

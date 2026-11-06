@@ -102,7 +102,7 @@ class QdBackEnd:
                 last_exc = exc
         raise RuntimeError(
             f"No backend could sample the circuit. Last error: {last_exc}"
-        )
+        ) from last_exc
 
     @task(returns=1)
     def get_expectation_value(
@@ -126,7 +126,7 @@ class QdBackEnd:
                 last_exc = exc
         raise RuntimeError(
             f"No backend could estimate the observable. Last error: {last_exc}"
-        )
+        ) from last_exc
 
     def _select_backends(
         self, circuit: SupportedCircuit, backend_name: str | None

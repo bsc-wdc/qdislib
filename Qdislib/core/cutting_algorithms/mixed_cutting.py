@@ -40,6 +40,7 @@ import numpy as np
 
 from Qdislib.utils.runtime import task, compss_wait_on, constraint, COLLECTION_IN
 from Qdislib.utils.backends import Subcircuit
+from Qdislib.utils.exceptions import InvalidCutError
 from Qdislib.core.cutting_algorithms._reconstruction import next_seed
 from Qdislib.core.cutting_algorithms._api import (
     SDKS,
@@ -330,9 +331,6 @@ def _golden_wires(graph, fragments):
     return golden
 
 
-from Qdislib.utils.exceptions import InvalidCutError  # noqa: E402
-
-
 class _Draws(list):
     """The drawn configurations, ``[(digits, config, wire, weight, count)]``, and
     the stratum of each (``strata``): the error bars resample draws within it."""
@@ -463,7 +461,6 @@ class _CutPlan:
         from Qdislib.core.cutting_algorithms.hadamard_cut import (
             _generate_cut_hadamard,
             _cut_groups,
-            _cut_settings,
             gamma_factor,
             local_unitary_decomposition,
             _num_circuit_qubits,
@@ -1523,10 +1520,11 @@ class _FragmentCircuit(Subcircuit):
     def to_circuit(self, software=None, defer_measurements=False):
         """``[circuit, observable]`` in ``software`` (default: the list's), on qubits
         ``0..n-1``, like every subcircuit's ``to_circuit`` (the 1.x pairs; for just
-        the native circuits use the list's :meth:`CutCircuits.circuits`). ``defer_measurements`` moves a gate cut's mid-circuit
-        measurement onto an extra qubit read at the end (a CNOT onto it: the same
-        channel), for hardware without mid-circuit measurement; it is done anyway
-        when ``software`` cannot express the measurement (QiliSDK)."""
+        the native circuits use the list's :meth:`CutCircuits.circuits`).
+        ``defer_measurements`` moves a gate cut's mid-circuit measurement onto an
+        extra qubit read at the end (a CNOT onto it: the same channel), for hardware
+        without mid-circuit measurement; it is done anyway when ``software`` cannot
+        express the measurement (QiliSDK)."""
         from Qdislib.core.cutting_algorithms.gate_cutting import (
             _defer_all_cut_measurements,
         )
@@ -2232,9 +2230,7 @@ def _global_correlators(tensor, outs, width):
 
 def _observable_mask(observable, width):
     """The global Z mask of a Pauli string after its basis change."""
-    if observable is None:
-        return (1 << width) - 1
-    return sum(1 << q for q, pauli in enumerate(observable) if pauli != "I")
+    return (1 << width) - 1 if observable is None else _term_mask(observable)
 
 
 def _output_distribution(plan, tensor, outs, marginal=None):
@@ -3251,7 +3247,7 @@ class CutCircuits(list):
         :attr:`parameters` order. Run and reconstruct it as usual."""
         from Qdislib.core.cutting_algorithms.parameters import normalise_values
 
-        bound = CutCircuits(
+        return CutCircuits(
             _bind_circuits(self, normalise_values(values, self.parameters)),
             plan=self.plan,
             keys=self.keys,
@@ -3261,7 +3257,6 @@ class CutCircuits(list):
             draws=self.draws,
             basis=self.basis,
         )
-        return bound
 
     def reconstruct_counts(self, counts, bit_order="q0_first"):
         """:meth:`reconstruct` from the measurement counts of :meth:`circuits`

@@ -82,7 +82,7 @@ def build_execution_backend(
     batch=None,
     ibm_backend=None,
     **extra,
-) -> "BaseBackend":
+) -> BaseBackend:
     """Select and build the backend that evaluates a cut subcircuit.
 
     The single place that turns the cutting algorithms' execution knobs
@@ -95,8 +95,6 @@ def build_execution_backend(
     ``software`` may also be a backend object (from :func:`build_backend`), which is
     returned as it is.
     """
-    from Qdislib.core.backend.base_backend import BaseBackend
-
     if isinstance(software, BaseBackend):  # a configured backend object: use it
         return software
     size = max(int(num_qubits or 1), 1)

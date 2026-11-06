@@ -48,8 +48,6 @@ from Qdislib.utils.graph_qibo import _final_measurements, _update_qubits_serie
 
 from Qdislib.utils.runtime import task
 
-import math
-
 
 def _emit_qiskit_gate(circuit, gate_name, params, qubits):
     """Append one DAG gate to a Qiskit circuit. The DAG's canonical names are
@@ -169,14 +167,13 @@ def dag_to_circuit_qiskit(dag, num_qubits):
     Returns:
         list: A list containing:
             - QuantumCircuit: The reconstructed Qiskit circuit object.
-            - list or None: A list of qubit indices measured with an "Observable I" (identity) gate, or `None` if none are present.
+            - str: The per-qubit observable, ``"Z"`` or ``"I"`` where the DAG has an "Observable I" marker.
 
     Notes:
-        - Observable I nodes are removed from the DAG and recorded separately as classical measurement placeholders.
+        - The DAG is changed in place: its Observable I nodes are removed, and its qubits renumbered. Pass a copy to keep it.
         - The function uses a topological sort of the DAG to ensure gate application respects dependencies.
         - The controlled-X gate is accepted under either name (Qibo's ``CNOT`` or Qiskit/CUDA-Q's ``CX``) and emitted as Qiskit's ``cx``.
-        - If a `measure` gate is encountered, classical control flow (via `c_if`) is assumed.
-        - The function assumes all remaining qubits are measured at the end unless otherwise specified.
+        - A gate cut's `measure` is a measurement into a classical register (``c``, then ``c2``... for a qubit cut again); the qubit keeps evolving after it.
 
     Example:
         .. code-block:: python
@@ -197,13 +194,11 @@ def dag_to_circuit_qiskit(dag, num_qubits):
     for node in topo_order:
         node_data = dag.nodes[node]
         if node_data["gate"] == "Observable I":
-            # print(node)
             obs_I.append(node_data["qubits"][0])
             dag.remove_node(node)
 
-    dag, highest_qubit, smalles_qubit = _update_qubits_serie(dag)
+    dag, _, _ = _update_qubits_serie(dag)
 
-    # Create an empty Qibo circuit
     qreg_q = QuantumRegister(num_qubits, "q")
     creg_c = ClassicalRegister(num_qubits, "c")
     circuit = QuantumCircuit(qreg_q, creg_c)
@@ -244,17 +239,10 @@ def dag_to_circuit_qiskit(dag, num_qubits):
             # CNOT->cx, U3->u, CU3->cu, ... (Qiskit renamed the OpenQASM-2 gates).
             _emit_qiskit_gate(circuit, gate_name, parameters, qubits)
 
-    if obs_I:
-        observables = ["Z"] * num_qubits
-        for element in obs_I:
-            observables[element] = "I"
-
-        observables = "".join(observables)
-        return [circuit, observables]
-
     observables = ["Z"] * num_qubits
-    observables = "".join(observables)
-    return [circuit, observables]
+    for element in obs_I:
+        observables[element] = "I"
+    return [circuit, "".join(observables)]
 
 
 # --- SDK table adapters (see Qdislib.utils.sdks) ------------------------------

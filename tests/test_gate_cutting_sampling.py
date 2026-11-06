@@ -222,3 +222,11 @@ class GateCuttingSamplingTest(BaseTimedTestCase):
     @unittest.skipUnless(CUDAQ_AVAILABLE, "cudaq required")
     def test_cudaq_wire_three_step(self):
         self._check_wire_three_step("cudaq")
+
+
+class SampleSubcircuitInputTest(BaseTimedTestCase):
+    def test_sample_subcircuit_of_no_subcircuit(self):
+        import Qdislib as qd
+
+        with self.assertRaisesRegex(TypeError, "sample_subcircuit"):
+            qd.sample_subcircuit(object())

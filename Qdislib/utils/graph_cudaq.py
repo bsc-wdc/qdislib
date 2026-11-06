@@ -197,31 +197,16 @@ def dag_to_circuit_cudaq(dag: nx.DiGraph, num_qubits: int):
             obs_I.append(dag.nodes[node]["qubits"][0])
             dag.remove_node(node)
 
-    if obs_I:
-        observables = ["Z"] * num_qubits
-        for element in obs_I:
-            observables[element] = "I"
-
-        observables = "".join(observables)
-        return [(dag, num_qubits), observables]
-
     observables = ["Z"] * num_qubits
-    observables = "".join(observables)
-    return [(dag, num_qubits), observables]
+    for element in obs_I:
+        observables[element] = "I"
+    return [(dag, num_qubits), "".join(observables)]
 
 
 # @task(returns=1)
 def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final=False):
     """
     Convert a DAG into a CUDA-Q kernel using the modern builder API.
-
-    Produces code like::
-
-        kernel = cudaq.make_kernel()
-        q = [kernel.qalloc() for _ in range(num_qubits)]
-        kernel.h(q[0])
-        result = kernel.mz(q[0])
-        kernel.if_result(result, lambda: kernel.x(q[1]))
 
     :param dag: networkx.DiGraph whose nodes carry ``gate`` (str), ``qubits``
         (tuple of indices) and ``parameters`` (list) attributes.
@@ -265,8 +250,6 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
 
     # Allocate qubits explicitly
     q = [kernel.qalloc() for _ in range(num_qubits)]
-    # Cut-measured qubits, in mz-call order (for the explicit-measurements parse).
-    measured_order = []
     # Traverse DAG
     for node in nx.topological_sort(dag):
         node_data = dag.nodes[node]
@@ -354,7 +337,6 @@ def dag_to_circuit_cudaq_kernel(dag: nx.DiGraph, num_qubits: int, explicit_final
             elif gate == "MEASURE":
                 for qb in qubits:
                     kernel.mz(q[qb])
-                    measured_order.append(qb)
 
             else:
                 raise ValueError(f"Unsupported gate type: {gate}")

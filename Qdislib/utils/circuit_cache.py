@@ -60,6 +60,7 @@ from fractions import Fraction
 import networkx
 from networkx.algorithms.graph_hashing import weisfeiler_lehman_graph_hash
 
+from Qdislib.utils.qasm import qasm_drops_measurements
 from Qdislib.utils.sdks import sdk_names as _sdk_names
 from Qdislib.utils.runtime import pycompss_available
 
@@ -101,19 +102,6 @@ except ImportError:
     get_by_ID = None
     redis_psco_available = False
 
-# Circuit class sentinels for backend detection (each SDK is optional).
-try:
-    from qiskit.circuit import QuantumCircuit as _QiskitCircuit
-except ImportError:
-    _QiskitCircuit = type("QuantumCircuit", (), {})
-try:
-    from qibo.models import Circuit as _QiboCircuit
-except ImportError:
-    _QiboCircuit = type("QiboCircuit", (), {})
-try:
-    from cudaq.kernel.kernel_decorator import PyKernelDecorator as _CudaqKernel
-except ImportError:
-    _CudaqKernel = type("PyKernelDecorator", (), {})
 # PennylaneCircuit is a plain Qdislib data wrapper -- always importable, no
 # PennyLane install required to reference the class for type detection.
 from Qdislib.utils.graph_pennylane import PennylaneCircuit as _PennylaneCircuit
@@ -203,8 +191,6 @@ def _pennylane_circuit_to_qasm(circuit):
 # ... contains unbound variables", so every CUDA-Q kernel with a rotation gate
 # silently lost caching. Rewrite scientific-notation literals to plain decimal
 # before handing the QASM to PyZX.
-from Qdislib.utils.qasm import qasm_drops_measurements
-
 _SCIENTIFIC_NOTATION_RE = re.compile(r"[-+]?\d*\.?\d+[eE][-+]?\d+")
 
 
