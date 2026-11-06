@@ -393,58 +393,6 @@ class Subcircuit:
         )
 
 
-class SampledSubcircuit(Subcircuit):
-    """A subcircuit of a ``*_sampling_subcircuits`` list: run it with
-    :func:`~Qdislib.sample_subcircuit`, which returns its Z correlators.
-
-    ``dag`` keeps the circuit's own qubit numbering (the reconstruction needs it);
-    ``circuit`` is renumbered to ``0..num_qubits-1``.
-    """
-
-    kind = "distribution"
-
-    def __init__(self, dag, software):
-        qubits = {q for _, d in dag.nodes(data=True) for q in d.get("qubits") or ()}
-        super().__init__(dag, len(qubits), software)
-
-    @property
-    def component(self):  # the 1.x name
-        return self.dag
-
-    def to_circuit(self):
-        dag, width = self._renumbered()
-        return _materialize(dag, width, self.software)
-
-    @property
-    def observable(self):
-        return None
-
-    def _expectation(self, shots, backend, seed, cache, cache_mode):
-        raise TypeError(
-            "This subcircuit comes from a *_sampling_subcircuits list (distribution): "
-            "run it with sample_subcircuit()."
-        )
-
-    def _sample(self, shots, backend, seed):
-        if shots is None:  # statevector, mid-circuit measurements deferred
-            runner = self.software if backend is None else backend
-            if runner not in _sdk_names():
-                raise ValueError("shots=None (exact) needs a simulator backend")
-            return _exact_correlators_task(self.dag, runner)
-        from Qdislib.core.cutting_algorithms.gate_cutting import (
-            _sample_gate_subcircuit,
-        )
-
-        return _sample_gate_subcircuit(
-            self.dag,
-            self.software if backend is None else backend,
-            shots,
-            False,
-            None,
-            seed,
-        )
-
-
 @task(returns=1)
 def _run_subcircuit(dag, num_qubits, backend, shots, seed):
     """Run one subcircuit's DAG on ``backend`` (an SDK, a registered backend name or
@@ -893,18 +841,6 @@ def _exact_expectation_task(subcircuit, backend):
 
 
 @task(returns=1)
-def _exact_correlators_task(dag, runner):
-    """A sampling subcircuit's exact Z correlators (statevector), as a task."""
-    from Qdislib.core.cutting_algorithms.mixed_cutting import (
-        _exact_fragment,
-        _exact_runner,
-    )
-
-    corr, original = _exact_fragment(dag, _exact_runner(runner))
-    return dict(enumerate(corr)), original
-
-
-@task(returns=1)
 def _evaluate_subcircuit_on(subcircuit, shots, backend, seed):
     """Run a (future of a) :class:`Subcircuit` on ``backend`` inside one task."""
     from Qdislib.core.backend.registry import build_execution_backend
@@ -934,7 +870,7 @@ class CutSubcircuits(list):
         values = [qd.expectation_value(s) for s in subcircuits]
         result = subcircuits.reconstruct(values)        # no manual bookkeeping
 
-    The functions build it; 2.0 lists are :class:`~Qdislib.CutCircuits`.
+    Only the 1.x paths build it; the lists of 2.0 are :class:`~Qdislib.CutCircuits`.
     """
 
     def __init__(self, subcircuits, *, number_cuts, number_components, reconstructor):

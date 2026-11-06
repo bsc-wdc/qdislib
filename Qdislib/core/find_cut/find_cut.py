@@ -455,28 +455,6 @@ def _rank_candidates(candidates, weights=None, forbidden=None, edge_weights=None
     return scored
 
 
-def _plot_partition(graph, partition):
-    """Draw a partitioned circuit graph (manual debug aid; call it yourself)."""
-    import matplotlib.pyplot as plt
-
-    pos = networkx.spring_layout(graph)
-    plt.figure(figsize=(12, 12))
-    colors = ["orange", "purple", "green", "red", "blue"]
-    for i, component in enumerate(partition):
-        networkx.draw_networkx_nodes(
-            graph,
-            pos,
-            nodelist=list(component),
-            node_color=colors[i % len(colors)],
-            node_size=200,
-            alpha=0.5,
-        )
-    networkx.draw_networkx_edges(graph, pos, alpha=0.5)
-    networkx.draw_networkx_labels(graph, pos)
-    plt.title("Graph Partition Visualization")
-    plt.show()
-
-
 @task(returns=2)
 def _find_cut_gate(
     circuit,

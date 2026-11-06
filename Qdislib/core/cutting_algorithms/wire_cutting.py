@@ -830,8 +830,8 @@ class WireSampledCutSubcircuits(list):
         sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
         distribution = subs.reconstruct(sampled)
 
-    What a 1.x list was; the functions build it, and 2.0 lists are
-    :class:`~Qdislib.CutCircuits`.
+    What a 1.x list was: since 2.0.0 no function returns it (their lists are
+    :class:`~Qdislib.CutCircuits`), and the name stays for code that imports it.
     """
 
     def __init__(
@@ -869,49 +869,6 @@ class WireSampledCutSubcircuits(list):
             self._prepared_to_orig,
         )
         return compss_wait_on(distribution)
-
-
-def _wire_cutting_sampling_subcircuits(
-    circuit, cut, software="qiskit", qpu=False, qpu_dict=None
-):
-    """Partition a circuit into **wire-cut sampling** fragments (three-step workflow).
-
-    The wire counterpart of
-    :func:`~Qdislib.core.cutting_algorithms.gate_cutting.gate_cutting_sampling_subcircuits`:
-    generate the fragments, sample each yourself, then reconstruct the output
-    distribution::
-
-        subs = qd.wire_cutting_sampling_subcircuits(circuit, cut, software="qiskit")
-        sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
-        distribution = subs.reconstruct(sampled)
-
-    :param circuit: A Qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
-    :param cut: The wire cut(s), as returned by :func:`~Qdislib.find_cut`.
-    :param software: Backend the fragments are sampled on.
-    :param qpu: Route fragment sampling to a QPU when each fragment is later sampled.
-    :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
-    :return: A :class:`WireSampledCutSubcircuits` (a ``list`` of fragments plus the
-        cut metadata and a ``reconstruct`` method).
-    """
-    from Qdislib.core.cutting_algorithms.gate_cutting import _dag_num_qubits
-    from Qdislib.utils.backends import SampledSubcircuit
-
-    dag = convert_to_dag(circuit)
-    num_qubits = _dag_num_qubits(dag)
-    wire_cuts = _expand_wire_cuts(dag, cut)
-    _validate_wire_cuts_partition(dag, wire_cuts, num_qubits)
-    components, per_config_counts, cut_source_index, prepared_to_orig = (
-        _wire_cut_sampling_components(dag, wire_cuts, num_qubits)
-    )
-    units = [SampledSubcircuit(component, software) for component in components]
-    return WireSampledCutSubcircuits(
-        units,
-        number_cuts=len(wire_cuts),
-        num_qubits=num_qubits,
-        per_config_counts=per_config_counts,
-        cut_source_index=cut_source_index,
-        prepared_to_orig=prepared_to_orig,
-    )
 
 
 def _expand_wire_cuts(dag, edges_to_replace):

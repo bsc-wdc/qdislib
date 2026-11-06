@@ -105,7 +105,6 @@ from Qdislib.utils.backends import (
     change_basis_dag,
     normalize_observables,
     make_subcircuit,
-    SampledSubcircuit,
     _make_subcircuit_task,
     CutSubcircuits,
     CombinedCutSubcircuits,
@@ -1885,8 +1884,8 @@ class SampledCutSubcircuits(list):
         sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
         distribution = subs.reconstruct(sampled)
 
-    What a 1.x list was; the functions build it, and 2.0 lists are
-    :class:`~Qdislib.CutCircuits`.
+    What a 1.x list was: since 2.0.0 no function returns it (their lists are
+    :class:`~Qdislib.CutCircuits`), and the name stays for code that imports it.
     """
 
     def __init__(
@@ -1911,50 +1910,6 @@ class SampledCutSubcircuits(list):
         return self._reconstructor(
             sampled_results, self.number_cuts, self.number_components, self.num_qubits
         )
-
-
-def _gate_cutting_sampling_subcircuits(
-    circuit, gates_cut, software="qiskit", qpu=False, qpu_dict=None
-):
-    """Partition a circuit into **sampling** subcircuits (three-step workflow).
-
-    The sampling counterpart of :func:`gate_cutting_subcircuits`: generate the
-    subcircuits, sample each one yourself (any backend/hardware), then reconstruct
-    the output *distribution* (rather than an expectation value)::
-
-        import Qdislib as qd
-
-        # 1. Cut into independently samplable subcircuits.
-        subs = qd.gate_cutting_sampling_subcircuits(circuit, ["CZ_2"], software="qiskit")
-
-        # 2. Sample each subcircuit (your loop -- real QPUs, batching, caching, ...).
-        sampled = [qd.sample_subcircuit(s, shots=8192) for s in subs]
-
-        # 3. Recombine into the original circuit's output distribution.
-        distribution = subs.reconstruct(sampled)
-
-    :param circuit: A Qibo / Qiskit / CUDA-Q circuit (or a Qdislib DAG).
-    :param gates_cut: The gates to cut (as in :func:`gate_cutting_sampling`).
-    :param software: Backend the subcircuits are sampled on (must match the backend
-        used to sample them).
-    :param qpu: Route sampling to a QPU when each subcircuit is later sampled.
-    :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
-    :return: A :class:`SampledCutSubcircuits` (a ``list`` of sampling subcircuits
-        plus the cut metadata and a :meth:`~SampledCutSubcircuits.reconstruct`
-        method).
-    """
-    dag = convert_to_dag(circuit)
-    num_qubits = _dag_num_qubits(dag)
-    _validate_gate_cuts_partition(dag, gates_cut)
-    components, number_components = _gate_cut_sampling_components(dag, gates_cut)
-    units = [SampledSubcircuit(component, software) for component in components]
-    return SampledCutSubcircuits(
-        units,
-        number_cuts=len(gates_cut),
-        number_components=number_components,
-        num_qubits=num_qubits,
-        reconstructor=_gate_cutting_sampling_reconstruction,
-    )
 
 
 @task(returns=1)
