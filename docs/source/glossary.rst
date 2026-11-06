@@ -9,68 +9,88 @@ Qdislib's documentation:
 .. glossary::
 
     backend
-      the execution target Qdislib runs a :term:`subcircuit` on -- a CPU simulator
-      (Qibo / Qiskit / CUDA-Q / PennyLane), a GPU, or a real :term:`quantum processing unit`.
-      Selected per call with the ``software`` / ``gpu`` / ``qpu`` arguments.
+      where Qdislib runs a :term:`subcircuit`: a simulator (Qiskit Aer, Qibo, CUDA-Q,
+      PennyLane, QiliSDK), a GPU, or a real :term:`quantum processing unit`. Chosen per
+      call with ``backend=``.
 
     circuit cutting
       decomposing a large quantum circuit into smaller subcircuits that can be
       executed independently, then recombining their results. Qdislib supports
       :term:`gate cutting`, :term:`Hadamard-test gate cutting`, :term:`wire cutting`,
-      and :term:`mixed cutting` (gate + wire on one circuit).
+      and any mix of them on one circuit (:term:`mixed cutting`).
+
+    configuration
+      one term of the combined quasiprobability decomposition of a set of cuts: a choice
+      of one term per cut.
+
+    distribution
+      see :term:`output distribution`.
 
     expectation value
       the average value of an observable measured on a quantum state. Qdislib
       reconstructs the original circuit's expectation value from those of its
       subcircuits.
 
+    fragment
+      a part of a circuit that a cut leaves disconnected from the others. A fragment runs
+      as several :term:`subcircuit`\ s, one per setting of the cuts that touch it.
+
+    gamma
+      the :term:`sampling overhead` of a cut.
+
     gate cutting
-      a circuit-cutting strategy that replaces a selected (two-qubit) gate with a
-      measure-and-prepare quasiprobability decomposition over single-qubit
-      operations, splitting the circuit into independent subcircuits. Cuts any
-      two-qubit gate (``CZ``/``CX`` natively; others decomposed into ``CZ`` +
-      single-qubit gates). See also :term:`Hadamard-test gate cutting`.
+      a circuit-cutting strategy that replaces a two-qubit gate with a measure-and-prepare
+      quasiprobability decomposition over local operations. A gate other than CZ or CX is cut
+      as the ``rzz`` rotations it decomposes into, each at its own angle. See also
+      :term:`Hadamard-test gate cutting`.
+
+    golden cut point
+      a wire leaving a fragment whose state is real. Its ``Y`` terms are zero and are left
+      out: ``gamma`` 3 instead of 4.
 
     Hadamard-test gate cutting
-      an alternative :term:`gate cutting` method (Harrow & Lowe,
-      `arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) that cuts a two-qubit
-      gate with **one local ancilla** per fragment running a Hadamard test instead of
-      a mid-circuit measurement. It cuts **any** gate as a single cut at the optimal
-      quasiprobability overhead, and (having no feed-forward) keeps the fragments
-      fully independent. Exposed as ``gate_cutting_hadamard``.
+      a :term:`gate cutting` method (Harrow and Lowe,
+      `arXiv:2403.01018 <https://arxiv.org/abs/2403.01018>`_) that uses one local ancilla per
+      fragment running a Hadamard test, instead of a mid-circuit measurement. Gates crossing one
+      boundary can be cut together with one shared ancilla per fragment. Exposed as
+      ``gate_cutting_hadamard``.
 
     mixed cutting
       cutting some gates (measure-and-prepare or Hadamard) *and* some wires on the
-      same circuit in one workflow (``circuit_cutting``); the quasiprobability
-      decompositions tensor and all fragments run in parallel.
+      same circuit in one workflow (``circuit_cutting``).
 
     output distribution
       the probability of each measurement bitstring, ``{bitstring: probability}``.
       Qdislib's ``*_sampling`` functions reconstruct it from the subcircuits, as an
       alternative to a single :term:`expectation value`.
 
+    packing
+      running several small circuits side by side, on separate groups of qubits of one device,
+      in one job (``qd.pack``).
+
     quantum processing unit
       (QPU) real quantum hardware. Qdislib runs the :term:`subcircuit`\ s on a QPU
-      when you pass it as ``backend=`` (a registered name or a backend object), on
-      every cutting call or per subcircuit in the three-step loop.
+      when you pass it as ``backend=``.
 
     quasiprobability overhead
-      the extra sampling cost of :term:`circuit cutting`: each cut expands into
-      several terms (6 for a :term:`gate cutting` cut, 8 for a :term:`wire cutting`
-      cut), so the number of subcircuit evaluations -- and the shots needed for a
-      given accuracy -- grows exponentially in the number of cuts.
+      see :term:`sampling overhead`.
 
     qubit
       Quantum bit.
 
     reconstruction
-      the post-processing step that recombines the per-subcircuit
-      :term:`expectation value`\ s (with the appropriate signs and normalization)
-      into the expectation value of the original, uncut circuit.
+      the post-processing step that recombines the results of the subcircuits into the result
+      of the original, uncut circuit. Qdislib contracts one tensor per :term:`fragment` over
+      the cuts.
+
+    sampling overhead
+      the extra sampling cost of :term:`circuit cutting`, ``gamma``. For the same worst-case
+      precision the shots grow as ``gamma**2``, and the ``gamma`` of several cuts multiply.
+      A CZ cut has ``gamma`` 3, and a wire cut 4.
 
     semantic cache
-      a content-addressed cache that keys each :term:`subcircuit` by a ZX-reduced
-      graph hash, so *functionally equivalent* subcircuits are simulated only once.
+      a cache keyed by a ZX-reduced graph hash of a circuit, so equivalent circuits can be
+      found. In Qdislib it is ``cache_key="semantic"``.
 
     subcircuit
       one of the smaller circuits produced by cutting a larger circuit; it can be

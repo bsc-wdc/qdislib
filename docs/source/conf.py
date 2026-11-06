@@ -71,22 +71,12 @@ extensions = [
     "sphinx_design",  # cards / grids / tab-sets on the landing + guides
     "sphinx_copybutton",  # one-click "copy" on every code block
     "notfound.extension",
-    "sphinxemoji.sphinxemoji",
-    "versionwarning.extension",
 ]
 
 nbsphinx_execute = "never"
 
-# Gallery thumbnails: the notebooks are illustrative (not executed), so they have
-# no output image to auto-pick. Give the learning path the Qdislib logo and each
-# application its result figure.
-nbsphinx_thumbnails = {
-    "notebooks/0*": "_static/logo.png",
-    "notebooks/applications/01_vqe_h2": "_static/vqe_landscape.png",
-    "notebooks/applications/02_scaling": "_static/scaling.png",
-    "notebooks/applications/03_image_reconstruction": "_static/image_cutting.png",
-}
-
+# A copy button on code, not on a notebook's stored output.
+copybutton_selector = "div.highlight pre:not(.nboutput pre)"
 # Don't let sphinx-copybutton copy prompt characters / output lines.
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True
@@ -108,7 +98,18 @@ autodoc_mock_imports = [
     "cudaq",
     "pennylane",
     "pymetis",
+    "qilisdk",
+    "iqm",
+    "qililab",
+    "pyzx",
+    "lmdb",
+    "redis",
 ]
+# A mocked class in an annotation evaluated at import (``SparsePauliOp | str``).
+from sphinx.ext.autodoc.mock import _MockObject
+
+_MockObject.__or__ = _MockObject.__ror__ = lambda self, other: self
+
 autodoc_preserve_defaults = True
 autodoc_function_signature_with_arguments_on_newline = True
 

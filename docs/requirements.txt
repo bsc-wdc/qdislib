@@ -1,28 +1,18 @@
-pip
-typing-extensions
-# Light core deps so autodoc can import Qdislib (heavy SDKs + pymetis are mocked
-# via autodoc_mock_imports in conf.py).
+# What Read the Docs installs. Light core deps so autodoc can import Qdislib; the
+# heavy SDKs and pymetis are mocked via autodoc_mock_imports in conf.py. nbsphinx also
+# needs pandoc, which the Read the Docs build image has.
 numpy
 networkx
 matplotlib
 scikit-learn
+typing-extensions
 Sphinx>=8.0.2,<9.0.0
-sphinxcontrib.contentui==0.2.5
 nbsphinx>=0.9.5
 nbsphinx-link>=1.3.0
 sphinx_design==0.6.1
 sphinx-copybutton==0.5.2
-sphinxcontrib-svg2pdfconverter==1.2.3
-sphinx-tabs==3.4.5
-sphinx-toolbox==3.8.0
-sphinx-prompt==1.9.0
-sphinx-rtd-theme>=3.0.0rc1
 ipython>=8.27.0
-ipywidgets>=8.1.5
 sphinx_mdinclude>=0.6.2
 furo>=2024.1.29
 sphinx-autodoc-typehints
 sphinx-notfound-page
-sphinxemoji
-sphinx-version-warning
-pystemmer<3.0.0

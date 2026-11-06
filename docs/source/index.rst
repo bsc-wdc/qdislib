@@ -1,124 +1,110 @@
-.. Qdislib documentation master file, created by
-   sphinx-quickstart on Tue Mar  5 09:41:59 2024.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+Qdislib
+=======
 
+**Qdislib** runs quantum circuits by **cutting** them into smaller subcircuits, running those independently, and reconstructing the result of the original circuit. It runs serially on a laptop or in parallel on HPC with `PyCOMPSs <https://compss-doc.readthedocs.io/>`__, on simulators, GPUs and QPUs.
 
-Welcome to Qdislib!
-===================
+.. code-block:: bash
 
-**Qdislib** is a Python library designed for scalable quantum circuit execution using *circuit cutting* techniques. It enables the simulation of large quantum circuits by splitting them into smaller, manageable subcircuits that can be executed independently—either on classical simulators, GPUs, or quantum hardware.
+    pip install "qdislib[qiskit]"
 
-Qdislib is built on top of the `PyCOMPSs <https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar>`__ parallel runtime, allowing seamless distributed execution of quantum workloads across CPUs, GPUs, and QPUs.
+.. code-block:: python
 
-With Qdislib, researchers and developers can:
+    from qiskit import QuantumCircuit
+    import Qdislib as qd
 
-- Perform **gate** and **wire cutting** to decompose complex quantum circuits, plus an ancilla-based **Hadamard-test gate cut** (``gate_cutting_hadamard``) and any **mix** of gate, Hadamard and wire cuts on one circuit (``circuit_cutting``).
-- Cut **any two-qubit gate** — CZ/CX natively, other gates auto-decomposed to CZ, or cut in a single step with the Hadamard-test method.
-- Leverage **GPU acceleration** using Qiskit Aer, cuQuantum or Qibojit.
-- Submit subcircuits to **remote QPUs** like IBM Quantum.
-- Work with circuits defined in **Qibo**, **Qiskit**, **CUDA-Q**, **PennyLane** and **QiliSDK**.
-- Automatically identify good cut points with `find_cut`, including a **cost-aware** search (``mixed=True``) that prices gate, Hadamard and wire cuts as they will run, and **hardware-aware** selection that cuts the longest-routing gates for a given QPU ``coupling_map`` (SparseCut, `arXiv:2511.05492 <https://arxiv.org/abs/2511.05492>`_).
-- Extract and manipulate subcircuits independently.
+    circuit = QuantumCircuit(10)
+    circuit.ry(0.5, range(10))
+    for q in range(9):
+        circuit.cz(q, q + 1)
 
-Whether you're targeting HPC systems, hybrid quantum-classical setups, or constrained simulators, Qdislib is a flexible and modular tool to bridge the gap between current hardware limitations and large-scale quantum algorithm design.
+    cut = qd.find_cut(circuit, max_qubits=5, wire_cut=False)    # ['CZ_15']: two fragments
+    print(qd.gate_cutting(circuit, cut, shots=8192, seed=1, error=True))
 
-Explore the sections below to get started with installation, quickstart examples, user guides, API references, and more.
+Use it to run a circuit too wide for your device or simulator, when a few cuts split it. Each cut multiplies the shots a given precision needs, by ``gamma**2``, so the number of cuts is what limits it: ``qd.cutting_overhead`` tells you the cost before anything runs.
 
-Qdislib has been implemented on top of
-`PyCOMPSs <https://www.bsc.es/research-and-development/software-and-apps/software-list/comp-superscalar/>`__ programming model,
-and it is being developed by the
-`Workflows and Distributed Computing <https://www.bsc.es/discover-bsc/organisation/scientific-structure/workflows-and-distributed-computing>`__
-group of the `Barcelona Supercomputing Center <http://www.bsc.es>`_.
+.. grid:: 1 2 3 3
+    :gutter: 3
+
+    .. grid-item-card:: Quickstart
+        :link: quickstart
+        :link-type: doc
+
+        Install, and cut your first circuit.
+
+    .. grid-item-card:: Notebooks
+        :link: examples
+        :link-type: doc
+
+        A learning path with results and figures. Open any of them in Colab or Binder.
+
+    .. grid-item-card:: User guide
+        :link: user_guide
+        :link-type: doc
+
+        What each part does and when to use it.
+
+    .. grid-item-card:: PyCOMPSs and HPC
+        :link: guide/hpc
+        :link-type: doc
+
+        Running in parallel, GPU tasks and MareNostrum 5.
+
+    .. grid-item-card:: API reference
+        :link: api_reference
+        :link-type: doc
+
+        Every public function and class.
+
+    .. grid-item-card:: What is new in 2.0
+        :link: whats_new
+        :link-type: doc
+
+        What changed, and how to move from 1.x.
+
+What it does
+------------
+
+- **Three kinds of cut, in any mix** (``circuit_cutting``): measure-and-prepare gate cuts that follow the gate's angle, Hadamard gate cuts with no mid-circuit measurement, and wire cuts.
+- **Expectation values and distributions.** Pauli strings and Hamiltonians; output distributions, marginals with ``qubits=``, and ``FactoredDistribution`` over more than 24 qubits.
+- **Finding cuts** (``find_cut``): for a size, by cost over all kinds of cut (``mixed=True``), or for a device's connectivity (``coupling_map``).
+- **Shots and error bars.** ``error=``, ``total_shots=``, ``num_samples=`` and ``shots_for``.
+- **Any SDK.** Circuits from Qiskit, Qibo, CUDA-Q, PennyLane and QiliSDK, run on any of them. ``qd.BaseBackend`` adds your own in one method.
+- **PyCOMPSs.** Every fragment circuit is a task, including GPU tasks. Without PyCOMPSs it runs serially, with the same results.
+- **QPUs.** IBM, IQM and BSC devices, and ``qd.pack`` to run many subcircuits in one job.
+- **A cache** of fragment results, across observables and runs.
+
+Notebooks
+---------
+
+Every :doc:`notebook <examples>` runs top to bottom on a laptop with no credentials, stores its outputs, and has links to open it in Colab or Binder. Some have sliders that work on the page itself.
+
+- **Start here:** :doc:`notebooks/01_quickstart`, then :doc:`notebooks/02_cutting_workflow` and :doc:`notebooks/03_finding_cuts`.
+- **Topics:** :doc:`observables <notebooks/05_observables>`, :doc:`distributions <notebooks/06_sampling>`, :doc:`caching <notebooks/07_caching>`, :doc:`cut types <notebooks/10_cut_types>`, :doc:`error bars <notebooks/11_shots_and_errors>`, :doc:`free parameters <notebooks/12_parameters>`.
+- **Running it elsewhere:** :doc:`other SDKs <notebooks/04_backends>`, :doc:`your own backend <notebooks/08_backend_internals>`, :doc:`PyCOMPSs and QPUs <notebooks/09_distributed_and_qpu>`, :doc:`packing on a QPU <notebooks/13_packing>`.
+- **Applications:** :doc:`a VQE <notebooks/applications/01_vqe_h2>`, :doc:`scaling up <notebooks/applications/02_scaling>`, :doc:`an image <notebooks/applications/03_image_reconstruction>`.
 
 .. toctree::
    :maxdepth: 2
    :hidden:
 
    quickstart
-   user_guide
    examples
+   user_guide
    api_reference
+   whats_new
    modules
    development
    glossary
 
-.. nbgallery::
-    :caption: Start with our notebooks!
-    :name: rst-gallery
-
-    notebooks/01_quickstart
-    notebooks/02_cutting_workflow
-    notebooks/03_finding_cuts
-    notebooks/04_backends
-    notebooks/05_observables
-    notebooks/06_sampling
-    notebooks/07_caching
-    notebooks/08_backend_internals
-    notebooks/09_distributed_and_qpu
-    notebooks/applications/01_vqe_h2
-    notebooks/applications/02_scaling
-    notebooks/applications/03_image_reconstruction
-
-Documentation
--------------
-
-.. grid:: 2 2 3 3
-    :gutter: 3
-
-    .. grid-item-card:: 🚀 Quickstart
-        :link: quickstart
-        :link-type: doc
-
-        Install and cut your first circuit in three steps.
-
-    .. grid-item-card:: 📖 User guide
-        :link: user_guide
-        :link-type: doc
-
-        Gate vs wire cutting, observables, sampling, caching, backends & GPUs.
-
-    .. grid-item-card:: 🧪 Examples
-        :link: examples
-        :link-type: doc
-
-        The hands-on notebook learning path and end-to-end applications.
-
-    .. grid-item-card:: 🧩 API reference
-        :link: api_reference
-        :link-type: doc
-
-        Every public function, class and module.
-
-    .. grid-item-card:: 🛠️ Development
-        :link: development
-        :link-type: doc
-
-        Build, test and release Qdislib.
-
-    .. grid-item-card:: 📚 Glossary
-        :link: glossary
-        :link-type: doc
-
-        Circuit-cutting terms, defined.
-
-    .. grid-item-card:: 📄 Cheat sheet (PDF)
-        :link: Qdislib_cheatsheet.pdf
-        :link-type: url
-
-        A one-page printable reference.
-
 Source code
 -----------
 
-The source code of Qdislib is available online at `Github <https://github.com/bsc-wdc/Qdislib>`__.
+The source code of Qdislib is on `GitHub <https://github.com/bsc-wdc/qdislib>`__. Qdislib is developed by the `Workflows and Distributed Computing <https://www.bsc.es/discover-bsc/organisation/scientific-structure/workflows-and-distributed-computing>`__ group of the `Barcelona Supercomputing Center <https://www.bsc.es>`_.
 
 Support
 -------
 
-If you have questions or issues about the Qdislib you can join us in `Slack <https://bit.ly/bsc-wdc-community>`__.
-
-Alternatively, you can send us an e-mail to `support-compss@bsc.es <mailto:support-compss@bsc.es>`__.
+For questions or issues, join us on `Slack <https://bit.ly/bsc-wdc-community>`__, or write to `support-compss@bsc.es <mailto:support-compss@bsc.es>`__.
 
 Citing Qdislib
 --------------
