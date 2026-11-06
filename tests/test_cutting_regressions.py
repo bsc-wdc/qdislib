@@ -20,6 +20,7 @@
 
 import importlib.util
 import unittest
+import warnings
 
 import numpy as np
 
@@ -461,6 +462,41 @@ class RepeatedGateCutsTest(BaseTimedTestCase):
             for m in outcomes:
                 product *= -((-1) ** m)
             self.assertEqual(-((-1) ** _fold_cut_outcomes(outcomes)), product)
+
+
+@unittest.skipUnless(QISKIT, "qiskit not installed")
+class DeprecatedQpuPathTest(BaseTimedTestCase):
+    def test_a_pauli_sum_keeps_the_qpu_config(self):
+        # each term connected to IBM from the environment instead
+        from unittest import mock
+
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+        from Qdislib.core.cutting_algorithms import gate_cutting as gc
+
+        qc = QuantumCircuit(2)
+        qc.cz(0, 1)
+        config = {"token": "t", "channel": "ibm_cloud"}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with (
+                mock.patch.object(
+                    gc, "_check_ibm_qc", return_value=(None, None)
+                ) as connect,
+                mock.patch.object(gc, "_execute_gate_cutting", return_value=[1.0]),
+            ):
+                qd.gate_cutting(
+                    qc,
+                    ["CZ_1"],
+                    [(0.5, "ZZ"), (0.5, "ZI")],
+                    qpu=True,
+                    qpu_dict={"IBM_Quantum": 5},
+                    qpu_config=config,
+                )
+        self.assertEqual(connect.call_count, 2)
+        for call in connect.call_args_list:
+            self.assertEqual(call.args[0], config)
 
 
 if __name__ == "__main__":

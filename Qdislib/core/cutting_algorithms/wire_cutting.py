@@ -371,7 +371,7 @@ def _wire_cutting(
             final_recons = _build_and_run_subcircuit(
                 dag, software, shots, backend, qpu, seed
             )
-        return final_recons
+        return compss_wait_on(final_recons) if sync else final_recons
 
 
 def _wire_cut_sampling_components(dag, wire_cuts, num_qubits):

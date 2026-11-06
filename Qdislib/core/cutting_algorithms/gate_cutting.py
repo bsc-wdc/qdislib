@@ -287,6 +287,7 @@ def _gate_cutting(
                 gpu_min_qubits=gpu_min_qubits,
                 qpu=qpu,
                 qpu_dict=qpu_dict,
+                qpu_config=qpu_config,
                 software=software,
                 cache=cache,
                 cache_mode=cache_mode,
