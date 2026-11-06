@@ -1788,7 +1788,7 @@ def _gate_cutting_sampling(
     :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g.
         ``{"MN_Ona": 4}``), as in :func:`gate_cutting`.
     :param seed: Optional seed for a reproducible distribution. Each subcircuit
-        gets a distinct derived seed (``seed + i``) so the pieces stay independent;
+        gets a distinct derived seed so the pieces stay independent;
         ``None`` keeps the previous non-deterministic sampling. Ignored on a QPU.
     :return: ``{bitstring: probability}`` (qubit-0-first bitstrings).
     """

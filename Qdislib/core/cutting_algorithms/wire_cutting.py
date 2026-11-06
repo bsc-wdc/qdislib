@@ -734,7 +734,7 @@ def _wire_cutting_sampling(
         ``build_execution_backend``) instead of a local simulator.
     :param qpu_dict: QPU-name -> max-qubit map selecting the QPU (e.g. ``{"MN_Ona": 4}``).
     :param seed: Optional seed for a reproducible distribution. Each fragment gets a
-        distinct derived seed (``seed + i``); ``None`` keeps the previous
+        distinct derived seed; ``None`` keeps the previous
         non-deterministic sampling. Ignored on a QPU.
     :param optimized: Sample each fragment once per measurement setting /
         preparation (``sum_f 3**i_f * 4**j_f``, or fewer with ``joint``) instead of

@@ -55,6 +55,9 @@ class AerBackend(BaseBackend):
         A pre-built Aer noise model.
     precision : {"single", "double"}, optional
         Statevector precision (default ``"double"``).
+
+    A cut runs with these options. On a node with no GPU, ``use_gpu`` fails when the
+    first circuit runs, with a :class:`RuntimeError`.
     """
 
     @property
@@ -92,7 +95,7 @@ class AerBackend(BaseBackend):
         return (
             not self._use_gpu
             and self._noise_model is None
-            and (self._precision == "double")
+            and self._precision == "double"
         )
 
     def _counts(self, circuit: QuantumCircuit, shots: int, seed) -> dict:
