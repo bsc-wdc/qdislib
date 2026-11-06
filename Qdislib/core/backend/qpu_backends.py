@@ -52,8 +52,18 @@ class BSCQpuBackend(BaseBackend):
 
     def evaluate_samples(self, dag, num_qubits, shots=1024, seed=None):
         """Final counts from a BSC QPU, through the shared-filesystem bridge
-        (qubit-0-first). ``seed`` is ignored (hardware)."""
-        return self._final_counts(dag, num_qubits)
+        (qubit-0-first). ``seed`` is ignored (hardware), and the listener decides
+        the shots (its ``nshots``): a warning says when they differ from ``shots``."""
+        counts = self._final_counts(dag, num_qubits)
+        taken = sum(counts.values())
+        if counts and taken != shots:
+            from Qdislib.utils.logging_config import warn_once
+
+            warn_once(
+                f"BSC QPU: {shots} shots asked for, but the QPU listener runs {taken}: "
+                "its shots are set by run_qpu_listener(nshots=...)."
+            )
+        return counts
 
     @staticmethod
     def _final_counts(dag, num_qubits):
@@ -65,7 +75,7 @@ class BSCQpuBackend(BaseBackend):
         subcirc = dag_to_circuit_qibo(dag, num_qubits)
         if subcirc is None:
             return {}
-        if type(subcirc) != qibo.models.circuit.Circuit:
+        if not isinstance(subcirc, qibo.models.Circuit):
             subcirc = subcirc[0]  # drop the "Observable I" marker; sampling reads bits
         return submit_and_wait(subcirc).counts()
 

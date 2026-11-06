@@ -26,6 +26,7 @@ error-propagation paths and the runcard resolution.
 """
 
 import glob
+import importlib.util
 import os
 import threading
 import time
@@ -38,6 +39,7 @@ from Qdislib.utils.qpu_bridge import (
     subcircuits_dir,
     _resolve_runcard,
     _atomic_write_pickle,
+    _process_one,
     _CIRCUIT_PREFIX,
     _RESULT_PREFIX,
     _ERROR_KEY,
@@ -204,6 +206,85 @@ class PortableResultTest(BaseTimedTestCase):
             with self.assertRaises(QPUExecutionError):
                 submit_and_wait("c", directory=tmp, timeout=5, poll_interval=0.02)
             listener.join()
+
+
+class _FakePlatform:
+    """Stand-in for a qililab platform: records the circuit and returns counts."""
+
+    def execute(self, program, num_bins, num_avg, transpilation_config):
+        self.program = program
+        return {"counts": {"0" * program.nqubits: num_bins}, "shots": num_bins}
+
+
+@unittest.skipUnless(importlib.util.find_spec("qibo"), "qibo required")
+class ListenerTest(BaseTimedTestCase):
+    def _submitted(self, directory):
+        from qibo import gates, models
+
+        circuit = models.Circuit(1)
+        circuit.add(gates.X(0))
+        path = os.path.join(directory, f"{_CIRCUIT_PREFIX}1.pkl")
+        _atomic_write_pickle(circuit, path)
+        return path
+
+    def test_the_result_goes_next_to_the_circuit(self):
+        # the shared directory's own name may contain the file prefix: the writer
+        # would wait for a result written somewhere else, until its timeout
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = os.path.join(tmp, "circuit_cutting_run")
+            os.makedirs(directory)
+            _process_one(_FakePlatform(), self._submitted(directory), 100, None)
+            self.assertEqual(os.listdir(directory), [f"{_RESULT_PREFIX}1.pkl"])
+
+    def test_a_circuit_that_cannot_be_pickled_leaves_no_file(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(Exception):
+                submit_and_wait(lambda: None, directory=tmp, timeout=1)
+            self.assertEqual(os.listdir(tmp), [])
+
+    def test_a_result_that_cannot_be_pickled_is_reported(self):
+        import pickle
+        import tempfile
+
+        class Unpicklable(_FakePlatform):
+            def execute(self, **_):
+                return lambda: None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _process_one(Unpicklable(), self._submitted(tmp), 100, None)
+            self.assertEqual(os.listdir(tmp), [f"{_RESULT_PREFIX}1.pkl"])
+            with open(os.path.join(tmp, f"{_RESULT_PREFIX}1.pkl"), "rb") as handle:
+                self.assertIn(_ERROR_KEY, pickle.load(handle))
+
+
+@unittest.skipUnless(importlib.util.find_spec("qibo"), "qibo required")
+class BSCBackendShotsTest(BaseTimedTestCase):
+    def test_a_listener_with_other_shots_is_pointed_out(self):
+        import warnings
+        from unittest import mock
+
+        import networkx as nx
+
+        import Qdislib as qd
+        from Qdislib.utils import logging_config
+        from Qdislib.utils.qpu_bridge import QPUResult
+
+        dag = nx.DiGraph()
+        dag.add_node("X_1", gate="x", qubits=(0,), parameters=())
+        backend = qd.build_backend("BSC_QPU_BACKEND", qd.BackendConfig(num_qubits=5))
+        logging_config._WARNED.clear()
+        result = QPUResult({"counts": {"1": 1000}})
+        with mock.patch("Qdislib.utils.qpu_bridge.submit_and_wait", lambda _: result):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                self.assertEqual(backend.evaluate_samples(dag, 1, 1000), {"1": 1000})
+                self.assertFalse(caught)
+                self.assertEqual(backend.evaluate_samples(dag, 1, 4096), {"1": 1000})
+        self.assertTrue(any("nshots" in str(w.message) for w in caught))
 
 
 if __name__ == "__main__":

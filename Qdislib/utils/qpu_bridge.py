@@ -46,6 +46,7 @@ runcard; the writer side needs neither, so importing Qdislib on the classical
 cluster does not require ``qililab``.
 """
 
+import contextlib
 import glob
 import logging
 import os
@@ -131,11 +132,17 @@ def _atomic_write_pickle(obj, path):
     So a reader on the other cluster never observes a partially written file.
     """
     tmp = f"{path}.{os.getpid()}.tmp"
-    with open(tmp, "wb") as handle:
-        pickle.dump(obj, handle)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(tmp, path)  # atomic within a single filesystem
+    try:
+        with open(tmp, "wb") as handle:
+            pickle.dump(obj, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)  # atomic within a single filesystem
+    except BaseException:
+        # e.g. a result that cannot be pickled: leave nothing in the shared directory
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise
 
 
 def submit_and_wait(circuit, directory=None, timeout=None, poll_interval=1.0):
@@ -143,13 +150,16 @@ def submit_and_wait(circuit, directory=None, timeout=None, poll_interval=1.0):
 
     Writes ``circuit_<id>.pkl`` and polls for the listener's ``result_<id>.pkl``.
     The wait is bounded so a down listener surfaces a clear error instead of
-    hanging the task forever.
+    hanging the task forever. The listener decides the shots (its ``nshots``).
+
+    Both files are pickles, and unpickling runs code: the directory must be writable
+    only by the users of the workflow.
 
     :param circuit: The (unmeasured) subcircuit to execute; the listener adds the
         measurements and runs it on the QPU.
     :param directory: Shared hand-off dir (default :func:`subcircuits_dir`).
-    :param timeout: Max seconds to wait; defaults to ``$QDISLIB_QPU_TIMEOUT`` or
-        3600. ``None`` waits forever (not recommended).
+    :param timeout: Max seconds to wait; ``None`` (default) is
+        ``$QDISLIB_QPU_TIMEOUT``, or 3600.
     :param poll_interval: Seconds between checks for the result file.
     :raises QPUTimeoutError: If no result appears within ``timeout``.
     :raises QPUExecutionError: If the listener reports an execution failure.
@@ -171,15 +181,13 @@ def submit_and_wait(circuit, directory=None, timeout=None, poll_interval=1.0):
         timeout,
     )
 
-    deadline = None if timeout is None else time.monotonic() + timeout
+    deadline = time.monotonic() + timeout
     while not os.path.exists(result_path):
-        if deadline is not None and time.monotonic() > deadline:
+        if time.monotonic() > deadline:
             # Clean up so a late listener does not leave orphaned files behind.
             for path in (circuit_path, result_path):
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(path)
-                except OSError:
-                    pass
             raise QPUTimeoutError(
                 f"No QPU result after {timeout}s in {directory!r}. "
                 "Is run_qpu_listener() running against this directory?"
@@ -231,7 +239,9 @@ def _process_one(platform, circuit_path, nshots, transpilation):
     """
     from qibo import gates
 
-    result_path = circuit_path.replace(_CIRCUIT_PREFIX, _RESULT_PREFIX)
+    # Only the file name: the directory may well contain "circuit_" too.
+    directory, name = os.path.split(circuit_path)
+    result_path = os.path.join(directory, _RESULT_PREFIX + name[len(_CIRCUIT_PREFIX) :])
     try:
         with open(circuit_path, "rb") as handle:
             circuit = pickle.load(handle)
@@ -258,10 +268,8 @@ def _process_one(platform, circuit_path, nshots, transpilation):
         except Exception:
             logger.debug("QPU listener: could not write error marker", exc_info=True)
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(circuit_path)
-        except OSError:
-            pass
 
 
 def run_qpu_listener(
