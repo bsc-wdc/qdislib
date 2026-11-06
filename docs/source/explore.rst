@@ -1,7 +1,7 @@
 Explore Qdislib
 ===============
 
-The whole library, on one page, with nothing to install. The first section computes everything in your browser. The others show stored results of real Qdislib runs, and say so. To run the real code, open :doc:`the notebooks <examples>` in Colab or Binder, or :doc:`try the poster's four methods <try>`.
+The whole library, on one page, with nothing to install. The first section computes everything in your browser. The others show stored results of real Qdislib runs, and say so. To run the real code, open :doc:`the notebooks <examples>` in Colab or Binder, or :doc:`try the four cutting methods <try>`.
 
 .. raw:: html
 
@@ -13,11 +13,20 @@ The whole library, on one page, with nothing to install. The first section compu
 Circuit playground
 ------------------
 
-Build a circuit of up to 6 qubits and cut it. **This runs live, in your browser:** a statevector simulation of each fragment, with the actual decompositions of a gate cut, a Hadamard cut and a wire cut. ``docs/check_explore_engine.py`` checks these numbers against real Qdislib on random circuits. Hadamard cuts here use one ancilla per gate, Qdislib's ``joint=False``.
+Build a circuit of up to 6 qubits and cut it. **This runs live, in your browser:** a statevector simulation of each fragment, with the actual decompositions of a gate cut, a Hadamard cut and a wire cut. ``docs/check_explore_engine.py`` checks these numbers against real Qdislib on random circuits. Hadamard cuts here use one ancilla per gate, ``joint=False``. The page also gives what Qdislib's default, ``joint=True``, would cost.
 
 .. raw:: html
 
    <div id="qdx-play" class="qd-try"><p>This section needs JavaScript.</p></div>
+
+What lowers the cost
+--------------------
+
+Each cut multiplies the work, so Qdislib has several ways to multiply it by less: optimized runs, joint cuts, golden cut points, and cuts that follow the gate's angle. *Stored from* :func:`~Qdislib.cutting_overhead` *and real runs.*
+
+.. raw:: html
+
+   <div id="qdx-low" class="qd-try"><p>This section needs JavaScript.</p></div>
 
 Finding cuts
 ------------

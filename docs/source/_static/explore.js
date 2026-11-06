@@ -432,8 +432,10 @@
         check.appendChild(el("p", {}, "Uncut circuit, statevector: <" + observable + "> = " + num(exact, 6)));
         check.appendChild(el("p", {}, "Reconstructed from the fragments: " + num(prepared.value, 6)));
         check.appendChild(el("p", {}, "Difference " + small(Math.abs(prepared.value - exact)) + ", from " + prepared.runs + " distinct fragment circuits computed in your browser."));
-        var goldenCount = Object.keys(plan.golden).length;
-        if (goldenCount) note.textContent = goldenCount + " wire cut" + (goldenCount > 1 ? "s are" : " is") + " golden: the state that sends it is real, so its Y terms are zero and are left out, with 6 terms and gamma 3.";
+        var goldenCount = Object.keys(plan.golden).length, notes = [];
+        if (goldenCount) notes.push(goldenCount + " wire cut" + (goldenCount > 1 ? "s are" : " is") + " golden: the state that sends it is real, so its Y terms are zero and are left out, with 6 terms and gamma 3.");
+        if (plan.joint && plan.joint.shared) notes.push("Qdislib's default, joint=True, would share ancillas between the " + plan.joint.shared + " Hadamard cuts across one boundary: " + count(plan.joint.subcircuits) + " subcircuits and gamma " + gammaText(plan.joint.gamma) + ", against " + count(plan.subcircuits) + " and " + gammaText(plan.gamma) + " here. The value is the same.");
+        note.textContent = notes.join(" ");
 
         /* Shots */
         var shots = Math.pow(2, Number(shotSlider.value));
@@ -529,6 +531,47 @@
     again.addEventListener("click", function () { state.seed += 1; render(); });
     presets().chain();
     render();
+  }
+
+  /* ---- What lowers the cost ---- */
+  function lowerSection(root) {
+    var data = D.lower, k = 3, angle = 1;
+    root.textContent = "";
+    var row = root.appendChild(el("div", { class: "qdx-row" }));
+    var label = row.appendChild(el("label", { for: "qdx-low" }));
+    var slider = row.appendChild(el("input", { id: "qdx-low", type: "range", min: "1", max: String(data.cuts.length), step: "1", value: String(k), "aria-label": "Number of cuts" }));
+    var body = root.appendChild(el("div"));
+    root.appendChild(el("span", { class: "qd-label" }, "A gate cut follows the gate's angle"));
+    var row2 = root.appendChild(el("div", { class: "qdx-row" }));
+    var label2 = row2.appendChild(el("label", { for: "qdx-ang" }));
+    var slider2 = row2.appendChild(el("input", { id: "qdx-ang", type: "range", min: "0", max: String(data.angles.length - 1), step: "1", value: String(angle), "aria-label": "Angle of the rzz gates that are cut" }));
+    var angles = root.appendChild(el("div", { class: "qd-stats" }));
+    root.appendChild(el("p", { class: "qd-note" }, "Every count and gamma is stored from qd.cutting_overhead. The circuits run with shots=None up to 3 cuts, and differ from the uncut value by " + small(data.largest_difference) + " at most. Golden wires are on a chain of fragments, as each has to send one wire alone; the rest on two blocks joined by k gates."));
+    function update() {
+      label.textContent = "Cuts: " + k;
+      body.textContent = "";
+      data.groups.forEach(function (group) {
+        body.appendChild(el("span", { class: "qd-label" }, group.label));
+        body.appendChild(el("p", { class: "qd-note" }, group.note));
+        var most = Math.max.apply(null, group.rows.map(function (r) { return r.values[k - 1].subcircuits; }));
+        group.rows.forEach(function (r) {
+          var v = r.values[k - 1], line = body.appendChild(el("div", { class: "qdx-bar" }));
+          line.appendChild(el("span", {}, r.label));
+          var track = line.appendChild(el("div"));
+          track.appendChild(el("div", { class: "qd-bar", style: "background:var(--qd-a);height:12px;width:" + Math.max(1.5, 100 * Math.log10(v.subcircuits + 1) / Math.log10(most + 1)) + "%" }));
+          line.appendChild(el("span", { class: "qdx-num" }, count(v.subcircuits) + " circuits, gamma " + gammaText(v.gamma)));
+        });
+      });
+      var a = data.angles[angle];
+      label2.textContent = k + " rzz(" + a.phi + ") gates cut";
+      angles.textContent = "";
+      stat(angles, gammaText(a.gamma[k - 1]), "gamma, gate cuts");
+      stat(angles, count(Math.pow(a.gamma[k - 1], 2)), "shots factor, gamma squared");
+      stat(angles, gammaText(a.joint[k - 1]), "gamma, joint Hadamard cuts");
+    }
+    slider.addEventListener("input", function () { k = Number(slider.value); update(); });
+    slider2.addEventListener("input", function () { angle = Number(slider2.value); update(); });
+    update();
   }
 
   /* ---- 2. find_cut ---- */
@@ -824,7 +867,7 @@
   }
 
   var SECTIONS = {
-    "qdx-play": playground, "qdx-find": findCutSection, "qdx-plan": plannerSection, "qdx-dist": distributionSection,
+    "qdx-play": playground, "qdx-low": lowerSection, "qdx-find": findCutSection, "qdx-plan": plannerSection, "qdx-dist": distributionSection,
     "qdx-err": errorSection, "qdx-noise": noiseSection, "qdx-sdk": sdkSection, "qdx-pack": packSection
   };
   Object.keys(SECTIONS).forEach(function (id) {

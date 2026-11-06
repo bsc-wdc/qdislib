@@ -4,7 +4,7 @@
 Try Qdislib
 ===========
 
-The companion to the :doc:`poster <poster>` *Qdislib: Implementation and Evaluation of Circuit Cutting and Sampling Techniques for Quantum Circuits*. Pick a cutting method and a number of cuts, and see what it costs and that the result comes back. Nothing to install.
+What Qdislib does today, with nothing to install. Pick a cutting method and a number of cuts, and see what it costs and that the result comes back. These are the four methods of the :doc:`SC poster <poster>`. To go further, :doc:`explore the whole library <explore>`.
 
 .. raw:: html
 

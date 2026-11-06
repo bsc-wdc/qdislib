@@ -208,6 +208,65 @@ def planner_section():
     return out
 
 
+# --------------------------------------------------------- what lowers the cost
+def lower_section():
+    observable = lambda qc: "Z" * qc.num_qubits
+    cuts = list(range(1, 7))
+    largest = [0.0]
+
+    def values(make, options, exact_call):
+        rows = []
+        for k in cuts:
+            qc, spec = make(k)
+            cost = qd.cutting_overhead(qc, spec, **options)
+            rows.append({"subcircuits": cost["subcircuits"], "gamma": round(cost["gamma"], 4)})
+            if k <= 3:
+                value = exact_call(qc, spec)
+                largest[0] = max(largest[0], abs(float(value) - float(qd.analytical_solution(qc, observable(qc)))))
+        return rows
+
+    def run(**options):
+        return lambda qc, spec: qd.circuit_cutting(qc, spec, observable(qc), shots=None, **options)
+
+    gate = lambda k: (between_blocks(k)[0], {"gate": between_blocks(k)[1]})
+    hadamard = lambda k: (between_blocks(k)[0], {"hadamard": between_blocks(k)[1]})
+    wire = lambda k: (between_blocks(k)[0], {"wire": between_blocks(k)[2]})
+    golden = lambda k: (golden_chain(k)[0], {"wire": golden_chain(k)[1]})
+    groups = [
+        {"label": "Gate cuts", "note": "optimized=True runs each fragment once per setting of the cuts that touch it, and reuses it in every term: a sum over fragments. gamma does not change.", "rows": [
+            {"label": "As they are", "values": values(gate, {}, run())},
+            {"label": "optimized=True", "values": values(gate, {"optimized": True}, run(optimized=True))},
+        ]},
+        {"label": "Hadamard cuts", "note": "With joint=True, the default, the gates crossing one boundary share one ancilla per side: gamma 2^(k+1) - 1 instead of 3^k.", "rows": [
+            {"label": "joint=False", "values": values(hadamard, {"joint": False}, run(joint=False))},
+            {"label": "joint=True", "values": values(hadamard, {}, run())},
+        ]},
+        {"label": "Wire cuts", "note": "With optimized=True a fragment runs once per setting of its wires, and with joint=True, the default, the wires it sends are measured together: 2^k + 1 circuits instead of 3^k.", "rows": [
+            {"label": "As they are", "values": values(wire, {}, run())},
+            {"label": "optimized, joint=False", "values": values(wire, {"optimized": True, "joint": False}, run(optimized=True, joint=False))},
+            {"label": "optimized, joint=True", "values": values(wire, {"optimized": True}, run(optimized=True))},
+        ]},
+        {"label": "Golden wire cuts", "note": "When the fragment that sends a wire alone has a real state, the wire's Y terms are zero and are left out: 6 terms instead of 8, gamma 3 instead of 4. It is exact and automatic.", "rows": [
+            {"label": "A real state", "values": values(golden, {}, run())},
+            {"label": "optimized=True", "values": values(golden, {"optimized": True}, run(optimized=True))},
+        ]},
+    ]
+    angles = []
+    for phi in (0.05, 0.1, 0.3, 0.6, 1.0, 1.5708):
+        make = lambda k: (between_blocks(k, "rzz", phi)[0], between_blocks(k, "rzz", phi)[1])
+        row = {"phi": phi, "gamma": [], "joint": []}
+        for k in cuts:
+            qc, names = make(k)
+            row["gamma"].append(round(qd.cutting_overhead(qc, {"gate": names})["gamma"], 4))
+            row["joint"].append(round(qd.cutting_overhead(qc, {"hadamard": names})["gamma"], 4))
+            if k <= 2:
+                value = qd.circuit_cutting(qc, {"gate": names}, observable(qc), shots=None)
+                largest[0] = max(largest[0], abs(float(value) - float(qd.analytical_solution(qc, observable(qc)))))
+        angles.append(row)
+    print("lower: largest difference", largest[0], flush=True)
+    return {"cuts": cuts, "groups": groups, "angles": angles, "largest_difference": largest[0]}
+
+
 # ---------------------------------------------------------------- distributions
 def dist_circuit():
     qc = QuantumCircuit(8)
@@ -510,6 +569,7 @@ def pack_section():
 SECTIONS = {
     "find_cut": find_cut_section,
     "planner": planner_section,
+    "lower": lower_section,
     "distributions": distribution_section,
     "errors": error_section,
     "noise": noise_section,

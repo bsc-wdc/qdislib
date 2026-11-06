@@ -10,7 +10,8 @@ to docs/source/_static/explore_engine.js (run by Node) and to Qdislib. They must
 - the reconstruction (qd.circuit_cutting(..., shots=None));
 - whether Qdislib refuses the cut (InvalidCutError);
 - the fragments, the configurations, the subcircuits and gamma (the subcircuit list, and
-  qd.cutting_overhead for the optimized count when no Hadamard cut is in it).
+  the optimized count when no Hadamard cut is in it), and with Hadamard cuts the
+  subcircuits and gamma of joint=True, Qdislib's default.
 
 Every reconstruction is also compared with the engine's own uncut value. That is the only
 check on two kinds of circuit, listed separately: Qdislib raises on a wire cut right after a
@@ -52,6 +53,7 @@ const out = cases.map((c) => {
     r.gamma = plan.gamma;
     r.optimized = plan.optimized;
     r.golden = Object.keys(plan.golden).length;
+    if (plan.joint) { r.joint_subcircuits = plan.joint.subcircuits; r.joint_gamma = plan.joint.gamma; }
     r.value = engine.reconstruct(circuit, c.cuts.map((x) => Object.assign({}, x)), c.observable).value;
   }
   return r;
@@ -151,7 +153,11 @@ def qdislib_result(case):
     out["configurations"] = subs.plan.num_configurations
     out["gamma"] = subs.plan.gamma()
     out["value"] = float(qd.circuit_cutting(qc, spec, observable, shots=None, joint=False))
-    if not spec["hadamard"]:
+    if spec["hadamard"]:
+        default = qd.circuit_cutting_subcircuits(qc, spec, observable)
+        out["joint_subcircuits"] = len(default)
+        out["joint_gamma"] = default.plan.gamma()
+    else:
         probe = qd.circuit_cutting_subcircuits(qc, spec, observable, optimized=True)
         out["optimized"] = probe.plan.num_units()
     return out
@@ -167,7 +173,7 @@ def main():
             input=json.dumps(cases), capture_output=True, text=True, check=True,
         ).stdout
     )
-    worst = {"exact": 0.0, "value": 0.0, "gamma": 0.0, "self": 0.0}
+    worst = {"exact": 0.0, "value": 0.0, "gamma": 0.0, "joint_gamma": 0.0, "self": 0.0}
     tally = {"valid": 0, "invalid": 0, "gate": 0, "hadamard": 0, "wire": 0, "mixed": 0, "golden": 0}
     failures, crashes, known = [], [], []
     for case, mine in zip(cases, js):
@@ -182,13 +188,13 @@ def main():
         problems = []
         if "value" in mine:
             worst["self"] = max(worst["self"], abs(mine["value"] - mine["exact"]))
-        for key in ("exact", "value", "gamma"):
+        for key in ("exact", "value", "gamma", "joint_gamma"):
             if key in theirs and key in mine:
                 difference = abs(theirs[key] - mine[key])
                 worst[key] = max(worst[key], difference)
                 if difference > 1e-9:
                     problems.append(f"{key}: {mine[key]} against {theirs[key]}")
-        for key in ("invalid", "subcircuits", "fragments", "configurations", "optimized"):
+        for key in ("invalid", "subcircuits", "fragments", "configurations", "optimized", "joint_subcircuits"):
             if key in theirs and mine.get(key) != theirs[key]:
                 problems.append(f"{key}: {mine.get(key)} against {theirs[key]}")
         kinds = {c["kind"] for c in case["cuts"]}
@@ -200,7 +206,7 @@ def main():
                 tally[kind] += 1
             tally["mixed"] += len(kinds) > 1
             tally["golden"] += mine.get("golden", 0) > 0
-        counts_only = all(p.startswith(("subcircuits", "fragments")) for p in problems)
+        counts_only = all(p.startswith(("subcircuits", "fragments", "joint_subcircuits")) for p in problems)
         if problems and counts_only and {"hadamard", "gate"} <= kinds:
             known.append((case, problems))
         elif problems:

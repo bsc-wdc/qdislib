@@ -33,3 +33,6 @@ body[data-theme="dark"] .qd-try { --qdx-cut: #ff7a66; --qdx-had: #c792ea; }
 @media (prefers-color-scheme: dark) {
   body:not([data-theme="light"]) .qd-try { --qdx-cut: #ff7a66; --qdx-had: #c792ea; }
 }
+.qd-try .qdx-bar { display: grid; grid-template-columns: minmax(7.5rem, 14rem) 1fr; gap: 0.15rem 0.5rem; align-items: center; font-size: 0.85rem; margin: 0.35rem 0; }
+.qd-try .qdx-bar .qdx-num { grid-column: 2; font-size: 0.78rem; color: var(--color-foreground-secondary, #555); font-variant-numeric: tabular-nums; }
+.qd-try .qdx-bar .qd-bar { border-radius: 0 4px 4px 0; }

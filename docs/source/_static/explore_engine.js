@@ -253,6 +253,33 @@
       optimized += count;
     });
 
+    /* Hadamard cuts across one boundary, as joint=True runs them: for k rzz with
+       coefficients |c|, |s|, 2^k product terms, 2 r^2 - r settings for r terms, and
+       gamma = 2 (sum |c_i|)^2 - sum c_i^2 = 2 prod(1 + |sin theta|) - 1. */
+    var joint = null;
+    if (!invalid.length && hasHadamard) {
+      var groups = {};
+      cuts.forEach(function (cut) {
+        if (cut.kind !== "hadamard") return;
+        var a = segments[opSegments[cut.op][0]].fragment, b = segments[opSegments[cut.op][1]].fragment;
+        var key = Math.min(a, b) + ":" + Math.max(a, b);
+        (groups[key] = groups[key] || []).push(gateGamma(ops[cut.op]));
+      });
+      var jointGamma = 1, jointConfigurations = 1, shared = 0;
+      cuts.forEach(function (cut, index) {
+        if (cut.kind === "gate") { jointGamma *= gateGamma(ops[cut.op]); jointConfigurations *= 6; }
+        if (cut.kind === "wire") { jointGamma *= golden[index] ? 3 : 4; jointConfigurations *= golden[index] ? 6 : 8; }
+      });
+      Object.keys(groups).forEach(function (key) {
+        var product = 1, r = Math.pow(2, groups[key].length);
+        groups[key].forEach(function (g) { product *= 1 + (g - 1) / 2; });
+        jointGamma *= 2 * product - 1;
+        jointConfigurations *= 2 * r * r - r;
+        if (groups[key].length > 1) shared += groups[key].length;
+      });
+      joint = { shared: shared, gamma: jointGamma, configurations: jointConfigurations, subcircuits: jointConfigurations * fragments.length };
+    }
+
     var widths = fragments.map(function (f) {
       var ancillas = 0;
       f.sides.forEach(function (side) { if (cuts[side.cut].kind === "hadamard") ancillas += 1; });
@@ -263,7 +290,7 @@
       ops: ops, cuts: cuts, segments: segments, opSegments: opSegments, fragments: fragments,
       invalid: invalid, golden: golden, gamma: gamma, configurations: configurations,
       subcircuits: configurations * fragments.length, optimized: hasHadamard ? null : optimized,
-      widths: widths, wires: wires.length
+      widths: widths, wires: wires.length, joint: joint
     };
   }
 
