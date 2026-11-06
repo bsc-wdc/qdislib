@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Try and Explore pages in the documentation.** On Try, a live circuit playground runs in
   the browser, checked against Qdislib by `docs/check_explore_engine.py`. The Explore pages
   hold stored results of real runs for the rest of the library.
+- **`PackedCircuits.draw`.** Draws one packed job on the device: its qubits and couplers,
+  each circuit's group of qubits in its own colour, the idle ones white.
 - **Packing built into the IBM backend and the engine.** With `pack=True` in its
   config, the IBM backend runs each group of `circuits_per_task` subcircuits side by
   side, in plain jobs, with no code of yours: `circuit_cutting(qc, cuts, backend=ibm,

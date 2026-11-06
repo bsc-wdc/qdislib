@@ -731,7 +731,7 @@ def _story():
             "On IBM each subcircuit is one plain job, and the token stays in "
             "<font face='Courier'>$IBM_QUANTUM_TOKEN</font>. <font face='Courier'>qd.pack</font>, or "
             "<font face='Courier'>pack=True</font> on the IBM backend, runs many subcircuits "
-            "side by side in one job. The BSC QPUs read "
+            "side by side in one job; <font face='Courier'>packed.draw()</font> shows them on the chip. The BSC QPUs read "
             "<font face='Courier'>$QDISLIB_SUBCIRCUITS_DIR</font>.",
             BODY_MUTED,
         )

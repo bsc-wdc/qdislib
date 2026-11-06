@@ -212,12 +212,13 @@ class PackedCircuits:
     :func:`pack` builds it.
     """
 
-    def __init__(self, circuits, slots, regions, two_qubit_gates, registers):
+    def __init__(self, circuits, slots, regions, two_qubit_gates, registers, edges=()):
         self.circuits = circuits
         self.slots = slots
         self.regions = regions
         self.two_qubit_gates = two_qubit_gates
         self._registers = registers  # per input circuit: its own registers' sizes
+        self._edges = sorted(tuple(sorted(e)) for e in edges)  # couplers, for draw
 
     def __len__(self):
         return len(self.slots)
@@ -227,6 +228,99 @@ class PackedCircuits:
             f"PackedCircuits({len(self.slots)} circuits in {len(self.circuits)} "
             f"device circuits, {len(self.regions)} groups of qubits)"
         )
+
+    def draw(self, filename=None, *, job=0, ax=None, show=None):
+        """Draw one packed circuit on the device: its qubits and couplers, each input
+        circuit's group of qubits in its own colour, the idle qubits white.
+
+        :param filename: Save the figure there (any format matplotlib writes).
+        :param job: Which of :attr:`circuits` to draw.
+        :param ax: A matplotlib ``Axes`` to draw into (a new figure otherwise).
+        :param show: Show the figure; by default only when it is neither saved nor
+            drawn into a given ``ax``.
+        :raises ValueError: For a ``job`` that is not one of :attr:`circuits`.
+        :return: The matplotlib ``Axes``.
+        """
+        if not 0 <= job < len(self.circuits):
+            raise ValueError(
+                f"job={job}: there are {len(self.circuits)} packed circuits"
+            )
+        import matplotlib.pyplot as plt
+        import networkx
+        from matplotlib.patches import Patch
+
+        from Qdislib.core.find_cut.draw import _PALETTE
+
+        graph = networkx.Graph(self._edges)
+        graph.add_nodes_from(range(self.circuits[job].num_qubits))
+        at = networkx.kamada_kawai_layout(graph, pos=networkx.spectral_layout(graph))
+
+        created = ax is None
+        if created:
+            size = max(4.5, 0.55 * graph.number_of_nodes() ** 0.5 * 2)
+            _, ax = plt.subplots(figsize=(size, size))
+            if show is None:
+                show = filename is None
+        owner, legend = {}, []
+        placed = [(k, group) for k, (i, _, group) in enumerate(self.slots) if i == job]
+        for position, (k, group) in enumerate(placed):
+            colour = _PALETTE[position % len(_PALETTE)]
+            owner.update({q: colour for q in group})
+            legend.append(
+                Patch(
+                    color=colour,
+                    label=f"circuit {k}: {self.two_qubit_gates[k]} two-qubit gates",
+                )
+            )
+        for a, b in graph.edges:
+            same = a in owner and owner.get(a) == owner.get(b)
+            ax.plot(
+                [at[a][0], at[b][0]],
+                [at[a][1], at[b][1]],
+                color=owner[a] if same else "#BBBBBB",
+                linewidth=2.5 if same else 1,
+                zorder=1,
+            )
+        for q in graph.nodes:
+            used = q in owner
+            ax.scatter(
+                *at[q],
+                s=240,
+                facecolor=owner.get(q, "white"),
+                edgecolor=owner.get(q, "#888888"),
+                zorder=2,
+            )
+            ax.annotate(
+                str(q),
+                at[q],
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="white" if used else "#444444",
+                zorder=3,
+            )
+        ax.set_title(
+            f"Job {job + 1} of {len(self.circuits)}: {len(placed)} circuits, "
+            f"{len(owner)} of {graph.number_of_nodes()} qubits in use",
+            loc="left",
+        )
+        ax.legend(
+            handles=legend,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 0),
+            ncol=2,
+            frameon=False,
+            fontsize=8,
+        )
+        ax.set_aspect("equal")
+        ax.axis("off")
+        if filename:
+            ax.figure.savefig(filename, bbox_inches="tight", dpi=150)
+        if show:
+            plt.show()
+        elif created and filename:
+            plt.close(ax.figure)
+        return ax
 
     def unpack(self, results):
         """Each input circuit's counts, from the results of :attr:`circuits` (in
@@ -398,4 +492,4 @@ def pack(
             )
             slots.append((len(device), name, group))
         device.append(big)
-    return PackedCircuits(device, slots, regions[:slots_per], gates, registers)
+    return PackedCircuits(device, slots, regions[:slots_per], gates, registers, edges)

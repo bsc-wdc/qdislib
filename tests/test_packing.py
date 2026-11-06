@@ -20,6 +20,8 @@
 """Packing small circuits side by side on a large device (``Qdislib.pack``)."""
 
 import importlib.util
+import os
+import tempfile
 import unittest
 import warnings
 
@@ -123,6 +125,72 @@ class NoisyCouplerTest(BaseTimedTestCase):
 
 
 @unittest.skipUnless(AER, "qiskit-aer required")
+@unittest.skipUnless(importlib.util.find_spec("qiskit"), "qiskit required")
+class DrawTest(BaseTimedTestCase):
+    """packed.draw: the device, with each circuit's group in its own colour."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        import matplotlib
+        from qiskit import QuantumCircuit
+
+        import Qdislib as qd
+
+        matplotlib.use("Agg")
+        circuit = QuantumCircuit(3)
+        circuit.h(0)
+        circuit.cz(0, 1)
+        circuit.cz(1, 2)
+        circuit.measure_all()
+        cls.packed = qd.pack(
+            [circuit] * 5, _device(), per_circuit=2, seeds=1, optimization_level=1
+        )
+
+    def _colours(self, ax):
+        """{qubit: fill colour} of the drawn qubits, whose labels are their numbers."""
+        from matplotlib.colors import to_hex
+
+        fills = [to_hex(c.get_facecolor()[0]) for c in ax.collections]
+        labels = [int(text.get_text()) for text in ax.texts]
+        return dict(zip(labels, fills))
+
+    def test_every_job_shows_its_groups_and_the_idle_qubits(self):
+        import matplotlib.pyplot as plt
+
+        size = self.packed.circuits[0].num_qubits
+        for job in range(len(self.packed.circuits)):
+            ax = self.packed.draw(job=job, show=False)
+            colours = self._colours(ax)
+            self.assertEqual(sorted(colours), list(range(size)))
+            groups = [g for i, _, g in self.packed.slots if i == job]
+            for group in groups:
+                self.assertEqual(len({colours[q] for q in group}), 1)
+            self.assertEqual(len({colours[group[0]] for group in groups}), len(groups))
+            used = {q for group in groups for q in group}
+            idle = {colours[q] for q in colours if q not in used}
+            self.assertEqual(idle, {"#ffffff"})
+            self.assertIn(f"Job {job + 1} of ", ax.get_title(loc="left"))
+            self.assertEqual(len(ax.get_legend().get_texts()), len(groups))
+            plt.close(ax.figure)
+
+    def test_it_saves_and_draws_into_an_axes(self):
+        import matplotlib.pyplot as plt
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "packed.png")
+            self.packed.draw(path)
+            self.assertGreater(os.path.getsize(path), 1000)
+        fig, given = plt.subplots()
+        self.assertIs(self.packed.draw(ax=given), given)
+        plt.close(fig)
+
+    def test_a_job_that_does_not_exist(self):
+        for job in (-1, len(self.packed.circuits)):
+            with self.assertRaises(ValueError):
+                self.packed.draw(job=job, show=False)
+
+
 class PackingTest(BaseTimedTestCase):
     def setUp(self):
         super().setUp()
