@@ -164,6 +164,20 @@ class BudgetTest(BaseTimedTestCase):
         # weights differ (a Hadamard cut): the budget follows them
         self.assertLess(rmse(total_shots=budget), 1.05 * rmse(shots=budget // units))
 
+    def test_the_budget_is_not_exceeded_with_very_uneven_weights(self):
+        # a floor on top of a proportional share spent more than the budget
+        from Qdislib.core.cutting_algorithms.budget import _split
+
+        for budget, scores, floor in (
+            (4, [1000, 1, 1, 1], 1),
+            (10, [5, 1, 1], 2),
+            (100, [1, 1e6], 3),
+        ):
+            shots = _split(budget, scores, floor)
+            self.assertEqual(int(shots.sum()), budget)
+            self.assertTrue(all(shots >= floor))
+        self.assertEqual(list(_split(4, [1, 1], 3)), [3, 3])  # the floors alone
+
     def test_budget_options(self):
         import Qdislib as qd
         from tests.test_engine_cache import _circuit
