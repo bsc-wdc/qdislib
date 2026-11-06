@@ -191,6 +191,17 @@ class SemanticKeyTest(BaseTimedTestCase):
         padded.add(gates.X(0))
         self.assertEqual(semantic_key(base), semantic_key(padded))
 
+    def test_a_semantic_key_warns_that_it_can_collide(self):
+        from qiskit import QuantumCircuit
+
+        from Qdislib.utils import circuit_cache, logging_config
+
+        qc = QuantumCircuit(1)
+        qc.h(0)
+        logging_config._WARNED.clear()
+        with self.assertWarnsRegex(UserWarning, "different circuits"):
+            circuit_cache.semantic_key(qc, "qiskit")
+
     def test_qubit_permuted_circuits_differ(self):
         """bsc-wdc/qdislib#11: X on qubit 0 and X on qubit 1 must not share a key."""
         from qibo import models, gates
@@ -402,6 +413,32 @@ class RedisStoreTest(BaseTimedTestCase):
             self.addCleanup(patcher.stop)
         self.cc = cc
 
+    def test_a_password_stays_out_of_the_pickle(self):
+        # a store goes to PyCOMPSs tasks, whose arguments are written to files
+        import os
+        import pickle
+        from unittest import mock
+
+        store = self.cc.RedisCircuitCache(host="h", password="s3cret")
+        store.put("k", 1)
+        self.assertEqual(store._client.settings["password"], "s3cret")
+        shipped = pickle.dumps(store)
+        self.assertNotIn(b"s3cret", shipped)
+        with mock.patch.dict(os.environ, {"QDISLIB_REDIS_PASSWORD": "fromenv"}):
+            worker = pickle.loads(shipped)
+            worker.get("k")
+        self.assertEqual(worker._client.settings["password"], "fromenv")
+
+    def test_no_password_anywhere_connects_without_one(self):
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ):
+            os.environ.pop("QDISLIB_REDIS_PASSWORD", None)
+            store = self.cc.RedisCircuitCache(host="h")
+            store.get("k")
+        self.assertNotIn("password", store._client.settings)
+
     def test_a_value_goes_in_and_out_as_json_under_its_prefix(self):
         store = self.cc.RedisCircuitCache(host="h", port=1, db=2, password="p")
         store.put("k", {"a": [1, 2]})
@@ -549,7 +586,7 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
 
     def test_pending_waits_for_a_slow_owner(self):
         # a long fragment takes hours; the owner is working, the run must not abort
-        for seconds in (20, 1800, 4 * 3600):
+        for seconds in (20, 300, 590):
             with self.subTest(owner_takes=seconds):
                 pending, _, clock = self._pending_with_a_clock(seconds)
                 self.assertEqual(pending.resolve(), 0.5)
@@ -569,13 +606,19 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
             pending, _, _ = self._pending_with_a_clock(30)
             self.assertEqual(pending.resolve(), 0.5)
 
+    def test_pending_waits_longer_when_told_to(self):
+        with unittest.mock.patch.dict(os.environ, {"QDISLIB_PENDING_TIMEOUT": "21600"}):
+            pending, _, clock = self._pending_with_a_clock(4 * 3600)
+            pending.resolve()
+        self.assertGreaterEqual(clock["now"], 4 * 3600)
+
     def test_pending_default_still_ends(self):
         from Qdislib.utils.exceptions import QdislibException
 
         pending, _, clock = self._pending_with_a_clock(None)
         with self.assertRaises(QdislibException):
             pending.resolve()
-        self.assertLess(clock["now"], 7 * 3600)
+        self.assertLess(clock["now"], 700)
 
     def test_pending_a_bad_setting_keeps_the_default(self):
         for bad in ("soon", "-1", "nan"):
@@ -583,11 +626,11 @@ class PlaceholderRefreshTest(BaseTimedTestCase):
                 with unittest.mock.patch.dict(
                     os.environ, {"QDISLIB_PENDING_TIMEOUT": bad}
                 ):
-                    pending, _, _ = self._pending_with_a_clock(1800)
+                    pending, _, _ = self._pending_with_a_clock(300)
                     self.assertEqual(pending.resolve(), 0.5)
 
     def test_pending_says_what_it_waits_for(self):
-        pending, _, _ = self._pending_with_a_clock(600)
+        pending, _, _ = self._pending_with_a_clock(300)
         with self.assertLogs("Qdislib.utils.circuit_cache", "WARNING") as logs:
             pending.resolve()
         self.assertEqual(len(logs.records), 1)

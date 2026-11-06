@@ -6,17 +6,6 @@ Try Qdislib
 
 The companion to the :doc:`poster <poster>` *Qdislib: Implementation and Evaluation of Circuit Cutting and Sampling Techniques for Quantum Circuits*. Pick a cutting method and a number of cuts, and see what it costs and that the result comes back. Nothing to install.
 
-.. To add the demo video: upload it (e.g. unlisted on YouTube), then remove the ".. " comment
-   markers from the block below and replace VIDEO_ID.
-
-   .. raw:: html
-
-      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;margin:1em 0;">
-        <iframe src="https://www.youtube-nocookie.com/embed/VIDEO_ID" title="Qdislib demo"
-                style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;"
-                allow="accelerometer; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-      </div>
-
 .. raw:: html
 
    <link rel="stylesheet" href="_static/try.css">
