@@ -607,21 +607,217 @@ def sdk_section():
 
 
 # ------------------------------------------------------------------------- pack
-#: The layouts on the page. Each is a real device's coupling map with a calibration snapshot,
-#: as qiskit_ibm_runtime ships them; nothing connects to the device. To add one, add a row.
+#: The layouts on the page, in order of size. To add a device, add a row:
+#: "fake": a backend qiskit_ibm_runtime ships, a real device's coupling map with a stored
+#: calibration, read here with no connection to the device;
+#: "read": a calibration read from IBM, in docs/explore_ibm_layouts.json;
+#: "layout": a coupling map published by a package, in docs/explore_devices.json (made by
+#: docs/build_explore_devices.py), with no calibration: it gets equal placeholder errors;
+#: "drawn": a chip's published topology, written out below, also with placeholder errors.
 PACK_DEVICES = [
-    {"key": "manila", "name": "IBM Manila", "family": "", "source": "FakeManilaV2"},
-    {"key": "guadalupe", "name": "IBM Guadalupe", "family": "", "source": "FakeGuadalupeV2"},
-    {"key": "montreal", "name": "IBM Montreal", "family": "Falcon", "source": "FakeMontrealV2"},
-    {"key": "sherbrooke", "name": "IBM Sherbrooke", "family": "Eagle", "source": "FakeSherbrooke"},
-    {"key": "torino", "name": "IBM Torino", "family": "Heron", "source": "FakeTorino"},
+    {"key": "manila", "name": "IBM Manila", "family": "", "fake": "FakeManilaV2"},
+    {"key": "adonis", "name": "IQM Adonis", "family": "", "layout": "adonis"},
+    {"key": "guadalupe", "name": "IBM Guadalupe", "family": "", "fake": "FakeGuadalupeV2"},
+    {"key": "apollo", "name": "IQM Apollo", "family": "", "layout": "apollo"},
+    {"key": "ona_blue", "name": "MareNostrum-Ona Blue", "family": "", "drawn": "ona_blue"},
+    {"key": "montreal", "name": "IBM Montreal", "family": "Falcon", "fake": "FakeMontrealV2"},
+    {"key": "sycamore", "name": "Google Sycamore", "family": "", "layout": "sycamore"},
+    {"key": "aphrodite", "name": "IQM Aphrodite", "family": "", "layout": "aphrodite"},
+    {"key": "ona_red", "name": "MareNostrum-Ona Red", "family": "", "drawn": "ona_red"},
+    {"key": "sherbrooke", "name": "IBM Sherbrooke", "family": "Eagle", "fake": "FakeSherbrooke"},
+    {"key": "torino", "name": "IBM Torino", "family": "Heron", "fake": "FakeTorino"},
+    {"key": "kobe", "name": "IBM Kobe", "family": "Heron", "read": "ibm_kobe", "shape_of": "FakeFez"},
 ]
+#: For a layout without a calibration: equal for every qubit and coupler, so nothing is
+#: told apart by quality.
+PLACEHOLDER = {"cz": 0.005, "sx": 0.0005, "readout": 0.01}
+
+
+def ona_red():
+    """MareNostrum-Ona Red, as its webpage draws it: an 8 x 8 grid of (row, column)."""
+    grid = [
+        [0, 1, 2, 3, 8, 9, 10, 11],
+        [4, 5, 6, 7, 12, 13, 14, 15],
+        [16, 17, 18, 19, 24, 25, 26, 27],
+        [20, 21, 22, 23, 28, 29, 30, 31],
+        [32, 33, 34, 35, 40, 41, 42, 43],
+        [36, 37, 38, 39, 44, 45, 46, 47],
+        [48, 49, 50, 51, 56, 57, 58, 59],
+        [52, 53, 54, 55, 60, 61, 62, 63],
+    ]
+    across, down = [], []
+    for r, row in enumerate(grid):
+        for c in range(7):
+            if r == 0 and c == 3:  # 3-8 is not connected
+                continue
+            if r >= 6 and c >= 3:  # rows 6 and 7 only within the left four columns
+                continue
+            across.append((row[c], row[c + 1]))
+    for c in range(8):
+        for r in range(7 if c < 4 else 5):  # the right four columns: rows 0 to 5 only
+            down.append((grid[r][c], grid[r + 1][c]))
+    assert len(across) == 47 and len(down) == 48
+    edges = sorted(tuple(sorted(e)) for e in across + down)
+    assert len(edges) == 95
+    points = {str(q): [c, r] for r, row in enumerate(grid) for c, q in enumerate(row)}
+    return {"count": 64, "edges": edges, "points": points, "accent": "#e8112d", "numbered": True}
+
+
+def ona_blue():
+    """MareNostrum-Ona Blue, as its webpage draws it. The source numbers no qubit in general,
+    so the indices here are only for the Target, and the page never shows them."""
+    spots = [(0, 2), (0, 3)] + [(r, c) for r in (1, 2, 3) for c in range(5)] + [(4, 1), (4, 2), (4, 3)]
+    assert len(spots) == 20
+    index = {spot: i for i, spot in enumerate(spots)}
+    edges = sorted(
+        tuple(sorted((index[(r, c)], index[(r + dr, c + dc)])))
+        for r, c in spots for dr, dc in ((0, 1), (1, 0)) if (r + dr, c + dc) in index
+    )
+    assert len(edges) == 30
+    points = {str(index[spot]): [spot[1], spot[0]] for spot in spots}
+    return {"count": 20, "edges": edges, "points": points, "accent": "#1f6fd1", "numbered": False}
+
+
+def device_target(num_qubits, couplers, sx, readout):
+    """A Qiskit Target from errors: qd.pack takes one. couplers maps (a, b) to an error."""
+    from qiskit.circuit import Measure, Parameter
+    from qiskit.circuit.library import CZGate, RZGate, SXGate, XGate
+    from qiskit.transpiler import InstructionProperties, Target
+
+    target = Target(num_qubits=num_qubits)
+    target.add_instruction(CZGate(), {pair: InstructionProperties(error=e) for pair, e in couplers.items()})
+    one = lambda errors: {(q,): InstructionProperties(error=errors[q]) for q in errors}
+    target.add_instruction(SXGate(), one(sx))
+    target.add_instruction(XGate(), one(sx))
+    target.add_instruction(RZGate(Parameter("theta")), {(q,): InstructionProperties(error=0.0) for q in sx})
+    target.add_instruction(Measure(), one(readout))
+    return target
+
+
+def check_drawing(key, points, edges):
+    """Every coupler one step long and no two qubits in one place, or the drawing is wrong: a
+    line on the page is then always a coupler of the device, and a coupler always a line."""
+    spots = {tuple(p) for p in points.values()}
+    assert len(spots) == len(points), (key, "two qubits in one place")
+    for a, b in edges:
+        (x0, y0), (x1, y1) = points[str(a)], points[str(b)]
+        assert abs(x0 - x1) + abs(y0 - y1) == 1, (key, a, b, points[str(a)], points[str(b)])
+
+
+def gate_map_coordinates(num_qubits):
+    """The [row, column] positions Qiskit's own plot_gate_map uses, for the sizes it knows."""
+    import ast
+    import inspect
+
+    from qiskit.visualization import gate_map
+
+    for node in ast.walk(ast.parse(inspect.getsource(gate_map.plot_gate_map))):
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Subscript):
+            target = node.targets[0]
+            if getattr(target.value, "id", "") == "qubit_coordinates_map" and ast.literal_eval(target.slice) == num_qubits:
+                return ast.literal_eval(node.value)
+    return None
+
+
+def heavy_hex_rows(edges, num_qubits):
+    """Heron numbers its qubits along long rows, with the qubits between two rows numbered
+    after the first: rows are runs of consecutive numbers, and a connector sits straight
+    between its two neighbours, or hangs off the last row. check_drawing tests the result."""
+    pairs = {tuple(sorted(edge)) for edge in edges}
+    runs, run = [], [0]
+    for q in range(1, num_qubits):
+        if (q - 1, q) in pairs:
+            run.append(q)
+        else:
+            runs.append(run)
+            run = [q]
+    runs.append(run)
+    rows = [r for r in runs if len(r) >= 6]
+    connectors = [q for r in runs if len(r) < 6 for q in r]
+    near = {q: set() for q in range(num_qubits)}
+    for a, b in pairs:
+        near[a].add(b)
+        near[b].add(a)
+    place = {q: (column, 0) for column, q in enumerate(rows[0])}
+    for number, row in enumerate(rows[1:], 1):
+        shift = None
+        for c in connectors:
+            above = [n for n in near[c] if n in place and place[n][1] == 2 * (number - 1)]
+            below = [n for n in near[c] if n in row]
+            if above and below:
+                shift = place[above[0]][0] - row.index(below[0])
+                break
+        for column, q in enumerate(row):
+            place[q] = (column + shift, 2 * number)
+    for c in connectors:
+        ends = [n for n in near[c] if n in place]
+        height = place[ends[0]][1] + 1 if len(ends) == 1 else (place[ends[0]][1] + place[ends[1]][1]) // 2
+        place[c] = (place[ends[0]][0], height)
+    return {str(q): list(place[q]) for q in range(num_qubits)}
+
+
+def ibm_lattice(edges, num_qubits):
+    """The chip as people know it: a line, Qiskit's own positions, or Heron's rows."""
+    if all(b == a + 1 for a, b in edges) and len(edges) == num_qubits - 1:
+        return {str(q): [q, 0] for q in range(num_qubits)}
+    known = gate_map_coordinates(num_qubits)
+    if known:
+        return {str(q): [known[q][1], known[q][0]] for q in range(num_qubits)}
+    return heavy_hex_rows(edges, num_qubits)
+
+
+def placeholder_target(count, edges):
+    couplers = {}
+    for a, b in edges:
+        couplers[(a, b)] = couplers[(b, a)] = PLACEHOLDER["cz"]
+    return device_target(count, couplers, {q: PLACEHOLDER["sx"] for q in range(count)}, {q: PLACEHOLDER["readout"] for q in range(count)})
+
+
+def load_device(entry):
+    """(backend or target, facts for the page, qubits, undirected couplers, drawing)."""
+    from qiskit_ibm_runtime import fake_provider
+
+    facts = {"key": entry["key"], "name": entry["name"], "family": entry["family"]}
+    here = pathlib.Path(__file__).resolve().parent
+    if "fake" in entry:
+        backend = getattr(fake_provider, entry["fake"])()
+        edges = sorted({tuple(sorted(edge)) for edge in backend.coupling_map.get_edges()})
+        facts.update(kind="snapshot", snapshot=backend.properties().last_update_date.date().isoformat())
+        points = ibm_lattice(edges, backend.num_qubits)
+        check_drawing(entry["key"], points, edges)
+        return backend, facts, backend.num_qubits, edges, points
+    if "read" in entry:
+        device = next(d for d in json.loads((here / "explore_ibm_layouts.json").read_text())["devices"] if d["name"] == entry["read"])
+        count = device["num_qubits"]
+        couplers = {tuple(int(q) for q in pair.split(",")): value["error"] for pair, value in device["edges"].items()}
+        target = device_target(
+            count, couplers,
+            {q: device["sx_error"][str(q)] for q in range(count)},
+            {q: device["readout"][str(q)] for q in range(count)},
+        )
+        edges = sorted({tuple(sorted(pair)) for pair in couplers})
+        # Drawn from the published shape, so the qubits with no coupler in this calibration
+        # still have a place. The couplers it reads must all be on that shape.
+        shape = getattr(fake_provider, entry["shape_of"])()
+        whole = sorted({tuple(sorted(edge)) for edge in shape.coupling_map.get_edges()})
+        assert set(edges) <= set(whole), "the couplers read are not all on the published shape"
+        facts.update(kind="read", snapshot=device["calibrated"][:10], missing=len(whole) - len(edges))
+        points = ibm_lattice(whole, count)
+        check_drawing(entry["key"], points, whole)
+        return target, facts, count, edges, points
+    if "drawn" in entry:
+        drawn = globals()[entry["drawn"]]()
+        check_drawing(entry["key"], drawn["points"], drawn["edges"])
+        facts.update(kind="layout", source="the MareNostrum-Ona webpage", accent=drawn["accent"], numbered=drawn["numbered"])
+        return placeholder_target(drawn["count"], drawn["edges"]), facts, drawn["count"], drawn["edges"], drawn["points"]
+    device = next(d for d in json.loads((here / "explore_devices.json").read_text())["devices"] if d["key"] == entry["layout"])
+    edges = [tuple(e) for e in device["edges"]]
+    check_drawing(entry["key"], device["points"], edges)
+    facts.update(kind="layout", source="the " + device["source"].split(",")[0] + " package")
+    return placeholder_target(device["qubits"], edges), facts, device["qubits"], edges, device["points"]
 
 
 def pack_section():
-    import networkx as nx
-    from qiskit_ibm_runtime import fake_provider
-
     qc = QuantumCircuit(6)
     for q, a in enumerate([0.8, 0.5, 0.6, 0.4, 0.3, 0.7]):
         qc.ry(a, q)
@@ -634,23 +830,12 @@ def pack_section():
         c = c.copy()
         c.measure_all()
         circuits.append(c)
-    out = {"circuits": len(circuits), "widths": [c.num_qubits for c in circuits], "devices": []}
+    out = {"circuits": len(circuits), "widths": [c.num_qubits for c in circuits], "placeholder": PLACEHOLDER, "devices": []}
     for entry in PACK_DEVICES:
         key = entry["key"]
         start = time.time()
-        backend = getattr(fake_provider, entry["source"])()
-        graph = nx.Graph(list({tuple(sorted(edge)) for edge in backend.coupling_map.get_edges()}))
-        layout = nx.kamada_kawai_layout(graph, weight=None)
-        device = {
-            "key": key,
-            "name": entry["name"],
-            "family": entry["family"],
-            "snapshot": backend.properties().last_update_date.date().isoformat(),
-            "qubits": backend.num_qubits,
-            "edges": [list(edge) for edge in graph.edges],
-            "points": {str(q): [round(float(p[0]), 3), round(float(p[1]), 3)] for q, p in layout.items()},
-            "runs": {},
-        }
+        backend, facts, count, edges, points = load_device(entry)
+        device = dict(facts, qubits=count, edges=[list(edge) for edge in edges], points=points, runs={})
         for buffer in (0, 1, 2):
             try:
                 packed = qd.pack(circuits, backend, buffer=buffer, max_error=0.1, max_readout_error=0.2, seeds=2, optimization_level=1)
@@ -666,7 +851,7 @@ def pack_section():
                 "jobs": [jobs[k] for k in sorted(jobs)],
                 "regions": [[int(q) for q in region] for region in packed.regions],
             }
-            print("pack", key, buffer, repr(packed), round(time.time() - start), "s", flush=True)
+            print("pack", key, count, len(edges), buffer, repr(packed), round(time.time() - start), "s", flush=True)
         out["devices"].append(device)
     return out
 

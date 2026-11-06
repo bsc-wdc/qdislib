@@ -1185,7 +1185,10 @@
       var run = data.runs[buffer];
       toggles(bufferBox, Object.keys(data.runs).map(function (b) { return { value: b, label: b }; }), buffer, function (v) { buffer = v; job = 0; update(); });
       row.style.display = run.jobs.length > 1 ? "" : "none";
-      packNote.textContent = "Real device layouts, with calibration snapshots shipped in Qiskit: " + data.name + "'s is from " + data.snapshot + ". There is no live connection, and nothing ran on any device. These are the " + all.circuits + " subcircuits of a 6-qubit circuit with one cut, and each colour is one subcircuit's group. Placement only, stored from a real call to qd.pack.";
+      var how = data.kind === "read" ? "Calibration read on " + data.snapshot + ", not a live connection." + (data.missing ? " " + data.missing + " couplers are absent from that calibration and are not drawn." : "")
+        : data.kind === "snapshot" ? "Real device layout, with a calibration snapshot shipped in Qiskit, from " + data.snapshot + ". Not a live connection."
+        : "The layout is the published one, from " + data.source + ", and packing uses uniform placeholder errors (" + all.placeholder.cz + " on cz, " + all.placeholder.readout + " on readout), so this shows the layout's capacity rather than the device's current state.";
+      packNote.textContent = how + " The drawing shows the connections, not the physical positions. Placement only, stored from a real call to qd.pack: nothing ran on any device. These are the " + all.circuits + " subcircuits of a 6-qubit circuit with one cut, and each colour is one subcircuit's group.";
       slider.max = String(run.jobs.length - 1);
       job = Math.min(job, run.jobs.length - 1);
       slider.value = String(job);
@@ -1197,26 +1200,36 @@
       var xs = [], ys = [];
       Object.keys(data.points).forEach(function (q) { xs.push(data.points[q][0]); ys.push(data.points[q][1]); });
       var minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs), minY = Math.min.apply(null, ys), maxY = Math.max.apply(null, ys);
-      var large = data.qubits > 40, W = large ? 640 : 340, H = large ? 580 : data.qubits < 10 ? 170 : 300, P = 16;
-      var px = function (q) { var p = data.points[q]; return [P + (p[0] - minX) / ((maxX - minX) || 1) * (W - 2 * P), P + (p[1] - minY) / ((maxY - minY) || 1) * (H - 2 * P)]; };
+      /* The chip's lattice, with one scale in both directions. */
+      var P = 16, unit = 30;  /* nodes close together: 22 across, 8 of line between them */
+      var W = (maxX - minX) * unit + 2 * P, H = (maxY - minY) * unit + 2 * P;
+      var px = function (q) { var p = data.points[q]; return [P + (p[0] - minX) * unit, P + (p[1] - minY) * unit]; };
       var owner = {};
       run.jobs[job].forEach(function (slot, i) { slot.qubits.forEach(function (q) { owner[q] = i; }); });
-      var s = '<svg viewBox="0 0 ' + W + " " + H + '" style="max-width:' + (large ? 700 : 520) + 'px;margin:auto" role="img" aria-label="The device, with this job\'s groups of qubits">';
+      var s = '<svg viewBox="0 0 ' + W + " " + H + '" style="max-width:' + (W * 1.25) + 'px;margin:auto" role="img" aria-label="The device, with this job\'s groups of qubits">';
+      var radius = 11;
       data.edges.forEach(function (e) {
         var a = px(e[0]), b = px(e[1]);
-        s += '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="var(--qd-line)" stroke-width="2"/>';
+        s += '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="' + (data.accent ? "var(--color-foreground-primary, #111)" : "var(--qd-line)") + '" stroke-width="2"/>';
       });
       Object.keys(data.points).forEach(function (q) {
         var p = px(q), on = owner[q] !== undefined;
-        s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="9.5" fill="' + (on ? COLOURS[owner[q] % COLOURS.length] : "var(--color-background-primary, #fff)") + '" stroke="' + (on ? "none" : "var(--color-foreground-secondary, #777)") + '"/>';
-        s += '<text x="' + p[0] + '" y="' + (p[1] + 3) + '" text-anchor="middle" style="fill:' + (on ? "#fff" : "var(--color-foreground-secondary, #555)") + '">' + q + "</text>";
+        /* Idle qubits stay pale in the chip's own colour, so a group's colour stands out. */
+        var paint = on ? 'fill="' + COLOURS[owner[q] % COLOURS.length] + '" stroke="none"'
+          : data.accent ? 'fill="' + data.accent + '" fill-opacity="0.22" stroke="' + data.accent + '" stroke-width="1.5"'
+          : 'fill="var(--color-background-primary, #fff)" stroke="var(--color-foreground-secondary, #777)"';
+        /* a solid disc first, so that no line shows through a pale qubit */
+        s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + radius + '" fill="var(--color-background-primary, #fff)"/>';
+        s += '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="' + radius + '" ' + paint + "/>";
+        if (data.numbered === false) return;  /* the source does not number them */
+        s += '<text x="' + p[0] + '" y="' + (p[1] + 3) + '" text-anchor="middle" style="fill:' + (on ? "#fff" : data.accent ? "var(--color-foreground-primary, #111)" : "var(--color-foreground-secondary, #555)") + '">' + q + "</text>";
       });
       map.innerHTML = s + "</svg>";
       chipBox.textContent = "";
       run.jobs[job].forEach(function (slot, i) {
         var item = chipBox.appendChild(el("span"));
         item.appendChild(el("span", { class: "qd-swatch", style: "background:" + COLOURS[i % COLOURS.length] }));
-        item.appendChild(document.createTextNode("subcircuit " + slot.circuit + ": " + slot.qubits.join(", ")));
+        item.appendChild(document.createTextNode("subcircuit " + slot.circuit + (data.numbered === false ? "" : ": " + slot.qubits.join(", "))));
       });
     }
     slider.addEventListener("input", function () { job = Number(slider.value); update(); });

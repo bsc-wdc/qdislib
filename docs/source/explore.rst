@@ -87,7 +87,7 @@ The same circuit and cut in five SDKs. *Each snippet was run; its results are st
 Packing on a QPU
 ----------------
 
-:func:`qd.pack <Qdislib.pack>` runs several subcircuits side by side, on groups of a device's qubits. *Stored from real calls on real device layouts, with calibration snapshots shipped in Qiskit: nothing ran on them.*
+:func:`qd.pack <Qdislib.pack>` runs several subcircuits side by side, on groups of a device's qubits. *Stored from real calls on real device layouts: nothing ran on them. Each layout says where its calibration comes from.*
 
 .. raw:: html
 
