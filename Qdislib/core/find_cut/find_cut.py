@@ -863,7 +863,7 @@ def find_cut(
 ):
     """
     Automatically partitions a quantum circuit to optimize for parallel execution
-    and hardware constraints, using either the Qdislib or IBM Qiskit-based backends.
+    and hardware constraints.
 
     The FindCut algorithm from the Qdislib library is designed to find the best cut to
     decompose a quantum circuit into subcircuits that adhere to specific
@@ -875,8 +875,9 @@ def find_cut(
 
     Parameters
     ----------
-    circuit : QuantumCircuit, qibo.models.Circuit, or networkx.DiGraph
-        The input quantum circuit to be partitioned.
+    circuit : a circuit of any SDK
+        The input quantum circuit to be partitioned: Qiskit, qibo, CUDA-Q, PennyLane
+        or QiliSDK.
 
     max_qubits : int, optional
         Maximum number of qubits allowed per subcircuit. Helps enforce hardware
@@ -903,8 +904,10 @@ def find_cut(
         larger circuits and dropped the wire cuts it found.)
 
     weights : dict, optional
-        A dictionary specifying weights for the loss function used in Qdislib to evaluate
-        partitioning
+        Overrides for the score of a candidate cut,
+        ``|w1 * cuts + w2 * fragments + w3 * largest fragment|``, the lowest wins:
+        ``{"w1": 100, "w2": -1, "w3": 1}`` by default. Ignored with ``mixed=True`` and
+        ``coupling_map``.
 
     seed : int, optional
         Seed for the randomised partitioning strategies (Kernighan-Lin and spectral
@@ -927,7 +930,8 @@ def find_cut(
         Return the ``top_n`` best candidate cuts (lowest score first) instead of the
         single winner, as a list of ``{"cut": [...], "kind": "gate"|"wire",
         "score": float}`` dicts -- e.g. to compare options and size them with
-        :func:`~Qdislib.cut_cost`. ``None`` (default) returns the single best cut.
+        :func:`~Qdislib.cutting_overhead`. ``None`` (default) returns the single best
+        cut.
         Only affects the ``implementation="qdislib"`` path.
 
     coupling_map : list of (int, int), optional
@@ -973,32 +977,31 @@ def find_cut(
 
     Returns
     -------
-    best_cut : list
-        A list describing the best cut found. This is a list of gate names and their indices where cuts should be applied (e.g., ['CX_3']).
+    best_cut : list or dict
+        The best cut found: gate names (e.g. ``["CX_3"]``) or ``(source, target)`` wire
+        edges, ``[]`` when none is needed or none fits. With ``mixed=True``
+        ``{"gate": [...], "hadamard": [...], "wire": [...]}``. With ``top_n``, a list of
+        ``{"cut", "kind", "score"}`` dicts, best first.
 
     Raises
     ------
     ValueError
-        If ``max_qubits`` is less than 1 or ``max_cuts`` is negative.
-
-    NameError
-        If neither `wire_cut` nor `gate_cut` is enabled.
-
-    TypeError
-        If the chosen implementation fails to return a valid result due to configuration.
+        If ``max_qubits`` is less than 1, ``max_cuts`` is negative, ``implementation``
+        is unknown, or neither ``wire_cut`` nor ``gate_cut`` is enabled.
 
     Notes
     -----
-    - In the Qdislib implementation:
-        * Circuits are transformed into graphs and evaluated through multiple graph partitioning
-          strategies. The best partition is chosen based on a custom loss function.
-        * The function supports concurrent evaluation of both gate and wire cuts.
+    - Without ``mixed`` or ``coupling_map``, circuits are transformed into graphs and
+      evaluated through multiple graph partitioning strategies; the best partition is
+      chosen based on a custom loss function.
+    - A circuit that already splits into independent parts within ``max_qubits`` needs
+      no cut, and gets none.
 
     Example
     -------
     >>> import Qdislib as qd
-    >>> cut = find_cut(my_circuit, max_qubits=5, gate_cut=True, wire_cut=False)
-    >>> print(cut)  # Output: Best cut information (e.g., ['CX_3'])
+    >>> cut = qd.find_cut(my_circuit, max_qubits=5, gate_cut=True, wire_cut=False)
+    >>> print(cut)  # the best cut, e.g. ['CX_3']
     """
     # 0 is a budget, not "no limit": check against None, never truthiness.
     if max_qubits is not None and max_qubits < 1:
