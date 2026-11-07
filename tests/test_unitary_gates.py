@@ -23,7 +23,7 @@ import importlib.util
 import unittest
 import warnings
 
-from tests import BaseTimedTestCase
+from tests import SEARCH_LIMIT, BaseTimedTestCase
 
 QISKIT = importlib.util.find_spec("qiskit") is not None
 QIBO = importlib.util.find_spec("qibo") is not None
@@ -142,7 +142,9 @@ class DenseTwoQubitGateTest(BaseTimedTestCase):
 
         qc = self._circuit()
         exact = qd.analytical_solution(qc, "ZZ")
-        cuts = qd.find_cut(qc, max_qubits=1, mixed=True, seed=0, time_limit=5)
+        cuts = qd.find_cut(
+            qc, max_qubits=1, mixed=True, seed=0, time_limit=SEARCH_LIMIT
+        )
         self.assertEqual(sum(len(c) for c in cuts.values()), 1)
         self.assertAlmostEqual(qd.circuit_cutting(qc, cuts, "ZZ", shots=None), exact)
 

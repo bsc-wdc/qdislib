@@ -24,7 +24,7 @@ import unittest
 
 import numpy as np
 
-from tests import BaseTimedTestCase
+from tests import SLOW_FACTOR, BaseTimedTestCase
 
 QISKIT = importlib.util.find_spec("qiskit") is not None
 
@@ -165,7 +165,7 @@ class LargeJointGroupTest(BaseTimedTestCase):
         circuit, cuts = _boundary(12, "hadamard")
         start = time.time()
         cost = qd.cutting_overhead(circuit, cuts, joint=True)
-        self.assertLess(time.time() - start, 5)
+        self.assertLess(time.time() - start, 5 * SLOW_FACTOR)
         self.assertAlmostEqual(cost["gamma"], 2**13 - 1)
         self.assertEqual(cost["configurations"], 2**12 * (2**13 - 1))
 

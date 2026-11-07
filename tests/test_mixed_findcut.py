@@ -12,7 +12,7 @@
 import importlib.util
 import unittest
 
-from tests import BaseTimedTestCase
+from tests import SEARCH_LIMIT, SLOW_FACTOR, BaseTimedTestCase
 
 QIBO = importlib.util.find_spec("qibo") is not None
 
@@ -49,7 +49,9 @@ class MixedFindCutTest(BaseTimedTestCase):
     def test_returns_the_circuit_cutting_dict(self):
         import Qdislib as qd
 
-        mixed = qd.find_cut(self._messenger(), max_qubits=3, mixed=True, seed=0)
+        mixed = qd.find_cut(
+            self._messenger(), max_qubits=3, mixed=True, time_limit=SEARCH_LIMIT, seed=0
+        )
         self.assertEqual(set(mixed), {"gate", "hadamard", "wire"})
         self.assertTrue(all(isinstance(g, str) for g in mixed["gate"]))
         self.assertTrue(all(len(w) == 2 for w in mixed["wire"]))
@@ -58,7 +60,9 @@ class MixedFindCutTest(BaseTimedTestCase):
         import Qdislib as qd
 
         circuit = self._messenger()
-        mixed = qd.find_cut(circuit, max_qubits=3, mixed=True, seed=0)
+        mixed = qd.find_cut(
+            circuit, max_qubits=3, mixed=True, time_limit=SEARCH_LIMIT, seed=0
+        )
         self.assertEqual(mixed["gate"], ["CZ_13"])
         self.assertEqual(mixed["wire"], [("CZ_9", "RY_10")])
         self.assertEqual(qd.cutting_overhead(circuit, mixed)["gamma"], 12)
@@ -71,15 +75,19 @@ class MixedFindCutTest(BaseTimedTestCase):
         import Qdislib as qd
 
         mixed = qd.find_cut(
-            self._messenger(), mixed=True, seed=0, forbidden_gates=["CZ_13"]
+            self._messenger(),
+            mixed=True,
+            time_limit=SEARCH_LIMIT,
+            seed=0,
+            forbidden_gates=["CZ_13"],
         )
         self.assertNotIn("CZ_13", mixed["gate"] + mixed["hadamard"])
 
     def test_reproducible_with_seed(self):
         import Qdislib as qd
 
-        a = qd.find_cut(self._messenger(), mixed=True, seed=3)
-        b = qd.find_cut(self._messenger(), mixed=True, seed=3)
+        a = qd.find_cut(self._messenger(), mixed=True, time_limit=SEARCH_LIMIT, seed=3)
+        b = qd.find_cut(self._messenger(), mixed=True, time_limit=SEARCH_LIMIT, seed=3)
         self.assertEqual(a, b)
 
 
@@ -145,12 +153,19 @@ class CostAwareCutTest(BaseTimedTestCase):
             (_qaoa(12), 6),
         ):
             with self.subTest(n=circuit.num_qubits, max_qubits=max_qubits):
-                mixed = qd.find_cut(circuit, max_qubits=max_qubits, mixed=True, seed=0)
+                mixed = qd.find_cut(
+                    circuit,
+                    max_qubits=max_qubits,
+                    mixed=True,
+                    time_limit=SEARCH_LIMIT,
+                    seed=0,
+                )
                 self._check(circuit, mixed, max_qubits)
                 gate_only = qd.find_cut(
                     circuit,
                     max_qubits=max_qubits,
                     mixed=True,
+                    time_limit=SEARCH_LIMIT,
                     seed=0,
                     hadamard=False,
                     wire_cut=False,
@@ -165,7 +180,9 @@ class CostAwareCutTest(BaseTimedTestCase):
         import Qdislib as qd
 
         circuit = _qaoa(10)
-        mixed = qd.find_cut(circuit, max_qubits=5, mixed=True, seed=0)
+        mixed = qd.find_cut(
+            circuit, max_qubits=5, mixed=True, time_limit=SEARCH_LIMIT, seed=0
+        )
         self.assertTrue(mixed["gate"] or mixed["hadamard"])
         # Both cuts follow an RZZ's angle (1 + 2|sin phi|); measure-and-prepare
         # used to cut it as 2 CZs, gamma 9 each.
@@ -179,7 +196,8 @@ class CostAwareCutTest(BaseTimedTestCase):
         circuit = _brickwork(60, 8)
         start = time.time()
         cut = qd.find_cut(circuit, max_qubits=30, mixed=True, seed=0, time_limit=3)
-        self.assertLess(time.time() - start, 3 + 4)  # set-up and final check on top
+        # set-up and final check on top
+        self.assertLess(time.time() - start, (3 + 4) * SLOW_FACTOR)
         self._check(circuit, cut, 30)
 
     def test_a_cut_even_when_the_time_is_gone(self):

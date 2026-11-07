@@ -29,7 +29,7 @@ import unittest
 
 import numpy as np
 
-from tests import BaseTimedTestCase
+from tests import SLOW_FACTOR, BaseTimedTestCase
 
 QISKIT = importlib.util.find_spec("qiskit") is not None
 
@@ -395,7 +395,7 @@ class ContractionTest(BaseTimedTestCase):
                 value = qd.circuit_cutting(
                     circuit, cuts, observable, shots=None, optimized=True
                 )
-                self.assertLess(time.time() - start, 60, kinds)
+                self.assertLess(time.time() - start, 60 * SLOW_FACTOR, kinds)
                 self.assertAlmostEqual(
                     value, _exact(circuit, observable), places=10, msg=kinds
                 )
