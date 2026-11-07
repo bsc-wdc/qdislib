@@ -40,11 +40,11 @@ New
      - :doc:`guide/parameters`
    * - The engine's cache: ``cache=``, ``use_cache``, ``cache_key``, ``cache_refresh``
      - :doc:`guide/caching`
-   * - QiliSDK as a supported SDK, and dense ``unitary`` gates
+   * - QiliSDK as a supported SDK (on Python 3.11 or later), and dense ``unitary`` gates
      - :doc:`guide/backends`
    * - A backend needs one method, ``evaluate_samples``, and ``sample_with_qiskit`` writes it
      - :doc:`guide/backends`
-   * - ``qd.pack`` and ``pack=True`` on the IBM backend
+   * - ``qd.pack``, ``pack=True`` on the IBM backend, and ``packed.draw`` to see them on the chip
      - :doc:`guide/qpus`
    * - IBM and IQM give joint final and cut-point counts
      - :doc:`guide/qpus`

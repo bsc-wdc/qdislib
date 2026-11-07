@@ -56,7 +56,7 @@ Drafting new releases
 
 7. Run ``scripts/mn5/check.sh`` on MareNostrum 5.
 
-8. Merge the branch into the main branch, and tag it ``vX.Y.Z``. The GitHub repository is synchronised from there at the release.
+8. Merge the branch into the main branch, and tag it ``X.Y.Z``. The GitHub repository is synchronised from there at the release.
 
 9. Build the package and upload it to PyPI:
 

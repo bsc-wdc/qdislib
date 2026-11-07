@@ -137,11 +137,11 @@ exclude = ["notebooks"]
 namespaces = false      # to disable scanning PEP 420 namespaces (true by default)
 
 [project.urls]
-Homepage = "https://Qdislib.bsc.es"
-Documentation = "https://Qdislib.readthedocs.io"
-# Repository = "https://github.com/me/spam.git"
-# Issues = "https://github.com/me/spam/issues"
-# Changelog = "https://github.com/me/spam/blob/master/CHANGELOG.md"
+Homepage = "https://github.com/bsc-wdc/qdislib"
+Documentation = "https://qdislib.readthedocs.io"
+Repository = "https://github.com/bsc-wdc/qdislib"
+Issues = "https://github.com/bsc-wdc/qdislib/issues"
+Changelog = "https://github.com/bsc-wdc/qdislib/blob/main/CHANGELOG.md"
 
 # [project.scripts]
 # Qdislib-cli = "Qdislib:main_cli"
