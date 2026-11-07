@@ -972,7 +972,7 @@ def find_cut(
 
     time_limit : float, default=10
         Seconds the ``mixed=True`` / SparseCut search may take; it returns the best
-        cut found by then.
+        cut found by then, or the first one it finds if that takes longer.
 
     Diagnostic details about the partitioning process are logged at DEBUG level;
     enable them with ``qd.set_log_level("DEBUG")``.

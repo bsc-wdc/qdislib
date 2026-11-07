@@ -182,6 +182,14 @@ class CostAwareCutTest(BaseTimedTestCase):
         self.assertLess(time.time() - start, 3 + 4)  # set-up and final check on top
         self._check(circuit, cut, 30)
 
+    def test_a_cut_even_when_the_time_is_gone(self):
+        """A slow machine can spend the limit setting up: it is still not "no cut"."""
+        import Qdislib as qd
+
+        circuit = _brickwork(6, 2)
+        cut = qd.find_cut(circuit, max_qubits=3, mixed=True, seed=0, time_limit=1e-9)
+        self._check(circuit, cut, 3)
+
 
 @unittest.skipUnless(QIBO, "qibo not installed")
 class MixedCutExecutionTest(BaseTimedTestCase):

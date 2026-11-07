@@ -280,6 +280,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (chain) fragments too. Some of these circuits add CZ gates between the cut qubits;
   `joint=False` keeps the previous per-wire measurement, whose results are unchanged.
 ### Fixed
+- **`find_cut(mixed=True)` no longer returns no cut when its time runs out early.** Setting
+  up the search can take all of `time_limit` on a slow machine, and it then returned no cut
+  although one existed. It now evaluates candidates until it has one.
 - **`pip install "qdislib[qiskit]"` reports no dependency conflict on Google Colab.** Recent
   `ibm-cloud-sdk-core`, under `qiskit-ibm-runtime`, needs `python-dateutil>=3`, while packages
   preinstalled on Colab need `<3`. The `qiskit` extra now caps `python-dateutil` below 3.

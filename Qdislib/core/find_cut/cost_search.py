@@ -613,7 +613,9 @@ def cost_aware_cut(
     results = []  # (cost, name, solution, part)
     starts = _starts(problem, parts, seed, exact, start + 0.5 * time_limit)
     for name, groups in starts:
-        if time.time() >= deadline:
+        # Past the deadline, still until there is one: on a slow machine setting up the
+        # starts can take all the time, and no cut is not the answer when one exists.
+        if results and time.time() >= deadline:
             break
         part = _repair(problem, _qubit_assignment(problem, groups), parts)
         budget = min(
