@@ -27,8 +27,10 @@ import numpy as np
 #: CI's shared runners can be many times slower than a laptop, and vary from run to run,
 #: so what a test allows in time is this many times longer there.
 SLOW_FACTOR = 20 if os.environ.get("CI") else 1
-#: For a test about what the mixed search finds, not how fast: find_cut's default limit.
-SEARCH_LIMIT = 10 * SLOW_FACTOR
+#: For a test about what the mixed search finds, not how fast: find_cut's default limit,
+#: three times longer on CI. Not SLOW_FACTOR: the search can use all of it, and the CI jobs
+#: have a time limit of their own.
+SEARCH_LIMIT = 30 if os.environ.get("CI") else 10
 
 
 class BaseTimedTestCase(unittest.TestCase):

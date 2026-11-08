@@ -67,6 +67,8 @@ lint:
 # ---------------------------------------------------------------------------
 test:
   stage: test
+  # The suite takes most of an hour on the shared runner; more under coverage.
+  timeout: 2h
   script:
     - uv pip install ".[qibo,qiskit,cache,ci]"
     - !reference [.preload_openmp, script]
@@ -77,6 +79,7 @@ test:
 # ---------------------------------------------------------------------------
 coverage:
   stage: test
+  timeout: 2h
   script:
     - uv pip install ".[qibo,qiskit,cache,ci]"
     - !reference [.preload_openmp, script]
