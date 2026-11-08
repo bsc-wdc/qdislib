@@ -37,7 +37,7 @@ A first cut
     for qubit in range(4):
         circuit.cz(qubit, qubit + 1)
 
-    cut = qd.find_cut(circuit, max_qubits=3, wire_cut=False)
+    cut = qd.find_cut(circuit, max_qubits=3, wire_cut=False, seed=0)
     print(cut)                              # ['CZ_7']
     print(qd.cutting_overhead(circuit, cut))
     # {'subcircuits': 12, 'configurations': 6, 'fragments': 2, 'gamma': 3.0}

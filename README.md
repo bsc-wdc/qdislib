@@ -2,7 +2,7 @@
     <img src="https://github.com/bsc-wdc/qdislib/raw/main/docs/logo.png" alt="Qdislib - The Quantum Distributed Computing Library" height="90px">
 </h1>
 
-<h3 align="center">Quantum distributed computing library implemented over PyCOMPSs programming model for HPC.</h3>
+<h3 align="center">Distributed quantum circuit cutting for HPC, with PyCOMPSs.</h3>
 
 <p align="center">
   <a href="https://qdislib.readthedocs.io/?badge=latest">
@@ -51,7 +51,7 @@ uv run --with "qdislib[qiskit]" app.py   # one-off
 
 A bare `pip install qdislib` has no SDK, so it can import Qdislib but cannot run a circuit. `[all]` is about 3.3 GB, mostly NVIDIA libraries for CUDA-Q, so most people do not want it.
 
-To run in parallel, install [PyCOMPSs](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation_Configuration.html) 3.3 or later, which `pip` does not do for you. Without it Qdislib runs serially. See [QUICKSTART.md](QUICKSTART.md) for more, including a note on Linux arm64 and Windows.
+To run in parallel, install [PyCOMPSs](https://compss-doc.readthedocs.io/en/stable/Sections/01_Installation_Configuration.html) 3.3 or later, which `pip` does not do for you. Without it Qdislib runs serially. See [QUICKSTART.md](https://github.com/bsc-wdc/qdislib/blob/main/QUICKSTART.md) for more, including a note on Linux arm64 and Windows.
 
 ## A first cut
 
@@ -65,7 +65,7 @@ for qubit, angle in enumerate([0.8, 0.5, 0.6, 0.4, 0.3]):
 for qubit in range(4):
     circuit.cz(qubit, qubit + 1)
 
-cut = qd.find_cut(circuit, max_qubits=3, wire_cut=False)
+cut = qd.find_cut(circuit, max_qubits=3, wire_cut=False, seed=0)
 print(cut)                                # ['CZ_7']
 print(qd.cutting_overhead(circuit, cut))
 # {'subcircuits': 12, 'configurations': 6, 'fragments': 2, 'gamma': 3.0}
@@ -134,7 +134,7 @@ https://arxiv.org/abs/2604.26788
 ## URLs
 
 - [Documentation](https://qdislib.readthedocs.io)
-- [Changelog](CHANGELOG.md)
+- [Changelog](https://github.com/bsc-wdc/qdislib/blob/main/CHANGELOG.md)
 - Developed by the [Workflows and Distributed Computing](https://www.bsc.es/discover-bsc/organisation/scientific-structure/workflows-and-distributed-computing) group of the [Barcelona Supercomputing Center](https://www.bsc.es)
 
 
@@ -144,4 +144,4 @@ The project acknowledges funding from the Spanish Ministry for Digital Transform
 
 ## License
 
-Apache License Version 2.0, see [LICENSE](LICENSE)
+Apache License Version 2.0, see [LICENSE](https://github.com/bsc-wdc/qdislib/blob/main/LICENSE)

@@ -30,12 +30,12 @@ authors = [
 maintainers = [
   { name = "Workflows and Distributed Computing Group (WDC) - Barcelona Supercomputing Center (BSC)", email = "support-compss@bsc.es" },
 ]
-description = "The quantum distributed computing library on top of PyCOMPSs"
+description = "Distributed quantum circuit cutting for HPC, with PyCOMPSs: cut circuits too large for one device or simulator, run the pieces in parallel, reconstruct the result"
 # url="https://Qdislib.bsc.es",
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
-keywords = ["Quantum", "distributed computing", "PyCOMPSs", "COMPSs", "Qdislib"]
+keywords = ["quantum computing", "circuit cutting", "circuit knitting", "HPC", "distributed computing", "PyCOMPSs", "COMPSs", "Qiskit", "Qibo", "CUDA-Q", "PennyLane", "Qdislib"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Operating System :: Unix",
@@ -50,6 +50,7 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "Intended Audience :: Developers",
   "Intended Audience :: Information Technology",
+  "Topic :: Scientific/Engineering :: Physics",
   "Topic :: System :: Distributed Computing",
   "Topic :: Software Development :: Libraries",
   "Topic :: Software Development :: Libraries :: Python Modules",
