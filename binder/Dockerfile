@@ -5,12 +5,14 @@
 # index, 2026-09-25) so the demo cannot break if the "latest" tag changes; update it on purpose.
 FROM compss/compss-tutorial:latest@sha256:7467e9f320d5d1de7f073f9590d2ce429b634034b710e72c3767bdb4c555b213
 
-# Binder runs the container as UID 1000; in this image that user is "ubuntu".
-ARG NB_USER=ubuntu
+# Binder runs the container as UID 1000; in this image that user is "ubuntu". mybinder.org
+# builds with "--build-arg NB_USER=jovyan", a user this image does not have, so the name is
+# fixed here and NB_USER is accepted but not used.
+ARG NB_USER
 ARG NB_UID=1000
-ENV USER=${NB_USER} \
+ENV USER=ubuntu \
     NB_UID=${NB_UID} \
-    HOME=/home/${NB_USER}
+    HOME=/home/ubuntu
 
 USER root
 
@@ -36,7 +38,7 @@ COPY . ${HOME}
 RUN python3 -m pip install --no-cache-dir --break-system-packages "${HOME}[cache]" graphviz ipywidgets \
  && chown -R ${NB_UID}:${NB_UID} ${HOME}
 
-USER ${NB_USER}
+USER ubuntu
 WORKDIR ${HOME}
 
 # Passwordless SSH to the private sshd. PermitUserEnvironment passes the COMPSs environment
